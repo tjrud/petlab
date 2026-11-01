@@ -1,18 +1,14 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
+import { useAuth } from "@/components/AuthProvider";
 import LoginRequired from "@/components/LoginRequired";
+import { CAGE_LIMITS, CAGE_PRESETS } from "@/components/me/common";
 import { api, ApiError, isAuthError } from "@/lib/api";
-import type { SpeciesResponse } from "@/lib/types";
-
-const CAGE_PRESETS = [
-  { label: "소형 45×30×30cm", w: 450, d: 300, h: 300 },
-  { label: "중형 60×40×30cm", w: 600, d: 400, h: 300 },
-  { label: "대형 80×50×40cm", w: 800, d: 500, h: 400 },
-  { label: "초대형 100×50×50cm", w: 1000, d: 500, h: 500 },
-];
+import type { Me, Pet, SpeciesResponse } from "@/lib/types";
 
 const EXAMPLE_PROMPTS = [
   "은신처와 터널을 한쪽에 몰아서 넣고 싶어요",
@@ -20,12 +16,42 @@ const EXAMPLE_PROMPTS = [
   "모래목욕통과 계단을 넣고 가운데는 넓게 비워 주세요",
 ];
 
-const LIMITS = { w: [200, 2000], d: [200, 2000], h: [100, 1000], count: [1, 10] } as const;
+const LIMITS = { ...CAGE_LIMITS, count: [1, 10] } as const;
+
+const LOGIN_MESSAGE = "로그인하고 맞춤 설계를 시작해 보세요";
+const LOGIN_DESCRIPTION = "회원이 되면 설계 내역이 저장되고 커뮤니티에 공유할 수 있어요.";
 
 type Step = 1 | 2;
+type Quota = Me["design_quota"];
+
+/** 로그인 상태를 확인하는 동안(그리고 페이지의 Suspense 대기 중) 보여 주는 자리 */
+export function WizardSkeleton() {
+  return (
+    <div className="rounded-2xl border border-amber-200 bg-white p-5 shadow-sm sm:p-8">
+      <p role="status" className="py-10 text-center text-sm text-stone-500">
+        설계 화면을 준비하고 있어요…
+      </p>
+    </div>
+  );
+}
+
+/** 최근 24시간 설계 횟수를 모두 쓴 경우의 안내 */
+function QuotaExhausted({ limit }: { limit: number | null }) {
+  return (
+    <p role="status" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
+      최근 24시간 동안 쓸 수 있는 설계 횟수{limit !== null ? `(${limit}회)` : ""}를 모두 썼어요. 시간이 조금 지나면 다시
+      설계할 수 있어요.
+    </p>
+  );
+}
 
 export default function NewDesignWizard() {
   const router = useRouter();
+  const { status, user } = useAuth();
+  const userId = user?.id ?? null;
+  // /design?pet={id}: 내 정보의 "이 아이로 설계하기"에서 들어온 경우 그 반려동물로 미리 채운다
+  const wantedPet = useSearchParams().get("pet");
+  const petSelectId = useId();
   const [meta, setMeta] = useState<SpeciesResponse | null>(null);
   const [metaError, setMetaError] = useState<string | null>(null);
   const [authError, setAuthError] = useState<ApiError | null>(null);
@@ -41,6 +67,15 @@ export default function NewDesignWizard() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [pets, setPets] = useState<Pet[] | null>(null);
+  /** 값을 채워 온 반려동물 (종·크기를 고쳐도 그대로 두고, "직접 입력"을 고르면 지운다) */
+  const [petId, setPetId] = useState<string | null>(null);
+  const [petNotice, setPetNotice] = useState<string | null>(null);
+  const [quota, setQuota] = useState<Quota | null>(null);
+  // 주소의 ?pet= 은 한 번만 적용한다 (뒤로 가기로 돌아와 다시 불러올 때 고친 값을 덮어쓰지 않게)
+  const appliedPetParam = useRef<string | null>(null);
+
+  // 종 목록은 누구나 볼 수 있다
   useEffect(() => {
     let alive = true;
     api
@@ -56,8 +91,50 @@ export default function NewDesignWizard() {
     };
   }, []);
 
+  const applyPet = useCallback((p: Pet) => {
+    setPetId(p.id);
+    setPetNotice(null);
+    setSpecies(p.species);
+    setSize(p.size);
+    if (p.cage) setCage({ w: p.cage.width_mm, d: p.cage.depth_mm, h: p.cage.height_mm });
+    setHabitatId(null);
+  }, []);
+
+  // 로그인한 경우: 내 반려동물(미리 채우기)과 남은 설계 횟수
+  useEffect(() => {
+    if (!userId) return;
+    let alive = true;
+    api
+      .pets()
+      .then((list) => {
+        if (!alive) return;
+        setPets(list);
+        if (wantedPet && appliedPetParam.current !== wantedPet) {
+          appliedPetParam.current = wantedPet;
+          const p = list.find((x) => x.id === wantedPet);
+          if (p) applyPet(p);
+          else setPetNotice("선택한 반려동물 정보를 찾지 못했어요. 직접 입력해 주세요.");
+        }
+      })
+      .catch((e: unknown) => {
+        if (alive && isAuthError(e)) setAuthError(e as ApiError); // 세션이 만료된 경우
+        // 그 밖의 오류는 미리 채우기만 건너뛴다 (직접 입력은 그대로 할 수 있다)
+      });
+    api
+      .me()
+      .then((m) => alive && setQuota(m.design_quota))
+      .catch(() => {
+        /* 남은 횟수 표시만 건너뛴다 (서버가 최종 판단) */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [userId, wantedPet, applyPet]);
+
   const speciesOpt = meta?.species.find((s) => s.key === species);
   const sizeOpt = speciesOpt?.sizes.find((s) => s.key === size);
+  const selectedPet = pets?.find((p) => p.id === petId) ?? null;
+  const quotaExhausted = quota?.remaining === 0;
 
   const habitatErrors = useMemo(() => {
     const errs: string[] = [];
@@ -90,6 +167,7 @@ export default function NewDesignWizard() {
           size,
           count,
           cage: { width_mm: cage.w, depth_mm: cage.d, height_mm: cage.h },
+          pet_id: petId,
         });
         hid = h.id;
         setHabitatId(hid);
@@ -100,12 +178,24 @@ export default function NewDesignWizard() {
       setSubmitting(false);
     } catch (e) {
       if (isAuthError(e)) setAuthError(e as ApiError); // 사용 중 세션이 만료된 경우
+      else if (e instanceof ApiError && e.code === "design_quota_exceeded" && quota && quota.limit !== null)
+        setQuota({ ...quota, used: Math.max(quota.used, quota.limit), remaining: 0 }); // 아래 안내로 알려 준다
       else setError(e instanceof ApiError ? e.messageKo : "설계 중 문제가 생겼어요. 다시 시도해 주세요.");
       setSubmitting(false);
     }
   }
 
-  if (authError) return <LoginRequired unavailable={authError.code === "auth_unavailable"} />;
+  if (authError) {
+    return (
+      <LoginRequired
+        unavailable={authError.code === "auth_unavailable"}
+        message={LOGIN_MESSAGE}
+        description={LOGIN_DESCRIPTION}
+      />
+    );
+  }
+  if (!status) return <WizardSkeleton />;
+  if (!user) return <LoginRequired message={LOGIN_MESSAGE} description={LOGIN_DESCRIPTION} />;
 
   return (
     <div className="rounded-2xl border border-amber-200 bg-white p-5 shadow-sm sm:p-8">
@@ -147,6 +237,52 @@ export default function NewDesignWizard() {
           <h2 id="habitat-title" className="text-xl font-bold">
             사육 환경을 알려 주세요
           </h2>
+
+          {pets && pets.length > 0 && (
+            <div className="rounded-xl bg-amber-50 p-4">
+              <label htmlFor={petSelectId} className="mb-1 block text-sm font-medium">
+                내 반려동물
+              </label>
+              <select
+                id={petSelectId}
+                className="w-full rounded-lg border border-stone-300 bg-white px-3 py-2"
+                value={petId ?? ""}
+                onChange={(e) => {
+                  const p = pets.find((x) => x.id === e.target.value);
+                  if (p) applyPet(p);
+                  else {
+                    setPetId(null); // 직접 입력: 지금 값은 그대로 두고 반려동물 연결만 끊는다
+                    resetHabitat();
+                  }
+                }}
+              >
+                <option value="">직접 입력</option>
+                {pets.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {`${p.name} · ${p.size_name_ko}`}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1.5 text-xs text-stone-600">
+                {selectedPet && !selectedPet.cage
+                  ? "등록된 케이지 치수가 없어서 종·크기만 채웠어요. 아래 치수를 확인해 주세요."
+                  : "고르면 종·크기와 케이지 치수를 채워 드려요. 채운 뒤에도 고칠 수 있어요."}
+              </p>
+            </div>
+          )}
+          {pets && pets.length === 0 && (
+            <p className="text-sm">
+              <span aria-hidden>💡 </span>
+              <Link href="/me#pets" className="text-amber-700 underline-offset-2 hover:underline">
+                내 정보에서 반려동물을 등록하면 다음부터 자동으로 채워져요
+              </Link>
+            </p>
+          )}
+          {petNotice && (
+            <p role="status" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
+              {petNotice}
+            </p>
+          )}
 
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="block">
@@ -268,6 +404,8 @@ export default function NewDesignWizard() {
             </ul>
           )}
 
+          {quotaExhausted && <QuotaExhausted limit={quota.limit} />}
+
           <div className="flex justify-end">
             <button
               type="button"
@@ -286,7 +424,8 @@ export default function NewDesignWizard() {
           <h2 id="prompt-title" className="text-xl font-bold">
             어떤 구조물을 원하세요?
           </h2>
-          <p className="text-sm text-stone-600">
+          <p className="break-words text-sm text-stone-600">
+            {selectedPet && <span className="font-medium text-stone-800">{selectedPet.name} · </span>}
             {speciesOpt?.display_name} {sizeOpt?.display_name} · {count}마리 · 케이지 {cage.w}×{cage.d}×{cage.h}mm
           </p>
           <textarea
@@ -316,6 +455,7 @@ export default function NewDesignWizard() {
               {error}
             </p>
           )}
+          {quotaExhausted && <QuotaExhausted limit={quota.limit} />}
 
           <div className="flex items-center justify-between gap-3">
             <button
@@ -329,12 +469,19 @@ export default function NewDesignWizard() {
             <button
               type="button"
               onClick={submit}
-              disabled={submitting}
-              className="rounded-xl bg-amber-500 px-6 py-3 font-semibold text-white hover:bg-amber-600 disabled:cursor-wait disabled:bg-amber-300"
+              disabled={submitting || quotaExhausted}
+              className={`rounded-xl bg-amber-500 px-6 py-3 font-semibold text-white hover:bg-amber-600 disabled:bg-amber-300 ${
+                submitting ? "disabled:cursor-wait" : "disabled:cursor-not-allowed"
+              }`}
             >
               {submitting ? "AI가 설계하고 있어요…" : "맞춤 설계 받기"}
             </button>
           </div>
+          {quota && quota.remaining !== null && !submitting && (
+            <p className={`text-right text-xs ${quotaExhausted ? "font-medium text-red-700" : "text-stone-500"}`}>
+              최근 24시간 남은 설계 횟수: {quota.remaining}회
+            </p>
+          )}
           {submitting && (
             <p className="text-right text-xs text-stone-500">요구사항 해석 → 구조물 생성 → 안전 검증까지 최대 1분 정도 걸려요.</p>
           )}

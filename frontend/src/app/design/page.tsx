@@ -1,5 +1,10 @@
+import type { Metadata } from "next";
+import { Suspense } from "react";
+
 import Header from "@/components/Header";
-import NewDesignWizard from "@/components/NewDesignWizard";
+import NewDesignWizard, { WizardSkeleton } from "@/components/NewDesignWizard";
+
+export const metadata: Metadata = { title: "설계하기" };
 
 export default function DesignPage() {
   return (
@@ -16,7 +21,10 @@ export default function DesignPage() {
           확인하고, 3D 프린팅 파일(STL·3MF)로 내려받을 수 있어요.
         </p>
         <div className="mt-8">
-          <NewDesignWizard />
+          {/* 마법사가 주소의 ?pet= 을 읽으므로(useSearchParams) Suspense 안에서 그린다 */}
+          <Suspense fallback={<WizardSkeleton />}>
+            <NewDesignWizard />
+          </Suspense>
         </div>
       </main>
     </>
