@@ -45,8 +45,14 @@ export default function NewPostForm() {
 
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
-  /** 사용자가 직접 고른 설계 (undefined 면 주소로 넘어온 설계를 그대로 쓴다) */
-  const [choice, setChoice] = useState<string | undefined>(undefined);
+  /**
+   * 사용자가 직접 고른 설계 (없으면 주소로 넘어온 설계를 그대로 쓴다).
+   * 고를 때의 주소(?design=&version=)와 함께 기억해, 이 화면이 숨김 상태로 남아 있다가
+   * "커뮤니티에 공유"로 다시 열리면(같은 설계라도 새로 들어온 경우: bfcacheId) 예전 선택 대신 넘어온 설계를 쓴다.
+   * 뒤로 가기로 돌아오거나 그냥 글쓰기로 들어오면 고른 값을 그대로 둔다.
+   */
+  const preKey = preId ? `${router.bfcacheId}|${preId}|${preVersion}` : "";
+  const [choice, setChoice] = useState<{ preKey: string; id: string } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<{ message: string; needsLogin: boolean } | null>(null);
   const [tried, setTried] = useState(false);
@@ -57,7 +63,8 @@ export default function NewPostForm() {
     return <LoginRequired message="로그인하고 글을 써 보세요" unavailable={attach.authCode === "auth_unavailable"} />;
   }
 
-  const selectedId = choice ?? (attach.kind === "ok" ? (attach.preselect ?? "") : "");
+  const selectedId =
+    choice?.preKey === preKey ? choice.id : attach.kind === "ok" ? (attach.preselect ?? "") : "";
   const selected = attach.kind === "ok" ? (attach.options.find((o) => o.id === selectedId) ?? null) : null;
   const dirty = title.trim() !== "" || body.trim() !== "";
   const query = params.toString();
@@ -83,7 +90,7 @@ export default function NewPostForm() {
       // 이 화면은 숨김 상태로 남아 있을 수 있으므로(뒤로 가기·다시 방문) 입력을 비워 둔다
       setTitle("");
       setBody("");
-      setChoice(undefined);
+      setChoice(null);
       setTried(false);
       setSubmitting(false);
       // 글쓰기 화면을 기록에서 빼서, 뒤로 가기로 같은 글을 다시 올리지 않게 한다
@@ -98,7 +105,7 @@ export default function NewPostForm() {
     if (dirty && !window.confirm("작성 중인 내용이 사라져요. 글쓰기를 그만둘까요?")) return;
     setTitle("");
     setBody("");
-    setChoice(undefined);
+    setChoice(null);
     setError(null);
     setTried(false);
     router.push(COMMUNITY_PATH);
@@ -115,7 +122,12 @@ export default function NewPostForm() {
         disabled={submitting}
         invalid={tried}
       />
-      <DesignAttachField state={attach} value={selectedId} onChange={setChoice} disabled={submitting} />
+      <DesignAttachField
+        state={attach}
+        value={selectedId}
+        onChange={(id) => setChoice({ preKey, id })}
+        disabled={submitting}
+      />
 
       {error && (
         <p role="alert" className={ui.error}>

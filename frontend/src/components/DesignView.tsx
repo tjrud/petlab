@@ -20,7 +20,10 @@ const CageViewer = dynamic(() => import("@/components/CageViewer"), {
   loading: () => <div className="grid h-full place-items-center text-sm text-stone-500">3D 뷰어 준비 중…</div>,
 });
 
-/** 설계 화면. 내 설계는 수정·공유할 수 있고, 커뮤니티에 공유된 남의 설계는 읽기 전용으로 보여 준다. */
+/**
+ * 설계 화면. 내 설계는 수정·공유할 수 있고, 남의 설계는 읽기 전용으로 보여 준다
+ * (다른 사람에게는 커뮤니티 글에 첨부된 버전만 오고, 관리자도 남의 설계는 고치거나 공유하지 못한다).
+ */
 export default function DesignView({ id, initialVersion }: { id: string; initialVersion?: number }) {
   const [design, setDesign] = useState<Design | null>(null);
   const [loadError, setLoadError] = useState<{ status: number; message: string } | null>(null);
@@ -142,6 +145,7 @@ export default function DesignView({ id, initialVersion }: { id: string; initial
           <RevisePanel
             baseVersion={cur.version}
             latestVersion={design.versions[design.versions.length - 1].version}
+            sharedVersions={design.shared_versions}
             busy={busy}
             error={actionError}
             onSubmit={revise}
@@ -159,7 +163,17 @@ export default function DesignView({ id, initialVersion }: { id: string; initial
             {actionError}
           </p>
         )}
-        <VersionList versions={design.versions} current={cur.version} loading={busy} onPick={pickVersion} />
+        {/* 남의 설계는 공유된 버전만 온다. 하나뿐이면 고를 것이 없으므로 목록을 보이지 않는다 */}
+        {(design.is_owner || design.versions.length > 1) && (
+          <VersionList
+            versions={design.versions}
+            current={cur.version}
+            loading={busy}
+            onPick={pickVersion}
+            isOwner={design.is_owner}
+            sharedVersions={design.shared_versions}
+          />
+        )}
       </aside>
     </div>
   );

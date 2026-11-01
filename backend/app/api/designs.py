@@ -3,17 +3,26 @@ from __future__ import annotations
 from typing import Literal
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, Path, Query, status
+from fastapi import Depends, Path, Query, Request, status
 from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, get_service
-from app.auth import get_current_user, get_optional_user
+from app.api.deps import get_db, get_service, make_router
+from app.auth import client_key, get_current_user, get_optional_user
 from app.models import User
 from app.schemas import DesignCreateIn, DesignListOut, DesignOut, DesignReviseIn
 from app.services.design_service import DesignService
 
-router = APIRouter(prefix="/designs", tags=["설계"])
+router = make_router(prefix="/designs", tags=["설계"])
+
+USAGE_V6_PREFIX = 56
+
+
+def _ip_key(request: Request) -> str | None:
+    """IP 별 설계 사용량 키. 플랫폼이 넣는 클라이언트 IP 헤더(CLIENT_IP_HEADER)가 없으면 세지 않는다
+    (프록시 주소로 모든 사람이 하나로 묶이는 것을 막기 위해)."""
+    settings = request.app.state.settings
+    return client_key(settings, request, v6_prefix=USAGE_V6_PREFIX) if settings.client_ip_header else None
 
 
 @router.get("", response_model=DesignListOut, summary="내 설계 내역 (최근 수정순)")
@@ -24,27 +33,28 @@ def list_designs(page: int = Query(default=1, ge=1, le=10_000), page_size: int =
 
 
 @router.post("", response_model=DesignOut, status_code=status.HTTP_201_CREATED, summary="프롬프트로 설계 생성")
-def create_design(data: DesignCreateIn, db: Session = Depends(get_db), svc: DesignService = Depends(get_service),
-                  user: User = Depends(get_current_user)):
-    design, version = svc.create_design(db, data.habitat_id, data.prompt, user)
+def create_design(data: DesignCreateIn, request: Request, db: Session = Depends(get_db),
+                  svc: DesignService = Depends(get_service), user: User = Depends(get_current_user)):
+    design, version = svc.create_design(db, data.habitat_id, data.prompt, user, ip_key=_ip_key(request))
     return svc.design_out(db, design, version, user)
 
 
 @router.post("/{design_id}/revise", response_model=DesignOut, status_code=status.HTTP_201_CREATED,
              summary="추가 프롬프트로 설계 수정 (새 버전 생성, 이전 버전 유지)")
-def revise_design(design_id: str, data: DesignReviseIn, db: Session = Depends(get_db),
+def revise_design(design_id: str, data: DesignReviseIn, request: Request, db: Session = Depends(get_db),
                   svc: DesignService = Depends(get_service), user: User = Depends(get_current_user)):
-    design, version = svc.revise_design(db, design_id, data.prompt, user, data.base_version)
+    design, version = svc.revise_design(db, design_id, data.prompt, user, data.base_version,
+                                        ip_key=_ip_key(request))
     return svc.design_out(db, design, version, user)
 
 
-# 아래 조회 API 는 커뮤니티에 공유된 설계라면 로그인 없이도 볼 수 있다 (그 밖에는 소유자·관리자만, 아니면 404)
+# 아래 조회 API 는 커뮤니티 글에 첨부된 버전이라면 로그인 없이도 볼 수 있다 (그 밖에는 소유자·관리자만, 아니면 404)
 @router.get("/{design_id}", response_model=DesignOut, summary="설계 조회 (버전 지정 가능)")
 def get_design(design_id: str, version: int | None = Query(default=None, ge=1, le=2**31 - 1),
                db: Session = Depends(get_db), svc: DesignService = Depends(get_service),
                user: User | None = Depends(get_optional_user)):
-    design = svc.get_visible_design(db, design_id, user)
-    return svc.design_out(db, design, svc.get_version(db, design, version), user)
+    design, allowed = svc.get_visible(db, design_id, user)
+    return svc.design_out(db, design, svc.get_version(db, design, version, allowed), user)
 
 
 @router.get("/{design_id}/versions/{version}/parts/{index}.stl", summary="뷰어용 구조물 메시 (케이지 좌표계)",

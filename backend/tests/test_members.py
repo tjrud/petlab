@@ -267,9 +267,15 @@ def test_design_ownership_and_history(client):
     assert client.post("/habitats", json=hab).status_code == 404  # 남의 반려동물로 등록 불가
     assert use(client, None).get(f"/designs/{d['id']}").status_code == 404
 
-    # 관리자는 모든 설계를 볼 수 있지만 내역 목록에는 자기 것(과 소유자 없는 옛 설계)만
+    # 관리자는 모든 설계를 볼 수 있지만(운영) 소유자는 아니다: 대신 수정·공유하지 못하고, 내역 목록에는 자기 것만
     admin_login(client)
-    assert client.get(f"/designs/{d['id']}").json()["is_owner"] is True
+    got = client.get(f"/designs/{d['id']}")
+    assert got.status_code == 200 and got.json()["is_owner"] is False
+    assert client.post(f"/designs/{d['id']}/revise", json={"prompt": "더 크게"}).status_code == 404
+    r = client.post("/community/posts", json={"title": "대신 공유", "body": "x", "design_id": d["id"]})
+    assert r.status_code == 404
+    assert use(client, None).get(f"/designs/{d['id']}").status_code == 404  # 여전히 비공개
+    admin_login(client)
     assert client.get("/designs").json()["total"] == 0
 
     # 반려동물을 지워도 설계는 남는다

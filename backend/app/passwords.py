@@ -9,9 +9,18 @@ import base64
 import hashlib
 import hmac
 import os
+import threading
 
 N, R, P, DKLEN = 2**14, 8, 1, 32
 _MAXMEM = 64 * 1024 * 1024
+# scrypt 는 호출마다 16 MiB·수십 ms 를 쓴다. 동시에 도는 개수를 묶어 로그인 요청이 몰려도
+# 메모리·스레드 풀을 다 차지하지 못하게 한다 (나머지는 잠깐 기다린다).
+_SLOTS = threading.BoundedSemaphore(max(2, min(8, os.cpu_count() or 2)))
+
+
+def _scrypt(password: str, salt: bytes, n: int, r: int, p: int, dklen: int) -> bytes:
+    with _SLOTS:
+        return hashlib.scrypt(password.encode(), salt=salt, n=n, r=r, p=p, dklen=dklen, maxmem=_MAXMEM)
 
 
 def _b64(b: bytes) -> str:
@@ -20,7 +29,7 @@ def _b64(b: bytes) -> str:
 
 def hash_password(password: str) -> str:
     salt = os.urandom(16)
-    digest = hashlib.scrypt(password.encode(), salt=salt, n=N, r=R, p=P, dklen=DKLEN, maxmem=_MAXMEM)
+    digest = _scrypt(password, salt, N, R, P, DKLEN)
     return f"scrypt${N}${R}${P}${_b64(salt)}${_b64(digest)}"
 
 
@@ -36,8 +45,7 @@ def verify_password(password: str, stored: str | None) -> bool:
         if scheme != "scrypt":
             return False
         salt, expected = base64.b64decode(salt_b64), base64.b64decode(hash_b64)
-        digest = hashlib.scrypt(password.encode(), salt=salt, n=int(n), r=int(r), p=int(p),
-                                dklen=len(expected), maxmem=_MAXMEM)
+        digest = _scrypt(password, salt, int(n), int(r), int(p), len(expected))
     except (ValueError, TypeError):
         return False
     return hmac.compare_digest(digest, expected) and stored is not None

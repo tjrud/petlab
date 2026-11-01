@@ -2,23 +2,33 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request, Response, status
+import asyncio
+
+from fastapi import Depends, Request, Response, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.auth import auth_status, is_reserved_nickname, set_session_cookie, user_out
-from app.api.deps import get_db, get_service
+from app.api.auth import (
+    FAILED_LOGIN_DELAY_S,
+    auth_status,
+    is_reserved_nickname,
+    nickname_taken,
+    set_session_cookie,
+    user_out,
+)
+from app.api.deps import get_db, get_service, make_router
 from app.auth import get_current_user
-from app.errors import AppError, ConflictError, ForbiddenError
+from app.errors import AppError, ConflictError, ForbiddenError, QuotaExceededError
 from app.models import Design, Habitat, Pet, Post, User
+from app.names import nickname_key
 from app.passwords import hash_password, verify_password
 from app.schemas import CageIn, MeOut, PasswordChangeIn, PetIn, PetOut, ProfileUpdateIn
 from app.services.design_service import _ID_RE, DesignService, NotFoundError
 
-router = APIRouter(prefix="/me", tags=["내 정보"])
+router = make_router(prefix="/me", tags=["내 정보"])
 
 MAX_PETS = 20
 
@@ -43,9 +53,9 @@ def update_profile(data: ProfileUpdateIn, request: Request, db: Session = Depend
         raise ForbiddenError("관리자 계정의 닉네임은 바꿀 수 없어요.")
     if is_reserved_nickname(data.nickname, settings):
         raise ConflictError("사용할 수 없는 닉네임이에요.", code="nickname_taken")
-    if db.scalar(select(User.id).where(func.lower(User.nickname) == data.nickname.lower(), User.id != user.id)):
+    if nickname_taken(db, data.nickname, exclude_user_id=user.id):
         raise ConflictError("이미 사용 중인 닉네임이에요.", code="nickname_taken")
-    user.nickname = data.nickname
+    user.nickname, user.nickname_key = data.nickname, nickname_key(data.nickname)
     try:
         db.commit()
     except IntegrityError:
@@ -54,19 +64,38 @@ def update_profile(data: ProfileUpdateIn, request: Request, db: Session = Depend
     return auth_status(settings, user)
 
 
+def _change_password(db: Session, user: User, current: str, new: str) -> bool:
+    """현재 비밀번호를 확인하고 바꾼다 (스레드 풀에서 실행). 현재 비밀번호가 틀리면 False."""
+    try:
+        if not verify_password(current, user.password_hash):
+            return False
+        user.password_hash = hash_password(new)
+        user.session_version += 1
+        db.commit()
+        return True
+    except BaseException:
+        db.rollback()
+        raise
+
+
 @router.post("/password", summary="비밀번호 변경 (다른 기기의 로그인은 풀림)")
 async def change_password(data: PasswordChangeIn, request: Request, db: Session = Depends(get_db),
                           user: User = Depends(get_current_user)) -> Response:
     settings = request.app.state.settings
     if user.is_admin:
         raise ForbiddenError("관리자 비밀번호는 서버 환경변수(ADMIN_PASSWORD)로만 바꿀 수 있어요.")
-    if not await run_in_threadpool(verify_password, data.current_password, user.password_hash):
-        raise AppError("현재 비밀번호가 올바르지 않아요.", code="invalid_credentials")
     if data.new_password.lower() == user.username:
         raise ConflictError("비밀번호를 아이디와 다르게 정해 주세요.", code="weak_password")
-    user.password_hash = await run_in_threadpool(hash_password, data.new_password)
-    user.session_version += 1
-    db.commit()
+    # 로그인 세션을 손에 넣은 사람이 현재 비밀번호를 마구 맞혀 보지 못하게 회원별로 제한한다
+    limiter = request.app.state.password_limiter
+    key = f"user:{user.id}"
+    if limiter.blocked(key):
+        raise QuotaExceededError("비밀번호 확인 시도가 너무 많아요. 15분 뒤에 다시 시도해 주세요.",
+                                 code="too_many_attempts")
+    if not await run_in_threadpool(_change_password, db, user, data.current_password, data.new_password):
+        limiter.record_failure(key)
+        await asyncio.sleep(FAILED_LOGIN_DELAY_S)
+        raise AppError("현재 비밀번호가 올바르지 않아요.", code="invalid_credentials")
     response = JSONResponse(auth_status(settings, user))
     set_session_cookie(response, settings, request, user)  # 이 기기는 로그인 유지
     return response

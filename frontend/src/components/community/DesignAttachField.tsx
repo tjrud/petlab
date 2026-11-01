@@ -161,7 +161,10 @@ export default function DesignAttachField({
               케이지 {h.cage.width_mm}×{h.cage.depth_mm}×{h.cage.height_mm}mm
               {picked.passed !== null && <> · {picked.passed ? "통과" : "검증 실패"}</>}
             </p>
-            <p className="mt-1 text-xs">첨부한 설계는 누구나 볼 수 있게 공유돼요.</p>
+            <p className="mt-1 text-xs">
+              선택한 버전(v{picked.version})만 누구나 볼 수 있게 공개돼요. 나중에 고친 버전은 따로 공유하기 전까지 나만 볼
+              수 있어요.
+            </p>
           </div>
         )}
       </div>

@@ -31,6 +31,7 @@ from app.api.deps import get_db
 from app.config import Settings
 from app.errors import ForbiddenError
 from app.models import User
+from app.names import nickname_key
 
 log = logging.getLogger(__name__)
 
@@ -129,8 +130,9 @@ def cookie_secure(settings: Settings, request: Request) -> bool:
 # ── 로그인 시도 제한 ────────────────────────────────────────
 
 
-def client_key(settings: Settings, request: Request) -> str:
-    """로그인 시도 제한용 클라이언트 식별자. IPv6 는 /64 단위로 묶는다 (주소를 바꿔 가며 우회하지 못하게)."""
+def client_key(settings: Settings, request: Request, v6_prefix: int = 64) -> str:
+    """시도 제한용 클라이언트 식별자. IPv6 는 v6_prefix 단위로 묶는다 (주소를 바꿔 가며 우회하지 못하게).
+    계정을 여러 개 만드는 일(회원가입·설계 사용량)은 더 넓게(/56) 묶는다."""
     raw = ""
     if settings.client_ip_header:
         raw = request.headers.get(settings.client_ip_header, "").split(",")[0].strip()
@@ -143,7 +145,7 @@ def client_key(settings: Settings, request: Request) -> str:
     if ip.version == 6 and ip.ipv4_mapped is not None:  # ::ffff:a.b.c.d → a.b.c.d
         ip = ip.ipv4_mapped
     if ip.version == 6:
-        return str(ipaddress.ip_network(f"{ip}/64", strict=False))
+        return str(ipaddress.ip_network(f"{ip}/{v6_prefix}", strict=False))
     return str(ip)
 
 
@@ -152,12 +154,15 @@ class LoginRateLimiter:
 
     기록하는 키 수는 max_keys 로 제한한다. 넘치면 막히지 않은 가장 오래된 키부터 버리고,
     막힌 키는 버리지 않는다 (키를 대량으로 바꿔 가며 차단을 풀지 못하게).
-    표가 막힌 키로만 가득 차면 window_s 동안 새 키의 로그인도 막는다 (fail closed)."""
+    fail_closed 이면 표가 막힌 키로만 가득 찼을 때 window_s 동안 새 키도 막는다 (관리자 로그인 보호).
+    fail_closed 가 아니면 가장 오래된 키를 버린다 (회원가입: 누군가 표를 채워 모든 신규 가입을 막지 못하게)."""
 
-    def __init__(self, max_failures: int = 10, window_s: float = 900.0, max_keys: int = 10_000):
+    def __init__(self, max_failures: int = 10, window_s: float = 900.0, max_keys: int = 10_000,
+                 fail_closed: bool = True):
         self.max_failures = max_failures
         self.window_s = window_s
         self.max_keys = max_keys
+        self.fail_closed = fail_closed
         self._failures: OrderedDict[str, deque[float]] = OrderedDict()
         self._saturated_until = 0.0
         self._lock = threading.Lock()
@@ -196,6 +201,11 @@ class LoginRateLimiter:
                 self._failures.pop(k, None)
                 if len(self._failures) <= self.max_keys:
                     return
+        if not self.fail_closed:
+            while len(self._failures) > self.max_keys:
+                oldest = next(k for k in self._failures if k != keep)
+                self._failures.pop(oldest)
+            return
         # 남은 키가 모두 차단 중: 새 키 기록을 버리는 대신 새 키 전체를 잠시 막는다
         self._failures.pop(keep, None)
         self._saturated_until = now + self.window_s
@@ -212,21 +222,31 @@ class LoginRateLimiter:
 # ── 관리자·로컬 계정 행 ─────────────────────────────────────
 
 
+def _insert_admin_row(db: Session, username: str, nickname: str) -> User | None:
+    """관리자 행을 넣는다. 아이디·닉네임이 이미 있으면(다른 요청·인스턴스가 먼저 만든 경우 등) None."""
+    user = User(username=username, nickname=nickname, nickname_key=nickname_key(nickname), role="admin",
+                password_hash=None)
+    db.add(user)
+    try:
+        db.commit()
+        return user
+    except IntegrityError:
+        db.rollback()
+        return None
+
+
 def _ensure_user_row(db: Session, username: str, nickname: str) -> User:
     """관리자(또는 로컬 개발용) 계정 행을 찾거나 만든다. 비밀번호는 환경변수로만 확인하므로 해시는 비워 둔다."""
     user = db.scalar(select(User).where(User.username == username))
     if user is None:
-        user = User(username=username, nickname=nickname, role="admin", password_hash=None)
-        db.add(user)
-        try:
-            db.commit()
-        except IntegrityError:  # 다른 요청·인스턴스가 먼저 만든 경우 (또는 닉네임 충돌)
-            db.rollback()
-            user = db.scalar(select(User).where(User.username == username))
-            if user is None:
-                user = User(username=username, nickname=f"{nickname}-{username}"[:40], role="admin")
-                db.add(user)
-                db.commit()
+        # 닉네임이 겹치면(ADMIN_USERNAME 을 바꿔 예전 관리자 행이 남은 경우) 아이디를 붙인 닉네임으로 만든다.
+        # 동시에 여러 곳에서 만들면 한쪽은 실패하므로 매번 아이디로 다시 찾는다.
+        for nick in (nickname, f"{nickname}-{username}"[:40]):
+            user = _insert_admin_row(db, username, nick) or db.scalar(select(User).where(User.username == username))
+            if user is not None:
+                break
+        if user is None:
+            raise RuntimeError("관리자 계정 행을 만들 수 없습니다 (닉네임 충돌)")
     elif user.role != "admin" or user.password_hash is not None:
         # 운영자가 ADMIN_USERNAME 을 기존 회원 아이디로 바꾼 경우: 그 계정을 관리자 계정으로 넘긴다
         log.error("ADMIN_USERNAME(%s)과 같은 아이디의 회원 계정을 관리자 계정으로 전환합니다.", username)
@@ -248,13 +268,18 @@ def get_optional_user(request: Request, db: Session = Depends(get_db)) -> User |
     settings: Settings = request.app.state.settings
     mode = settings.auth_mode
     if mode == "disabled":
-        return _ensure_user_row(db, LOCAL_USERNAME, "로컬 개발자")
+        user = _ensure_user_row(db, LOCAL_USERNAME, "로컬 개발자")
+        db.commit()
+        return user
     if mode == "misconfigured":
         return None
     claims = verify_token(request.cookies.get(COOKIE_NAME), signing_key(settings))
     if claims is None or not _ID_RE.fullmatch(claims["sub"]):
         return None
     user = db.get(User, claims["sub"])
+    # 읽기 트랜잭션을 끝내 DB 연결을 풀에 돌려준다. 이 의존성과 API 함수는 서로 다른 스레드 작업으로 실행되므로,
+    # 연결을 쥔 채 다음 스레드를 기다리면 동시 요청이 몰릴 때 풀과 스레드가 서로를 기다리며 멈춘다.
+    db.commit()
     if user is None or user.session_version != claims["ver"]:
         return None
     # ADMIN_USERNAME 을 바꾸면 예전 관리자 행의 세션은 더 이상 관리자가 아니다

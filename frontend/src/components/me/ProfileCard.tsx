@@ -97,7 +97,7 @@ export default function ProfileCard({
               <p className="mt-2 text-xs text-stone-500">
                 {quota.remaining === 0
                   ? "최근 24시간 동안 쓸 수 있는 설계 횟수를 모두 썼어요. 시간이 지나면 다시 설계할 수 있어요."
-                  : `설계 만들기와 수정 요청을 합쳐 ${quota.remaining}회 더 할 수 있어요.`}
+                  : `설계 만들기와 수정 요청을 합쳐 ${quota.remaining}회 더 할 수 있어요. 실패한 요청도 횟수에 포함돼요.`}
               </p>
             </>
           )

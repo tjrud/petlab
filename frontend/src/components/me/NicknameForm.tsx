@@ -4,18 +4,17 @@ import { useId, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
 import { api, ApiError, isAuthError } from "@/lib/api";
+import { NICKNAME_HINT, nicknameError, normalizeNickname } from "@/lib/nickname";
 import type { User } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
-import { charCount, describedBy, FieldError, hasControlChars, inputClass } from "./common";
+import { describedBy, FieldError, inputClass } from "./common";
 
 /** 서버 검증(ProfileUpdateIn)과 같은 규칙. 최종 판단은 서버가 한다. */
 function validateNickname(value: string, current: string): string | undefined {
-  const v = value.trim();
-  if (!v) return "닉네임을 입력해 주세요.";
-  if (hasControlChars(v)) return "닉네임에 쓸 수 없는 문자가 있어요.";
-  if (charCount(v) < 2 || charCount(v) > 20) return "닉네임은 2~20자로 정해 주세요.";
-  if (v === current) return "지금 쓰고 있는 닉네임과 같아요.";
+  const problem = nicknameError(value);
+  if (problem) return problem;
+  if (normalizeNickname(value) === current) return "지금 쓰고 있는 닉네임과 같아요.";
   return undefined;
 }
 
@@ -91,7 +90,7 @@ export default function NicknameForm({ user, onAuthError }: { user: User; onAuth
         />
         <FieldError id={`${uid}-error`} message={fieldError} />
         <p id={`${uid}-hint`} className="mt-1 text-xs text-stone-500">
-          커뮤니티에 보이는 이름이에요. 2~20자
+          {NICKNAME_HINT}
         </p>
       </div>
       {error && (

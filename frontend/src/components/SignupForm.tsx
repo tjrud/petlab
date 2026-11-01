@@ -4,9 +4,10 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useId, useState } from "react";
 
-import { useAuth } from "@/components/AuthProvider";
-import { AlreadyLoggedIn } from "@/components/LoginForm";
+import { useAuth, useAuthRecheck } from "@/components/AuthProvider";
+import { AlreadyLoggedIn, AuthChecking, ServerUnreachable } from "@/components/LoginForm";
 import { api, ApiError } from "@/lib/api";
+import { NICKNAME_HINT, nicknameError } from "@/lib/nickname";
 import { safeNext, withNext } from "@/lib/safeNext";
 import { ui } from "@/lib/ui";
 
@@ -29,15 +30,13 @@ const charCount = (s: string) => Array.from(s).length;
 function validate(v: Values): Errors {
   const errors: Errors = {};
   const username = v.username.trim();
-  const nickname = v.nickname.trim();
 
   if (!username) errors.username = "아이디를 입력해 주세요.";
   else if (!/^[a-z0-9_]+$/.test(username)) errors.username = "영문 소문자, 숫자, 밑줄(_)만 쓸 수 있어요.";
   else if (username.length < 4 || username.length > 20) errors.username = "아이디는 4~20자로 정해 주세요.";
 
-  if (!nickname) errors.nickname = "닉네임을 입력해 주세요.";
-  else if (/[\u0000-\u001f\u007f-\u009f]/.test(nickname)) errors.nickname = "닉네임에 쓸 수 없는 문자가 있어요.";
-  else if (charCount(nickname) < 2 || charCount(nickname) > 20) errors.nickname = "닉네임은 2~20자로 정해 주세요.";
+  const nicknameProblem = nicknameError(v.nickname);
+  if (nicknameProblem) errors.nickname = nicknameProblem;
 
   if (!v.password) errors.password = "비밀번호를 입력해 주세요.";
   else if (charCount(v.password) < 8) errors.password = "비밀번호는 8자 이상이어야 해요.";
@@ -94,7 +93,9 @@ function Field({
 export default function SignupForm() {
   const params = useSearchParams();
   const next = params.get("next");
-  const { status, user } = useAuth();
+  const { status, user, unreachable } = useAuth();
+  // 저장해 둔 로그인 상태는 오래됐을 수 있다 (세션 만료 등). 들어올 때마다 서버에 다시 묻는다
+  const recheck = useAuthRecheck();
   const uid = useId();
   const fieldId = (k: FieldKey) => `${uid}-${k}`;
   // 이벤트 처리 중에만 부른다 (렌더 중에는 DOM 을 건드리지 않는다)
@@ -105,17 +106,11 @@ export default function SignupForm() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 로그인 상태를 확인하는 동안에는 폼을 띄우지 않는다 (가입을 받지 않는 경우 폼이 잠깐 보였다 사라지지 않게)
-  if (!status) {
-    return (
-      <div className={ui.card}>
-        <p role="status" className={ui.muted}>
-          잠시만 기다려 주세요…
-        </p>
-      </div>
-    );
-  }
-  if (user) return <AlreadyLoggedIn nickname={user.nickname} />;
+  // 로그인 상태를 확인하는 동안에는 폼을 띄우지 않는다 (가입을 받지 않는 경우 폼이 잠깐 보였다 사라지지 않게).
+  // 서버에 닿지 못했으면 "가입을 받지 않아요" 대신 연결 문제라고 알린다 (다시 연결되면 폼이 보인다)
+  if (!status) return unreachable ? <ServerUnreachable /> : <AuthChecking />;
+  if (user && recheck === "checking") return <AuthChecking />;
+  if (user && recheck === "ok") return <AlreadyLoggedIn nickname={user.nickname} />;
   if (!status.signup_enabled) {
     return (
       <div role="status" className={`${ui.card} text-center`}>
@@ -195,7 +190,7 @@ export default function SignupForm() {
         <Field
           id={fieldId("nickname")}
           label="닉네임"
-          hint="커뮤니티에 보이는 이름이에요. 2~20자"
+          hint={NICKNAME_HINT}
           error={shown("nickname")}
           name="nickname"
           autoComplete="nickname"

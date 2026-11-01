@@ -10,6 +10,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -36,6 +37,8 @@ class User(Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
     username: Mapped[str] = mapped_column(String(32), unique=True)
     nickname: Mapped[str] = mapped_column(String(40), unique=True)
+    # 닉네임 비교용 정규화 키 (대소문자·공백 무시). 보기에 같은 닉네임으로 다른 회원을 사칭하지 못하게 유일하게 둔다
+    nickname_key: Mapped[str] = mapped_column(String(40), unique=True)
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     role: Mapped[str] = mapped_column(String(16), default="member")  # member | admin
     # 비밀번호를 바꾸면 올려서 다른 기기의 세션을 끊는다
@@ -164,3 +167,24 @@ class Comment(Base):
 
     post: Mapped[Post] = relationship(back_populates="comments")
     author: Mapped[User] = relationship()
+
+
+class UsageEvent(Base):
+    """사용량 기록 (설계 요청·글·댓글·사육 환경·대기 신청). 상한 확인에 쓰며 지우지 않는다.
+
+    결과(설계 버전·글)와 따로 두는 이유: 실패한 설계 요청도 LLM 비용이 들고, 글을 지우고 다시 써서
+    상한을 피하지 못하게 하려면 '시도'를 세야 한다. 상한 확인과 기록은 한 트랜잭션에서 잠금을 잡고 한다
+    (services/usage.py)."""
+
+    __tablename__ = "usage_events"
+    __table_args__ = (
+        Index("ix_usage_events_kind_created", "kind", "created_at"),
+        Index("ix_usage_events_user_kind_created", "user_id", "kind", "created_at"),
+        Index("ix_usage_events_ip_kind_created", "ip_key", "kind", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    kind: Mapped[str] = mapped_column(String(16))  # design | post | comment | habitat | waitlist
+    ip_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

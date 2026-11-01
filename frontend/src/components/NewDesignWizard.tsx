@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
 import LoginRequired from "@/components/LoginRequired";
@@ -47,6 +47,8 @@ function QuotaExhausted({ limit }: { limit: number | null }) {
 
 export default function NewDesignWizard() {
   const router = useRouter();
+  // 링크·router.push 로 새로 들어올 때마다 바뀌고, 뒤로·앞으로 가기로 돌아오면 그대로인 값
+  const { bfcacheId } = router;
   const { status, user } = useAuth();
   const userId = user?.id ?? null;
   // /design?pet={id}: 내 정보의 "이 아이로 설계하기"에서 들어온 경우 그 반려동물로 미리 채운다
@@ -72,8 +74,32 @@ export default function NewDesignWizard() {
   const [petId, setPetId] = useState<string | null>(null);
   const [petNotice, setPetNotice] = useState<string | null>(null);
   const [quota, setQuota] = useState<Quota | null>(null);
-  // 주소의 ?pet= 은 한 번만 적용한다 (뒤로 가기로 돌아와 다시 불러올 때 고친 값을 덮어쓰지 않게)
+  // 주소의 ?pet= 은 들어올 때마다 한 번 적용한다. 이 화면은 숨김 상태로 남아 있으므로 bfcacheId 로 구분해,
+  // "이 아이로 설계하기"로 다시 들어오면 최신 정보로 다시 채우고, 뒤로 가기로 돌아오면 고친 값을 덮어쓰지 않는다
   const appliedPetParam = useRef<string | null>(null);
+  // 불러온 목록과 비교하기 위한 지금 고른 반려동물 (렌더 중에는 읽지 않는다)
+  const petIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    petIdRef.current = petId;
+  }, [petId]);
+
+  // 설계 요청이 두 번 나가지 않게 막는다 (버튼 상태보다 먼저 바뀐다)
+  const submittingRef = useRef(false);
+  // 설계가 만들어져 결과 화면으로 이동하는 중
+  const leavingRef = useRef(false);
+  const visibleRef = useRef(false);
+  useLayoutEffect(() => {
+    visibleRef.current = true;
+    return () => {
+      visibleRef.current = false;
+      // 결과 화면이 떠서 이 화면이 숨겨지면(뒤로 가기로 다시 볼 수 있다) 그때 진행 상태를 푼다
+      if (leavingRef.current) {
+        leavingRef.current = false;
+        submittingRef.current = false;
+        setSubmitting(false);
+      }
+    };
+  }, []);
 
   // 종 목록은 누구나 볼 수 있다
   useEffect(() => {
@@ -100,20 +126,32 @@ export default function NewDesignWizard() {
     setHabitatId(null);
   }, []);
 
-  // 로그인한 경우: 내 반려동물(미리 채우기)과 남은 설계 횟수
+  // 로그인한 경우: 내 반려동물(미리 채우기)과 남은 설계 횟수 (화면이 다시 보일 때마다 새로 불러온다)
   useEffect(() => {
     if (!userId) return;
     let alive = true;
+    const petKey = wantedPet ? `${bfcacheId}|${wantedPet}` : null;
     api
       .pets()
       .then((list) => {
         if (!alive) return;
         setPets(list);
-        if (wantedPet && appliedPetParam.current !== wantedPet) {
-          appliedPetParam.current = wantedPet;
+        if (petKey && appliedPetParam.current !== petKey) {
+          appliedPetParam.current = petKey;
           const p = list.find((x) => x.id === wantedPet);
+          setStep(1); // 채운 사육 환경부터 확인하게 한다
+          setError(null);
           if (p) applyPet(p);
-          else setPetNotice("선택한 반려동물 정보를 찾지 못했어요. 직접 입력해 주세요.");
+          else {
+            setPetId(null);
+            setHabitatId(null);
+            setPetNotice("선택한 반려동물 정보를 찾지 못했어요. 직접 입력해 주세요.");
+          }
+        } else if (petIdRef.current && !list.some((x) => x.id === petIdRef.current)) {
+          // 골라 둔 반려동물이 그사이 삭제됐다: 연결만 끊고 입력해 둔 값은 그대로 둔다
+          setPetId(null);
+          setHabitatId(null);
+          setPetNotice("골라 둔 반려동물 정보가 없어져서 연결을 해제했어요. 아래 값을 확인해 주세요.");
         }
       })
       .catch((e: unknown) => {
@@ -129,7 +167,7 @@ export default function NewDesignWizard() {
     return () => {
       alive = false;
     };
-  }, [userId, wantedPet, applyPet]);
+  }, [userId, wantedPet, bfcacheId, applyPet]);
 
   const speciesOpt = meta?.species.find((s) => s.key === species);
   const sizeOpt = speciesOpt?.sizes.find((s) => s.key === size);
@@ -153,11 +191,13 @@ export default function NewDesignWizard() {
   const resetHabitat = () => setHabitatId(null);
 
   async function submit() {
+    if (submittingRef.current) return; // 이미 설계 중이거나 결과 화면으로 이동 중
     setError(null);
     if (!prompt.trim()) {
       setError("원하는 구조물이나 배치를 적어 주세요.");
       return;
     }
+    submittingRef.current = true;
     setSubmitting(true);
     try {
       let hid = habitatId;
@@ -173,14 +213,31 @@ export default function NewDesignWizard() {
         setHabitatId(hid);
       }
       const design = await api.createDesign(hid, prompt.trim());
+      if (visibleRef.current) {
+        // 결과 화면이 뜰 때까지 버튼을 막아 둔다 (이동하는 동안 다시 눌러 같은 설계를 또 만들지 않게).
+        // 이 화면이 숨겨질 때 위의 useLayoutEffect 정리 함수가 풀어 준다
+        leavingRef.current = true;
+      } else {
+        // 설계하는 동안 이미 다른 화면으로 떠났다: 다시 돌아오면 바로 쓸 수 있게 지금 푼다
+        submittingRef.current = false;
+        setSubmitting(false);
+      }
       router.push(`/designs/${design.id}`);
-      // 이전 화면은 숨김 상태로 유지되므로(뒤로 가기 시 복원) 진행 상태를 풀어 둔다
-      setSubmitting(false);
     } catch (e) {
       if (isAuthError(e)) setAuthError(e as ApiError); // 사용 중 세션이 만료된 경우
       else if (e instanceof ApiError && e.code === "design_quota_exceeded" && quota && quota.limit !== null)
         setQuota({ ...quota, used: Math.max(quota.used, quota.limit), remaining: 0 }); // 아래 안내로 알려 준다
-      else setError(e instanceof ApiError ? e.messageKo : "설계 중 문제가 생겼어요. 다시 시도해 주세요.");
+      else {
+        setError(e instanceof ApiError ? e.messageKo : "설계 중 문제가 생겼어요. 다시 시도해 주세요.");
+        // 실패한 요청도 횟수에 들어가므로 남은 횟수를 다시 불러온다
+        api
+          .me()
+          .then((m) => setQuota(m.design_quota))
+          .catch(() => {
+            /* 표시만 건너뛴다 */
+          });
+      }
+      submittingRef.current = false;
       setSubmitting(false);
     }
   }
@@ -479,7 +536,7 @@ export default function NewDesignWizard() {
           </div>
           {quota && quota.remaining !== null && !submitting && (
             <p className={`text-right text-xs ${quotaExhausted ? "font-medium text-red-700" : "text-stone-500"}`}>
-              최근 24시간 남은 설계 횟수: {quota.remaining}회
+              최근 24시간 남은 설계 횟수: {quota.remaining}회 · 실패한 요청도 횟수에 포함돼요.
             </p>
           )}
           {submitting && (

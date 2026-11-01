@@ -15,6 +15,8 @@ from pydantic import (
     Field,
 )
 
+from app.names import normalize_nickname
+
 # DB 에 저장되는 값의 형식 (Postgres 는 NUL 문자·int4 범위를 넘는 정수를 거부하므로 입력 단계에서 막는다)
 ID_PATTERN = r"^[0-9a-f]{32}$"
 MAX_INT4 = 2**31 - 1
@@ -31,12 +33,16 @@ def _no_nul(v: str) -> str:
 Prompt = Annotated[str, Field(min_length=1, max_length=2000), AfterValidator(_no_nul)]
 
 
+# 글자 표시 방향을 강제로 바꾸는 문자 (뒤에 오는 글·닉네임 순서를 뒤집어 보이게 할 수 있음)
+_BIDI_CONTROLS = frozenset("\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069")
+
+
 def _clean_text(v: str) -> str:
-    """앞뒤 공백 제거, 줄바꿈·탭 외 제어 문자 거부."""
+    """앞뒤 공백 제거, 줄바꿈·탭 외 제어 문자와 방향 제어 문자 거부."""
     if not isinstance(v, str):
         return v
     v = v.strip()
-    if any(unicodedata.category(c) in ("Cc", "Cs") and c not in "\n\t" for c in v):
+    if any((unicodedata.category(c) in ("Cc", "Cs") and c not in "\n\t") or c in _BIDI_CONTROLS for c in v):
         raise ValueError("허용되지 않는 문자가 있습니다")
     return v
 
@@ -50,7 +56,8 @@ def _single_line(v: str) -> str:
 Text1 = BeforeValidator(_clean_text)
 Username = Annotated[str, BeforeValidator(lambda v: v.strip().lower() if isinstance(v, str) else v),
                      Field(pattern=r"^[a-z0-9_]{4,20}$", description="영문 소문자·숫자·밑줄 4~20자")]
-Nickname = Annotated[str, Text1, Field(min_length=2, max_length=20), AfterValidator(_single_line)]
+# NFKC 정규화 후 한글·영문·숫자·공백·_-. 만 (app/names.py)
+Nickname = Annotated[str, BeforeValidator(normalize_nickname), Field(min_length=2, max_length=20)]
 NewPassword = Annotated[str, Field(min_length=8, max_length=128)]
 Title = Annotated[str, Text1, Field(min_length=1, max_length=100), AfterValidator(_single_line)]
 
@@ -143,8 +150,9 @@ class DesignOut(BaseModel):
     habitat: HabitatOut
     versions: list[VersionSummary]
     current: VersionOut
-    is_owner: bool          # 수정·공유는 소유자(또는 관리자)만
-    shared: bool            # 커뮤니티 글에 첨부되어 누구나 볼 수 있는지
+    is_owner: bool          # 수정·공유는 소유자만 (관리자는 볼 수만 있다. 소유자가 없는 옛 설계는 관리자가 소유자)
+    shared: bool            # 커뮤니티 글에 첨부된 버전이 있는지
+    shared_versions: list[int] = []  # 커뮤니티 글에 첨부되어 누구나 볼 수 있는 버전. 다른 사람에게는 이 버전만 보인다
     owner_nickname: str | None
 
 

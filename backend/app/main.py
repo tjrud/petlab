@@ -47,14 +47,20 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
         engine = make_engine(settings.database_url)
         added = init_db(engine)
         if added:
-            log.warning("DB 마이그레이션: 열 추가 %s", ", ".join(added))
+            log.warning("DB 마이그레이션: 열·인덱스 추가 %s", ", ".join(added))
 
         app.state.settings = settings
         app.state.rules = rules
         app.state.session_factory = make_session_factory(engine)
         app.state.llm_config_error = None
         app.state.login_limiter = LoginRateLimiter()
-        app.state.signup_limiter = LoginRateLimiter(max_failures=settings.signup_per_ip_per_hour, window_s=3600.0)
+        # 회원가입: IP 별 1시간 시도 수 (0 이면 제한 없음). 표가 차도 신규 가입 전체를 막지 않는다 (fail open)
+        app.state.signup_limiter = (
+            LoginRateLimiter(max_failures=settings.signup_per_ip_per_hour, window_s=3600.0, fail_closed=False)
+            if settings.signup_per_ip_per_hour > 0 else None
+        )
+        # 비밀번호 변경 시 현재 비밀번호 확인: 회원별 15분에 5번까지 틀릴 수 있다
+        app.state.password_limiter = LoginRateLimiter(max_failures=5, window_s=900.0, fail_closed=False)
         if settings.auth_mode == "misconfigured":
             # 비밀값은 기록하지 않는다. API 는 503 으로 막힌 채 기동한다 (인증을 끄지 않음)
             log.error("관리자 인증 설정 오류로 API 를 막습니다: %s", "; ".join(settings.auth_problems))
@@ -84,7 +90,8 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
 
         app.state.design_service = DesignService(
             rules, get_interpreter, settings.mesh_cache_dir,
-            DesignLimits(per_user=settings.design_daily_limit, global_=settings.design_global_daily_limit),
+            DesignLimits(per_user=settings.design_daily_limit, global_=settings.design_global_daily_limit,
+                         per_ip=settings.design_ip_daily_limit),
         )
         if settings.auth_mode == "enabled":
             db = app.state.session_factory()

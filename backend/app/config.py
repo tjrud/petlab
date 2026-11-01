@@ -14,6 +14,7 @@ REPO_DIR = BACKEND_DIR.parent
 
 MIN_SESSION_SECRET_BYTES = 32
 MIN_ADMIN_PASSWORD_LEN = 16
+MAX_ADMIN_USERNAME_LEN = 32  # users.username 열 길이
 
 
 class Settings(BaseSettings):
@@ -64,10 +65,12 @@ class Settings(BaseSettings):
     cookie_secure: bool | None = None
     # 회원
     signup_enabled: bool = True
+    # 한 IP(IPv6 는 /56)에서 1시간에 시도할 수 있는 회원가입 횟수. 0 이면 IP 별 제한 없음
     signup_per_ip_per_hour: int = Field(default=5, ge=0, le=1000)
-    # 설계(LLM 호출) 사용량 상한: 회원 1명당 최근 24시간, 서비스 전체 최근 24시간 (관리자는 제외)
-    design_daily_limit: int = Field(default=20, ge=0, le=10_000)
-    design_global_daily_limit: int = Field(default=300, ge=0, le=1_000_000)
+    # 설계(LLM 호출) 사용량 상한, 최근 24시간 기준 (관리자는 제외). 실패한 요청도 LLM 비용이 들므로 센다.
+    design_daily_limit: int = Field(default=20, ge=0, le=10_000)            # 회원 1명당
+    design_ip_daily_limit: int = Field(default=40, ge=0, le=100_000)        # 한 IP(IPv6 는 /56)당 (계정 여러 개로 우회 방지)
+    design_global_daily_limit: int = Field(default=300, ge=0, le=1_000_000)  # 서비스 전체
     # 커뮤니티 도배 방지: 회원 1명당 최근 24시간
     post_daily_limit: int = Field(default=20, ge=0, le=10_000)
     comment_daily_limit: int = Field(default=100, ge=0, le=100_000)
@@ -94,6 +97,8 @@ class Settings(BaseSettings):
             problems.append(f"ADMIN_PASSWORD 는 {MIN_ADMIN_PASSWORD_LEN}자 이상이어야 합니다")
         if not self.admin_username.strip():
             problems.append("ADMIN_USERNAME 이 비어 있습니다")
+        if len(self.admin_username) > MAX_ADMIN_USERNAME_LEN:
+            problems.append(f"ADMIN_USERNAME 은 {MAX_ADMIN_USERNAME_LEN}자 이하여야 합니다")
         secret = self.session_secret.get_secret_value() if self.session_secret else ""
         if len(secret.encode()) < MIN_SESSION_SECRET_BYTES:
             problems.append(f"SESSION_SECRET 이 없거나 {MIN_SESSION_SECRET_BYTES}바이트보다 짧습니다")

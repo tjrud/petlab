@@ -104,11 +104,15 @@ export type Design = {
   id: string;
   title: string;
   habitat: Habitat;
+  /** 소유자는 모든 버전. 다른 사람(관리자 포함)에게는 커뮤니티 글에 첨부된 버전만 온다 */
   versions: VersionSummary[];
+  /** 다른 사람에게는 기본으로 가장 최근에 공유된 버전 */
   current: Version;
-  /** 수정·공유는 소유자(또는 관리자)만. 커뮤니티에 공유된 남의 설계는 false (읽기 전용) */
+  /** 수정·공유는 실제 소유자만. 남의 설계는 관리자가 보더라도 false (읽기 전용) */
   is_owner: boolean;
   shared: boolean;
+  /** 커뮤니티 글에 첨부된 버전 번호 (오름차순, 없으면 빈 배열). 이 버전들만 다른 사람이 볼 수 있다 */
+  shared_versions: number[];
   owner_nickname: string | null;
 };
 

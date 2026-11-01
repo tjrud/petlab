@@ -61,8 +61,10 @@ def make_engine(database_url: str) -> Engine:
     return create_engine(
         url,
         pool_pre_ping=True,   # 유휴 후 끊긴 연결(Neon scale-to-zero, 풀러 idle timeout) 감지
-        pool_size=2,
-        max_overflow=3,
+        pool_size=3,
+        max_overflow=7,
+        # 연결을 기다리다 막힌 요청이 오래 쌓이지 않게 짧게 (API 는 요청이 끝나기 전 연결을 바로 돌려준다: deps.py)
+        pool_timeout=10,
         pool_recycle=300,     # 5분 넘은 연결은 재생성
         connect_args={
             "prepare_threshold": None,  # PgBouncer(Neon -pooler) 트랜잭션 모드에서 서버측 prepared statement 비활성화
@@ -102,7 +104,10 @@ def _migrate(conn) -> list[str]:
             conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
             added.append(f"{table}.{column}")
     for name, table, column in MIGRATION_INDEXES:
-        conn.execute(text(f"CREATE INDEX IF NOT EXISTS {name} ON {table} ({column})"))
+        # 이미 있으면 DDL 을 보내지 않는다 (CREATE INDEX IF NOT EXISTS 도 테이블 잠금을 먼저 잡아 쓰기를 막는다)
+        if table in tables and name not in {i["name"] for i in insp.get_indexes(table)}:
+            conn.execute(text(f"CREATE INDEX IF NOT EXISTS {name} ON {table} ({column})"))
+            added.append(name)
     return added
 
 

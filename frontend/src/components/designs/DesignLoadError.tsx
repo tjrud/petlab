@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
 import LoginRequired from "@/components/LoginRequired";
@@ -10,8 +11,15 @@ import LoginRequired from "@/components/LoginRequired";
  * 로그인하지 않은 상태라면 "없음" 대신 로그인 안내를 보여 준다 (내 설계일 수 있으니).
  */
 export default function DesignLoadError({ status: httpStatus, message }: { status: number; message: string }) {
-  const { status, user } = useAuth();
+  const { status, user, refresh } = useAuth();
   const notFound = httpStatus === 404;
+  const userId = user?.id ?? null;
+
+  // 세션이 만료되면 내 설계도 404 로 온다. 저장해 둔 로그인 상태가 오래됐을 수 있으므로 다시 확인한다
+  // (로그아웃된 상태로 확인되면 아래에서 로그인 안내를 보여 준다)
+  useEffect(() => {
+    if (notFound && userId) void refresh();
+  }, [notFound, userId, refresh]);
 
   if (notFound && status === null) {
     return <div className="py-20 text-center text-stone-500">설계를 불러오는 중…</div>;
@@ -31,7 +39,7 @@ export default function DesignLoadError({ status: httpStatus, message }: { statu
       <p className="text-lg font-semibold">{notFound ? "설계를 찾을 수 없어요" : "설계를 불러오지 못했어요"}</p>
       <p className="mt-2 text-sm">
         {notFound
-          ? "주소가 잘못되었거나 삭제된 설계예요. 다른 회원의 설계는 커뮤니티에 공유된 경우에만 볼 수 있어요."
+          ? "주소가 잘못되었거나 삭제된 설계예요. 다른 회원의 설계는 커뮤니티 글에 첨부된 버전만 볼 수 있어요."
           : message}
       </p>
       <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-sm font-medium">

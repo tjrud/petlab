@@ -8,6 +8,7 @@ export default function DesignTitleBar({ design }: { design: Design }) {
   const cur = design.current;
   const h = design.habitat;
   const shareHref = `/community/new?design=${encodeURIComponent(design.id)}&version=${cur.version}`;
+  const owner = design.owner_nickname ?? "회원";
 
   return (
     <div className="space-y-2">
@@ -17,7 +18,8 @@ export default function DesignTitleBar({ design }: { design: Design }) {
           <span data-testid="design-version" className={`${ui.badge} text-sm`}>
             v{cur.version}
           </span>
-          {design.shared && (
+          {/* 지금 보고 있는 버전이 커뮤니티 글에 첨부되어 누구나 볼 수 있는 경우 */}
+          {design.shared_versions.includes(cur.version) && (
             <span className="rounded-full bg-teal-100 px-2 py-0.5 text-xs font-medium text-teal-800">
               커뮤니티에 공유됨
             </span>
@@ -38,7 +40,10 @@ export default function DesignTitleBar({ design }: { design: Design }) {
       </p>
       {!design.is_owner && (
         <p role="note" className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">
-          {design.owner_nickname ?? "회원"}님이 커뮤니티에 공유한 설계예요. 읽기 전용이에요.
+          {/* 공유되지 않은 남의 설계(관리자가 보는 경우 등)를 공유한 설계라고 하지 않는다 */}
+          {design.shared_versions.length > 0
+            ? `${owner}님이 커뮤니티에 공유한 설계예요. 공유된 버전만 볼 수 있고, 읽기 전용이에요.`
+            : `${owner}님의 설계예요. 읽기 전용이에요.`}
         </p>
       )}
     </div>

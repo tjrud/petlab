@@ -35,6 +35,28 @@ export function isAuthError(e: unknown): boolean {
   return e instanceof ApiError && (e.code === "auth_required" || e.code === "auth_unavailable");
 }
 
+/**
+ * 요청이 로그인 문제(isAuthError)로 실패하면 window 에 보내는 이벤트.
+ * AuthProvider 가 받아서 로그인 상태를 서버에 다시 묻는다 (세션 만료·다른 기기에서 비밀번호 변경 등).
+ */
+export const AUTH_ERROR_EVENT = "nestforge:auth-error";
+
+async function errorFrom(res: Response): Promise<ApiError> {
+  let body: unknown = null;
+  try {
+    body = await res.json();
+  } catch {
+    /* 본문 없음 */
+  }
+  const detail = (body as { detail?: unknown } | null)?.detail;
+  if (detail && typeof detail === "object" && !Array.isArray(detail) && "message_ko" in detail) {
+    const d = detail as { message_ko: string; code?: string; errors?: unknown };
+    return new ApiError(res.status, d.message_ko, d.code, d.errors);
+  }
+  if (res.status === 422) return new ApiError(422, "입력값을 확인해 주세요.", "validation_error", detail);
+  return new ApiError(res.status, FALLBACK_MESSAGE);
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
@@ -47,21 +69,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiError(0, FALLBACK_MESSAGE);
   }
   if (!res.ok) {
-    let body: unknown = null;
-    try {
-      body = await res.json();
-    } catch {
-      /* 본문 없음 */
+    const err = await errorFrom(res);
+    // /auth/* (로그인 상태 확인·로그인·로그아웃) 실패는 알리지 않는다: 다시 확인하는 요청이 또 이벤트를 보내 끝없이 되풀이되지 않게
+    if (isAuthError(err) && !path.startsWith("/auth/") && typeof window !== "undefined") {
+      window.dispatchEvent(new Event(AUTH_ERROR_EVENT));
     }
-    const detail = (body as { detail?: unknown } | null)?.detail;
-    if (detail && typeof detail === "object" && !Array.isArray(detail) && "message_ko" in detail) {
-      const d = detail as { message_ko: string; code?: string; errors?: unknown };
-      throw new ApiError(res.status, d.message_ko, d.code, d.errors);
-    }
-    if (res.status === 422) {
-      throw new ApiError(422, "입력값을 확인해 주세요.", "validation_error", detail);
-    }
-    throw new ApiError(res.status, FALLBACK_MESSAGE);
+    throw err;
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;

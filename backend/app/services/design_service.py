@@ -14,15 +14,13 @@ import threading
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import trimesh
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.domain import Cage, Placement, PlacementHint
-from app.errors import QuotaExceededError
 from app.geometry.export import ExportFile, ExportPart, export_parts
 from app.llm.base import HabitatInfo, Interpreter, InterpretRequest
 from app.llm.spec import parse_spec, to_item_specs
@@ -40,6 +38,7 @@ from app.schemas import (
     VersionOut,
     VersionSummary,
 )
+from app.services import usage
 from app.services.engine import EngineContext, build_item, run_engine
 from app.templates.registry import get_template
 
@@ -88,10 +87,12 @@ def _atomic_export(mesh: trimesh.Trimesh, path: Path) -> None:
 
 @dataclass(frozen=True)
 class DesignLimits:
-    """최근 24시간 설계(LLM 호출) 횟수 상한. 0 이면 막음. 관리자는 적용하지 않는다."""
+    """최근 24시간 설계 요청(LLM 호출) 횟수 상한. 관리자는 적용하지 않는다.
+    per_user·global_ 은 0 이면 막음, per_ip 는 0 이면 IP 별 제한 없음."""
 
     per_user: int = 20
     global_: int = 300
+    per_ip: int = 40
 
 
 TITLE_LEN = 40
@@ -104,8 +105,16 @@ def make_title(prompt: str) -> str:
 
 
 def _can_edit(design: Design, user: User) -> bool:
-    """수정·공유 권한: 소유자, 또는 관리자 (소유자가 없는 옛 설계는 관리자만)."""
-    return user.is_admin or (design.owner_id is not None and design.owner_id == user.id)
+    """수정·공유 권한: 소유자만. 소유자가 없는 옛 설계(회원 기능 이전)는 관리자가 소유자다.
+    관리자도 회원의 설계를 대신 공유·수정하지는 못한다 (볼 수만 있다: _can_view_all)."""
+    if design.owner_id is None:
+        return user.is_admin
+    return design.owner_id == user.id
+
+
+def _can_view_all(design: Design, user: User | None) -> bool:
+    """모든 버전을 볼 수 있는지: 소유자, 또는 관리자(운영·신고 처리)."""
+    return user is not None and (user.is_admin or _can_edit(design, user))
 
 
 class DesignService:
@@ -174,34 +183,31 @@ class DesignService:
     # ── 설계 생성 / 수정 ─────────────────────────────────────
 
     def quota(self, db: Session, user: User) -> dict[str, int | None]:
-        """최근 24시간 사용량과 상한 (관리자는 상한 없음 → None)."""
-        since = datetime.now(timezone.utc) - timedelta(hours=24)
-        used = db.scalar(select(func.count(DesignVersion.id)).where(
-            DesignVersion.created_by == user.id, DesignVersion.created_at >= since)) or 0
+        """최근 24시간 설계 요청 횟수와 상한 (관리자는 상한 없음 → None). 실패한 요청도 센다."""
+        used = usage.count(db, "design", user_id=user.id)
         limit = None if user.is_admin else self.limits.per_user
         return {"used": used, "limit": limit, "remaining": None if limit is None else max(0, limit - used)}
 
-    def check_quota(self, db: Session, user: User) -> None:
+    def reserve_quota(self, db: Session, user: User, ip_key: str | None) -> None:
+        """LLM 을 부르기 전에 사용량 1회를 기록한다 (상한에 닿았으면 429). 동시 요청도 상한을 넘지 못한다."""
         if user.is_admin:
             return
-        since = datetime.now(timezone.utc) - timedelta(hours=24)
-        mine = db.scalar(select(func.count(DesignVersion.id)).where(
-            DesignVersion.created_by == user.id, DesignVersion.created_at >= since)) or 0
-        if mine >= self.limits.per_user:
-            raise QuotaExceededError(
-                f"최근 24시간 동안 쓸 수 있는 설계 횟수({self.limits.per_user}회)를 모두 썼어요. 잠시 뒤 다시 시도해 주세요.",
-                code="design_quota_exceeded")
-        total = db.scalar(select(func.count(DesignVersion.id)).where(DesignVersion.created_at >= since)) or 0
-        if total >= self.limits.global_:
-            raise QuotaExceededError(
-                "오늘은 서비스 전체 설계 요청이 많아 잠시 쉬어 가요. 나중에 다시 시도해 주세요.",
-                code="design_capacity_exceeded")
+        lim = self.limits
+        usage.reserve(
+            db, "design", user, ip_key=ip_key,
+            per_user=usage.Cap(lim.per_user, f"최근 24시간 동안 쓸 수 있는 설계 횟수({lim.per_user}회)를 모두 썼어요. "
+                                             "잠시 뒤 다시 시도해 주세요.", "design_quota_exceeded"),
+            per_ip=usage.Cap(lim.per_ip, "이 네트워크에서 최근 24시간 동안 설계 요청이 너무 많았어요. 잠시 뒤 다시 시도해 주세요.",
+                             "design_quota_exceeded") if lim.per_ip > 0 else None,
+            global_=usage.Cap(lim.global_, "오늘은 서비스 전체 설계 요청이 많아 잠시 쉬어 가요. 나중에 다시 시도해 주세요.",
+                              "design_capacity_exceeded"),
+        )
 
-    def create_design(self, db: Session, habitat_id: str, prompt: str, user: User) -> tuple[Design, DesignVersion]:
+    def create_design(self, db: Session, habitat_id: str, prompt: str, user: User,
+                      ip_key: str | None = None) -> tuple[Design, DesignVersion]:
         h = self.get_habitat(db, habitat_id, user)
-        self.check_quota(db, user)
-        # LLM 호출(수십 초) 동안 DB 연결을 '트랜잭션 중' 상태로 잡아 두지 않도록 읽기 트랜잭션을 끝낸다
-        db.commit()
+        # 사용량을 먼저 기록하고 커밋한다 (LLM 호출 수십 초 동안 DB 연결을 '트랜잭션 중' 상태로 잡아 두지 않는다)
+        self.reserve_quota(db, user, ip_key)
         version = self._generate(h, prompt, previous=None)  # LLM 실패 시 예외 → 아무것도 저장하지 않음
         design = Design(habitat_id=h.id, owner_id=user.id, title=make_title(prompt))
         db.add(design)
@@ -211,14 +217,14 @@ class DesignService:
         return design, version["row"]
 
     def revise_design(
-        self, db: Session, design_id: str, prompt: str, user: User, base_version: int | None = None
+        self, db: Session, design_id: str, prompt: str, user: User, base_version: int | None = None,
+        ip_key: str | None = None,
     ) -> tuple[Design, DesignVersion]:
         design = self.get_editable_design(db, design_id, user)
         base = self.get_version(db, design, base_version)
-        self.check_quota(db, user)
         previous = self._previous_spec(base)
         habitat = design.habitat
-        db.commit()  # LLM 호출 전에 읽기 트랜잭션 종료 (create_design 과 같은 이유)
+        self.reserve_quota(db, user, ip_key)  # 기록 후 커밋 (create_design 과 같은 이유)
         generated = self._generate(habitat, prompt, previous=previous)
         next_no = (db.scalar(select(func.max(DesignVersion.version)).where(DesignVersion.design_id == design.id)) or 0) + 1
         self._save_version(db, design, generated, next_no, user)
@@ -300,24 +306,31 @@ class DesignService:
     # ── 조회 ────────────────────────────────────────────────
 
     def get_design(self, db: Session, design_id: str) -> Design:
-        """권한 확인 없이 찾는다. API 에서는 get_visible_design / get_editable_design 을 쓴다."""
+        """권한 확인 없이 찾는다. API 에서는 get_visible / get_editable_design 을 쓴다."""
         d = db.get(Design, design_id) if _ID_RE.fullmatch(design_id) else None
         if d is None:
             raise NotFoundError("설계를 찾을 수 없습니다.")
         return d
 
     @staticmethod
-    def is_shared(db: Session, design_id: str) -> bool:
-        return db.scalar(select(func.count(Post.id)).where(Post.design_id == design_id)) > 0
+    def shared_versions(db: Session, design_id: str) -> list[int]:
+        """커뮤니티 글에 첨부된 버전 (누구나 볼 수 있다)."""
+        rows = db.scalars(select(Post.design_version).where(Post.design_id == design_id,
+                                                            Post.design_version.is_not(None)).distinct())
+        return sorted(set(rows))
 
-    def get_visible_design(self, db: Session, design_id: str, user: User | None) -> Design:
-        """볼 수 있는 설계: 내 설계, 관리자, 또는 커뮤니티 글에 첨부되어 공유된 설계. 그 밖에는 404."""
+    def get_visible(self, db: Session, design_id: str, user: User | None) -> tuple[Design, set[int] | None]:
+        """볼 수 있는 설계와 볼 수 있는 버전 (None = 모든 버전).
+
+        소유자·관리자는 모든 버전, 그 밖의 사람은 커뮤니티 글에 첨부된 버전만 본다
+        (공유한 뒤에 만든 버전이나 공유하지 않은 이전 버전은 보이지 않는다). 볼 수 있는 버전이 없으면 404."""
         d = self.get_design(db, design_id)
-        if user is not None and _can_edit(d, user):
-            return d
-        if self.is_shared(db, d.id):
-            return d
-        raise NotFoundError("설계를 찾을 수 없습니다.")
+        if _can_view_all(d, user):
+            return d, None
+        allowed = set(self.shared_versions(db, d.id))
+        if not allowed:
+            raise NotFoundError("설계를 찾을 수 없습니다.")
+        return d, allowed
 
     def get_editable_design(self, db: Session, design_id: str, user: User) -> Design:
         d = self.get_design(db, design_id)
@@ -336,22 +349,31 @@ class DesignService:
         total = db.scalar(select(func.count(Design.id)).where(cond)) or 0
         rows = db.execute(
             select(Design, latest.c.updated, latest.c.n, latest.c.last)
+            .options(selectinload(Design.habitat))
             .join(latest, latest.c.design_id == Design.id)
             .where(cond)
             .order_by(latest.c.updated.desc(), Design.id)
             .offset((page - 1) * page_size).limit(page_size)
         ).all()
-        shared_ids = set()
+        ids = [r[0].id for r in rows]
+        shared_ids, passed, pets = set(), {}, {}
         if rows:
-            shared_ids = set(db.scalars(select(Post.design_id).where(Post.design_id.in_([r[0].id for r in rows]))))
+            shared_ids = set(db.scalars(select(Post.design_id).where(Post.design_id.in_(ids))))
+            # 각 설계의 최신 버전 검증 결과만 읽는다 (버전 JSON 전체를 불러오지 않게)
+            passed = dict(db.execute(
+                select(DesignVersion.design_id, DesignVersion.passed)
+                .join(latest, (latest.c.design_id == DesignVersion.design_id) & (latest.c.last == DesignVersion.version))
+                .where(DesignVersion.design_id.in_(ids))
+            ).all())
+            pet_ids = {d.habitat.pet_id for d, *_ in rows if d.habitat.pet_id}
+            if pet_ids:
+                pets = {p.id: p.name for p in db.scalars(select(Pet).where(Pet.id.in_(pet_ids)))}
         items = []
         for d, updated, n, last in rows:
-            last_v = next((v for v in d.versions if v.version == last), d.versions[-1])
-            pet = db.get(Pet, d.habitat.pet_id) if d.habitat.pet_id else None
             items.append(DesignListItem(
-                id=d.id, title=self.title_of(d), created_at=d.created_at, updated_at=updated,
-                version_count=n, latest_version=last, latest_passed=last_v.passed,
-                habitat=self.habitat_out(d.habitat), pet_name=pet.name if pet else None,
+                id=d.id, title=d.title or self.title_of(d), created_at=d.created_at, updated_at=updated,
+                version_count=n, latest_version=last, latest_passed=bool(passed.get(d.id)),
+                habitat=self.habitat_out(d.habitat), pet_name=pets.get(d.habitat.pet_id),
                 shared=d.id in shared_ids,
             ))
         return DesignListOut(items=items, total=total, page=page, page_size=page_size)
@@ -363,12 +385,15 @@ class DesignService:
         first = design.versions[0] if design.versions else None
         return make_title(first.prompt) if first is not None else "맞춤 설계"
 
-    def get_version(self, db: Session, design: Design, version: int | None) -> DesignVersion:
-        if not design.versions:
+    def get_version(self, db: Session, design: Design, version: int | None,
+                    allowed: set[int] | None = None) -> DesignVersion:
+        """버전을 찾는다. allowed 가 있으면 그 버전만 (지정하지 않으면 그중 최신)."""
+        versions = [v for v in design.versions if allowed is None or v.version in allowed]
+        if not versions:
             raise NotFoundError("설계 버전이 없습니다.")
         if version is None:
-            return design.versions[-1]
-        for v in design.versions:
+            return versions[-1]
+        for v in versions:
             if v.version == version:
                 return v
         raise NotFoundError(f"버전 {version} 을(를) 찾을 수 없습니다.")
@@ -397,17 +422,20 @@ class DesignService:
             },
             "issues": issues,
         }
+        shared = self.shared_versions(db, design.id)
+        see_all = _can_view_all(design, user)
         return DesignOut(
             id=design.id,
             title=self.title_of(design),
             is_owner=user is not None and _can_edit(design, user),
-            shared=self.is_shared(db, design.id),
+            shared=bool(shared),
+            shared_versions=shared,
             owner_nickname=design.owner.nickname if design.owner else None,
             habitat=self.habitat_out(design.habitat),
             versions=[
                 VersionSummary(version=x.version, prompt=x.prompt, passed=x.passed, provider=x.provider,
                                created_at=x.created_at)
-                for x in design.versions
+                for x in design.versions if see_all or x.version in shared
             ],
             current=VersionOut(
                 version=v.version, prompt=v.prompt, provider=v.provider,
@@ -455,15 +483,15 @@ class DesignService:
         return d
 
     def part_mesh_path(self, db: Session, design_id: str, version: int, index: int, user: User | None) -> Path:
-        design = self.get_visible_design(db, design_id, user)
-        v = self.get_version(db, design, version)
+        design, allowed = self.get_visible(db, design_id, user)
+        v = self.get_version(db, design, version, allowed)
         if not any(it["index"] == index and it["placement"] for it in v.items):
             raise NotFoundError("해당 구조물 메시가 없습니다.")
         return self._ensure_meshes(design, v) / f"world_{index}.stl"
 
     def export(self, db: Session, design_id: str, version: int | None, fmt: str, user: User | None) -> ExportFile:
-        design = self.get_visible_design(db, design_id, user)
-        v = self.get_version(db, design, version)
+        design, allowed = self.get_visible(db, design_id, user)
+        v = self.get_version(db, design, version, allowed)
         if not v.passed or not v.items:
             errors = [i for i in v.report.get("issues", []) if i["severity"] == "error" and not i.get("auto_fixed")]
             raise ExportBlockedError(
