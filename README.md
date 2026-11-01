@@ -51,7 +51,7 @@ cp frontend/.env.example frontend/.env.local      # 프론트엔드
 | `API_PREFIX` | `.env` | 백엔드 라우트 접두사 (Vercel 배포 시 `/api`) | (없음) |
 | `CORS_ORIGINS` | `.env` | 허용할 프론트엔드 출처(쉼표 구분) | `http://localhost:3000` |
 | `ADMIN_USERNAME` | `.env` | 관리자 아이디 | `admin` |
-| `ADMIN_PASSWORD` | `.env` | 관리자 비밀번호(12자 이상, 긴 무작위 문자열 권장). 설정하면 관리자 인증이 켜집니다(아래 참고). | (없음 = 인증 꺼짐) |
+| `ADMIN_PASSWORD` | `.env` | 관리자 비밀번호(16자 이상, 긴 무작위 문자열 권장). 설정하면 관리자 인증이 켜집니다(아래 참고). | (없음 = 인증 꺼짐) |
 | `SESSION_SECRET` | `.env` | 세션 쿠키 서명 키. `ADMIN_PASSWORD`를 쓰면 **필수**(32바이트 이상 무작위 문자열) | (없음) |
 | `SESSION_TTL_HOURS` | `.env` | 로그인 유지 시간 | `24` |
 | `AUTH_REQUIRED` | `.env` | `1`이면 `ADMIN_PASSWORD`가 없어도 인증을 끄지 않고 API를 막습니다(503). 컨테이너 이미지 기본값 `1` | `0` |
@@ -109,11 +109,15 @@ npm run test:e2e
 - 로그인하면 HMAC-SHA256으로 서명한 세션 쿠키를 발급합니다(HttpOnly, Secure(배포), SameSite=Lax, 기본 24시간).
   - 서명 키는 `SESSION_SECRET`과 관리자 비밀번호로 만듭니다. 둘 중 하나를 바꾸면 **모든 기기의 기존 로그인이 풀립니다.**
   - 로그아웃은 그 브라우저의 쿠키만 지웁니다. 쿠키가 유출됐다고 의심되면 `SESSION_SECRET`이나 `ADMIN_PASSWORD`를 바꾸고 재배포하세요.
+  - 로그아웃 API는 JSON 요청이고 교차 사이트 요청이 아닐 때만 처리합니다(다른 사이트에서 강제 로그아웃 방지). 로그인 후 돌아갈 경로는 같은 사이트 안의 경로만 허용합니다.
 - 설정이 불완전하면 인증을 끄지 않고 API를 `503 auth_unavailable`로 막습니다(fail closed). 서버 로그와 `/api/health`의 `auth_ready: false`로 알 수 있습니다.
-  - `ADMIN_PASSWORD`가 12자 미만이거나, `SESSION_SECRET`이 없거나 32바이트 미만인 경우
+  - `ADMIN_PASSWORD`가 16자 미만이거나 앞뒤에 공백·줄바꿈이 있는 경우, `SESSION_SECRET`이 없거나 32바이트 미만인 경우
+  - (`ADMIN_USERNAME`의 앞뒤 공백은 자동으로 지웁니다)
   - `AUTH_REQUIRED=1`(컨테이너 이미지 기본값)인데 `ADMIN_PASSWORD`가 없는 경우
 - 같은 IP(IPv6는 /64)에서 15분 안에 10번 틀리면 잠시 막습니다. 인스턴스 메모리 기준이라 여러 인스턴스에 걸친 시도까지 막지는 못하므로, 비밀번호는 길고 무작위로 정하세요.
 - API 응답은 `Cache-Control: no-store`(뷰어 메시는 `private`)라 CDN·공유 캐시에 남지 않습니다.
+- 인증이 켜지면 Swagger UI(`/api/docs`)는 꺼집니다. 스키마 JSON(`/api/openapi.json`)은 공개입니다.
+- 입력 검증 오류(422) 응답에는 입력값을 담지 않습니다.
 - 로컬에서 `ADMIN_PASSWORD`를 비워 두면 인증이 꺼집니다(`AUTH_REQUIRED` 미설정 시). 개발과 테스트용입니다.
 
 ## 구조물 템플릿
@@ -140,7 +144,7 @@ LLM은 아래 템플릿 중에서 고르고 파라미터 값만 정합니다. �
 
 ## API
 
-백엔드 실행 후 http://localhost:8000/docs 에서 전체 스키마를 볼 수 있습니다.
+백엔드 실행 후 http://localhost:8000/docs 에서 전체 스키마를 볼 수 있습니다(인증이 꺼진 로컬 개발 환경). 인증이 켜져 있으면 `/openapi.json`만 제공합니다.
 
 | 메서드 | 경로 | 설명 |
 |---|---|---|
@@ -201,11 +205,21 @@ LLM은 아래 템플릿 중에서 고르고 파라미터 값만 정합니다. �
 | `ANTHROPIC_MODEL` | 사용할 Claude 모델 ID | |
 | `ANTHROPIC_API_KEY` | (직접 입력) | **Sensitive**로 등록하세요 |
 | `ADMIN_USERNAME` | (직접 입력) | 관리자 아이디. 기본값 `admin`보다 추측하기 어려운 값을 권장 |
-| `ADMIN_PASSWORD` | (직접 입력, 12자 이상) | **Sensitive**. 관리자 로그인 비밀번호. 없으면 API가 503으로 막힙니다 |
+| `ADMIN_PASSWORD` | (직접 입력, 16자 이상) | **Sensitive**. 관리자 로그인 비밀번호. 없으면 API가 503으로 막힙니다 |
 | `SESSION_SECRET` | (32바이트 이상 무작위 문자열) | **Sensitive**. 세션 쿠키 서명 키. 없으면 API가 503으로 막힙니다 |
 | `DATABASE_URL` | Neon 연결 시 자동 주입 | 없으면 `/tmp` SQLite입니다. 데이터가 유지되지 않고, 인스턴스마다 데이터가 달라 설계를 못 찾는(404) 일이 생길 수 있습니다. `/api/health`의 `database.persistent`와 화면 안내로 표시됩니다. |
 
 환경변수는 Production과 Preview에 모두 설정하세요.
+
+### 공개 범위 (Deployment Protection)
+
+Vercel 보호는 **완전히 끄지 마세요.** Vercel은 예전 배포를 각자의 주소로 계속 열어 두고, 각 배포는 만들 당시의 코드로 동작합니다.
+보호를 끄면 관리자 인증이 들어가기 전에 만든 배포의 API가 로그인 없이 열립니다.
+
+- 권장 설정: Settings → Deployment Protection → Vercel Authentication → **Standard Protection**
+  (API 값 `prod_deployment_urls_and_all_previews`). production 대표 주소(예: `petlab-sage.vercel.app`)만 공개되고,
+  배포마다 생기는 주소와 프리뷰는 Vercel 로그인이 필요합니다.
+- 보호 범위를 줄이기 전에 production 대표 주소에서 로그인 없이 `GET /api/species`가 `401`인지 먼저 확인하세요.
 
 ### 리전
 
