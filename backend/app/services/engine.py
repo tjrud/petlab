@@ -17,7 +17,7 @@ from app.layout.placer import place_all
 from app.rules.loader import PrintingRules, RuleBook, SizeRules
 from app.templates.base import ParamConstraint, RuleContext, Template, TemplateParams
 from app.templates.registry import get_template
-from app.validation.autofix import clamp_params, shrink_params
+from app.validation.autofix import clamp_params, param_label, shrink_params
 from app.validation.checks import validate_all
 from app.validation.report import Issue, Severity, ValidationReport
 
@@ -168,3 +168,29 @@ def run_engine(specs: list[ItemSpec], ctx: EngineContext, measure_thickness: boo
     ))
     items.sort(key=lambda it: it.index)
     return EngineResult(items=items, report=report)
+
+
+def revalidate(items: list[BuiltItem], ctx: EngineContext, measure_thickness: bool = True) -> ValidationReport:
+    """저장된 파라미터·배치로 *현재 코드*가 다시 만든 형상을 현재 규칙으로 다시 검증한다.
+
+    저장된 설계 버전의 형상이 처음 검증할 때와 달라졌을 때 쓴다. 파라미터나 배치를 바꾸면 다른 설계가
+    되므로 자동 보정(클램프·축소·재배치)은 하지 않고, 위반은 모두 해결되지 않은 error 로 남긴다.
+    """
+    report = ValidationReport()
+    for it in items:
+        if it.template is None or it.params is None:
+            continue
+        for c in it.template.constraints(it.params, ctx.rule_ctx) + _height_constraint(it.template, ctx):
+            value = getattr(it.params, c.field)
+            if c.violates(value):
+                report.extend([Issue(
+                    code="param_out_of_range", severity=Severity.error, item_index=it.index,
+                    message_ko=f"{it.label_ko}: {param_label(it.template.Params, c.field)} 값 {value:g} 이(가) "
+                               f"현재 기준 범위를 벗어납니다. {c.reason_ko}".strip(),
+                    details={"field": c.field, "value": value, "min": c.min, "max": c.max},
+                )])
+    report.extend(validate_all(
+        items, ctx.cage, ctx.size_rules, ctx.rules.printing, ctx.min_wall_mm,
+        count=ctx.count, measure_thickness_mesh=measure_thickness,
+    ))
+    return report

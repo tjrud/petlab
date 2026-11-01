@@ -32,15 +32,19 @@ def revise_design(design_id: str, data: DesignReviseIn, db: Session = Depends(ge
 def get_design(design_id: str, version: int | None = Query(default=None, ge=1, le=2**31 - 1),
                db: Session = Depends(get_db), svc: DesignService = Depends(get_service)):
     design = svc.get_design(db, design_id)
-    return svc.design_out(design, svc.get_version(db, design, version))
+    # 메시 캐시가 없으면(새 인스턴스·재배포) 여기서 다시 만들고, 형상이 검증 당시와 다르면 다시 검증한 결과를 돌려준다
+    return svc.design_out(design, svc.get_version(db, design, version), verify=True)
 
 
 @router.get("/{design_id}/versions/{version}/parts/{index}.stl", summary="뷰어용 구조물 메시 (케이지 좌표계)",
             response_class=FileResponse)
-def part_mesh(design_id: str, version: int = Path(ge=1, le=2**31 - 1), index: int = Path(ge=0, le=1000), *, db: Session = Depends(get_db),
-              svc: DesignService = Depends(get_service)):
-    path = svc.part_mesh_path(db, design_id, version, index)
-    return FileResponse(path, media_type="model/stl", headers={"Cache-Control": "public, max-age=86400"})
+def part_mesh(design_id: str, version: int = Path(ge=1, le=2**31 - 1), index: int = Path(ge=0, le=1000), *,
+              g: str | None = Query(default=None, max_length=64, description="형상 키 (응답의 mesh_url 에 포함됨)"),
+              db: Session = Depends(get_db), svc: DesignService = Depends(get_service)):
+    path, key = svc.part_mesh(db, design_id, version, index)
+    # URL 의 형상 키가 지금 형상과 같을 때만 오래 캐시한다. 형상이 바뀌면 mesh_url 의 키도 바뀌어 캐시가 섞이지 않는다.
+    cache = "public, max-age=86400" if g == key else "no-cache"
+    return FileResponse(path, media_type="model/stl", headers={"Cache-Control": cache})
 
 
 @router.get("/{design_id}/export", summary="3D 프린팅 파일 내려받기 (STL / 3MF)")

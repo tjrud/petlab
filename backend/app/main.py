@@ -113,7 +113,7 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
     @app.exception_handler(ExportBlockedError)
     async def _blocked(_: Request, e: ExportBlockedError):
         return JSONResponse(status_code=409, content={"detail": {
-            "code": "validation_failed", "message_ko": e.message_ko, "errors": e.errors,
+            "code": e.code, "message_ko": e.message_ko, "errors": e.errors,
         }})
 
     # 응답의 mesh_url 등은 API 루트 기준 경로(/designs/...)이고, 프론트엔드가 API_BASE(/api)를 앞에 붙인다.

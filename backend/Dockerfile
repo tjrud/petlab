@@ -50,7 +50,8 @@ RUN python -m compileall -q -j0 --invalidation-mode unchecked-hash \
  && python -c "import app.main" 2>/dev/null || true
 
 # 파일 시스템은 /tmp 만 쓰기 가능하고 인스턴스마다 휘발된다.
-# - 메시 캐시는 /tmp 에 두고, 없으면 저장된 파라미터로 다시 만든다 (결정적).
+# - 메시 캐시는 /tmp 에 두고, 없으면 저장된 파라미터로 다시 만든다. 다시 만든 형상이 저장 당시 검증한 형상과
+#   다르면(템플릿·테셀레이션 설정 변경) 다시 검증하고, 실패하면 내려받기를 막는다 (app/geometry/fingerprint.py).
 # - DATABASE_URL 은 배포 환경변수(Neon Postgres)가 덮어쓴다. 기본값 SQLite(/tmp)는 데이터가 유지되지 않으며,
 #   이 경우 /api/health 의 database.persistent=false 와 화면 안내로 표시된다.
 # API_PREFIX=/api: 이 이미지는 Vercel rewrite(/api/* → backend, 경로 유지) 뒤에서만 실행된다

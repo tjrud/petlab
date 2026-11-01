@@ -59,9 +59,11 @@ class DesignVersion(Base):
     llm_attempts: Mapped[int] = mapped_column(Integer, default=1)
     llm_spec: Mapped[dict] = mapped_column(JSON)        # LLM 이 낸 원본 명세
     effective_spec: Mapped[dict] = mapped_column(JSON)  # 자동 보정이 반영된 최종 명세 (다음 수정의 기준)
-    items: Mapped[list] = mapped_column(JSON)           # 항목별 최종 파라미터·배치·치수
+    items: Mapped[list] = mapped_column(JSON)           # 항목별 최종 파라미터·배치·치수·메시 요약값(mesh_sha256)
     report: Mapped[dict] = mapped_column(JSON)          # 검증 보고서
     passed: Mapped[bool]
+    # 검증 당시 형상 파이프라인 지문 (app/geometry/fingerprint.py). 이 열이 생기기 전 버전은 NULL.
+    geometry_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     design: Mapped[Design] = relationship(back_populates="versions")

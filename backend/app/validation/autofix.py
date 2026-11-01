@@ -89,7 +89,7 @@ def clamp_params(
                 severity=Severity.info,
                 auto_fixed=True,
                 item_index=item_index,
-                message_ko=f"{label}: {_desc(cls, f)} {_fmt(old)} → {_fmt(new)} 로 보정했습니다. {reasons.get(f, '')}".strip(),
+                message_ko=f"{label}: {param_label(cls, f)} {_fmt(old)} → {_fmt(new)} 로 보정했습니다. {reasons.get(f, '')}".strip(),
                 details={"field": f, "from": old, "to": new},
             ))
 
@@ -104,13 +104,14 @@ def clamp_params(
                 code="param_conflict",
                 severity=Severity.error,
                 item_index=item_index,
-                message_ko=f"{label}: {_desc(cls, c.field)} 조건을 만족시킬 수 없습니다. {c.reason_ko}",
+                message_ko=f"{label}: {param_label(cls, c.field)} 조건을 만족시킬 수 없습니다. {c.reason_ko}",
                 details={"field": c.field, "value": getattr(final, c.field), "min": c.min, "max": c.max},
             ))
     return final, issues
 
 
-def _desc(cls: type[TemplateParams], name: str) -> str:
+def param_label(cls: type[TemplateParams], name: str) -> str:
+    """파라미터 설명의 첫 구절 (사용자 메시지용 이름)."""
     d = cls.model_fields[name].description or name
     return d.split(".")[0].replace(" mm", "")
 
