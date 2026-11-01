@@ -11,14 +11,15 @@
 - 형상은 검증된 **파라메트릭 템플릿 코드**(build123d)가 생성합니다.
 - 배치 좌표도 결정적 배치기(placer)가 계산합니다.
 - LLM 출력은 JSON 스키마(pydantic)로 강제합니다. 스키마를 위반하면 재시도하고, 그래도 실패하면 사용자에게 오류를 안내합니다.
-- 종별 치수 기준은 `rules/species.yaml`, 출력 기준은 `rules/printing.yaml`에 있습니다. 코드에 하드코딩하지 않습니다.
+- 종별 치수 기준은 `backend/rules/species.yaml`, 출력 기준은 `backend/rules/printing.yaml`에 있습니다. 코드에 하드코딩하지 않습니다.
 
 ## 폴더 구조
 
 ```
-rules/       종별·출력 규칙 YAML (임시 기본값, 전문가 검수 대상)
-backend/     FastAPI + build123d + trimesh (Python 3.11–3.13, uv)
-frontend/    Next.js + react-three-fiber + Tailwind
+backend/        FastAPI + build123d + trimesh (Python 3.11–3.13, uv)
+backend/rules/  종별·출력 규칙 YAML (임시 기본값, 전문가 검수 대상)
+frontend/       Next.js + react-three-fiber + Tailwind
+vercel.json     Vercel 배포 구성 (Services: 프론트엔드 + 백엔드 컨테이너)
 ```
 
 ## 실행 방법
@@ -43,7 +44,8 @@ cp frontend/.env.example frontend/.env.local      # 프론트엔드
 | `LLM_TIMEOUT_S` | `.env` | LLM 호출 타임아웃(초) | `60` |
 | `DATABASE_URL` | `.env` | SQLite 경로 | `backend/data/kkomul.db` |
 | `MESH_CACHE_DIR` | `.env` | 생성된 메시 캐시 경로 | `backend/data/meshes` |
-| `RULES_DIR` | `.env` | 규칙 YAML 디렉터리 | `rules/` |
+| `RULES_DIR` | `.env` | 규칙 YAML 디렉터리 | `backend/rules/` |
+| `API_PREFIX` | `.env` | 백엔드 라우트 접두사 (Vercel 배포 시 `/api`) | (없음) |
 | `CORS_ORIGINS` | `.env` | 허용할 프론트엔드 출처(쉼표 구분) | `http://localhost:3000` |
 | `NEXT_PUBLIC_API_BASE_URL` | `frontend/.env.local` | 백엔드 주소 | `http://localhost:8000` |
 
@@ -145,9 +147,58 @@ LLM은 아래 템플릿 중에서 고르고 파라미터 값만 정합니다. �
 
 **알려진 한계:** 끼임 틈새는 구조물 사이 최소 거리로 판정합니다. 곡면 구조물과 벽 사이에 생기는 쐐기형 틈(점점 좁아지는 틈)은 정밀하게 판정하지 않습니다.
 
+## 배포 (Vercel)
+
+한 Vercel 프로젝트에 [Services](https://vercel.com/docs/services)로 두 앱을 함께 배포합니다(`vercel.json`).
+
+| 서비스 | 위치 | 런타임 | 경로 |
+|---|---|---|---|
+| `frontend` | `frontend/` | Next.js | `/*` |
+| `backend` | `backend/` | 컨테이너 (`backend/Dockerfile`) | `/api/*` |
+
+- **백엔드는 컨테이너로 배포합니다.** 형상 커널(OCP)을 포함한 의존성이 약 1 GB라 일반 Python 함수 한도(500 MB)를 넘기 때문입니다.
+  - 이미지는 약 1.7 GB(압축 시 약 390 MB)이고, 콜드 스타트는 약 7~10초입니다.
+- `/api/*` 요청은 경로를 그대로 유지한 채 백엔드로 전달됩니다. 그래서 백엔드는 `API_PREFIX=/api` 아래에서 응답합니다.
+  - 프론트엔드는 같은 출처의 `/api`를 호출하므로(`NEXT_PUBLIC_API_BASE_URL=/api`) CORS 설정이 필요 없습니다.
+- 컨테이너는 `/tmp`만 쓸 수 있고, 그마저 인스턴스마다 사라집니다.
+  - 메시 캐시는 `/tmp`에 두고, 없으면 저장된 파라미터로 다시 만듭니다.
+  - 데이터는 **Postgres(Neon)**에 저장합니다.
+
+### 환경변수 (Vercel 프로젝트 설정)
+
+| 변수 | 값 | 비고 |
+|---|---|---|
+| `NEXT_PUBLIC_API_BASE_URL` | `/api` | 프론트엔드 빌드 시 반영 |
+| `API_PREFIX` | `/api` | 백엔드 라우트 접두사 |
+| `LLM_PROVIDER` | `auto` | 키가 없으면 모의 해석기로 동작 |
+| `ANTHROPIC_MODEL` | 사용할 Claude 모델 ID | |
+| `ANTHROPIC_API_KEY` | (직접 입력) | **Sensitive**로 등록하세요 |
+| `DATABASE_URL` | Neon 연결 시 자동 주입 | 없으면 `/tmp` SQLite (데이터 유지 안 됨) |
+
+### Neon Postgres 연결
+
+1. Vercel 대시보드에서 프로젝트를 열고 **Storage → Create Database → Neon**을 선택합니다(Free 플랜).
+2. 프로젝트에 연결하고 Production·Preview·Development를 모두 선택합니다. `DATABASE_URL`이 자동으로 주입됩니다.
+3. 다시 배포합니다. 테이블은 백엔드가 시작할 때 자동으로 생성됩니다.
+
+백엔드는 `postgres://` URL을 psycopg 드라이버 URL로 자동 변환합니다. 연결 재확인(`pool_pre_ping`)으로 Neon이 유휴 상태에서 연결을 끊어도 다시 연결합니다.
+
+### 제약 (Hobby 플랜)
+
+- 비상업적 용도로만 쓸 수 있습니다. 서비스로 운영하려면 Pro 플랜이 필요합니다.
+- 요청당 최대 300초, 2 GB / 1 vCPU입니다. 요청·응답 본문은 각각 4.5 MB까지입니다(현재 STL·3MF는 수백 KB 수준).
+- 컨테이너 런타임은 베타입니다.
+
+### 로컬에서 컨테이너 실행
+
+```bash
+docker build -t kkomul-backend backend/
+docker run -p 8000:8000 -e PORT=8000 kkomul-backend
+```
+
 ## 규칙 파일 교체 (전문가 검수 반영)
 
-`rules/species.yaml`과 `rules/printing.yaml`의 수치는 모두 **임시 기본값**입니다.
+`backend/rules/species.yaml`과 `backend/rules/printing.yaml`의 수치는 모두 **임시 기본값**입니다.
 검수를 마친 값으로 파일을 교체하고 서버를 재시작하면 반영됩니다.
 
 - 파일 형식이 잘못되면 서버가 기동하지 않고 오류 위치를 알려줍니다. 키 오타, 누락, `safe_max ≥ passable_min` 같은 범위 오류가 이에 해당합니다.

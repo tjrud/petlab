@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from app.config import REPO_DIR
+from app.config import BACKEND_DIR
 from app.rules.loader import RuleBook, load_rules
 
-RULES_DIR = REPO_DIR / "rules"
+RULES_DIR = BACKEND_DIR / "rules"
 
 
 @pytest.fixture(scope="session")

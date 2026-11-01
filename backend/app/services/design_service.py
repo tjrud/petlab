@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import copy
 import logging
+import os
+import threading
+import uuid
 from collections.abc import Callable
 from pathlib import Path
 
@@ -56,11 +59,29 @@ class ExportBlockedError(RuntimeError):
         self.errors = errors
 
 
+def _atomic_export(mesh: trimesh.Trimesh, path: Path) -> None:
+    """임시 파일에 쓴 뒤 os.replace 로 바꿔 끼운다. 동시에 읽는 요청이 반쯤 쓰인 파일을 받지 않게 한다."""
+    tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        mesh.export(tmp, file_type="stl")
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
 class DesignService:
     def __init__(self, rules: RuleBook, interpreter: Callable[[], Interpreter], mesh_dir: Path):
         self.rules = rules
         self._interpreter = interpreter
         self.mesh_dir = Path(mesh_dir)
+        self._locks_guard = threading.Lock()
+        self._version_locks: dict[str, threading.Lock] = {}
+
+    def _version_lock(self, design_id: str, version: int) -> threading.Lock:
+        """버전별 메시 재생성 잠금 (같은 버전을 동시에 여러 번 만들지 않도록)."""
+        key = f"{design_id}/{version}"
+        with self._locks_guard:
+            return self._version_locks.setdefault(key, threading.Lock())
 
     # ── 사육 환경 ───────────────────────────────────────────
 
@@ -104,6 +125,8 @@ class DesignService:
 
     def create_design(self, db: Session, habitat_id: str, prompt: str) -> tuple[Design, DesignVersion]:
         h = self.get_habitat(db, habitat_id)
+        # LLM 호출(수십 초) 동안 DB 연결을 '트랜잭션 중' 상태로 잡아 두지 않도록 읽기 트랜잭션을 끝낸다
+        db.commit()
         version = self._generate(h, prompt, previous=None)  # LLM 실패 시 예외 → 아무것도 저장하지 않음
         design = Design(habitat_id=h.id)
         db.add(design)
@@ -118,7 +141,9 @@ class DesignService:
         design = self.get_design(db, design_id)
         base = self.get_version(db, design, base_version)
         previous = self._previous_spec(base)
-        generated = self._generate(design.habitat, prompt, previous=previous)
+        habitat = design.habitat
+        db.commit()  # LLM 호출 전에 읽기 트랜잭션 종료 (create_design 과 같은 이유)
+        generated = self._generate(habitat, prompt, previous=previous)
         next_no = (db.scalar(select(func.max(DesignVersion.version)).where(DesignVersion.design_id == design.id)) or 0) + 1
         self._save_version(db, design, generated, next_no)
         db.commit()
@@ -192,9 +217,9 @@ class DesignService:
         d = self._version_dir(design.id, version_no)
         d.mkdir(parents=True, exist_ok=True)
         for it in engine.items:
-            it.print_mesh.export(d / f"print_{it.index}.stl")
+            _atomic_export(it.print_mesh, d / f"print_{it.index}.stl")
             if it.placement is not None:
-                it.world_mesh().export(d / f"world_{it.index}.stl")
+                _atomic_export(it.world_mesh(), d / f"world_{it.index}.stl")
 
     # ── 조회 ────────────────────────────────────────────────
 
@@ -262,18 +287,27 @@ class DesignService:
     def _ensure_meshes(self, design: Design, v: DesignVersion) -> Path:
         """메시 캐시가 없으면(삭제 등) 저장된 최종 파라미터로 다시 생성한다 (형상 생성은 결정적)."""
         d = self._version_dir(design.id, v.version)
-        missing = [it for it in v.items if not (d / f"print_{it['index']}.stl").is_file()
-                   or (it["placement"] and not (d / f"world_{it['index']}.stl").is_file())]
-        if missing:
-            d.mkdir(parents=True, exist_ok=True)
-            for it in missing:
-                t = get_template(it["template"])
-                built = build_item(it["index"], t, t.Params.model_validate(it["params"]), PlacementHint(),
-                                   self.rules.printing)
-                built.print_mesh.export(d / f"print_{it['index']}.stl")
-                if it["placement"]:
-                    built.placement = Placement(**it["placement"])
-                    built.world_mesh().export(d / f"world_{it['index']}.stl")
+
+        def missing() -> list[dict]:
+            return [it for it in v.items if not (d / f"print_{it['index']}.stl").is_file()
+                    or (it["placement"] and not (d / f"world_{it['index']}.stl").is_file())]
+
+        if not missing():
+            return d
+        # 컨테이너가 새로 뜨면 캐시가 비어 있어 여러 요청이 동시에 재생성을 시도할 수 있다.
+        # 버전별 잠금으로 한 번만 만들고, 파일은 원자적으로 교체해 반쯤 쓰인 파일이 응답되지 않게 한다.
+        with self._version_lock(design.id, v.version):
+            todo = missing()
+            if todo:
+                d.mkdir(parents=True, exist_ok=True)
+                for it in todo:
+                    t = get_template(it["template"])
+                    built = build_item(it["index"], t, t.Params.model_validate(it["params"]), PlacementHint(),
+                                       self.rules.printing)
+                    _atomic_export(built.print_mesh, d / f"print_{it['index']}.stl")
+                    if it["placement"]:
+                        built.placement = Placement(**it["placement"])
+                        _atomic_export(built.world_mesh(), d / f"world_{it['index']}.stl")
         return d
 
     def part_mesh_path(self, db: Session, design_id: str, version: int, index: int) -> Path:

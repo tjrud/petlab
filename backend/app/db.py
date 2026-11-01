@@ -1,11 +1,11 @@
-"""SQLite 연결 (SQLAlchemy 2.0)."""
+"""DB 연결 (SQLAlchemy 2.x). 로컬은 SQLite, 배포는 Postgres(Neon 등)."""
 
 from __future__ import annotations
 
 from collections.abc import Iterator
 from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
@@ -14,12 +14,30 @@ class Base(DeclarativeBase):
     pass
 
 
+def normalize_database_url(url: str) -> str:
+    """Vercel/Neon 이 주는 postgres://, postgresql:// 를 psycopg3 드라이버 URL 로 바꾼다."""
+    for prefix in ("postgres://", "postgresql://"):
+        if url.startswith(prefix):
+            return "postgresql+psycopg://" + url[len(prefix):]
+    return url
+
+
 def make_engine(database_url: str) -> Engine:
-    if database_url.startswith("sqlite:///"):
-        Path(database_url.removeprefix("sqlite:///")).parent.mkdir(parents=True, exist_ok=True)
+    url = normalize_database_url(database_url)
+    if url.startswith("sqlite"):
+        if url.startswith("sqlite:///"):
+            Path(url.removeprefix("sqlite:///")).parent.mkdir(parents=True, exist_ok=True)
+        return create_engine(url, connect_args={"check_same_thread": False})
     return create_engine(
-        database_url,
-        connect_args={"check_same_thread": False} if database_url.startswith("sqlite") else {},
+        url,
+        pool_pre_ping=True,   # 유휴 후 끊긴 연결(Neon scale-to-zero, 풀러 idle timeout) 감지
+        pool_size=2,
+        max_overflow=3,
+        pool_recycle=300,     # 5분 넘은 연결은 재생성
+        connect_args={
+            "prepare_threshold": None,  # PgBouncer(Neon -pooler) 트랜잭션 모드에서 서버측 prepared statement 비활성화
+            "connect_timeout": 15,      # Neon compute 콜드 스타트 여유
+        },
     )
 
 
@@ -30,7 +48,13 @@ def make_session_factory(engine: Engine) -> sessionmaker[Session]:
 def init_db(engine: Engine) -> None:
     from app import models  # noqa: F401 - 테이블 등록
 
-    Base.metadata.create_all(engine)
+    if engine.dialect.name == "postgresql":
+        # 여러 인스턴스가 동시에 기동해도 CREATE TABLE 이 충돌하지 않도록 직렬화
+        with engine.begin() as conn:
+            conn.execute(text("SELECT pg_advisory_xact_lock(727274)"))
+            Base.metadata.create_all(conn)
+    else:
+        Base.metadata.create_all(engine)
 
 
 def session_scope(factory: sessionmaker[Session]) -> Iterator[Session]:

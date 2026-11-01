@@ -58,7 +58,15 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
         yield
         engine.dispose()
 
-    app = FastAPI(title="꼬물공방 API", version="0.1.0", lifespan=lifespan)
+    prefix = settings.normalized_api_prefix
+    app = FastAPI(
+        title="꼬물공방 API",
+        version="0.1.0",
+        lifespan=lifespan,
+        docs_url=f"{prefix}/docs",
+        redoc_url=None,
+        openapi_url=f"{prefix}/openapi.json",
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origin_list,
@@ -87,10 +95,9 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
             "code": "validation_failed", "message_ko": e.message_ko, "errors": e.errors,
         }})
 
-    app.include_router(meta.router)
-    app.include_router(habitats.router)
-    app.include_router(designs.router)
-    app.include_router(waitlist.router)
+    # 응답의 mesh_url 등은 API 루트 기준 경로(/designs/...)이고, 프론트엔드가 API_BASE(/api)를 앞에 붙인다.
+    for router in (meta.router, habitats.router, designs.router, waitlist.router):
+        app.include_router(router, prefix=prefix)
     return app
 
 

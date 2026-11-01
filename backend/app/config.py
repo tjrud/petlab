@@ -32,10 +32,20 @@ class Settings(BaseSettings):
     mesh_cache_dir: Path = BACKEND_DIR / "data" / "meshes"
 
     # 규칙 파일 디렉터리 (species.yaml, printing.yaml)
-    rules_dir: Path = REPO_DIR / "rules"
+    rules_dir: Path = BACKEND_DIR / "rules"
+
+    # API 경로 접두사. 로컬은 "" (http://localhost:8000/designs),
+    # Vercel Services 에서는 "/api" (프론트엔드와 같은 출처의 /api/* 가 백엔드로 전달되며 경로는 그대로 유지됨)
+    api_prefix: str = ""
 
     # CORS 허용 출처 (쉼표 구분)
     cors_origins: str = "http://localhost:3000"
+
+    @property
+    def normalized_api_prefix(self) -> str:
+        """"/api/" → "/api", "api" → "/api", "" 또는 "/" → "" """
+        p = self.api_prefix.strip().strip("/")
+        return f"/{p}" if p else ""
 
     @property
     def cors_origin_list(self) -> list[str]:
