@@ -6,7 +6,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import SecretStr
+from pydantic import AliasChoices, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -18,6 +18,7 @@ class Settings(BaseSettings):
         env_file=(REPO_DIR / ".env", BACKEND_DIR / ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
+        populate_by_name=True,
     )
 
     # LLM
@@ -32,7 +33,11 @@ class Settings(BaseSettings):
     # 저장소
     # 로컬 디스크가 인스턴스마다 사라지는 환경인지 (컨테이너 이미지에서 1). 이때 SQLite 는 임시 저장소로 표시된다.
     ephemeral_filesystem: bool = False
-    database_url: str = f"sqlite:///{BACKEND_DIR / 'data' / 'kkomul.db'}"
+    # DATABASE_URL (Neon 등) 이 없으면 POSTGRES_URL (Vercel Marketplace Supabase 연동이 주입하는 이름) 을 쓴다
+    database_url: str = Field(
+        default=f"sqlite:///{BACKEND_DIR / 'data' / 'kkomul.db'}",
+        validation_alias=AliasChoices("DATABASE_URL", "POSTGRES_URL"),
+    )
     mesh_cache_dir: Path = BACKEND_DIR / "data" / "meshes"
 
     # 규칙 파일 디렉터리 (species.yaml, printing.yaml)

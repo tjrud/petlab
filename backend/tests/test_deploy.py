@@ -55,6 +55,10 @@ def test_routes_are_served_under_api_prefix(tmp_path):
     ("postgresql://u:p@h:5432/db", "postgresql+psycopg://u:p@h:5432/db"),
     ("postgresql+psycopg://u:p@h/db", "postgresql+psycopg://u:p@h/db"),
     ("sqlite:////tmp/kkomul.db", "sqlite:////tmp/kkomul.db"),
+    # Supabase(Vercel Marketplace) 풀러 URL: libpq 가 모르는 supa 파라미터 제거, sslmode 유지
+    ("postgres://postgres.abc:pw@aws-0-ap-northeast-2.pooler.supabase.com:6543/postgres?sslmode=require&supa=base-pooler.x",
+     "postgresql+psycopg://postgres.abc:pw@aws-0-ap-northeast-2.pooler.supabase.com:6543/postgres?sslmode=require"),
+    ("postgres://u:p@h/db?pgbouncer=true&connect_timeout=10", "postgresql+psycopg://u:p@h/db?connect_timeout=10"),
 ])
 def test_normalize_database_url(raw, expected):
     assert normalize_database_url(raw) == expected
@@ -228,3 +232,13 @@ def test_mesh_regeneration_failure_is_409(tmp_path):
         r = c.get(d["current"]["items"][0]["mesh_url"])
         assert r.status_code == 409 and r.json()["detail"]["code"] == "mesh_unavailable"
         assert c.get(f"/designs/{d['id']}/export?format=stl").status_code == 409
+
+
+def test_postgres_url_env_is_used_when_database_url_missing(monkeypatch):
+    """Vercel Marketplace Supabase 연동은 DATABASE_URL 대신 POSTGRES_URL 을 주입한다."""
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("POSTGRES_URL", "postgres://u:p@h:6543/postgres?sslmode=require")
+    assert Settings(_env_file=None).database_url.startswith("postgres://u:p@h:6543")
+    monkeypatch.setenv("DATABASE_URL", "postgres://neon/db")
+    assert Settings(_env_file=None).database_url == "postgres://neon/db"  # DATABASE_URL 이 우선
+    assert Settings(database_url="sqlite://", _env_file=None).database_url == "sqlite://"  # 이름으로도 지정 가능

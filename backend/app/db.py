@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterator
 from pathlib import Path
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
@@ -14,11 +16,29 @@ class Base(DeclarativeBase):
     pass
 
 
+log = logging.getLogger(__name__)
+
+# libpq(psycopg) 가 이해하는 연결 옵션. 공급자가 붙이는 그 밖의 파라미터
+# (예: Supabase 의 supa=base-pooler.x, Prisma 용 pgbouncer=true)는 libpq 가 거부하므로 제거한다.
+_LIBPQ_PARAMS = {
+    "sslmode", "sslrootcert", "sslcert", "sslkey", "sslcrl", "sslnegotiation", "channel_binding",
+    "connect_timeout", "application_name", "options", "target_session_attrs", "gssencmode",
+    "keepalives", "keepalives_idle", "keepalives_interval", "keepalives_count", "tcp_user_timeout",
+}
+
+
 def normalize_database_url(url: str) -> str:
-    """Vercel/Neon 이 주는 postgres://, postgresql:// 를 psycopg3 드라이버 URL 로 바꾼다."""
-    for prefix in ("postgres://", "postgresql://"):
+    """Vercel Marketplace(Neon·Supabase)가 주는 postgres://, postgresql:// URL 을 psycopg3 드라이버 URL 로 바꾸고,
+    libpq 가 모르는 쿼리 파라미터를 제거한다."""
+    for prefix in ("postgres://", "postgresql://", "postgresql+psycopg://"):
         if url.startswith(prefix):
-            return "postgresql+psycopg://" + url[len(prefix):]
+            parts = urlsplit("postgresql+psycopg://" + url[len(prefix):])
+            query = parse_qsl(parts.query, keep_blank_values=True)
+            kept = [(k, v) for k, v in query if k in _LIBPQ_PARAMS]
+            dropped = [k for k, _ in query if k not in _LIBPQ_PARAMS]
+            if dropped:
+                log.info("DB URL 에서 지원하지 않는 파라미터를 제거했습니다: %s", ", ".join(dropped))
+            return urlunsplit(parts._replace(query=urlencode(kept)))
     return url
 
 

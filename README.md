@@ -178,9 +178,17 @@ LLM은 아래 템플릿 중에서 고르고 파라미터 값만 정합니다. �
 
 환경변수는 Production과 Preview에 모두 설정하세요.
 
+### 리전
+
+함수(백엔드 컨테이너)는 `vercel.json`의 `"regions": ["sin1"]`(싱가포르)에서 실행합니다.
+DB도 같은 리전에 두세요. 설계 요청 하나에 DB 왕복이 여러 번 일어나므로, 함수와 DB가 같은 리전에 있어야 응답이 빠릅니다.
+한국 사용자 기준으로는 한국↔싱가포르를 요청당 한 번만 오갑니다.
+
 ### Neon Postgres 연결
 
-1. Vercel 대시보드에서 프로젝트를 열고 **Storage → Create Database → Neon**을 선택합니다(Free 플랜).
+1. https://vercel.com/marketplace/neon 에서 **Install**을 누르고 팀을 선택합니다.
+   - 리전은 **Singapore**, 플랜은 **Free**입니다.
+   - **Auth·Realtime은 끕니다.** 이 앱은 로그인·실시간 구독을 쓰지 않습니다.
 2. 프로젝트에 연결하고 Production·Preview·Development를 모두 선택합니다. `DATABASE_URL`이 자동으로 주입됩니다.
 3. 다시 배포합니다. 테이블은 백엔드가 시작할 때 자동으로 생성됩니다.
 
