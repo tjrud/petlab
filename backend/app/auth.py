@@ -1,12 +1,12 @@
-"""관리자 인증.
+"""회원·관리자 인증.
 
-사이트(화면)는 누구나 열 수 있지만, 설계·내보내기 등 API 는 관리자 로그인 후에만 쓸 수 있다.
-- 관리자 계정: 환경변수 ADMIN_USERNAME / ADMIN_PASSWORD
-  (ADMIN_PASSWORD 가 없으면 인증이 꺼진다 — 로컬 개발용. AUTH_REQUIRED=1 이면 대신 API 를 막는다)
-- 세션: HMAC-SHA256 으로 서명한 토큰을 HttpOnly 쿠키로 보낸다.
-  서명 키는 SESSION_SECRET(필수)과 관리자 비밀번호로 만든다 → 둘 중 하나를 바꾸면 기존 세션이 모두 무효
+- 회원: 회원가입(아이디·닉네임·비밀번호, scrypt 해시)으로 만든 계정. 관리자: 환경변수 ADMIN_USERNAME / ADMIN_PASSWORD
+  (ADMIN_PASSWORD 가 없으면 인증이 꺼지고 모든 요청이 로컬 개발용 관리자로 처리된다. AUTH_REQUIRED=1 이면 대신 API 를 막는다)
+- 세션: HMAC-SHA256 으로 서명한 토큰(sub=회원 id, ver=세션 버전)을 HttpOnly 쿠키로 보낸다.
+  서명 키는 SESSION_SECRET(필수)과 관리자 비밀번호로 만든다 → 둘 중 하나를 바꾸면 모든 세션이 무효.
+  회원이 비밀번호를 바꾸면 세션 버전이 올라가 그 회원의 다른 세션이 끊긴다.
 - 설정이 불완전하면(비밀값 누락·짧음) 인증을 끄지 않고 503 으로 막는다 (fail closed)
-- 로그인 반복 실패는 IP 별로 잠시 막는다 (인스턴스 메모리 기준)
+- 로그인 반복 실패·회원가입은 IP 별로 제한한다 (인스턴스 메모리 기준)
 """
 
 from __future__ import annotations
@@ -22,9 +22,15 @@ import threading
 import time
 from collections import OrderedDict, deque
 
-from fastapi import Request
+from fastapi import Depends, Request
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
+from app.api.deps import get_db
 from app.config import Settings
+from app.errors import ForbiddenError
+from app.models import User
 
 log = logging.getLogger(__name__)
 
@@ -33,16 +39,21 @@ MAX_TOKEN_LEN = 1024
 MAX_TOKEN_LIFETIME_S = 720 * 3600 + 60  # SESSION_TTL_HOURS 상한(30일) + 시계 오차
 
 
-class AuthRequiredError(RuntimeError):
-    """관리자 로그인이 필요한 API 를 로그인 없이 호출했을 때 (→ 401)."""
+LOCAL_USERNAME = "local"  # 인증이 꺼진 로컬 개발 환경의 가상 관리자
+ADMIN_NICKNAME = "관리자"
+_ID_RE = __import__("re").compile(r"[0-9a-f]{32}")
 
-    message_ko = "관리자 로그인이 필요해요."
+
+class AuthRequiredError(RuntimeError):
+    """로그인이 필요한 API 를 로그인 없이 호출했을 때 (→ 401)."""
+
+    message_ko = "로그인이 필요해요."
 
 
 class AuthUnavailableError(RuntimeError):
-    """관리자 인증 설정이 불완전해 API 를 막고 있을 때 (→ 503)."""
+    """인증 설정이 불완전해 API 를 막고 있을 때 (→ 503)."""
 
-    message_ko = "관리자 인증 설정이 끝나지 않아 지금은 사용할 수 없어요. 운영자에게 알려 주세요."
+    message_ko = "로그인 설정이 끝나지 않아 지금은 사용할 수 없어요. 운영자에게 알려 주세요."
 
 
 # ── 세션 토큰 ───────────────────────────────────────────────
@@ -72,15 +83,16 @@ def _sign(body: str, key: bytes) -> str:
     return _b64(hmac.new(key, body.encode("ascii"), hashlib.sha256).digest())
 
 
-def issue_token(username: str, key: bytes, ttl_s: float, now: float | None = None) -> str:
+def issue_token(subject: str, key: bytes, ttl_s: float, now: float | None = None, ver: int = 1) -> str:
     now = time.time() if now is None else now
-    payload = {"sub": username, "iat": int(now), "exp": int(now + ttl_s)}
+    payload = {"sub": subject, "ver": ver, "iat": int(now), "exp": int(now + ttl_s)}
     body = _b64(json.dumps(payload, separators=(",", ":")).encode())
     return f"{body}.{_sign(body, key)}"
 
 
-def verify_token(token: str | None, key: bytes, now: float | None = None) -> str | None:
-    """유효한 토큰이면 사용자 이름, 아니면 None (서명 불일치·만료·형식 오류). 어떤 입력에도 예외를 내지 않는다."""
+def verify_token(token: str | None, key: bytes, now: float | None = None) -> dict | None:
+    """유효한 토큰이면 {"sub": 회원 id, "ver": 세션 버전}, 아니면 None (서명 불일치·만료·형식 오류).
+    어떤 입력에도 예외를 내지 않는다."""
     if not token or len(token) > MAX_TOKEN_LEN or not token.isascii() or token.count(".") != 1:
         return None
     body, sig = token.split(".")
@@ -88,19 +100,19 @@ def verify_token(token: str | None, key: bytes, now: float | None = None) -> str
         if not hmac.compare_digest(sig.encode("ascii"), _sign(body, key).encode("ascii")):
             return None
         payload = json.loads(_unb64(body))
-        sub, exp = payload["sub"], payload["exp"]
+        sub, exp, ver = payload["sub"], payload["exp"], payload["ver"]
     except (ValueError, KeyError, TypeError, binascii.Error):
         return None
-    # issue_token 은 항상 정수 exp 를 쓴다 (NaN·Infinity·거대한 수는 거부)
-    if not isinstance(sub, str) or type(exp) is not int:
+    # issue_token 은 항상 정수 exp·ver 를 쓴다 (NaN·Infinity·거대한 수는 거부)
+    if not isinstance(sub, str) or type(exp) is not int or type(ver) is not int:
         return None
     now = time.time() if now is None else now
     if exp < now or exp > now + MAX_TOKEN_LIFETIME_S:
         return None
-    return sub
+    return {"sub": sub, "ver": ver}
 
 
-def check_credentials(settings: Settings, username: str, password: str) -> bool:
+def check_admin_credentials(settings: Settings, username: str, password: str) -> bool:
     if settings.auth_mode != "enabled":
         return False
     expected_password = settings.admin_password.get_secret_value()  # type: ignore[union-attr]
@@ -197,27 +209,74 @@ class LoginRateLimiter:
         return len(self._failures)
 
 
+# ── 관리자·로컬 계정 행 ─────────────────────────────────────
+
+
+def _ensure_user_row(db: Session, username: str, nickname: str) -> User:
+    """관리자(또는 로컬 개발용) 계정 행을 찾거나 만든다. 비밀번호는 환경변수로만 확인하므로 해시는 비워 둔다."""
+    user = db.scalar(select(User).where(User.username == username))
+    if user is None:
+        user = User(username=username, nickname=nickname, role="admin", password_hash=None)
+        db.add(user)
+        try:
+            db.commit()
+        except IntegrityError:  # 다른 요청·인스턴스가 먼저 만든 경우 (또는 닉네임 충돌)
+            db.rollback()
+            user = db.scalar(select(User).where(User.username == username))
+            if user is None:
+                user = User(username=username, nickname=f"{nickname}-{username}"[:40], role="admin")
+                db.add(user)
+                db.commit()
+    elif user.role != "admin" or user.password_hash is not None:
+        # 운영자가 ADMIN_USERNAME 을 기존 회원 아이디로 바꾼 경우: 그 계정을 관리자 계정으로 넘긴다
+        log.error("ADMIN_USERNAME(%s)과 같은 아이디의 회원 계정을 관리자 계정으로 전환합니다.", username)
+        user.role, user.password_hash = "admin", None
+        user.session_version += 1
+        db.commit()
+    return user
+
+
+def ensure_admin_user(db: Session, settings: Settings) -> User:
+    return _ensure_user_row(db, settings.admin_username, ADMIN_NICKNAME)
+
+
 # ── FastAPI 의존성 ──────────────────────────────────────────
 
 
-def current_admin(request: Request) -> str | None:
-    """로그인한 관리자 이름 (인증이 꺼져 있거나 설정 오류면 None)."""
+def get_optional_user(request: Request, db: Session = Depends(get_db)) -> User | None:
+    """로그인한 회원 (없거나 세션이 무효면 None). 인증이 꺼진 로컬 개발 환경에서는 가상 관리자."""
     settings: Settings = request.app.state.settings
-    if settings.auth_mode != "enabled":
+    mode = settings.auth_mode
+    if mode == "disabled":
+        return _ensure_user_row(db, LOCAL_USERNAME, "로컬 개발자")
+    if mode == "misconfigured":
         return None
-    user = verify_token(request.cookies.get(COOKIE_NAME), signing_key(settings))
-    if user is None or not hmac.compare_digest(user.encode(), settings.admin_username.encode()):
+    claims = verify_token(request.cookies.get(COOKIE_NAME), signing_key(settings))
+    if claims is None or not _ID_RE.fullmatch(claims["sub"]):
+        return None
+    user = db.get(User, claims["sub"])
+    if user is None or user.session_version != claims["ver"]:
+        return None
+    # ADMIN_USERNAME 을 바꾸면 예전 관리자 행의 세션은 더 이상 관리자가 아니다
+    if user.is_admin and not hmac.compare_digest(user.username.encode(), settings.admin_username.encode()):
         return None
     return user
 
 
-def require_admin(request: Request) -> None:
-    """관리자만 쓸 수 있는 API 에 붙이는 의존성. 인증이 꺼져 있으면 통과하고, 설정 오류면 막는다."""
-    settings: Settings = request.app.state.settings
-    mode = settings.auth_mode
-    if mode == "disabled":
-        return
-    if mode == "misconfigured":
-        raise AuthUnavailableError()
-    if current_admin(request) is None:
+def get_current_user(request: Request, user: User | None = Depends(get_optional_user)) -> User:
+    """로그인이 필요한 API 에 붙이는 의존성 (설정 오류면 503, 로그인 안 했으면 401)."""
+    if user is None:
+        if request.app.state.settings.auth_mode == "misconfigured":
+            raise AuthUnavailableError()
         raise AuthRequiredError()
+    return user
+
+
+def get_admin_user(user: User = Depends(get_current_user)) -> User:
+    if not user.is_admin:
+        raise ForbiddenError("관리자만 할 수 있어요.")
+    return user
+
+
+def require_user(user: User = Depends(get_current_user)) -> None:
+    """라우터 전체에 붙이는 로그인 필수 의존성."""

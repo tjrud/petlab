@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+import unicodedata
+from datetime import date, datetime
+from typing import Annotated, Literal
 
-from typing import Annotated
-
-from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    EmailStr,
+    Field,
+)
 
 # DB 에 저장되는 값의 형식 (Postgres 는 NUL 문자·int4 범위를 넘는 정수를 거부하므로 입력 단계에서 막는다)
 ID_PATTERN = r"^[0-9a-f]{32}$"
@@ -24,6 +31,30 @@ def _no_nul(v: str) -> str:
 Prompt = Annotated[str, Field(min_length=1, max_length=2000), AfterValidator(_no_nul)]
 
 
+def _clean_text(v: str) -> str:
+    """앞뒤 공백 제거, 줄바꿈·탭 외 제어 문자 거부."""
+    if not isinstance(v, str):
+        return v
+    v = v.strip()
+    if any(unicodedata.category(c) in ("Cc", "Cs") and c not in "\n\t" for c in v):
+        raise ValueError("허용되지 않는 문자가 있습니다")
+    return v
+
+
+def _single_line(v: str) -> str:
+    if "\n" in v or "\t" in v:
+        raise ValueError("한 줄로 입력해 주세요")
+    return v
+
+
+Text1 = BeforeValidator(_clean_text)
+Username = Annotated[str, BeforeValidator(lambda v: v.strip().lower() if isinstance(v, str) else v),
+                     Field(pattern=r"^[a-z0-9_]{4,20}$", description="영문 소문자·숫자·밑줄 4~20자")]
+Nickname = Annotated[str, Text1, Field(min_length=2, max_length=20), AfterValidator(_single_line)]
+NewPassword = Annotated[str, Field(min_length=8, max_length=128)]
+Title = Annotated[str, Text1, Field(min_length=1, max_length=100), AfterValidator(_single_line)]
+
+
 class CageIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -35,14 +66,16 @@ class CageIn(BaseModel):
 class HabitatIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    species: str = Field(examples=["hamster"])
-    size: str = Field(examples=["syrian"])
+    species: str = Field(max_length=32, examples=["hamster"])
+    size: str = Field(max_length=32, examples=["syrian"])
     count: int = Field(ge=1, le=10)
     cage: CageIn
+    pet_id: EntityId | None = Field(default=None, description="내 반려동물 정보로 등록할 때")
 
 
 class HabitatOut(BaseModel):
     id: str
+    pet_id: str | None = None
     species: str
     species_name_ko: str
     size: str
@@ -106,9 +139,13 @@ class VersionOut(BaseModel):
 
 class DesignOut(BaseModel):
     id: str
+    title: str
     habitat: HabitatOut
     versions: list[VersionSummary]
     current: VersionOut
+    is_owner: bool          # 수정·공유는 소유자(또는 관리자)만
+    shared: bool            # 커뮤니티 글에 첨부되어 누구나 볼 수 있는지
+    owner_nickname: str | None
 
 
 class WaitlistIn(BaseModel):
@@ -122,3 +159,183 @@ class WaitlistIn(BaseModel):
 class WaitlistOut(BaseModel):
     ok: bool
     message_ko: str
+
+
+
+class DesignListItem(BaseModel):
+    id: str
+    title: str
+    created_at: datetime
+    updated_at: datetime
+    version_count: int
+    latest_version: int
+    latest_passed: bool
+    habitat: HabitatOut
+    pet_name: str | None
+    shared: bool
+
+
+class DesignListOut(BaseModel):
+    items: list[DesignListItem]
+    total: int
+    page: int
+    page_size: int
+
+
+# ── 회원 ───────────────────────────────────────────────────
+
+
+class UserOut(BaseModel):
+    id: str
+    username: str
+    nickname: str
+    role: Literal["member", "admin"]
+    created_at: datetime
+
+
+class AuthStatusOut(BaseModel):
+    auth_enabled: bool
+    authenticated: bool
+    user: UserOut | None
+    signup_enabled: bool
+
+
+class SignupIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    username: Username
+    nickname: Nickname
+    password: NewPassword
+
+
+class ProfileUpdateIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    nickname: Nickname
+
+
+class PasswordChangeIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: NewPassword
+
+
+class MeOut(BaseModel):
+    user: UserOut
+    stats: dict[str, int]
+    design_quota: dict[str, int | None]
+
+
+# ── 반려동물 ───────────────────────────────────────────────
+
+
+def _past_date(v: date | None) -> date | None:
+    if v is not None and (v > date.today() or v < date(1990, 1, 1)):
+        raise ValueError("생일은 1990-01-01 부터 오늘 사이로 입력해 주세요")
+    return v
+
+
+class PetIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: Annotated[str, Text1, Field(min_length=1, max_length=40), AfterValidator(_single_line)]
+    species: str = Field(max_length=32, examples=["hamster"])
+    size: str = Field(max_length=32, examples=["syrian"])
+    sex: Literal["male", "female", "unknown"] = "unknown"
+    birth_date: Annotated[date | None, AfterValidator(_past_date)] = None
+    notes: Annotated[str | None, Text1, Field(max_length=500)] = None
+    cage: CageIn | None = None
+
+
+class PetOut(BaseModel):
+    id: str
+    name: str
+    species: str
+    species_name_ko: str
+    size: str
+    size_name_ko: str
+    sex: str
+    birth_date: date | None
+    notes: str | None
+    cage: CageIn | None
+    created_at: datetime
+    updated_at: datetime
+
+
+# ── 커뮤니티 ───────────────────────────────────────────────
+
+
+class AuthorOut(BaseModel):
+    nickname: str
+    role: Literal["member", "admin"]
+
+
+class PostIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: Title
+    body: Annotated[str, Text1, Field(min_length=1, max_length=5000)]
+    design_id: EntityId | None = None
+    design_version: VersionNo | None = None
+
+
+class PostUpdateIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: Title | None = None
+    body: Annotated[str | None, Text1, Field(min_length=1, max_length=5000)] = None
+
+
+class CommentIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    body: Annotated[str, Text1, Field(min_length=1, max_length=1000)]
+
+
+class CommentOut(BaseModel):
+    id: str
+    body: str
+    author: AuthorOut
+    created_at: datetime
+    can_delete: bool
+
+
+class SharedDesignOut(BaseModel):
+    id: str
+    version: int
+    title: str
+    summary_ko: str
+    item_labels: list[str]
+    passed: bool
+    habitat: HabitatOut
+
+
+class PostSummary(BaseModel):
+    id: str
+    title: str
+    excerpt: str
+    author: AuthorOut
+    created_at: datetime
+    comment_count: int
+    has_design: bool
+
+
+class PostListOut(BaseModel):
+    items: list[PostSummary]
+    total: int
+    page: int
+    page_size: int
+
+
+class PostOut(BaseModel):
+    id: str
+    title: str
+    body: str
+    author: AuthorOut
+    created_at: datetime
+    updated_at: datetime
+    design: SharedDesignOut | None
+    comments: list[CommentOut]
+    can_edit: bool
+    can_delete: bool

@@ -1,4 +1,4 @@
-"""관리자 인증: 사이트는 공개, API 는 관리자 로그인 후에만."""
+"""인증: 세션 토큰·관리자 로그인·보호 경로·실패 처리 (회원 기능은 test_members.py)."""
 
 from __future__ import annotations
 
@@ -41,10 +41,28 @@ def client(tmp_path):
         yield c
 
 
+PROTECTED = "/designs"  # 로그인이 필요한 대표 경로 (내 설계 목록)
+
+
 def login(c: TestClient):
     r = c.post("/auth/login", json=ADMIN)
     assert r.status_code == 200, r.text
     return r
+
+
+def admin_token(s: Settings, ttl_s: float = 3600) -> str:
+    """관리자 계정 행의 id 로 서명한 세션 토큰."""
+    from app.auth import ensure_admin_user
+    from app.db import init_db, make_engine, make_session_factory
+
+    engine = make_engine(s.database_url)
+    init_db(engine)
+    db = make_session_factory(engine)()
+    try:
+        u = ensure_admin_user(db, s)
+        return issue_token(u.id, signing_key(s), ttl_s, ver=u.session_version)
+    finally:
+        db.close()
 
 
 # ── 토큰 ───────────────────────────────────────────────────
@@ -52,8 +70,8 @@ def login(c: TestClient):
 
 def test_token_roundtrip_and_tamper():
     key = b"k" * 32
-    tok = issue_token("admin", key, ttl_s=60, now=1000)
-    assert verify_token(tok, key, now=1010) == "admin"
+    tok = issue_token("u1", key, ttl_s=60, now=1000, ver=3)
+    assert verify_token(tok, key, now=1010) == {"sub": "u1", "ver": 3}
     assert verify_token(tok, key, now=1061) is None            # 만료
     assert verify_token(tok, b"x" * 32, now=1010) is None      # 다른 키
     body, sig = tok.split(".")
@@ -68,7 +86,8 @@ def test_verify_token_never_raises():
     for bad in ("é.x", "a" * 5000 + ".b", "abc.%%%", "!!!.AAAA", "\x00.\x00", "e30.é"):
         assert verify_token(bad, key) is None
     # 서명은 맞지만 내용이 JSON 이 아니거나 필드가 빠진 경우
-    for raw in (b"not json", b"{}", b'{"sub":1,"exp":9999999999}', b'{"sub":"a","exp":"x"}'):
+    for raw in (b"not json", b"{}", b'{"sub":1,"exp":9999999999,"ver":1}', b'{"sub":"a","exp":"x","ver":1}',
+                b'{"sub":"a","exp":9999999999}', b'{"sub":"a","exp":9999999999,"ver":"1"}'):
         body = base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
         sig = base64.urlsafe_b64encode(hmac.new(key, body.encode(), hashlib.sha256).digest()).rstrip(b"=").decode()
         assert verify_token(f"{body}.{sig}", key) is None
@@ -129,18 +148,22 @@ def test_public_endpoints(client):
     h = client.get("/health").json()
     assert h["status"] == "ok" and h["auth_enabled"] is True and h["auth_ready"] is True
     me = client.get("/auth/me").json()
-    assert me == {"auth_enabled": True, "authenticated": False, "username": None}
+    assert me == {"auth_enabled": True, "authenticated": False, "user": None, "signup_enabled": True}
+    assert client.get("/species").status_code == 200  # 종 목록은 누구나
+    assert client.get("/community/posts").status_code == 200  # 커뮤니티 읽기는 누구나
 
 
 @pytest.mark.parametrize("method,path,body", [
-    ("GET", "/species", None),
+    ("GET", "/designs", None),
+    ("GET", "/me", None),
+    ("GET", "/me/pets", None),
+    ("POST", "/me/pets", {"name": "a", "species": "hamster", "size": "syrian"}),
+    ("POST", "/community/posts", {"title": "t", "body": "b"}),
+    ("POST", "/community/posts/" + "0" * 32 + "/comments", {"body": "b"}),
     ("POST", "/habitats", HABITAT),
     ("GET", "/habitats/" + "0" * 32, None),
     ("POST", "/designs", {"habitat_id": "0" * 32, "prompt": "은신처"}),
-    ("GET", "/designs/" + "0" * 32, None),
     ("POST", "/designs/" + "0" * 32 + "/revise", {"prompt": "더 크게"}),
-    ("GET", "/designs/" + "0" * 32 + "/export?format=stl", None),
-    ("GET", "/designs/" + "0" * 32 + "/versions/1/parts/0.stl", None),
     ("POST", "/waitlist", {"email": "a@example.com"}),
 ])
 def test_protected_endpoints_require_login(client, method, path, body):
@@ -151,7 +174,7 @@ def test_protected_endpoints_require_login(client, method, path, body):
 
 def test_login_then_full_flow_then_logout(client):
     r = login(client)
-    assert r.json()["username"] == "admin"
+    assert r.json()["user"]["username"] == "admin" and r.json()["user"]["role"] == "admin"
     cookie = r.headers["set-cookie"]
     assert COOKIE_NAME in cookie and "HttpOnly" in cookie and "samesite=lax" in cookie.lower()
     assert client.get("/auth/me").json()["authenticated"] is True
@@ -163,7 +186,8 @@ def test_login_then_full_flow_then_logout(client):
 
     client.post("/auth/logout", json={})
     assert client.get("/auth/me").json()["authenticated"] is False
-    assert client.get(f"/designs/{d['id']}").status_code == 401
+    assert client.get(PROTECTED).status_code == 401
+    assert client.get(f"/designs/{d['id']}").status_code == 404  # 공유되지 않은 설계는 없는 것처럼
 
 
 def test_wrong_credentials(client):
@@ -171,20 +195,24 @@ def test_wrong_credentials(client):
         r = client.post("/auth/login", json=creds)
         assert r.status_code == 401 and r.json()["detail"]["code"] == "invalid_credentials"
         assert COOKIE_NAME not in r.headers.get("set-cookie", "")
-    assert client.get("/species").status_code == 401
+    assert client.get(PROTECTED).status_code == 401
 
 
 def test_forged_or_expired_cookie_rejected(tmp_path):
     s = settings(tmp_path)
     with TestClient(create_app(s)) as c:
-        c.cookies.set(COOKIE_NAME, issue_token("admin", b"attacker-key", 3600))
-        assert c.get("/species").status_code == 401
-        c.cookies.set(COOKIE_NAME, issue_token("admin", signing_key(s), ttl_s=-10))
-        assert c.get("/species").status_code == 401
-        c.cookies.set(COOKIE_NAME, issue_token("someone", signing_key(s), 3600))  # 관리자가 아닌 이름
-        assert c.get("/species").status_code == 401
-        c.cookies.set(COOKIE_NAME, issue_token("admin", signing_key(s), 3600))
-        assert c.get("/species").status_code == 200
+        good = admin_token(s)
+        uid = verify_token(good, signing_key(s))["sub"]
+        c.cookies.set(COOKIE_NAME, issue_token(uid, b"attacker-key", 3600))
+        assert c.get(PROTECTED).status_code == 401
+        c.cookies.set(COOKIE_NAME, admin_token(s, ttl_s=-10))
+        assert c.get(PROTECTED).status_code == 401
+        c.cookies.set(COOKIE_NAME, issue_token("f" * 32, signing_key(s), 3600))  # 없는 회원
+        assert c.get(PROTECTED).status_code == 401
+        c.cookies.set(COOKIE_NAME, issue_token(uid, signing_key(s), 3600, ver=99))  # 세션 버전 불일치
+        assert c.get(PROTECTED).status_code == 401
+        c.cookies.set(COOKIE_NAME, good)
+        assert c.get(PROTECTED).status_code == 200
 
 
 def test_login_is_rate_limited(client):
@@ -197,8 +225,10 @@ def test_login_is_rate_limited(client):
 def test_auth_disabled_without_admin_password(tmp_path):
     with TestClient(create_app(settings(tmp_path, admin_password=None))) as c:
         assert c.get("/health").json()["auth_enabled"] is False
-        assert c.get("/species").status_code == 200
-        assert c.get("/auth/me").json() == {"auth_enabled": False, "authenticated": True, "username": None}
+        assert c.get(PROTECTED).status_code == 200
+        me = c.get("/auth/me").json()
+        assert me["auth_enabled"] is False and me["authenticated"] is True and me["signup_enabled"] is False
+        assert me["user"]["username"] == "local" and me["user"]["role"] == "admin"
 
 
 def test_auth_required_fails_closed(tmp_path):
@@ -216,18 +246,21 @@ def test_auth_required_fails_closed(tmp_path):
         with TestClient(create_app(s)) as c:
             h = c.get("/health").json()
             assert h["auth_enabled"] is True and h["auth_ready"] is False
-            for path in ("/species", "/designs/" + "0" * 32):
+            for path in ("/designs", "/me", "/me/pets"):
                 r = c.get(path)
                 assert r.status_code == 503 and r.json()["detail"]["code"] == "auth_unavailable", kw
             assert c.post("/habitats", json=HABITAT).status_code == 503
             assert c.post("/auth/login", json=ADMIN).status_code == 503
-            assert c.get("/auth/me").json() == {"auth_enabled": True, "authenticated": False, "username": None}
+            assert c.post("/auth/signup", json={"username": "user1", "nickname": "닉네임",
+                                                "password": "password123"}).status_code == 503
+            assert c.get("/auth/me").json() == {"auth_enabled": True, "authenticated": False, "user": None,
+                                                "signup_enabled": False}
 
 
 def test_non_ascii_cookie_is_rejected_not_500(client):
     for raw in ("kkomul_session=\xe9.x", "kkomul_session=\xff\xfe", "kkomul_session=" + "a" * 3000 + ".b"):
         headers = {"cookie": raw.encode("latin-1")}
-        assert client.get("/species", headers=headers).status_code == 401
+        assert client.get(PROTECTED, headers=headers).status_code == 401
         assert client.get("/auth/me", headers=headers).json()["authenticated"] is False
 
 
@@ -256,10 +289,10 @@ def test_protected_responses_are_not_shared_cached(client):
 
 def test_password_rotation_invalidates_sessions(tmp_path):
     s = settings(tmp_path)
-    token = issue_token("admin", signing_key(s), 3600)
+    token = admin_token(s)
     with TestClient(create_app(settings(tmp_path, admin_password="a brand new password"))) as c:
         c.cookies.set(COOKIE_NAME, token)
-        assert c.get("/species").status_code == 401
+        assert c.get(PROTECTED).status_code == 401
 
 
 def test_exp_must_be_integer():
@@ -329,9 +362,9 @@ def test_logout_rejects_cross_site_forms(client):
         r = client.post("/auth/logout", headers=headers, content=b"")
         assert r.status_code == 403 and r.json()["detail"]["code"] == "cross_site_request", headers
         assert COOKIE_NAME not in r.headers.get("set-cookie", "")
-        assert client.get("/species").status_code == 200  # 세션 유지
+        assert client.get(PROTECTED).status_code == 200  # 세션 유지
     r = client.post("/auth/logout", json={}, headers={"sec-fetch-site": "same-origin"})
-    assert r.status_code == 200 and client.get("/species").status_code == 401
+    assert r.status_code == 200 and client.get(PROTECTED).status_code == 401
 
 
 def test_admin_username_whitespace_is_stripped(tmp_path):

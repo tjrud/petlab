@@ -62,6 +62,16 @@ class Settings(BaseSettings):
     session_ttl_hours: float = Field(default=24.0, gt=0, le=720)  # 최대 30일
     # 세션 쿠키 Secure 속성. 비우면 요청 scheme(https)으로 판단하고, 컨테이너 이미지는 1 로 고정한다.
     cookie_secure: bool | None = None
+    # 회원
+    signup_enabled: bool = True
+    signup_per_ip_per_hour: int = Field(default=5, ge=0, le=1000)
+    # 설계(LLM 호출) 사용량 상한: 회원 1명당 최근 24시간, 서비스 전체 최근 24시간 (관리자는 제외)
+    design_daily_limit: int = Field(default=20, ge=0, le=10_000)
+    design_global_daily_limit: int = Field(default=300, ge=0, le=1_000_000)
+    # 커뮤니티 도배 방지: 회원 1명당 최근 24시간
+    post_daily_limit: int = Field(default=20, ge=0, le=10_000)
+    comment_daily_limit: int = Field(default=100, ge=0, le=100_000)
+
     # 로그인 시도 제한에 쓸 클라이언트 IP 헤더 (플랫폼이 덮어써 위조할 수 없는 헤더만. 예: x-vercel-forwarded-for)
     client_ip_header: str | None = None
 

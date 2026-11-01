@@ -5,26 +5,28 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import DataError
 
 from app.api import auth as auth_api
-from app.api import designs, habitats, meta, waitlist
+from app.api import community, designs, habitats, me, meta, waitlist
 from app.auth import (
     AuthRequiredError,
     AuthUnavailableError,
     LoginRateLimiter,
-    require_admin,
+    ensure_admin_user,
 )
 from app.config import Settings, get_settings
 from app.db import init_db, is_ephemeral_database, make_engine, make_session_factory
+from app.errors import AppError
 from app.llm.base import Interpreter, LLMConfigError, LLMError
 from app.llm.interpreter import make_interpreter
 from app.rules.loader import load_rules
 from app.services.design_service import (
+    DesignLimits,
     DesignService,
     ExportBlockedError,
     InvalidInputError,
@@ -43,13 +45,16 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
         # 규칙 파일이 잘못되면 여기서 예외가 나며 서버가 기동하지 않는다.
         rules = load_rules(settings.rules_dir)
         engine = make_engine(settings.database_url)
-        init_db(engine)
+        added = init_db(engine)
+        if added:
+            log.warning("DB 마이그레이션: 열 추가 %s", ", ".join(added))
 
         app.state.settings = settings
         app.state.rules = rules
         app.state.session_factory = make_session_factory(engine)
         app.state.llm_config_error = None
         app.state.login_limiter = LoginRateLimiter()
+        app.state.signup_limiter = LoginRateLimiter(max_failures=settings.signup_per_ip_per_hour, window_s=3600.0)
         if settings.auth_mode == "misconfigured":
             # 비밀값은 기록하지 않는다. API 는 503 으로 막힌 채 기동한다 (인증을 끄지 않음)
             log.error("관리자 인증 설정 오류로 API 를 막습니다: %s", "; ".join(settings.auth_problems))
@@ -77,7 +82,16 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
                 raise app.state.llm_config_error
             return resolved
 
-        app.state.design_service = DesignService(rules, get_interpreter, settings.mesh_cache_dir)
+        app.state.design_service = DesignService(
+            rules, get_interpreter, settings.mesh_cache_dir,
+            DesignLimits(per_user=settings.design_daily_limit, global_=settings.design_global_daily_limit),
+        )
+        if settings.auth_mode == "enabled":
+            db = app.state.session_factory()
+            try:
+                ensure_admin_user(db, settings)  # 관리자 계정 행 (글·설계의 소유자로 쓰인다)
+            finally:
+                db.close()
         yield
         engine.dispose()
 
@@ -123,6 +137,10 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
         return JSONResponse(status_code=e.status_code,
                             content={"detail": {"code": type(e).__name__, "message_ko": e.user_message_ko}})
 
+    @app.exception_handler(AppError)
+    async def _app_error(_: Request, e: AppError):
+        return JSONResponse(status_code=e.status_code, content={"detail": {"code": e.code, "message_ko": e.message_ko}})
+
     @app.exception_handler(AuthRequiredError)
     async def _auth_required(_: Request, e: AuthRequiredError):
         return JSONResponse(status_code=401, content={"detail": {"code": "auth_required", "message_ko": e.message_ko}})
@@ -158,11 +176,12 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
         }})
 
     # 응답의 mesh_url 등은 API 루트 기준 경로(/designs/...)이고, 프론트엔드가 API_BASE(/api)를 앞에 붙인다.
-    # 공개: 상태 확인, 로그인. 그 밖의 API 는 관리자 로그인 필요 (인증이 꺼져 있으면 통과)
-    app.include_router(meta.router, prefix=prefix)
-    app.include_router(auth_api.router, prefix=prefix)
-    for router in (habitats.router, designs.router, waitlist.router):
-        app.include_router(router, prefix=prefix, dependencies=[Depends(require_admin)])
+    # 권한은 엔드포인트마다 의존성으로 정한다:
+    #  - 누구나: 상태 확인, 종 목록, 회원가입·로그인, 커뮤니티 읽기, 공유된 설계 보기
+    #  - 회원: 설계 만들기·수정·내역, 내 정보·반려동물, 글·댓글 쓰기, 제작 신청
+    for router in (meta.router, auth_api.router, me.router, habitats.router, designs.router, community.router,
+                   waitlist.router):
+        app.include_router(router, prefix=prefix)
     return app
 
 

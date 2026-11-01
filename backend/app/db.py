@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
@@ -75,16 +75,49 @@ def make_session_factory(engine: Engine) -> sessionmaker[Session]:
     return sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
 
-def init_db(engine: Engine) -> None:
+# 기존 DB(이미 만들어진 테이블)에 나중에 추가한 열. create_all 은 기존 테이블을 바꾸지 않으므로 직접 추가한다.
+# 모두 NULL 허용이라 이전 버전 코드가 같은 DB 를 써도 문제가 없다 (추가만 하고 지우거나 바꾸지 않는다).
+MIGRATION_COLUMNS: list[tuple[str, str, str]] = [
+    ("habitats", "owner_id", "VARCHAR(32)"),
+    ("habitats", "pet_id", "VARCHAR(32)"),
+    ("designs", "owner_id", "VARCHAR(32)"),
+    ("designs", "title", "VARCHAR(80)"),
+    ("design_versions", "created_by", "VARCHAR(32)"),
+]
+MIGRATION_INDEXES: list[tuple[str, str, str]] = [
+    ("ix_habitats_owner_id", "habitats", "owner_id"),
+    ("ix_designs_owner_id", "designs", "owner_id"),
+    ("ix_design_versions_created_by", "design_versions", "created_by"),
+    ("ix_design_versions_created_at", "design_versions", "created_at"),
+]
+
+
+def _migrate(conn) -> list[str]:
+    """빠진 열·인덱스를 추가한다. 추가한 항목 이름을 돌려준다 (멱등)."""
+    insp = inspect(conn)
+    added = []
+    tables = set(insp.get_table_names())
+    for table, column, ddl in MIGRATION_COLUMNS:
+        if table in tables and column not in {c["name"] for c in insp.get_columns(table)}:
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
+            added.append(f"{table}.{column}")
+    for name, table, column in MIGRATION_INDEXES:
+        conn.execute(text(f"CREATE INDEX IF NOT EXISTS {name} ON {table} ({column})"))
+    return added
+
+
+def init_db(engine: Engine) -> list[str]:
     from app import models  # noqa: F401 - 테이블 등록
 
     if engine.dialect.name == "postgresql":
-        # 여러 인스턴스가 동시에 기동해도 CREATE TABLE 이 충돌하지 않도록 직렬화
+        # 여러 인스턴스가 동시에 기동해도 CREATE TABLE/ALTER TABLE 이 충돌하지 않도록 직렬화
         with engine.begin() as conn:
             conn.execute(text("SELECT pg_advisory_xact_lock(727274)"))
             Base.metadata.create_all(conn)
-    else:
-        Base.metadata.create_all(engine)
+            return _migrate(conn)
+    with engine.begin() as conn:
+        Base.metadata.create_all(conn)
+        return _migrate(conn)
 
 
 def session_scope(factory: sessionmaker[Session]) -> Iterator[Session]:
