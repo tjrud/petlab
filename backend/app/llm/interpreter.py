@@ -22,4 +22,5 @@ def make_interpreter(settings: Settings) -> Interpreter:
         model=settings.anthropic_model,
         max_retries=settings.llm_max_retries,
         timeout_s=settings.llm_timeout_s,
+        deadline_s=settings.llm_deadline_s,
     )

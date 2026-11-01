@@ -26,8 +26,12 @@ class Settings(BaseSettings):
     llm_provider: Literal["auto", "anthropic", "mock"] = "auto"
     llm_max_retries: int = 2
     llm_timeout_s: float = 60.0
+    # 설계 요청 1건에서 LLM 에 쓰는 전체 시간 상한(초). 배포 플랫폼 요청 한도보다 작게 (Vercel Hobby: 300초)
+    llm_deadline_s: float = 240.0
 
     # 저장소
+    # 로컬 디스크가 인스턴스마다 사라지는 환경인지 (컨테이너 이미지에서 1). 이때 SQLite 는 임시 저장소로 표시된다.
+    ephemeral_filesystem: bool = False
     database_url: str = f"sqlite:///{BACKEND_DIR / 'data' / 'kkomul.db'}"
     mesh_cache_dir: Path = BACKEND_DIR / "data" / "meshes"
 

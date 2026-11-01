@@ -9,6 +9,7 @@ from __future__ import annotations
 import copy
 import logging
 import os
+import re
 import threading
 import uuid
 from collections.abc import Callable
@@ -59,6 +60,17 @@ class ExportBlockedError(RuntimeError):
         self.errors = errors
 
 
+_ID_RE = re.compile(r"[0-9a-f]{32}")
+
+
+class MeshRegenerationError(RuntimeError):
+    """저장된 파라미터로 메시를 다시 만들 수 없을 때 (템플릿 변경 등)."""
+
+    def __init__(self, message_ko: str):
+        super().__init__(message_ko)
+        self.message_ko = message_ko
+
+
 def _atomic_export(mesh: trimesh.Trimesh, path: Path) -> None:
     """임시 파일에 쓴 뒤 os.replace 로 바꿔 끼운다. 동시에 읽는 요청이 반쯤 쓰인 파일을 받지 않게 한다."""
     tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
@@ -99,7 +111,7 @@ class DesignService:
         return h
 
     def get_habitat(self, db: Session, habitat_id: str) -> Habitat:
-        h = db.get(Habitat, habitat_id)
+        h = db.get(Habitat, habitat_id) if _ID_RE.fullmatch(habitat_id) else None
         if h is None:
             raise NotFoundError("사육 환경을 찾을 수 없습니다.")
         return h
@@ -224,7 +236,7 @@ class DesignService:
     # ── 조회 ────────────────────────────────────────────────
 
     def get_design(self, db: Session, design_id: str) -> Design:
-        d = db.get(Design, design_id)
+        d = db.get(Design, design_id) if _ID_RE.fullmatch(design_id) else None
         if d is None:
             raise NotFoundError("설계를 찾을 수 없습니다.")
         return d
@@ -301,9 +313,15 @@ class DesignService:
             if todo:
                 d.mkdir(parents=True, exist_ok=True)
                 for it in todo:
-                    t = get_template(it["template"])
-                    built = build_item(it["index"], t, t.Params.model_validate(it["params"]), PlacementHint(),
-                                       self.rules.printing)
+                    try:
+                        t = get_template(it["template"])
+                        built = build_item(it["index"], t, t.Params.model_validate(it["params"]), PlacementHint(),
+                                           self.rules.printing)
+                    except Exception as e:  # 템플릿 삭제·파라미터 스키마 변경·형상 커널 오류
+                        log.exception("mesh regeneration failed: design=%s v=%s item=%s", design.id, v.version, it)
+                        raise MeshRegenerationError(
+                            "이 설계 버전의 형상을 다시 만들 수 없어요. 같은 요청으로 새 버전을 만들어 주세요."
+                        ) from e
                     _atomic_export(built.print_mesh, d / f"print_{it['index']}.stl")
                     if it["placement"]:
                         built.placement = Placement(**it["placement"])

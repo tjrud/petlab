@@ -22,6 +22,16 @@ def normalize_database_url(url: str) -> str:
     return url
 
 
+def is_ephemeral_database(database_url: str, ephemeral_filesystem: bool = False) -> bool:
+    """데이터가 유지되지 않는 저장소인지. 메모리 DB 는 항상, SQLite 파일은 로컬 디스크가 휘발성인
+    환경(컨테이너 이미지가 EPHEMERAL_FILESYSTEM=1 로 표시)에서만 해당한다. 배포 환경 경고 표시에 쓴다."""
+    url = normalize_database_url(database_url)
+    if not url.startswith("sqlite"):
+        return False
+    path = url.split("///", 1)[1] if "///" in url else ""
+    return path in ("", ":memory:") or ephemeral_filesystem
+
+
 def make_engine(database_url: str) -> Engine:
     url = normalize_database_url(database_url)
     if url.startswith("sqlite"):

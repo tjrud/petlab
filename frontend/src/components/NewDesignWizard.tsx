@@ -126,6 +126,12 @@ export default function NewDesignWizard() {
       </ol>
 
       {metaError && <p className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{metaError}</p>}
+      {meta && !meta.storage_persistent && (
+        <p role="status" className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
+          ⚠️ 지금은 임시 저장소로 운영 중이에요. 만든 설계가 잠시 뒤 사라지거나 다시 열리지 않을 수 있으니, 필요한 파일은 바로
+          내려받아 주세요.
+        </p>
+      )}
 
       {step === 1 && (
         <section aria-labelledby="habitat-title" className="space-y-6">

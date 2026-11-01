@@ -96,3 +96,135 @@ def test_concurrent_mesh_requests_after_cache_wipe(tmp_path):
         # 임시 파일이 남지 않는다
         leftovers = list((tmp_path / "meshes").rglob("*.tmp"))
         assert leftovers == []
+
+
+# ── LLM 전체 시간 상한 (Vercel Hobby 300초) ─────────────────
+
+
+class _Clock:
+    def __init__(self):
+        self.t = 0.0
+
+    def __call__(self):
+        return self.t
+
+
+def _slow_invalid_client(clock, seconds_per_call):
+    """호출마다 시간이 흐르고 스키마 위반 응답을 주는 가짜 클라이언트."""
+    import json
+    from types import SimpleNamespace
+
+    calls = []
+
+    def create(**kw):
+        calls.append(kw)
+        clock.t += seconds_per_call
+        bad = {"summary_ko": "x", "items": [], "notes_ko": []}
+        return SimpleNamespace(stop_reason="end_turn", stop_details=None,
+                               content=[SimpleNamespace(type="text", text=json.dumps(bad))])
+
+    return SimpleNamespace(messages=SimpleNamespace(create=create)), calls
+
+
+def _req(rules):
+    from app.domain import Cage
+    from app.llm.base import HabitatInfo, InterpretRequest
+
+    return InterpretRequest(
+        prompt="은신처", habitat=HabitatInfo("hamster", "햄스터", "syrian", 1, Cage(600, 400, 300)),
+        size_rules=rules.size_rules("hamster", "syrian"), min_wall_mm=rules.min_wall_for("hamster", "syrian"),
+    )
+
+
+def test_llm_stops_retrying_at_deadline(rules):
+    from app.llm.anthropic_client import AnthropicInterpreter
+    from app.llm.base import LLMSchemaError
+
+    clock = _Clock()
+    client, calls = _slow_invalid_client(clock, seconds_per_call=100)
+    interp = AnthropicInterpreter(client, "m", max_retries=5, timeout_s=60, deadline_s=240, clock=clock)
+    with pytest.raises(LLMSchemaError):
+        interp.interpret(_req(rules))
+    # 0s, 100s, 200s 에 시작 → 남은 시간 40s 에서 세 번째 시도, 300s 시점엔 시작하지 않음
+    assert len(calls) == 3
+    assert clock.t <= 300
+    # SDK 재시도까지 포함해 남은 시간을 넘지 않도록 시도당 타임아웃이 줄어든다
+    assert calls[0]["timeout"] == 60
+    assert calls[2]["timeout"] == pytest.approx(20)
+
+
+def test_llm_deadline_already_spent_is_unavailable(rules):
+    from app.llm.anthropic_client import AnthropicInterpreter
+    from app.llm.base import LLMUnavailableError
+
+    clock = _Clock()
+    client, calls = _slow_invalid_client(clock, seconds_per_call=1)
+    interp = AnthropicInterpreter(client, "m", deadline_s=10, clock=clock)
+    with pytest.raises(LLMUnavailableError):
+        interp.interpret(_req(rules))
+    assert calls == []
+
+
+# ── Postgres 가 거부하는 입력은 입력 단계에서 422 / 404 ───────
+
+
+def test_invalid_inputs_rejected_before_db(tmp_path):
+    with TestClient(create_app(settings(tmp_path))) as c:
+        hid = c.post("/habitats", json={"species": "hamster", "size": "syrian", "count": 1, "cage": CAGE}).json()["id"]
+        assert c.post("/designs", json={"habitat_id": hid, "prompt": "은신처\x00"}).status_code == 422
+        assert c.post("/designs", json={"habitat_id": "not-an-id", "prompt": "은신처"}).status_code == 422
+        d = c.post("/designs", json={"habitat_id": hid, "prompt": "은신처"}).json()
+        assert c.get(f"/designs/{d['id']}?version={2**40}").status_code == 422
+        assert c.post(f"/designs/{d['id']}/revise", json={"prompt": "더 크게", "base_version": 2**40}).status_code == 422
+        assert c.get("/designs/abc%00def").status_code == 404
+        assert c.get(f"/designs/{d['id']}/versions/{2**40}/parts/0.stl").status_code == 422
+        r = c.post("/waitlist", json={"email": "a@example.com", "design_id": d["id"], "version": 2**40})
+        assert r.status_code == 422
+
+
+# ── 임시 저장소 표시 ────────────────────────────────────────
+
+
+@pytest.mark.parametrize("url,fs,ephemeral", [
+    ("sqlite:////tmp/kkomul.db", True, True),
+    ("sqlite:////tmp/kkomul.db", False, False),
+    ("sqlite://", False, True),
+    ("sqlite:///:memory:", False, True),
+    ("sqlite:////home/user/petlab/backend/data/kkomul.db", False, False),
+    ("postgres://u:p@h/db", True, False),
+])
+def test_is_ephemeral_database(url, fs, ephemeral):
+    from app.db import is_ephemeral_database
+
+    assert is_ephemeral_database(url, fs) is ephemeral
+
+
+def test_health_reports_ephemeral_storage(tmp_path):
+    s = settings(tmp_path, ephemeral_filesystem=True)
+    with TestClient(create_app(s)) as c:
+        h = c.get("/health").json()
+        assert h["database"] == {"dialect": "sqlite", "persistent": False}
+        assert c.get("/species").json()["storage_persistent"] is False
+    with TestClient(create_app(settings(tmp_path))) as c:
+        assert c.get("/health").json()["database"]["persistent"] is True
+
+
+# ── 메시 재생성 실패 → 409 ──────────────────────────────────
+
+
+def test_mesh_regeneration_failure_is_409(tmp_path):
+    from app.models import DesignVersion
+
+    with TestClient(create_app(settings(tmp_path))) as c:
+        hid = c.post("/habitats", json={"species": "hamster", "size": "syrian", "count": 1, "cage": CAGE}).json()["id"]
+        d = c.post("/designs", json={"habitat_id": hid, "prompt": "은신처"}).json()
+        # 템플릿이 바뀌어 저장된 파라미터가 더 이상 유효하지 않은 상황을 만든다
+        with c.app.state.session_factory() as db:
+            v = db.query(DesignVersion).one()
+            items = [dict(it, params={**it["params"], "width_mm": -1}) for it in v.items]
+            v.items = items
+            db.commit()
+        shutil.rmtree(tmp_path / "meshes", ignore_errors=True)
+        r = c.get(d["current"]["items"][0]["mesh_url"])
+        assert r.status_code == 409 and r.json()["detail"]["code"] == "mesh_unavailable"
+        assert c.get(f"/designs/{d['id']}/export?format=stl").status_code == 409

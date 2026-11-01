@@ -14,6 +14,7 @@ export type SpeciesOption = { key: string; display_name: string; sizes: SizeOpti
 export type SpeciesResponse = {
   rules_reviewed: boolean;
   llm_provider: "anthropic" | "mock";
+  storage_persistent: boolean;
   species: SpeciesOption[];
 };
 

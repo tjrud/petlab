@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Literal
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Path, Query, status
 from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 
@@ -29,7 +29,7 @@ def revise_design(design_id: str, data: DesignReviseIn, db: Session = Depends(ge
 
 
 @router.get("/{design_id}", response_model=DesignOut, summary="설계 조회 (버전 지정 가능)")
-def get_design(design_id: str, version: int | None = Query(default=None, ge=1),
+def get_design(design_id: str, version: int | None = Query(default=None, ge=1, le=2**31 - 1),
                db: Session = Depends(get_db), svc: DesignService = Depends(get_service)):
     design = svc.get_design(db, design_id)
     return svc.design_out(design, svc.get_version(db, design, version))
@@ -37,15 +37,15 @@ def get_design(design_id: str, version: int | None = Query(default=None, ge=1),
 
 @router.get("/{design_id}/versions/{version}/parts/{index}.stl", summary="뷰어용 구조물 메시 (케이지 좌표계)",
             response_class=FileResponse)
-def part_mesh(design_id: str, version: int, index: int, db: Session = Depends(get_db),
+def part_mesh(design_id: str, version: int = Path(ge=1, le=2**31 - 1), index: int = Path(ge=0, le=1000), *, db: Session = Depends(get_db),
               svc: DesignService = Depends(get_service)):
     path = svc.part_mesh_path(db, design_id, version, index)
-    return FileResponse(path, media_type="model/stl", headers={"Cache-Control": "public, max-age=31536000, immutable"})
+    return FileResponse(path, media_type="model/stl", headers={"Cache-Control": "public, max-age=86400"})
 
 
 @router.get("/{design_id}/export", summary="3D 프린팅 파일 내려받기 (STL / 3MF)")
 def export_design(design_id: str, format: Literal["stl", "3mf"] = Query(default="stl"),
-                  version: int | None = Query(default=None, ge=1),
+                  version: int | None = Query(default=None, ge=1, le=2**31 - 1),
                   db: Session = Depends(get_db), svc: DesignService = Depends(get_service)):
     f = svc.export(db, design_id, version, format)
     return Response(

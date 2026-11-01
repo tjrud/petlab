@@ -4,7 +4,24 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from typing import Annotated
+
+from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field
+
+# DB 에 저장되는 값의 형식 (Postgres 는 NUL 문자·int4 범위를 넘는 정수를 거부하므로 입력 단계에서 막는다)
+ID_PATTERN = r"^[0-9a-f]{32}$"
+MAX_INT4 = 2**31 - 1
+EntityId = Annotated[str, Field(pattern=ID_PATTERN)]
+VersionNo = Annotated[int, Field(ge=1, le=MAX_INT4)]
+
+
+def _no_nul(v: str) -> str:
+    if "\x00" in v:
+        raise ValueError("문자열에 허용되지 않는 문자(NUL)가 있습니다")
+    return v
+
+
+Prompt = Annotated[str, Field(min_length=1, max_length=2000), AfterValidator(_no_nul)]
 
 
 class CageIn(BaseModel):
@@ -38,15 +55,15 @@ class HabitatOut(BaseModel):
 class DesignCreateIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    habitat_id: str
-    prompt: str = Field(min_length=1, max_length=2000)
+    habitat_id: EntityId
+    prompt: Prompt
 
 
 class DesignReviseIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    prompt: str = Field(min_length=1, max_length=2000)
-    base_version: int | None = Field(default=None, description="수정의 기준 버전 (기본: 최신)")
+    prompt: Prompt
+    base_version: VersionNo | None = Field(default=None, description="수정의 기준 버전 (기본: 최신)")
 
 
 class PlacementOut(BaseModel):
@@ -98,8 +115,8 @@ class WaitlistIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     email: EmailStr
-    design_id: str | None = None
-    version: int | None = None
+    design_id: EntityId | None = None
+    version: VersionNo | None = None
 
 
 class WaitlistOut(BaseModel):

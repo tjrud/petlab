@@ -13,6 +13,10 @@ def health(request: Request) -> dict:
         "status": "ok",
         "llm_provider": settings.resolved_llm_provider,
         "llm_ready": request.app.state.llm_config_error is None,
+        "database": {
+            "dialect": request.app.state.db_dialect,
+            "persistent": not request.app.state.db_ephemeral,
+        },
         "rules": {
             "species_version": rules.species_file.version,
             "species_reviewed": rules.species_file.reviewed,
@@ -27,6 +31,7 @@ def species(request: Request) -> dict:
     return {
         "rules_reviewed": rules.species_file.reviewed,
         "llm_provider": request.app.state.settings.resolved_llm_provider,
+        "storage_persistent": not request.app.state.db_ephemeral,
         "species": [
             {
                 "key": key,

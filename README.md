@@ -168,12 +168,15 @@ LLM은 아래 템플릿 중에서 고르고 파라미터 값만 정합니다. �
 
 | 변수 | 값 | 비고 |
 |---|---|---|
-| `NEXT_PUBLIC_API_BASE_URL` | `/api` | 프론트엔드 빌드 시 반영 |
-| `API_PREFIX` | `/api` | 백엔드 라우트 접두사 |
+| `NEXT_PUBLIC_API_BASE_URL` | `/api` | 프론트엔드 빌드 시 반영. Vercel 빌드에서는 지정하지 않아도 `/api`가 기본값 |
+| `API_PREFIX` | `/api` | 백엔드 라우트 접두사. 컨테이너 이미지 기본값이 `/api` |
+| `LLM_DEADLINE_S` | `240` | 설계 1건에서 LLM에 쓰는 전체 시간 상한(초). Hobby 요청 한도 300초보다 작게 |
 | `LLM_PROVIDER` | `auto` | 키가 없으면 모의 해석기로 동작 |
 | `ANTHROPIC_MODEL` | 사용할 Claude 모델 ID | |
 | `ANTHROPIC_API_KEY` | (직접 입력) | **Sensitive**로 등록하세요 |
-| `DATABASE_URL` | Neon 연결 시 자동 주입 | 없으면 `/tmp` SQLite (데이터 유지 안 됨) |
+| `DATABASE_URL` | Neon 연결 시 자동 주입 | 없으면 `/tmp` SQLite입니다. 데이터가 유지되지 않고, 인스턴스마다 데이터가 달라 설계를 못 찾는(404) 일이 생길 수 있습니다. `/api/health`의 `database.persistent`와 화면 안내로 표시됩니다. |
+
+환경변수는 Production과 Preview에 모두 설정하세요.
 
 ### Neon Postgres 연결
 
@@ -193,8 +196,10 @@ LLM은 아래 템플릿 중에서 고르고 파라미터 값만 정합니다. �
 
 ```bash
 docker build -t kkomul-backend backend/
-docker run -p 8000:8000 -e PORT=8000 kkomul-backend
+docker run -p 8000:8000 -e PORT=8000 kkomul-backend   # http://localhost:8000/api/health
 ```
+
+이미지는 기본으로 `/api` 접두사를 씁니다. 로컬 프론트엔드(`http://localhost:8000`)와 바로 연결하려면 `-e API_PREFIX=`를 추가하세요.
 
 ## 규칙 파일 교체 (전문가 검수 반영)
 

@@ -196,7 +196,8 @@ def test_waitlist(client):
     r = client.post("/waitlist", json={"email": "user@example.com", "design_id": d["id"], "version": 1})
     assert r.status_code == 201 and r.json()["ok"]
     assert client.post("/waitlist", json={"email": "not-an-email"}).status_code == 422
-    assert client.post("/waitlist", json={"email": "a@example.com", "design_id": "nope"}).status_code == 404
+    assert client.post("/waitlist", json={"email": "a@example.com", "design_id": "nope"}).status_code == 422
+    assert client.post("/waitlist", json={"email": "a@example.com", "design_id": "0" * 32}).status_code == 404
     assert client.post("/waitlist", json={"email": "a@example.com", "design_id": d["id"], "version": 7}).status_code == 404
 
 
