@@ -238,6 +238,9 @@ def test_mock_revision_keeps_and_changes(req):
 
 def test_mock_output_runs_through_engine(req, rules):
     spec = _mock(req, "은신처를 오른쪽 구석에 넣고 싶어요")
+    assert spec.items[0].placement.zone == "back_right"
     ctx = EngineContext(CAGE, "hamster", "syrian", 1, rules)
     res = run_engine(to_item_specs(spec), ctx)
     assert res.report.passed, res.report.errors
+    p = res.items[0].placement
+    assert p.x_mm > CAGE.width_mm / 2 and p.y_mm > CAGE.depth_mm / 2

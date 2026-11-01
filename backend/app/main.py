@@ -2,24 +2,61 @@
 
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
+from app.api import designs, habitats, meta, waitlist
 from app.config import Settings, get_settings
+from app.db import init_db, make_engine, make_session_factory
+from app.llm.base import Interpreter, LLMConfigError, LLMError
+from app.llm.interpreter import make_interpreter
 from app.rules.loader import load_rules
+from app.services.design_service import (
+    DesignService,
+    ExportBlockedError,
+    InvalidInputError,
+    NotFoundError,
+)
+
+log = logging.getLogger(__name__)
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, interpreter: Interpreter | None = None) -> FastAPI:
     settings = settings or get_settings()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         # 규칙 파일이 잘못되면 여기서 예외가 나며 서버가 기동하지 않는다.
+        rules = load_rules(settings.rules_dir)
+        engine = make_engine(settings.database_url)
+        init_db(engine)
+
         app.state.settings = settings
-        app.state.rules = load_rules(settings.rules_dir)
+        app.state.rules = rules
+        app.state.session_factory = make_session_factory(engine)
+        app.state.llm_config_error = None
+
+        resolved: Interpreter | None = interpreter
+        if resolved is None:
+            try:
+                resolved = make_interpreter(settings)
+            except LLMConfigError as e:
+                # 설정 오류가 있어도 서버는 뜨게 하고, 설계 요청 시 안내한다.
+                log.error("LLM 설정 오류: %s", e.detail)
+                app.state.llm_config_error = e
+
+        def get_interpreter() -> Interpreter:
+            if resolved is None:
+                raise app.state.llm_config_error
+            return resolved
+
+        app.state.design_service = DesignService(rules, get_interpreter, settings.mesh_cache_dir)
         yield
+        engine.dispose()
 
     app = FastAPI(title="꼬물공방 API", version="0.1.0", lifespan=lifespan)
     app.add_middleware(
@@ -30,19 +67,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         expose_headers=["Content-Disposition"],
     )
 
-    @app.get("/health")
-    def health(request: Request) -> dict:
-        rules = request.app.state.rules
-        return {
-            "status": "ok",
-            "llm_provider": settings.resolved_llm_provider,
-            "rules": {
-                "species_version": rules.species_file.version,
-                "species_reviewed": rules.species_file.reviewed,
-                "printing_version": rules.printing.version,
-            },
-        }
+    @app.exception_handler(LLMError)
+    async def _llm_error(_: Request, e: LLMError):
+        log.warning("LLM 오류 (%s): %s", type(e).__name__, e.detail)
+        return JSONResponse(status_code=e.status_code,
+                            content={"detail": {"code": type(e).__name__, "message_ko": e.user_message_ko}})
 
+    @app.exception_handler(NotFoundError)
+    async def _not_found(_: Request, e: NotFoundError):
+        return JSONResponse(status_code=404, content={"detail": {"code": "not_found", "message_ko": e.message_ko}})
+
+    @app.exception_handler(InvalidInputError)
+    async def _invalid(_: Request, e: InvalidInputError):
+        return JSONResponse(status_code=422, content={"detail": {"code": "invalid_input", "message_ko": e.message_ko}})
+
+    @app.exception_handler(ExportBlockedError)
+    async def _blocked(_: Request, e: ExportBlockedError):
+        return JSONResponse(status_code=409, content={"detail": {
+            "code": "validation_failed", "message_ko": e.message_ko, "errors": e.errors,
+        }})
+
+    app.include_router(meta.router)
+    app.include_router(habitats.router)
+    app.include_router(designs.router)
+    app.include_router(waitlist.router)
     return app
 
 

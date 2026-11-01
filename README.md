@@ -78,6 +78,41 @@ cd backend && uv run pytest -m live      # 실제 Anthropic API 호출 테스트
 cd frontend && npm run build             # 프론트엔드 타입 검사 + 빌드
 ```
 
+## API
+
+백엔드 실행 후 http://localhost:8000/docs 에서 전체 스키마를 볼 수 있습니다.
+
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| POST | `/habitats` | 사육 환경 등록 (종, 크기, 마릿수, 케이지 내부 치수 mm) |
+| GET | `/habitats/{id}` | 사육 환경 조회 |
+| POST | `/designs` | 프롬프트로 설계 생성 → 버전 1 |
+| POST | `/designs/{id}/revise` | 추가 프롬프트로 수정 → 새 버전 (이전 버전 유지, `base_version` 지정 가능) |
+| GET | `/designs/{id}?version=` | 설계 조회 (버전 목록, 항목·배치, 검증 보고서) |
+| GET | `/designs/{id}/export?format=stl\|3mf&version=` | 3D 프린팅 파일. STL은 파트가 여럿이면 zip입니다. 검증 오류가 있으면 409를 반환합니다. |
+| GET | `/designs/{id}/versions/{v}/parts/{i}.stl` | 뷰어용 메시 (케이지 좌표계, mm, Z-up) |
+| GET | `/species` | 등록 가능한 종·크기 (규칙 파일 기준) |
+| POST | `/waitlist` | 제작·배송 신청 대기 등록 (이메일) |
+| GET | `/health` | 상태, LLM 공급자, 규칙 파일 버전·검수 여부 |
+
+오류 응답은 `{"detail": {"code": ..., "message_ko": ...}}` 형식이며, `message_ko`는 사용자에게 그대로 보여줄 수 있습니다.
+
+### 설계 파이프라인
+
+1. **LLM 해석**: 구조화 출력(JSON Schema)으로 템플릿, 파라미터, 배치 힌트, 설명을 받습니다.
+   - pydantic으로 다시 엄격하게 검증합니다.
+   - 위반하면 오류를 알려 최대 `LLM_MAX_RETRIES`회 재시도하고, 그래도 실패하면 사용자에게 안내합니다.
+2. **파라미터 자동 보정**: 종 규칙과 템플릿 상호 제약에 맞게 값을 클램프합니다. 보정 내역은 `param_adjusted`로 표시됩니다.
+3. **형상 생성**: build123d 파라메트릭 템플릿으로 만들고 trimesh 메시로 변환합니다.
+4. **배치**: zone·group 힌트를 바탕으로 결정적 배치기가 좌표를 계산합니다. 공간이 부족하면 크기를 줄입니다(`resized_to_fit`).
+5. **자동 검증**: 다음 항목을 검사합니다.
+   - 케이지 적합, 겹침, 끼임 틈새(구조물·벽·천장), 출입구 막힘
+   - 개구부 크기, 벽 두께(설계값 + 메시 측정), 오버행(서포트 필요), 출력 공간, watertight, 마릿수
+
+검증 `error`가 남은 설계는 내려받을 수 없고, 사유가 사용자에게 표시됩니다. `warning`은 표시만 합니다.
+
+**알려진 한계:** 끼임 틈새는 구조물 사이 최소 거리로 판정합니다. 곡면 구조물과 벽 사이에 생기는 쐐기형 틈(점점 좁아지는 틈)은 정밀하게 판정하지 않습니다.
+
 ## 규칙 파일 교체 (전문가 검수 반영)
 
 `rules/species.yaml`과 `rules/printing.yaml`의 수치는 모두 **임시 기본값**입니다.
