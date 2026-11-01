@@ -60,7 +60,9 @@ class Opening:
     kind: Literal["passage", "vent"]
     size_mm: float
     label_ko: str
-    min_required_mm: float | None = None  # passage 에 적용할 종별 최소 크기 (없으면 gap_trap.passable_min)
+    # passage 의 최소 크기를 정하는 species.yaml 키 (예: "entrance_min_diameter_mm").
+    # 없으면 gap_trap.passable_min_mm 를 적용한다. 수치는 항상 규칙 파일에서 읽는다.
+    rule_key: str | None = None
 
 
 @dataclass(frozen=True)
@@ -89,6 +91,10 @@ class Template(ABC):
     display_name_ko: ClassVar[str]
     description_ko: ClassVar[str]  # LLM 카탈로그용 설명
     Params: ClassVar[type[TemplateParams]]
+    # 케이지 높이에 맞춰 제한할 높이 파라미터 (없으면 None)
+    height_field: ClassVar[str | None] = None
+    # 공간이 부족할 때 줄일 수 있는 크기 파라미터
+    size_fields: ClassVar[tuple[str, ...]] = ()
 
     def default_params(self, ctx: RuleContext | None = None) -> TemplateParams:
         return self.Params()

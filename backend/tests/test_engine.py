@@ -1,0 +1,82 @@
+"""엔진(파라미터 보정 → 형상 → 배치 → 공간 보정 → 검증) 통합 테스트."""
+
+from __future__ import annotations
+
+import pytest
+
+from app.domain import Cage, PlacementHint
+from app.services.engine import EngineContext, ItemSpec, run_engine
+
+
+def ctx(rules, cage=Cage(600, 400, 300), size="syrian", count=1):
+    return EngineContext(cage=cage, species="hamster", size=size, count=count, rules=rules)
+
+
+def by_code(report, code):
+    return [i for i in report.issues if i.code == code]
+
+
+def test_good_design_passes(rules):
+    spec = ItemSpec("hideout", dict(width_mm=200, depth_mm=150, height_mm=120,
+                                    entrance_diameter_mm=75, vent_count=6, vent_diameter_mm=5,
+                                    wall_thickness_mm=3), PlacementHint(zone="left"))
+    res = run_engine([spec], ctx(rules))
+    assert res.report.passed, res.report.issues
+    assert res.items[0].placement is not None
+
+
+def test_species_violations_are_auto_fixed(rules):
+    """드워프용 값(출입구 50, 환기구 8, 벽 1.2)을 시리안에 쓰면 규칙에 맞게 자동 보정된다."""
+    spec = ItemSpec("hideout", dict(entrance_diameter_mm=50, vent_diameter_mm=8, wall_thickness_mm=1.2))
+    res = run_engine([spec], ctx(rules))
+    fixed = {i.details["field"]: i.details["to"] for i in by_code(res.report, "param_adjusted")}
+    s = rules.size_rules("hamster", "syrian")
+    assert fixed["entrance_diameter_mm"] == s.entrance_min_diameter_mm
+    assert fixed["vent_diameter_mm"] == s.gap_trap.safe_max_mm
+    assert fixed["wall_thickness_mm"] == rules.min_wall_for("hamster", "syrian")
+    assert all(i.auto_fixed for i in by_code(res.report, "param_adjusted"))
+    assert res.report.passed, res.report.errors
+    p = res.items[0].params
+    assert p.height_mm >= p.entrance_diameter_mm + 2 * p.wall_thickness_mm  # 연쇄 보정
+
+
+def test_height_clamped_to_cage(rules):
+    cage = Cage(600, 400, 180)
+    res = run_engine([ItemSpec("hideout", dict(height_mm=200, entrance_diameter_mm=75))], ctx(rules, cage))
+    P = rules.size_rules("hamster", "syrian").gap_trap.passable_min_mm
+    assert res.items[0].params.height_mm == pytest.approx(cage.height_mm - P)
+    assert res.report.passed, res.report.errors
+
+
+def test_resized_to_fit_small_cage(rules):
+    cage = Cage(260, 230, 300)
+    spec = ItemSpec("hideout", dict(width_mm=300, depth_mm=250, height_mm=150, entrance_diameter_mm=75))
+    res = run_engine([spec], ctx(rules, cage))
+    assert by_code(res.report, "resized_to_fit")
+    assert res.items[0].placement is not None
+    assert res.report.passed, res.report.errors
+
+
+def test_impossible_cage_reports_error(rules):
+    cage = Cage(120, 120, 300)  # 시리안 은신처 + 출입구 앞 공간이 들어갈 수 없음
+    res = run_engine([ItemSpec("hideout", dict(entrance_diameter_mm=75))], ctx(rules, cage))
+    assert not res.report.passed
+    assert by_code(res.report, "cannot_place")
+
+
+def test_conflicting_constraints_reported(rules):
+    cage = Cage(600, 400, 130)  # 높이 한도 130-70=60 < 최소 높이 75+2*3=81
+    res = run_engine([ItemSpec("hideout", dict(entrance_diameter_mm=75))], ctx(rules, cage))
+    assert by_code(res.report, "param_conflict")
+    assert not res.report.passed
+
+
+def test_unknown_template_and_invalid_params(rules):
+    res = run_engine([ItemSpec("castle", {}), ItemSpec("hideout", {"width_mm": 5})], ctx(rules))
+    assert [i.code for i in res.report.errors][:2] == ["unknown_template", "invalid_params"]
+
+
+def test_count_warning_does_not_block(rules):
+    res = run_engine([ItemSpec("hideout", dict(entrance_diameter_mm=75))], ctx(rules, count=2))
+    assert by_code(res.report, "count_exceeds")
+    assert res.report.passed

@@ -93,6 +93,8 @@ class HideoutTemplate(Template):
         "가로·세로·높이, 출입구 폭, 환기구 개수·지름, 벽 두께를 정한다."
     )
     Params = HideoutParams
+    height_field = "height_mm"
+    size_fields = ("width_mm", "depth_mm", "height_mm")
 
     def constraints(self, p: HideoutParams, ctx: RuleContext) -> list[ParamConstraint]:
         s = ctx.size
@@ -166,7 +168,7 @@ class HideoutTemplate(Template):
 
     def features(self, p: HideoutParams) -> Features:
         openings = [
-            Opening("passage", p.entrance_diameter_mm, "출입구"),
+            Opening("passage", p.entrance_diameter_mm, "출입구", rule_key="entrance_min_diameter_mm"),
         ]
         if p.vent_count > 0:
             openings.append(Opening("vent", p.vent_diameter_mm, "환기구"))
