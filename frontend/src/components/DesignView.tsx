@@ -6,7 +6,9 @@ import { useEffect, useState } from "react";
 
 import DownloadPanel from "@/components/DownloadPanel";
 import ItemList from "@/components/ItemList";
+import RevisePanel from "@/components/RevisePanel";
 import ValidationPanel from "@/components/ValidationPanel";
+import VersionList from "@/components/VersionList";
 import { api, ApiError } from "@/lib/api";
 import type { Design } from "@/lib/types";
 
@@ -19,6 +21,8 @@ export default function DesignView({ id }: { id: string }) {
   const [design, setDesign] = useState<Design | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -34,6 +38,35 @@ export default function DesignView({ id }: { id: string }) {
       alive = false;
     };
   }, [id]);
+
+  async function pickVersion(v: number) {
+    setBusy(true);
+    setActionError(null);
+    try {
+      setDesign(await api.getDesign(id, v));
+      setSelected(null);
+    } catch (e) {
+      setActionError(e instanceof ApiError ? e.messageKo : "버전을 불러오지 못했어요.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function revise(prompt: string): Promise<boolean> {
+    if (!design) return false;
+    setBusy(true);
+    setActionError(null);
+    try {
+      setDesign(await api.reviseDesign(id, prompt, design.current.version));
+      setSelected(null);
+      return true;
+    } catch (e) {
+      setActionError(e instanceof ApiError ? e.messageKo : "수정 중 문제가 생겼어요. 다시 시도해 주세요.");
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const errorItems = new Set<number>(
     (design?.current.validation.issues ?? [])
@@ -100,6 +133,13 @@ export default function DesignView({ id }: { id: string }) {
 
       <aside className="space-y-6 rounded-2xl border border-stone-200 bg-white p-4">
         <ValidationPanel validation={cur.validation} items={cur.items} onSelect={setSelected} />
+        <RevisePanel
+          baseVersion={cur.version}
+          latestVersion={design.versions[design.versions.length - 1].version}
+          busy={busy}
+          error={actionError}
+          onSubmit={revise}
+        />
         <ItemList items={cur.items} selected={selected} errorItems={errorItems} onSelect={setSelected} />
         <DownloadPanel
           designId={design.id}
@@ -107,6 +147,7 @@ export default function DesignView({ id }: { id: string }) {
           allowed={cur.export_allowed}
           partCount={cur.items.length}
         />
+        <VersionList versions={design.versions} current={cur.version} loading={busy} onPick={pickVersion} />
       </aside>
     </div>
   );

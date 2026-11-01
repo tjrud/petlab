@@ -68,3 +68,39 @@ test("검증 실패 설계는 내려받기 대신 안내를 보여준다", async
   await expect(page.getByText("검증 문제를 해결해야 파일을 내려받을 수 있어요", { exact: false })).toBeVisible();
   await expect(page.getByRole("link", { name: /STL/ })).toHaveCount(0);
 });
+
+test("수정 루프: 추가 프롬프트로 v2 생성, 이전 버전 유지·전환", async ({ page }) => {
+  await page.goto("/");
+  await page.getByText("골든 (시리안)").click();
+  await page.getByRole("button", { name: "다음" }).click();
+  await page.getByLabel("요구사항").fill("은신처를 왼쪽에 넣어 주세요");
+  await page.getByRole("button", { name: "맞춤 설계 받기" }).click();
+  await page.waitForURL(/\/designs\//);
+  await expect(page.getByRole("heading", { name: "맞춤 설계 v1" })).toBeVisible();
+
+  const sizeOf = async () => (await page.getByRole("button", { name: /은신처 #1/ }).innerText()).match(/(\d+)×/)![1];
+  const v1Width = Number(await sizeOf());
+
+  // 수정 → v2
+  await page.getByLabel("수정할 내용").fill("조금 더 크게 해 주세요");
+  await page.getByRole("button", { name: "v1 기준으로 다시 설계" }).click();
+  await expect(page.getByRole("heading", { name: "맞춤 설계 v2" })).toBeVisible();
+  expect(Number(await sizeOf())).toBeGreaterThan(v1Width);
+  const versions = page.getByRole("region", { name: /설계 버전/ });
+  await expect(versions.getByRole("button")).toHaveCount(2);
+  await expect(page.getByLabel("수정할 내용")).toHaveValue(""); // 성공 시 입력란 비움
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/design-v2.png`, fullPage: true });
+
+  // v1 으로 전환 → 원래 값 유지
+  await versions.getByRole("button", { name: /^v1/ }).click();
+  await expect(page.getByRole("heading", { name: "맞춤 설계 v1" })).toBeVisible();
+  expect(Number(await sizeOf())).toBe(v1Width);
+  await expect(page.getByText("v1을 보고 있어요", { exact: false })).toBeVisible();
+
+  // v1 기준으로 다시 수정 → v3 (v1·v2 유지)
+  await page.getByLabel("수정할 내용").fill("더 작게 해 주세요");
+  await page.getByRole("button", { name: "v1 기준으로 다시 설계" }).click();
+  await expect(page.getByRole("heading", { name: "맞춤 설계 v3" })).toBeVisible();
+  expect(Number(await sizeOf())).toBeLessThan(v1Width);
+  await expect(versions.getByRole("button")).toHaveCount(3);
+});

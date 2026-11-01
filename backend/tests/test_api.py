@@ -198,3 +198,53 @@ def test_waitlist(client):
     assert client.post("/waitlist", json={"email": "not-an-email"}).status_code == 422
     assert client.post("/waitlist", json={"email": "a@example.com", "design_id": "nope"}).status_code == 404
     assert client.post("/waitlist", json={"email": "a@example.com", "design_id": d["id"], "version": 7}).status_code == 404
+
+
+class FlakyInterpreter:
+    """첫 호출은 모의 해석기로 성공, 이후 호출은 실패 (수정 실패 시나리오)."""
+
+    name = "flaky"
+
+    def __init__(self):
+        from app.llm.mock import MockInterpreter
+
+        self.inner = MockInterpreter()
+        self.calls = 0
+
+    def interpret(self, req):
+        self.calls += 1
+        if self.calls > 1:
+            raise LLMSchemaError("요구사항을 설계로 바꾸는 데 실패했어요. 다시 시도해 주세요.", "test")
+        return self.inner.interpret(req)
+
+
+def test_failed_revision_keeps_existing_versions(tmp_path):
+    with TestClient(create_app(make_settings(tmp_path), interpreter=FlakyInterpreter())) as c:
+        d = c.post("/designs", json={"habitat_id": habitat(c), "prompt": "은신처"}).json()
+        r = c.post(f"/designs/{d['id']}/revise", json={"prompt": "더 크게"})
+        assert r.status_code == 422 and "다시 시도" in r.json()["detail"]["message_ko"]
+        after = c.get(f"/designs/{d['id']}").json()
+        assert [v["version"] for v in after["versions"]] == [1]
+        assert after["current"]["items"] == d["current"]["items"]
+
+
+def test_revision_passes_previous_effective_spec_to_llm(tmp_path):
+    """수정 시 LLM 에 '자동 보정이 반영된' 직전 설계가 맥락으로 전달된다."""
+    from app.llm.mock import MockInterpreter
+
+    seen = []
+
+    class Spy(MockInterpreter):
+        def interpret(self, req):
+            seen.append(req.previous)
+            return super().interpret(req)
+
+    with TestClient(create_app(make_settings(tmp_path), interpreter=Spy())) as c:
+        hid = habitat(c)
+        # 시리안 기준 위반 값(출입구 50mm)을 갖게 만든 뒤 수정 요청
+        d = c.post("/designs", json={"habitat_id": hid, "prompt": "은신처, 출입구 50mm"}).json()
+        fixed = d["current"]["items"][0]["params"]["entrance_diameter_mm"]
+        assert fixed == 70  # 자동 보정됨
+        c.post(f"/designs/{d['id']}/revise", json={"prompt": "환기구 10개"})
+        assert seen[0] is None
+        assert seen[1].items[0].params.entrance_diameter_mm == fixed
