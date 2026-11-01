@@ -50,6 +50,16 @@ class Settings(BaseSettings):
     # CORS 허용 출처 (쉼표 구분)
     cors_origins: str = "http://localhost:3000"
 
+    # 관리자 인증: ADMIN_PASSWORD 가 있으면 켜진다. 사이트는 공개, API 는 관리자 로그인 후 사용.
+    admin_username: str = "admin"
+    admin_password: SecretStr | None = None
+    session_secret: SecretStr | None = None  # 세션 쿠키 서명 키 (없으면 비밀번호에서 유도)
+    session_ttl_hours: float = 168.0
+
+    @property
+    def auth_enabled(self) -> bool:
+        return bool(self.admin_password and self.admin_password.get_secret_value())
+
     @property
     def normalized_api_prefix(self) -> str:
         """"/api/" → "/api", "api" → "/api", "" 또는 "/" → "" """

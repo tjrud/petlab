@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import AuthMenu from "@/components/AuthMenu";
+
 export default function Header() {
   return (
     <header className="border-b border-amber-200/70 bg-white/70 backdrop-blur">
@@ -8,7 +10,10 @@ export default function Header() {
           <span aria-hidden className="grid h-8 w-8 place-items-center rounded-full bg-amber-400 text-lg">🐹</span>
           <span className="text-lg font-bold tracking-tight">꼬물공방</span>
         </Link>
-        <span className="hidden text-sm text-stone-500 sm:block">햄스터 맞춤 케이지 구조물 설계</span>
+        <div className="flex items-center gap-4">
+          <span className="hidden text-sm text-stone-500 sm:block">햄스터 맞춤 케이지 구조물 설계</span>
+          <AuthMenu />
+        </div>
       </div>
     </header>
   );

@@ -47,6 +47,10 @@ cp frontend/.env.example frontend/.env.local      # 프론트엔드
 | `RULES_DIR` | `.env` | 규칙 YAML 디렉터리 | `backend/rules/` |
 | `API_PREFIX` | `.env` | 백엔드 라우트 접두사 (Vercel 배포 시 `/api`) | (없음) |
 | `CORS_ORIGINS` | `.env` | 허용할 프론트엔드 출처(쉼표 구분) | `http://localhost:3000` |
+| `ADMIN_USERNAME` | `.env` | 관리자 아이디 | `admin` |
+| `ADMIN_PASSWORD` | `.env` | 관리자 비밀번호. 설정하면 관리자 인증이 켜집니다(아래 참고). | (없음 = 인증 꺼짐) |
+| `SESSION_SECRET` | `.env` | 세션 쿠키 서명 키(긴 무작위 문자열) | (없으면 비밀번호에서 유도) |
+| `SESSION_TTL_HOURS` | `.env` | 로그인 유지 시간 | `168` (7일) |
 | `NEXT_PUBLIC_API_BASE_URL` | `frontend/.env.local` | 백엔드 주소 | `http://localhost:8000` |
 
 > `mock` 해석기는 API 키 없이 개발·테스트하기 위한 **키워드 기반 모의 해석기**입니다.
@@ -89,6 +93,16 @@ cd frontend
 npx playwright install chromium   # 최초 1회
 npm run test:e2e
 ```
+
+## 관리자 인증
+
+`ADMIN_PASSWORD`를 설정하면 **사이트(화면)는 누구나 열 수 있고, 설계·내보내기 같은 API는 관리자 로그인 후에만** 쓸 수 있습니다.
+
+- 공개 경로는 `/api/health`, `/api/auth/*`(로그인·로그아웃·상태)입니다. 나머지 API는 로그인 없이 호출하면 `401 auth_required`를 반환하고, 화면은 `/login`으로 이동합니다.
+- 로그인하면 HMAC-SHA256으로 서명한 세션 쿠키를 발급합니다(HttpOnly, HTTPS에서 Secure, SameSite=Lax, 기본 7일).
+  - 서명 키는 `SESSION_SECRET`입니다. 비밀번호나 서명 키를 바꾸면 기존 로그인은 모두 풀립니다.
+- 같은 IP에서 15분 안에 10번 틀리면 잠시 막습니다(인스턴스 메모리 기준).
+- `ADMIN_PASSWORD`가 없으면 인증이 꺼집니다. 로컬 개발과 테스트용입니다.
 
 ## 구조물 템플릿
 
@@ -174,6 +188,8 @@ LLM은 아래 템플릿 중에서 고르고 파라미터 값만 정합니다. �
 | `LLM_PROVIDER` | `auto` | 키가 없으면 모의 해석기로 동작 |
 | `ANTHROPIC_MODEL` | 사용할 Claude 모델 ID | |
 | `ANTHROPIC_API_KEY` | (직접 입력) | **Sensitive**로 등록하세요 |
+| `ADMIN_PASSWORD` | (직접 입력) | **Sensitive**. 관리자 로그인 비밀번호 |
+| `SESSION_SECRET` | (긴 무작위 문자열) | **Sensitive**. 세션 쿠키 서명 키 |
 | `DATABASE_URL` | Neon 연결 시 자동 주입 | 없으면 `/tmp` SQLite입니다. 데이터가 유지되지 않고, 인스턴스마다 데이터가 달라 설계를 못 찾는(404) 일이 생길 수 있습니다. `/api/health`의 `database.persistent`와 화면 안내로 표시됩니다. |
 
 환경변수는 Production과 Preview에 모두 설정하세요.

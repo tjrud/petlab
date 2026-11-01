@@ -26,6 +26,10 @@ export default defineConfig({
       timeout: 120_000,
       env: {
         LLM_PROVIDER: "mock",
+        // 배포와 같이 관리자 인증을 켠 상태로 테스트한다
+        ADMIN_USERNAME: "admin",
+        ADMIN_PASSWORD: "e2e-admin-password",
+        SESSION_SECRET: "e2e-session-secret",
         DATABASE_URL: `sqlite:///${tmp}/e2e.db`,
         MESH_CACHE_DIR: `${tmp}/meshes`,
         CORS_ORIGINS: "http://localhost:3000",
