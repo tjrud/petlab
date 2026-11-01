@@ -56,6 +56,11 @@ cp frontend/.env.example frontend/.env.local      # 프론트엔드
 | `SESSION_TTL_HOURS` | `.env` | 로그인 유지 시간 | `24` |
 | `AUTH_REQUIRED` | `.env` | `1`이면 `ADMIN_PASSWORD`가 없어도 인증을 끄지 않고 API를 막습니다(503). 컨테이너 이미지 기본값 `1` | `0` |
 | `COOKIE_SECURE` | `.env` | 세션 쿠키 Secure 속성 강제(`1`/`0`). 비우면 요청이 HTTPS인지로 판단. 컨테이너 이미지 기본값 `1` | (자동) |
+| `SIGNUP_ENABLED` | `.env` | 회원가입 허용 여부 | `1` |
+| `SIGNUP_PER_IP_PER_HOUR` | `.env` | 같은 IP 에서 1시간에 시도할 수 있는 회원가입 횟수 | `5` |
+| `DESIGN_DAILY_LIMIT` | `.env` | 회원 1명이 최근 24시간 동안 만들 수 있는 설계·수정 횟수 (LLM 비용 상한, 관리자 제외) | `20` |
+| `DESIGN_GLOBAL_DAILY_LIMIT` | `.env` | 서비스 전체의 최근 24시간 설계·수정 횟수 상한 (관리자 제외) | `300` |
+| `POST_DAILY_LIMIT` / `COMMENT_DAILY_LIMIT` | `.env` | 회원 1명이 최근 24시간 동안 쓸 수 있는 글 / 댓글 수 | `20` / `100` |
 | `CLIENT_IP_HEADER` | `.env` | 로그인 시도 제한에 쓸 클라이언트 IP 헤더. 플랫폼이 덮어써 위조할 수 없는 헤더만 지정. 컨테이너 이미지 기본값 `x-vercel-forwarded-for` | (없음 = 접속 주소) |
 | `NEXT_PUBLIC_API_BASE_URL` | `frontend/.env.local` | 백엔드 주소 | `http://localhost:8000` |
 
@@ -87,12 +92,14 @@ npm run dev
 ```bash
 cd backend && uv run pytest              # 백엔드 단위·API 테스트 (실제 LLM 호출 없음)
 cd backend && uv run pytest -m live      # 실제 Anthropic API 호출 테스트 (키 필요)
+# 회원 기능 테스트를 PostgreSQL 에서 실행 (테스트마다 새 DB 를 만든다)
+cd backend && TEST_PG_URL=postgresql+psycopg://postgres@127.0.0.1:5432 uv run pytest tests/test_members.py
 cd frontend && npm run build             # 프론트엔드 타입 검사 + 빌드
 cd frontend && npm run lint
 ```
 
 E2E 스모크 테스트(Playwright)는 모의 해석기 모드의 백엔드와 프론트엔드 프로덕션 빌드를 자동으로 띄워 전체 흐름을 확인합니다.
-흐름은 사육 환경 등록 → 요구사항 → 3D 뷰어 → 다운로드 → 제작 신청입니다.
+흐름은 사육 환경 등록 → 요구사항 → 3D 뷰어 → 다운로드 → 제작 신청, 그리고 회원가입 → 반려동물 등록 → 설계 → 내 설계 내역 → 커뮤니티 공유·댓글입니다.
 
 ```bash
 cd frontend
@@ -100,25 +107,37 @@ npx playwright install chromium   # 최초 1회
 npm run test:e2e
 ```
 
-## 관리자 인증
+## 회원·관리자 인증
 
-`ADMIN_PASSWORD`를 설정하면 **사이트(화면)는 누구나 열 수 있고, 설계·내보내기 같은 API는 관리자 로그인 후에만** 쓸 수 있습니다.
+사이트(화면)는 누구나 열 수 있습니다. **설계 만들기·내 설계 내역·내 정보·글쓰기는 회원 로그인 후에** 쓸 수 있고, 커뮤니티 읽기와 커뮤니티에 공유된 설계 보기는 누구나 할 수 있습니다.
 
-- 공개 경로는 `/api/health`, `/api/auth/*`(로그인·로그아웃·상태)입니다. 나머지 API는 로그인 없이 호출하면 `401 auth_required`를 반환합니다.
-  - 화면은 그대로 열리고, 설계 폼 자리에 "관리자 로그인 후 사용할 수 있어요" 안내와 로그인 버튼이 보입니다. 로그인하면 보던 화면으로 돌아옵니다.
-- 로그인하면 HMAC-SHA256으로 서명한 세션 쿠키를 발급합니다(HttpOnly, Secure(배포), SameSite=Lax, 기본 24시간).
-  - 서명 키는 `SESSION_SECRET`과 관리자 비밀번호로 만듭니다. 둘 중 하나를 바꾸면 **모든 기기의 기존 로그인이 풀립니다.**
-  - 로그아웃은 그 브라우저의 쿠키만 지웁니다. 쿠키가 유출됐다고 의심되면 `SESSION_SECRET`이나 `ADMIN_PASSWORD`를 바꾸고 재배포하세요.
-  - 로그아웃 API는 JSON 요청이고 교차 사이트 요청이 아닐 때만 처리합니다(다른 사이트에서 강제 로그아웃 방지). 로그인 후 돌아갈 경로는 같은 사이트 안의 경로만 허용합니다.
+- **회원**: 회원가입(아이디·닉네임·비밀번호)으로 만듭니다. 비밀번호는 scrypt 로 해시해 저장합니다.
+  - 아이디는 영문 소문자·숫자·밑줄 4~20자, 닉네임은 2~20자, 비밀번호는 8자 이상이고 아이디와 달라야 합니다.
+  - 운영자를 사칭할 수 있는 아이디(admin, root 등)·닉네임(관리자, 운영자, NestForge 등)은 쓸 수 없습니다.
+  - 같은 IP 에서 1시간에 `SIGNUP_PER_IP_PER_HOUR`번까지 가입을 시도할 수 있습니다. `SIGNUP_ENABLED=0`이면 가입을 받지 않습니다.
+- **관리자**: 환경변수 `ADMIN_USERNAME`/`ADMIN_PASSWORD` 로 로그인합니다. 모든 설계를 볼 수 있고, 커뮤니티 글·댓글을 지울 수 있으며, 설계 사용량 상한을 받지 않습니다.
+- **설계 사용량 상한**: 설계 생성·수정은 LLM 을 호출하므로 회원별(`DESIGN_DAILY_LIMIT`)·서비스 전체(`DESIGN_GLOBAL_DAILY_LIMIT`) 최근 24시간 횟수를 제한합니다(`429`).
+- **권한**: 사육 환경·설계·반려동물은 만든 회원의 것입니다. 남의 것은 존재 여부도 알리지 않고 `404` 를 반환합니다.
+  - 커뮤니티 글에 내 설계를 첨부하면 그 설계는 누구나 볼 수 있습니다(읽기 전용, 수정·재공유 불가). 글을 지우면 다시 비공개가 됩니다.
+  - 이전 버전에서 만든(소유자가 없는) 설계는 관리자만 볼 수 있습니다.
+- **세션**: HMAC-SHA256 으로 서명한 쿠키(HttpOnly, Secure(배포), SameSite=Lax, 기본 24시간)에 회원 id 와 세션 버전을 담습니다.
+  - 회원이 비밀번호를 바꾸면 그 회원의 다른 기기 로그인이 풀립니다.
+  - 서명 키는 `SESSION_SECRET`과 관리자 비밀번호로 만듭니다. 둘 중 하나를 바꾸면 **모든 회원의 로그인이 풀립니다.**
+  - 로그아웃은 그 브라우저의 쿠키만 지웁니다. 로그아웃 API는 JSON 요청이고 교차 사이트 요청이 아닐 때만 처리합니다(강제 로그아웃 방지). 로그인 후 돌아갈 경로는 같은 사이트 안의 경로만 허용합니다.
 - 설정이 불완전하면 인증을 끄지 않고 API를 `503 auth_unavailable`로 막습니다(fail closed). 서버 로그와 `/api/health`의 `auth_ready: false`로 알 수 있습니다.
   - `ADMIN_PASSWORD`가 16자 미만이거나 앞뒤에 공백·줄바꿈이 있는 경우, `SESSION_SECRET`이 없거나 32바이트 미만인 경우
   - (`ADMIN_USERNAME`의 앞뒤 공백은 자동으로 지웁니다)
   - `AUTH_REQUIRED=1`(컨테이너 이미지 기본값)인데 `ADMIN_PASSWORD`가 없는 경우
-- 같은 IP(IPv6는 /64)에서 15분 안에 10번 틀리면 잠시 막습니다. 인스턴스 메모리 기준이라 여러 인스턴스에 걸친 시도까지 막지는 못하므로, 비밀번호는 길고 무작위로 정하세요.
+- 같은 IP(IPv6는 /64)에서 15분 안에 로그인을 10번 틀리면 잠시 막습니다. 인스턴스 메모리 기준입니다.
 - API 응답은 `Cache-Control: no-store`(뷰어 메시는 `private`)라 CDN·공유 캐시에 남지 않습니다.
 - 인증이 켜지면 Swagger UI(`/api/docs`)는 꺼집니다. 스키마 JSON(`/api/openapi.json`)은 공개입니다.
-- 입력 검증 오류(422) 응답에는 입력값을 담지 않습니다.
-- 로컬에서 `ADMIN_PASSWORD`를 비워 두면 인증이 꺼집니다(`AUTH_REQUIRED` 미설정 시). 개발과 테스트용입니다.
+- 입력 검증 오류(422) 응답에는 입력값을 담지 않습니다. 커뮤니티 글·댓글·닉네임은 화면에 글자 그대로(HTML 해석 없이) 표시합니다.
+- 로컬에서 `ADMIN_PASSWORD`를 비워 두면 인증이 꺼지고 모든 요청이 로컬 개발용 관리자(`local`)로 처리됩니다(`AUTH_REQUIRED` 미설정 시). 개발과 테스트용이며, 이때는 회원가입·로그인을 쓰지 않습니다.
+
+### DB 마이그레이션
+
+서버가 시작할 때 새 테이블(`users`, `pets`, `posts`, `comments`)을 만들고, 기존 테이블에 빠진 열(소유자 등)을 추가합니다.
+추가만 하고 지우거나 바꾸지 않으므로 이전 버전 코드가 같은 DB 를 써도 동작합니다. Postgres 에서는 advisory lock 으로 여러 인스턴스의 동시 실행을 직렬화합니다.
 
 ## 구조물 템플릿
 
@@ -148,14 +167,26 @@ LLM은 아래 템플릿 중에서 고르고 파라미터 값만 정합니다. �
 
 | 메서드 | 경로 | 설명 |
 |---|---|---|
-| POST | `/habitats` | 사육 환경 등록 (종, 크기, 마릿수, 케이지 내부 치수 mm) |
-| GET | `/habitats/{id}` | 사육 환경 조회 |
+| POST | `/auth/signup` | 회원가입 (가입 후 바로 로그인) |
+| POST | `/auth/login` · `/auth/logout` | 로그인 · 로그아웃 |
+| GET | `/auth/me` | 로그인 상태 |
+| GET · PATCH | `/me` | 내 정보(통계·설계 사용량) · 닉네임 변경 |
+| POST | `/me/password` | 비밀번호 변경 |
+| GET · POST | `/me/pets` | 내 반려동물 목록 · 등록 |
+| GET · PUT · DELETE | `/me/pets/{id}` | 반려동물 조회 · 수정 · 삭제 |
+| GET | `/designs?page=&page_size=` | 내 설계 내역 (최근 수정순) |
+| GET · POST | `/community/posts` | 글 목록(누구나) · 글쓰기(설계 첨부 가능) |
+| GET · PATCH · DELETE | `/community/posts/{id}` | 글 보기(누구나) · 수정(작성자) · 삭제(작성자·관리자) |
+| POST | `/community/posts/{id}/comments` | 댓글 쓰기 |
+| DELETE | `/community/comments/{id}` | 댓글 삭제(작성자·관리자) |
+| POST | `/habitats` | 사육 환경 등록 (종, 크기, 마릿수, 케이지 내부 치수 mm, 선택: 내 반려동물) |
+| GET | `/habitats/{id}` | 사육 환경 조회 (내 것만) |
 | POST | `/designs` | 프롬프트로 설계 생성 → 버전 1 |
 | POST | `/designs/{id}/revise` | 추가 프롬프트로 수정 → 새 버전 (이전 버전 유지, `base_version` 지정 가능) |
 | GET | `/designs/{id}?version=` | 설계 조회 (버전 목록, 항목·배치, 검증 보고서) |
 | GET | `/designs/{id}/export?format=stl\|3mf&version=` | 3D 프린팅 파일. STL은 파트가 여럿이면 zip입니다. 검증 오류가 있으면 409를 반환합니다. |
 | GET | `/designs/{id}/versions/{v}/parts/{i}.stl` | 뷰어용 메시 (케이지 좌표계, mm, Z-up) |
-| GET | `/species` | 등록 가능한 종·크기 (규칙 파일 기준) |
+| GET | `/species` | 등록 가능한 종·크기 (규칙 파일 기준, 누구나) |
 | POST | `/waitlist` | 제작·배송 신청 대기 등록 (이메일) |
 | GET | `/health` | 상태, LLM 공급자, 규칙 파일 버전·검수 여부 |
 
