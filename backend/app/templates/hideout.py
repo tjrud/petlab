@@ -96,6 +96,22 @@ class HideoutTemplate(Template):
     height_field = "height_mm"
     size_fields = ("width_mm", "depth_mm", "height_mm")
 
+    def default_params(self, ctx: RuleContext | None = None) -> HideoutParams:
+        if ctx is None:
+            return HideoutParams()
+        s = ctx.size
+        t = max(3.0, ctx.min_wall_mm)
+        d = float(math.ceil(s.entrance_min_diameter_mm + 5))
+        return HideoutParams(
+            width_mm=max(140.0, d + 4 * t + 50),
+            depth_mm=max(110.0, d + 2 * t + 50),
+            height_mm=max(90.0, d + 2 * t + 15),
+            entrance_diameter_mm=d,
+            vent_count=6,
+            vent_diameter_mm=min(4.0, s.gap_trap.safe_max_mm),
+            wall_thickness_mm=t,
+        )
+
     def constraints(self, p: HideoutParams, ctx: RuleContext) -> list[ParamConstraint]:
         s = ctx.size
         t = max(p.wall_thickness_mm, ctx.min_wall_mm)
