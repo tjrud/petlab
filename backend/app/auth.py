@@ -155,15 +155,20 @@ class LoginRateLimiter:
     기록하는 키 수는 max_keys 로 제한한다. 넘치면 막히지 않은 가장 오래된 키부터 버리고,
     막힌 키는 버리지 않는다 (키를 대량으로 바꿔 가며 차단을 풀지 못하게).
     fail_closed 이면 표가 막힌 키로만 가득 찼을 때 window_s 동안 새 키도 막는다 (관리자 로그인 보호).
-    fail_closed 가 아니면 가장 오래된 키를 버린다 (회원가입: 누군가 표를 채워 모든 신규 가입을 막지 못하게)."""
+    fail_closed 가 아니면 가장 오래된 키를 버린다 (회원가입: 누군가 표를 채워 모든 신규 가입을 막지 못하게).
+
+    비밀번호 확인처럼 결과가 나오기까지 기다리는(await) 시도는 acquire()/release() 로 감싼다.
+    진행 중인 시도를 미리 실패로 세므로, 한꺼번에 몰린 요청이 실패가 기록되기 전에 모두 통과하지 못한다."""
 
     def __init__(self, max_failures: int = 10, window_s: float = 900.0, max_keys: int = 10_000,
-                 fail_closed: bool = True):
+                 fail_closed: bool = True, max_inflight: int = 3):
         self.max_failures = max_failures
         self.window_s = window_s
         self.max_keys = max_keys
         self.fail_closed = fail_closed
+        self.max_inflight = max_inflight
         self._failures: OrderedDict[str, deque[float]] = OrderedDict()
+        self._inflight: dict[str, int] = {}
         self._saturated_until = 0.0
         self._lock = threading.Lock()
 
@@ -178,22 +183,60 @@ class LoginRateLimiter:
             return 0
         return len(q)
 
+    def _blocked_locked(self, key: str, now: float, pending: int = 0) -> bool:
+        if self._prune(key, now) + pending >= self.max_failures:
+            return True
+        return key not in self._failures and now < self._saturated_until
+
     def blocked(self, key: str, now: float | None = None) -> bool:
         now = time.time() if now is None else now
         with self._lock:
-            if self._prune(key, now) >= self.max_failures:
-                return True
-            return key not in self._failures and now < self._saturated_until
+            return self._blocked_locked(key, now)
+
+    def _record_locked(self, key: str, now: float) -> None:
+        self._prune(key, now)
+        q = self._failures.setdefault(key, deque())
+        q.append(now)
+        self._failures.move_to_end(key)
+        if len(self._failures) > self.max_keys:
+            self._evict(keep=key, now=now)
 
     def record_failure(self, key: str, now: float | None = None) -> None:
         now = time.time() if now is None else now
         with self._lock:
-            self._prune(key, now)
-            q = self._failures.setdefault(key, deque())
-            q.append(now)
-            self._failures.move_to_end(key)
-            if len(self._failures) > self.max_keys:
-                self._evict(keep=key, now=now)
+            self._record_locked(key, now)
+
+    def hit(self, key: str, now: float | None = None) -> bool:
+        """검사와 기록을 한 번에: 막혔으면 False, 아니면 시도 1회를 기록하고 True (결과와 관계없이 세는 시도용)."""
+        now = time.time() if now is None else now
+        with self._lock:
+            if self._blocked_locked(key, now):
+                return False
+            self._record_locked(key, now)
+            return True
+
+    def acquire(self, key: str, now: float | None = None) -> bool:
+        """시도 하나를 시작한다. 막혔거나(진행 중인 시도 포함) 동시에 진행 중인 시도가 많으면 False.
+        True 이면 반드시 release() 를 불러야 한다."""
+        now = time.time() if now is None else now
+        with self._lock:
+            pending = self._inflight.get(key, 0)
+            if pending >= self.max_inflight or self._blocked_locked(key, now, pending):
+                return False
+            self._inflight[key] = pending + 1
+            return True
+
+    def release(self, key: str, failed: bool, now: float | None = None) -> None:
+        """acquire() 로 시작한 시도를 끝낸다. failed 면 실패를 기록한다 (진행 중 표시를 지우는 것과 한 번에)."""
+        now = time.time() if now is None else now
+        with self._lock:
+            pending = self._inflight.get(key, 0) - 1
+            if pending > 0:
+                self._inflight[key] = pending
+            else:
+                self._inflight.pop(key, None)
+            if failed:
+                self._record_locked(key, now)
 
     def _evict(self, keep: str, now: float) -> None:
         for k in list(self._failures):

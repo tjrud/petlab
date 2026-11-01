@@ -177,29 +177,31 @@ def test_parallel_posts_cannot_exceed_limit(tmp_path):
         assert sorted(codes) == [201] * 3 + [429] * 7
 
 
-def test_comment_cap_per_post(client, monkeypatch):
+def test_post_detail_shows_latest_comments_without_blocking_new_ones(client, monkeypatch):
     from app.api import community
-    monkeypatch.setattr(community, "MAX_COMMENTS_PER_POST", 2)
+    monkeypatch.setattr(community, "COMMENTS_SHOWN", 2)
     admin_login(client)
     pid = client.post("/community/posts", json={"title": "공지", "body": "x"}).json()["id"]
-    for _ in range(2):
-        assert client.post(f"/community/posts/{pid}/comments", json={"body": "댓글"}).status_code == 201
-    r = client.post(f"/community/posts/{pid}/comments", json={"body": "댓글"})
-    assert r.status_code == 409 and r.json()["detail"]["code"] == "comment_limit_reached"
+    for i in range(4):
+        assert client.post(f"/community/posts/{pid}/comments", json={"body": f"댓글{i}"}).status_code == 201
+    post = client.get(f"/community/posts/{pid}").json()
+    assert post["comment_total"] == 4 and [c["body"] for c in post["comments"]] == ["댓글2", "댓글3"]
+    assert client.get("/community/posts").json()["items"][0]["comment_count"] == 4
 
 
 def test_waitlist_dedupes_and_is_limited(client, monkeypatch):
     from app.api import waitlist
     monkeypatch.setattr(waitlist, "WAITLIST_DAILY_LIMIT", 2)
     signup(client, "user_a")
-    for _ in range(3):
+    for _ in range(2):
         assert client.post("/waitlist", json={"email": "me@example.com"}).status_code == 201
     db = client.app.state.session_factory()
-    assert db.scalar(select(func.count(WaitlistEntry.id))) == 1
+    assert db.scalar(select(func.count(WaitlistEntry.id))) == 1  # 같은 이메일은 한 번만 저장
     db.close()
-    assert client.post("/waitlist", json={"email": "two@example.com"}).status_code == 201
-    r = client.post("/waitlist", json={"email": "three@example.com"})
-    assert r.status_code == 429 and r.json()["detail"]["code"] == "too_many_waitlist"
+    # 이미 있는 이메일도 횟수를 세므로, 상한 뒤에는 있든 없든 같은 응답 (명단에 있는지 알아낼 수 없다)
+    for email in ("me@example.com", "unknown@example.com"):
+        r = client.post("/waitlist", json={"email": email})
+        assert r.status_code == 429 and r.json()["detail"]["code"] == "too_many_waitlist"
 
 
 def test_habitat_creation_is_limited(client, monkeypatch):
@@ -277,6 +279,42 @@ def test_password_change_attempts_are_limited(client):
     assert [client.post("/me/password", json=body).status_code for _ in range(6)] == [400] * 5 + [429]
     ok = {"current_password": PW, "new_password": "new-password-123"}
     assert client.post("/me/password", json=ok).status_code == 429  # 맞는 비밀번호도 잠시 막힌다
+
+
+def test_concurrent_login_burst_is_limited(tmp_path):
+    """비밀번호 확인을 기다리는 동안 몰려온 요청도 '진행 중인 시도'로 세어, 한꺼번에 보내도 10번 넘게 맞혀 볼 수 없다."""
+    import asyncio
+
+    import httpx
+
+    s = settings(tmp_path, client_ip_header="x-test-ip")
+    app = create_app(s)
+
+    async def burst(n: int, body: dict) -> list[int]:
+        async with app.router.lifespan_context(app):
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://t") as ac:
+                ok = await ac.post("/auth/signup", json={"username": "victim_1", "nickname": "피해자", "password": PW})
+                assert ok.status_code == 201
+                ac.cookies.clear()
+                rs = await asyncio.gather(*[ac.post("/auth/login", json=body, headers={"x-test-ip": "198.51.100.9"})
+                                            for _ in range(n)])
+                return [r.status_code for r in rs]
+
+    codes = asyncio.run(burst(60, {"username": "victim_1", "password": "wrong-guess"}))
+    assert codes.count(401) <= 10 and codes.count(429) == 60 - codes.count(401)
+
+
+def test_limiter_acquire_counts_inflight_attempts():
+    lim = LoginRateLimiter(max_failures=3, window_s=900, max_inflight=10)
+    assert [lim.acquire("k") for _ in range(5)] == [True, True, True, False, False]
+    lim.release("k", failed=False)          # 성공한 시도는 기록하지 않는다
+    assert lim.acquire("k")
+    for _ in range(3):
+        lim.release("k", failed=True)
+    assert not lim.acquire("k") and lim.blocked("k")
+    busy = LoginRateLimiter(max_failures=100, max_inflight=2)
+    assert [busy.acquire("k") for _ in range(3)] == [True, True, False]
 
 
 def test_signup_limiter_fails_open_when_full():

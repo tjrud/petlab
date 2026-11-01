@@ -106,9 +106,9 @@ def signup(data: SignupIn, request: Request, db: Session = Depends(get_db)) -> R
     limiter = request.app.state.signup_limiter  # SIGNUP_PER_IP_PER_HOUR=0 이면 None (IP 별 제한 없음)
     if limiter is not None:
         key = client_key(settings, request, v6_prefix=SIGNUP_V6_PREFIX)
-        if limiter.blocked(key):
+        # 성공·실패와 관계없이 시도 횟수를 센다 (아이디 존재 여부를 마구 묻지 못하게). 검사와 기록은 한 번에
+        if not limiter.hit(key):
             raise QuotaExceededError("회원가입 요청이 너무 많아요. 잠시 뒤 다시 시도해 주세요.", code="too_many_signups")
-        limiter.record_failure(key)  # 성공·실패와 관계없이 시도 횟수를 센다 (아이디 존재 여부를 마구 묻지 못하게)
     if data.username in RESERVED_USERNAMES or data.username == settings.admin_username.lower():
         raise ConflictError("사용할 수 없는 아이디예요.", code="username_taken")
     if is_reserved_nickname(data.nickname, settings):
@@ -160,14 +160,19 @@ async def login(data: LoginIn, request: Request, db: Session = Depends(get_db)) 
         raise AuthUnavailableError()
     limiter = request.app.state.login_limiter
     key = client_key(settings, request)
-    if limiter.blocked(key):
+    # 검사와 예약을 한 번에 한다: 비밀번호 확인을 기다리는 동안 몰려온 요청도 '진행 중인 시도'로 세어 막는다
+    if not limiter.acquire(key):
         return JSONResponse(status_code=429, content={"detail": {
             "code": "too_many_attempts",
             "message_ko": "로그인 시도가 너무 많아요. 15분 뒤에 다시 시도해 주세요.",
         }})
-    user = await run_in_threadpool(_authenticate, db, settings, data.username.strip(), data.password)
+    try:
+        user = await run_in_threadpool(_authenticate, db, settings, data.username.strip(), data.password)
+    except BaseException:
+        limiter.release(key, failed=False)  # 서버 오류는 틀린 시도로 세지 않는다
+        raise
+    limiter.release(key, failed=user is None)
     if user is None:
-        limiter.record_failure(key)
         await asyncio.sleep(FAILED_LOGIN_DELAY_S)
         return JSONResponse(status_code=401, content={"detail": {
             "code": "invalid_credentials", "message_ko": "아이디 또는 비밀번호가 올바르지 않아요.",

@@ -26,15 +26,16 @@ def join_waitlist(data: WaitlistIn, db: Session = Depends(get_db), svc: DesignSe
         design, allowed = svc.get_visible(db, data.design_id, user)
         if data.version is not None:
             svc.get_version(db, design, data.version, allowed)
+    # 신청은 이미 있든 없든 횟수를 센다 (응답으로 남의 이메일이 명단에 있는지 알아낼 수 없게)
+    if not user.is_admin:
+        usage.reserve(db, "waitlist", user, per_user=usage.Cap(
+            WAITLIST_DAILY_LIMIT, "대기 신청이 너무 많아요. 잠시 뒤 다시 시도해 주세요.", "too_many_waitlist"))
     email = str(data.email)
     exists = db.scalar(select(WaitlistEntry.id).where(
         WaitlistEntry.email == email,
         WaitlistEntry.design_id.is_(None) if data.design_id is None else WaitlistEntry.design_id == data.design_id,
     ).limit(1))
     if exists is None:  # 같은 이메일·설계로 이미 신청했으면 다시 넣지 않는다
-        if not user.is_admin:
-            usage.reserve(db, "waitlist", user, per_user=usage.Cap(
-                WAITLIST_DAILY_LIMIT, "대기 신청이 너무 많아요. 잠시 뒤 다시 시도해 주세요.", "too_many_waitlist"))
         db.add(WaitlistEntry(email=email, design_id=data.design_id, version=data.version))
         db.commit()
     return WaitlistOut(ok=True, message_ko=DONE_MESSAGE)

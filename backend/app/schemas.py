@@ -345,6 +345,7 @@ class PostOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     design: SharedDesignOut | None
-    comments: list[CommentOut]
+    comments: list[CommentOut]  # 최근 댓글 최대 200개 (오래된 것부터)
+    comment_total: int           # 전체 댓글 수
     can_edit: bool
     can_delete: bool

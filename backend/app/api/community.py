@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import get_db, get_service, make_router
 from app.auth import get_current_user, get_optional_user
-from app.errors import ConflictError, ForbiddenError
+from app.errors import ForbiddenError
 from app.models import Comment, DesignVersion, Post, User
 from app.schemas import (
     AuthorOut,
@@ -27,7 +27,7 @@ from app.services.design_service import _ID_RE, DesignService, NotFoundError
 router = make_router(prefix="/community", tags=["커뮤니티"])
 
 EXCERPT_LEN = 140
-MAX_COMMENTS_PER_POST = 300  # 글 하나의 댓글 수 상한 (글 보기 응답이 끝없이 커지지 않게)
+COMMENTS_SHOWN = 200  # 글 보기에 담는 최근 댓글 수 (응답이 끝없이 커지지 않게. 댓글 쓰기는 막지 않는다)
 MAX_PAGE = 1000
 
 
@@ -39,16 +39,23 @@ def _can_manage(user: User | None, author_id: str) -> bool:
     return user is not None and (user.is_admin or user.id == author_id)
 
 
-def _get_post(db: Session, post_id: str, with_comments: bool = False) -> Post:
+def _get_post(db: Session, post_id: str) -> Post:
     post = None
     if _ID_RE.fullmatch(post_id):
-        opts = [selectinload(Post.author)]
-        if with_comments:
-            opts.append(selectinload(Post.comments).selectinload(Comment.author))
-        post = db.scalar(select(Post).where(Post.id == post_id).options(*opts))
+        post = db.scalar(select(Post).where(Post.id == post_id).options(selectinload(Post.author)))
     if post is None:
         raise NotFoundError("글을 찾을 수 없습니다.")
     return post
+
+
+def _recent_comments(db: Session, post_id: str) -> tuple[list[Comment], int]:
+    """최근 댓글 COMMENTS_SHOWN 개(오래된 것부터)와 전체 댓글 수."""
+    total = db.scalar(select(func.count(Comment.id)).where(Comment.post_id == post_id)) or 0
+    latest = db.scalars(
+        select(Comment).where(Comment.post_id == post_id).options(selectinload(Comment.author))
+        .order_by(Comment.created_at.desc(), Comment.id.desc()).limit(COMMENTS_SHOWN)
+    ).all()
+    return list(reversed(latest)), total
 
 
 def _reserve(db: Session, kind: str, user: User, limit: int, message_ko: str, code: str) -> None:
@@ -58,6 +65,7 @@ def _reserve(db: Session, kind: str, user: User, limit: int, message_ko: str, co
 
 
 def _post_out(db: Session, svc: DesignService, post: Post, user: User | None) -> PostOut:
+    comments, total = _recent_comments(db, post.id)
     shared = None
     if post.design is not None:
         d = post.design
@@ -75,7 +83,8 @@ def _post_out(db: Session, svc: DesignService, post: Post, user: User | None) ->
         id=post.id, title=post.title, body=post.body, author=_author(post.author),
         created_at=post.created_at, updated_at=post.updated_at, design=shared,
         comments=[CommentOut(id=c.id, body=c.body, author=_author(c.author), created_at=c.created_at,
-                             can_delete=_can_manage(user, c.author_id)) for c in post.comments],
+                             can_delete=_can_manage(user, c.author_id)) for c in comments],
+        comment_total=total,
         can_edit=user is not None and user.id == post.author_id,
         can_delete=_can_manage(user, post.author_id),
     )
@@ -129,7 +138,7 @@ def create_post(data: PostIn, request: Request, db: Session = Depends(get_db),
 @router.get("/posts/{post_id}", response_model=PostOut, summary="글 보기 (누구나)")
 def get_post(post_id: str, db: Session = Depends(get_db), svc: DesignService = Depends(get_service),
              user: User | None = Depends(get_optional_user)):
-    return _post_out(db, svc, _get_post(db, post_id, with_comments=True), user)
+    return _post_out(db, svc, _get_post(db, post_id), user)
 
 
 @router.patch("/posts/{post_id}", response_model=PostOut, summary="글 수정 (작성자만)")
@@ -162,9 +171,6 @@ def delete_post(post_id: str, db: Session = Depends(get_db), user: User = Depend
 def create_comment(post_id: str, data: CommentIn, request: Request, db: Session = Depends(get_db),
                    user: User = Depends(get_current_user)):
     post = _get_post(db, post_id)
-    if (db.scalar(select(func.count(Comment.id)).where(Comment.post_id == post.id)) or 0) >= MAX_COMMENTS_PER_POST:
-        raise ConflictError(f"이 글에는 댓글을 더 달 수 없어요 (최대 {MAX_COMMENTS_PER_POST}개).",
-                            code="comment_limit_reached")
     limit = request.app.state.settings.comment_daily_limit
     _reserve(db, "comment", user, limit, f"댓글은 24시간에 {limit}개까지 쓸 수 있어요.", "too_many_comments")
     c = Comment(post_id=post.id, author_id=user.id, body=data.body)

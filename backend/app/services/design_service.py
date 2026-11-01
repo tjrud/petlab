@@ -191,6 +191,7 @@ class DesignService:
     def reserve_quota(self, db: Session, user: User, ip_key: str | None) -> None:
         """LLM 을 부르기 전에 사용량 1회를 기록한다 (상한에 닿았으면 429). 동시 요청도 상한을 넘지 못한다."""
         if user.is_admin:
+            db.commit()  # 상한은 없지만 LLM 호출 동안 읽기 트랜잭션을 열어 두지 않는다
             return
         lim = self.limits
         usage.reserve(

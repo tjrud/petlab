@@ -89,11 +89,16 @@ async def change_password(data: PasswordChangeIn, request: Request, db: Session 
     # 로그인 세션을 손에 넣은 사람이 현재 비밀번호를 마구 맞혀 보지 못하게 회원별로 제한한다
     limiter = request.app.state.password_limiter
     key = f"user:{user.id}"
-    if limiter.blocked(key):
+    if not limiter.acquire(key):  # 검사와 예약을 한 번에 (동시에 몰린 요청도 진행 중인 시도로 센다)
         raise QuotaExceededError("비밀번호 확인 시도가 너무 많아요. 15분 뒤에 다시 시도해 주세요.",
                                  code="too_many_attempts")
-    if not await run_in_threadpool(_change_password, db, user, data.current_password, data.new_password):
-        limiter.record_failure(key)
+    try:
+        changed = await run_in_threadpool(_change_password, db, user, data.current_password, data.new_password)
+    except BaseException:
+        limiter.release(key, failed=False)
+        raise
+    limiter.release(key, failed=not changed)
+    if not changed:
         await asyncio.sleep(FAILED_LOGIN_DELAY_S)
         raise AppError("현재 비밀번호가 올바르지 않아요.", code="invalid_credentials")
     response = JSONResponse(auth_status(settings, user))
