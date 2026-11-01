@@ -1,0 +1,56 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# 종별 치수 기준 (species rules)
+#
+# ⚠️ 이 파일의 모든 수치는 "임시 기본값"입니다.
+#    수의사·사육 전문가의 검수를 거친 뒤 이 파일만 교체하면 서버 재시작 시 반영됩니다.
+#    코드에는 종별 수치를 하드코딩하지 않습니다.
+#
+# 단위: 길이 mm, 각도 deg
+# 형식이 잘못되면(키 누락·오타·범위 오류) 서버가 기동하지 않고 오류를 알려줍니다.
+# ─────────────────────────────────────────────────────────────────────────────
+version: "0.1-draft"
+reviewed: false   # 전문가 검수 완료 시 true 로 변경
+
+species:
+  hamster:
+    display_name: 햄스터
+    sizes:
+      dwarf:
+        display_name: 드워프 (정글리안·캠벨·로보로브스키)
+        # 은신처 출입구(아치형) 최소 폭
+        entrance_min_diameter_mm: 50
+        # 터널 최소 내경
+        tunnel_min_inner_diameter_mm: 50
+        # 끼임 틈새 한계: safe_max < 틈 < passable_min 이면 끼임 위험으로 판정
+        gap_trap:
+          safe_max_mm: 4        # 이 이하: 발가락·발이 들어가지 않는 틈 (환기구 최대 지름도 이 값)
+          passable_min_mm: 50   # 이 이상: 몸이 자유롭게 통과하는 폭
+        # 갉음 내구성을 고려한 최소 벽 두께 (출력 기준 min_wall 과 비교해 큰 값 적용)
+        min_wall_thickness_mm: 2.4
+        # 램프 최대 경사각
+        max_ramp_angle_deg: 30
+        # 오를 수 있는 구조물(램프·계단) 최대 높이 – 낙상 위험
+        max_climb_height_mm: 120
+        # 한 번에 넘을 수 있는 최대 턱 높이 (계단 1단, 모래목욕통 턱)
+        max_step_height_mm: 35
+        # 모래목욕통 최소 내부 크기 [가로, 세로], 최소 깊이
+        sand_bath_min_inner_mm: [140, 100]
+        sand_bath_min_depth_mm: 40
+        # 권장 최대 마릿수 (초과 시 경고)
+        max_recommended_count: 1
+        count_warning_ko: 드워프 햄스터도 합사 시 다툼·부상 위험이 있어 단독 사육을 권장합니다.
+      syrian:
+        display_name: 골든 (시리안)
+        entrance_min_diameter_mm: 70
+        tunnel_min_inner_diameter_mm: 70
+        gap_trap:
+          safe_max_mm: 5
+          passable_min_mm: 70
+        min_wall_thickness_mm: 3.0
+        max_ramp_angle_deg: 30
+        max_climb_height_mm: 150
+        max_step_height_mm: 45
+        sand_bath_min_inner_mm: [200, 140]
+        sand_bath_min_depth_mm: 50
+        max_recommended_count: 1
+        count_warning_ko: 골든(시리안) 햄스터는 영역성이 강해 반드시 단독 사육해야 합니다.
