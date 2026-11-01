@@ -15,4 +15,7 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans);
+  /* 한국어는 어절 단위로 줄바꿈 (긴 영문·URL 은 넘치지 않게 끊는다) */
+  word-break: keep-all;
+  overflow-wrap: break-word;
 }

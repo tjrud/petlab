@@ -1,16 +1,24 @@
-"""꼬물공방 FastAPI 앱 진입점."""
+"""NestForge FastAPI 앱 진입점."""
 
 from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import DataError
 
+from app.api import auth as auth_api
 from app.api import designs, habitats, meta, waitlist
+from app.auth import (
+    AuthRequiredError,
+    AuthUnavailableError,
+    LoginRateLimiter,
+    require_admin,
+)
 from app.config import Settings, get_settings
 from app.db import init_db, is_ephemeral_database, make_engine, make_session_factory
 from app.llm.base import Interpreter, LLMConfigError, LLMError
@@ -41,6 +49,12 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
         app.state.rules = rules
         app.state.session_factory = make_session_factory(engine)
         app.state.llm_config_error = None
+        app.state.login_limiter = LoginRateLimiter()
+        if settings.auth_mode == "misconfigured":
+            # 비밀값은 기록하지 않는다. API 는 503 으로 막힌 채 기동한다 (인증을 끄지 않음)
+            log.error("관리자 인증 설정 오류로 API 를 막습니다: %s", "; ".join(settings.auth_problems))
+        elif settings.auth_mode == "disabled" and (settings.ephemeral_filesystem or settings.normalized_api_prefix):
+            log.error("관리자 인증이 꺼져 있습니다 (ADMIN_PASSWORD 없음). 배포 환경이라면 API 가 공개 상태입니다.")
         app.state.db_dialect = engine.dialect.name
         app.state.db_ephemeral = is_ephemeral_database(settings.database_url, settings.ephemeral_filesystem)
         if app.state.db_ephemeral:
@@ -69,26 +83,53 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
 
     prefix = settings.normalized_api_prefix
     app = FastAPI(
-        title="꼬물공방 API",
+        title="NestForge API",
         version="0.1.0",
         lifespan=lifespan,
-        docs_url=f"{prefix}/docs",
+        # 인증이 켜지면 Swagger UI 페이지(외부 CDN 스크립트를 세션 쿠키와 같은 출처에서 실행)는 끈다. JSON 스키마는 유지
+        docs_url=None if settings.auth_enabled else f"{prefix}/docs",
         redoc_url=None,
         openapi_url=f"{prefix}/openapi.json",
     )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origin_list,
+        allow_credentials=True,  # 로컬 개발(프론트 :3000 ↔ 백엔드 :8000)에서 세션 쿠키 전달
         allow_methods=["*"],
         allow_headers=["*"],
         expose_headers=["Content-Disposition"],
     )
+
+    @app.middleware("http")
+    async def _no_shared_cache(request: Request, call_next):
+        # 관리자 세션으로 받은 응답이 CDN·공유 캐시에 남지 않게 한다 (따로 지정한 응답은 그대로)
+        response = await call_next(request)
+        response.headers.setdefault("Cache-Control", "no-store")
+        response.headers.add_vary_header("Cookie")  # 기존 Vary(Origin 등)에 덧붙인다
+        return response
+
+    @app.exception_handler(RequestValidationError)
+    async def _validation_error(_: Request, e: RequestValidationError):
+        # 기본 처리기는 입력값(비밀번호 포함)을 그대로 되돌려 보내고, 짝 없는 서로게이트 문자가 섞이면 500 이 난다.
+        # 위치·종류·메시지만 돌려준다.
+        errors = [{"loc": list(err.get("loc", ())), "type": err.get("type"), "msg": err.get("msg")} for err in e.errors()]
+        return JSONResponse(status_code=422, content={"detail": {
+            "code": "validation_error", "message_ko": "입력값을 확인해 주세요.", "errors": errors,
+        }})
 
     @app.exception_handler(LLMError)
     async def _llm_error(_: Request, e: LLMError):
         log.warning("LLM 오류 (%s): %s", type(e).__name__, e.detail)
         return JSONResponse(status_code=e.status_code,
                             content={"detail": {"code": type(e).__name__, "message_ko": e.user_message_ko}})
+
+    @app.exception_handler(AuthRequiredError)
+    async def _auth_required(_: Request, e: AuthRequiredError):
+        return JSONResponse(status_code=401, content={"detail": {"code": "auth_required", "message_ko": e.message_ko}})
+
+    @app.exception_handler(AuthUnavailableError)
+    async def _auth_unavailable(_: Request, e: AuthUnavailableError):
+        return JSONResponse(status_code=503, content={"detail": {"code": "auth_unavailable", "message_ko": e.message_ko}})
 
     @app.exception_handler(NotFoundError)
     async def _not_found(_: Request, e: NotFoundError):
@@ -117,8 +158,11 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
         }})
 
     # 응답의 mesh_url 등은 API 루트 기준 경로(/designs/...)이고, 프론트엔드가 API_BASE(/api)를 앞에 붙인다.
-    for router in (meta.router, habitats.router, designs.router, waitlist.router):
-        app.include_router(router, prefix=prefix)
+    # 공개: 상태 확인, 로그인. 그 밖의 API 는 관리자 로그인 필요 (인증이 꺼져 있으면 통과)
+    app.include_router(meta.router, prefix=prefix)
+    app.include_router(auth_api.router, prefix=prefix)
+    for router in (habitats.router, designs.router, waitlist.router):
+        app.include_router(router, prefix=prefix, dependencies=[Depends(require_admin)])
     return app
 
 

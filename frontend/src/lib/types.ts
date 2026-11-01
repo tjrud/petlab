@@ -1,5 +1,7 @@
 // 백엔드 API 스키마 (backend/app/schemas.py) 와 맞춘 타입
 
+export type AuthStatus = { auth_enabled: boolean; authenticated: boolean; username: string | null };
+
 export type Cage = { width_mm: number; depth_mm: number; height_mm: number };
 
 export type SizeOption = {

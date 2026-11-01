@@ -40,7 +40,7 @@ def get_design(design_id: str, version: int | None = Query(default=None, ge=1, l
 def part_mesh(design_id: str, version: int = Path(ge=1, le=2**31 - 1), index: int = Path(ge=0, le=1000), *, db: Session = Depends(get_db),
               svc: DesignService = Depends(get_service)):
     path = svc.part_mesh_path(db, design_id, version, index)
-    return FileResponse(path, media_type="model/stl", headers={"Cache-Control": "public, max-age=86400"})
+    return FileResponse(path, media_type="model/stl", headers={"Cache-Control": "private, max-age=86400", "Vary": "Cookie"})
 
 
 @router.get("/{design_id}/export", summary="3D 프린팅 파일 내려받기 (STL / 3MF)")

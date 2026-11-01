@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
+
+from app.auth import require_admin
 
 router = APIRouter(tags=["메타"])
 
@@ -13,6 +15,8 @@ def health(request: Request) -> dict:
         "status": "ok",
         "llm_provider": settings.resolved_llm_provider,
         "llm_ready": request.app.state.llm_config_error is None,
+        "auth_enabled": settings.auth_enabled,
+        "auth_ready": settings.auth_mode != "misconfigured",
         "database": {
             "dialect": request.app.state.db_dialect,
             "persistent": not request.app.state.db_ephemeral,
@@ -25,7 +29,7 @@ def health(request: Request) -> dict:
     }
 
 
-@router.get("/species", summary="등록 가능한 종·크기 목록 (규칙 파일 기준)")
+@router.get("/species", summary="등록 가능한 종·크기 목록 (규칙 파일 기준)", dependencies=[Depends(require_admin)])
 def species(request: Request) -> dict:
     rules = request.app.state.rules
     return {

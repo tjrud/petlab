@@ -1,11 +1,80 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 
 const SHOTS = process.env.E2E_SCREENSHOT_DIR;
+const ADMIN = { username: "admin", password: "e2e-admin-password" };
 
-test("사육 환경 등록 → 요구사항 → 3D 뷰어 → 다운로드 → 제작 신청", async ({ page, request }) => {
+async function login(page: Page) {
+  await page.goto("/login?next=/");
+  await page.getByLabel("아이디").fill(ADMIN.username);
+  await page.getByLabel("비밀번호").fill(ADMIN.password);
+  await page.getByRole("button", { name: "로그인", exact: true }).click();
+  await page.waitForURL((url) => url.pathname === "/");
+}
+
+test("관리자 인증: 사이트는 공개, 설계 기능은 로그인 후에만", async ({ page, request }) => {
+  // 로그인 없이 API 호출 → 401
+  const r = await request.get("http://localhost:8000/species");
+  expect(r.status()).toBe(401);
+  // 첫 화면은 누구나 열 수 있고, 설계 폼 대신 로그인 안내가 보인다 (자동으로 이동하지 않음)
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: /구조물을 설계해 드려요/ })).toBeVisible();
+  await expect(page.getByText("관리자 로그인 후 사용할 수 있어요")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "사육 환경을 알려 주세요" })).toHaveCount(0);
+  await page.getByRole("main").getByRole("link", { name: "관리자 로그인" }).click();
+  await page.waitForURL(/\/login\?next=%2F$/);
+  await expect(page.getByRole("heading", { name: "관리자 로그인" })).toBeVisible();
+  await expect(page.getByLabel("아이디")).toHaveValue(""); // 아이디를 미리 채워 두지 않는다
+  // 틀린 비밀번호
+  await page.getByLabel("아이디").fill(ADMIN.username);
+  await page.getByLabel("비밀번호").fill("wrong-password");
+  await page.getByRole("button", { name: "로그인", exact: true }).click();
+  await expect(page.getByText("아이디 또는 비밀번호가 올바르지 않아요.")).toBeVisible();
+  // 올바른 비밀번호 → 원래 화면으로
+  await page.getByLabel("비밀번호").fill(ADMIN.password);
+  await page.getByRole("button", { name: "로그인", exact: true }).click();
+  await page.waitForURL((url) => url.pathname === "/");
+  await expect(page.getByRole("heading", { name: "사육 환경을 알려 주세요" })).toBeVisible();
+  await expect(page.getByText("관리자 admin")).toBeVisible();
+  // 로그아웃 → 로그인 화면 (현재 기록을 바꿔치기해 뒤로 가도 로그인 전 화면이 다시 보이지 않는다)
+  await page.getByRole("button", { name: "로그아웃" }).click();
+  await page.waitForURL(/\/login$/);
+  await expect(page.getByText("관리자 admin")).toHaveCount(0);
+  await page.goBack();
+  await expect(page.getByRole("heading", { name: "사육 환경을 알려 주세요" })).toHaveCount(0);
+  await page.goto("/");
+  await expect(page.getByText("관리자 로그인 후 사용할 수 있어요")).toBeVisible();
+});
+
+test("로그인 후 이동 경로는 같은 사이트 안으로만", async ({ page }) => {
+  for (const next of [
+    "/\\evil.example/x",
+    "/\t/evil.example",
+    "//evil.example",
+    "https://evil.example/",
+    "/..//evil.example",
+    "/.//evil.example",
+    "/%2e%2e//evil.example",
+    "/a/..//evil.example",
+  ]) {
+    await page.goto(`/login?next=${encodeURIComponent(next)}`);
+    await page.getByLabel("아이디").fill(ADMIN.username);
+    await page.getByLabel("비밀번호").fill(ADMIN.password);
+    await page.getByRole("button", { name: "로그인", exact: true }).click();
+    await page.waitForURL((url) => url.origin === "http://localhost:3000" && url.pathname === "/");
+    await page.context().clearCookies();
+  }
+  // 같은 사이트 경로는 그대로 돌아간다
+  await page.goto(`/login?next=${encodeURIComponent("/order?design=abc")}`);
+  await page.getByLabel("아이디").fill(ADMIN.username);
+  await page.getByLabel("비밀번호").fill(ADMIN.password);
+  await page.getByRole("button", { name: "로그인", exact: true }).click();
+  await page.waitForURL((url) => url.pathname === "/order" && url.search === "?design=abc");
+});
+
+test("사육 환경 등록 → 요구사항 → 3D 뷰어 → 다운로드 → 제작 신청", async ({ page }) => {
   const pageErrors: string[] = [];
   page.on("pageerror", (e) => pageErrors.push(e.message));
-  await page.goto("/");
+  await login(page);
   await expect(page.getByRole("heading", { name: "사육 환경을 알려 주세요" })).toBeVisible();
 
   // 1. 사육 환경
@@ -40,10 +109,10 @@ test("사육 환경 등록 → 요구사항 → 3D 뷰어 → 다운로드 → �
   // 6. 다운로드 링크가 실제 파일을 내려주는지
   const stlHref = await page.getByRole("link", { name: /STL/ }).getAttribute("href");
   const threeMfHref = await page.getByRole("link", { name: /3MF/ }).getAttribute("href");
-  const stl = await request.get(stlHref!);
+  const stl = await page.request.get(stlHref!);
   expect(stl.status()).toBe(200);
   expect((await stl.body()).length).toBeGreaterThan(1000);
-  const tmf = await request.get(threeMfHref!);
+  const tmf = await page.request.get(threeMfHref!);
   expect(tmf.headers()["content-type"]).toContain("model/3mf");
 
   // 제작·배송 신청 → 대기 화면
@@ -56,7 +125,7 @@ test("사육 환경 등록 → 요구사항 → 3D 뷰어 → 다운로드 → �
 });
 
 test("검증 실패 설계는 내려받기 대신 안내를 보여준다", async ({ page }) => {
-  await page.goto("/");
+  await login(page);
   await page.getByText("골든 (시리안)").click();
   await page.getByLabel("케이지 높이 (mm)").fill("130");
   await page.getByRole("button", { name: "다음" }).click();
@@ -70,7 +139,7 @@ test("검증 실패 설계는 내려받기 대신 안내를 보여준다", async
 });
 
 test("수정 루프: 추가 프롬프트로 v2 생성, 이전 버전 유지·전환", async ({ page }) => {
-  await page.goto("/");
+  await login(page);
   await page.getByText("골든 (시리안)").click();
   await page.getByRole("button", { name: "다음" }).click();
   await page.getByLabel("요구사항").fill("은신처를 왼쪽에 넣어 주세요");
@@ -105,8 +174,8 @@ test("수정 루프: 추가 프롬프트로 v2 생성, 이전 버전 유지·전
   await expect(versions.getByRole("button")).toHaveCount(3);
 });
 
-test("여러 구조물: 은신처와 터널을 한쪽에 몰아서", async ({ page, request }) => {
-  await page.goto("/");
+test("여러 구조물: 은신처와 터널을 한쪽에 몰아서", async ({ page }) => {
+  await login(page);
   await page.getByText("골든 (시리안)").click();
   await page.getByRole("button", { name: "대형 80×50×40cm" }).click();
   await page.getByRole("button", { name: "다음" }).click();
@@ -127,6 +196,6 @@ test("여러 구조물: 은신처와 터널을 한쪽에 몰아서", async ({ pa
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/design-mixed.png`, fullPage: true });
 
   const href = await page.getByRole("link", { name: /STL \(zip\)/ }).getAttribute("href");
-  const zip = await request.get(href!);
+  const zip = await page.request.get(href!);
   expect(zip.headers()["content-type"]).toBe("application/zip");
 });

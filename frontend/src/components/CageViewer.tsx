@@ -32,7 +32,8 @@ function Part({
   hasError: boolean;
   onSelect: (i: number) => void;
 }) {
-  const geometry = useLoader(STLLoader, api.meshUrl(item.mesh_url!));
+  // 관리자 세션 쿠키를 함께 보낸다 (같은 출처면 기본 전송, 로컬 개발처럼 출처가 다를 때를 위해 명시)
+  const geometry = useLoader(STLLoader, api.meshUrl(item.mesh_url!), (loader) => loader.setWithCredentials(true));
   useMemo(() => geometry.computeVertexNormals(), [geometry]);
   const base = hasError ? "#e05252" : (TEMPLATE_COLORS[item.template] ?? "#c8a27a");
   const p = item.placement!;

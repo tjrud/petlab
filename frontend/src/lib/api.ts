@@ -1,4 +1,4 @@
-import type { Cage, Design, Habitat, SpeciesResponse } from "./types";
+import type { AuthStatus, Cage, Design, Habitat, SpeciesResponse } from "./types";
 
 export const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, "");
 
@@ -16,11 +16,17 @@ export class ApiError extends Error {
 
 const FALLBACK_MESSAGE = "서버와 통신하지 못했어요. 잠시 후 다시 시도해 주세요.";
 
+/** 관리자 로그인이 필요해서 실패한 요청인지 */
+export function isAuthError(e: unknown): boolean {
+  return e instanceof ApiError && (e.code === "auth_required" || e.code === "auth_unavailable");
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`${API_BASE}${path}`, {
       ...init,
+      credentials: "include", // 관리자 세션 쿠키 (로컬 개발처럼 출처가 달라도 전송)
       headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
     });
   } catch {
@@ -47,6 +53,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  authStatus: () => request<AuthStatus>("/auth/me"),
+  login: (username: string, password: string) =>
+    request<AuthStatus>("/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),
+  logout: () => request<AuthStatus>("/auth/logout", { method: "POST" }),
   species: () => request<SpeciesResponse>("/species"),
   createHabitat: (body: { species: string; size: string; count: number; cage: Cage }) =>
     request<Habitat>("/habitats", { method: "POST", body: JSON.stringify(body) }),
