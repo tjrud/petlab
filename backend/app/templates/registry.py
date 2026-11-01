@@ -4,8 +4,13 @@ from __future__ import annotations
 
 from app.templates.base import Template
 from app.templates.hideout import HideoutTemplate
+from app.templates.ramp import RampTemplate
+from app.templates.sand_bath import SandBathTemplate
+from app.templates.tunnel import TunnelTemplate
 
-_TEMPLATES: dict[str, Template] = {t.key: t for t in (HideoutTemplate(),)}
+_TEMPLATES: dict[str, Template] = {
+    t.key: t for t in (HideoutTemplate(), TunnelTemplate(), RampTemplate(), SandBathTemplate())
+}
 
 
 def get_template(key: str) -> Template:

@@ -80,3 +80,40 @@ def test_count_warning_does_not_block(rules):
     res = run_engine([ItemSpec("hideout", dict(entrance_diameter_mm=75))], ctx(rules, count=2))
     assert by_code(res.report, "count_exceeds")
     assert res.report.passed
+
+
+def test_all_four_templates_in_one_cage(rules):
+    """네 가지 템플릿을 한 케이지에 넣어도 배치·검증을 통과한다."""
+    from app.templates.registry import get_template
+
+    c = ctx(rules, Cage(1000, 500, 400))
+    specs = [
+        ItemSpec(k, get_template(k).default_params(c.rule_ctx).model_dump(), PlacementHint(zone=z))
+        for k, z in [("hideout", "left"), ("tunnel", "back"), ("ramp", "right"), ("sand_bath", "front")]
+    ]
+    res = run_engine(specs, c)
+    assert res.report.passed, res.report.errors
+    assert all(it.placement is not None for it in res.items)
+
+
+def test_mixed_grouped_design_from_mock(rules):
+    """'은신처와 터널을 한쪽에 몰아서' → 두 구조물이 같은 그룹으로 서로 붙어 배치된다."""
+    from app.llm.base import HabitatInfo, InterpretRequest
+    from app.llm.mock import MockInterpreter
+    from app.llm.spec import to_item_specs
+
+    cage = Cage(800, 500, 400)
+    req = InterpretRequest(
+        prompt="은신처와 터널을 한쪽에 몰아서 넣고 싶어요",
+        habitat=HabitatInfo("hamster", "햄스터", "syrian", 1, cage),
+        size_rules=rules.size_rules("hamster", "syrian"),
+        min_wall_mm=rules.min_wall_for("hamster", "syrian"),
+    )
+    spec = MockInterpreter().interpret(req).spec
+    assert [it.template for it in spec.items] == ["hideout", "tunnel"]
+    assert {it.placement.group for it in spec.items} == {"g1"}
+    res = run_engine(to_item_specs(spec), ctx(rules, cage))
+    assert res.report.passed, res.report.errors
+    a, b = res.items
+    assert a.world_footprint.distance(b.world_footprint) == pytest.approx(0, abs=0.5)
+    assert max(a.world_rect.cx, b.world_rect.cx) < cage.width_mm / 2  # 한쪽(왼쪽)에 모임

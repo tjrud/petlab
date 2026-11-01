@@ -82,6 +82,19 @@ def _scaled(template, params: dict, factor: float) -> dict:
 
 def _apply_numbers(key: str, text: str, params: dict) -> dict:
     out = dict(params)
+    if key == "tunnel":
+        if any(w in text for w in ("U자", "유턴")):
+            out["bend_angle_deg"] = 180
+        elif any(w in text for w in ("곡선", "구부러", "휘어", "ㄱ자", "꺾")):
+            out["bend_angle_deg"] = 90
+        elif "직선" in text:
+            out["bend_angle_deg"] = 0
+    if key == "ramp":
+        if "계단" in text:
+            m = re.search(r"(\d+)\s*단", text)
+            out["steps"] = int(m.group(1)) if m else max(out.get("steps", 0), 3)
+        elif any(w in text for w in ("경사로", "램프", "슬로프")):
+            out["steps"] = 0
     if key == "hideout":
         m = re.search(r"환기구[^\d]{0,8}?(\d+)\s*개", text)
         if m:

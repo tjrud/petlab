@@ -21,12 +21,14 @@ export const PARAM_LABELS: Record<string, string> = {
   slope_deg: "경사각",
   steps: "단 수",
   lip_height_mm: "턱 높이",
+  basin_depth_mm: "안쪽 깊이",
 };
 
 export function formatParam(key: string, value: number): string {
   const v = Number.isInteger(value) ? value.toString() : value.toFixed(1);
   if (key.endsWith("_mm")) return `${v}mm`;
   if (key.endsWith("_deg")) return `${v}°`;
-  if (key.endsWith("_count") || key === "steps") return `${v}개`;
+  if (key === "steps") return value === 0 ? "경사로" : `${v}단`;
+  if (key.endsWith("_count")) return `${v}개`;
   return v;
 }

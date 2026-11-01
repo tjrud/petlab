@@ -13,7 +13,7 @@ export default function DownloadPanel({
   allowed: boolean;
   partCount: number;
 }) {
-  const btn = "flex-1 rounded-xl px-4 py-3 text-center font-semibold";
+  const btn = "flex-1 whitespace-nowrap rounded-xl px-3 py-3 text-center text-sm font-semibold sm:text-base";
   return (
     <section aria-labelledby="download-title" className="space-y-3">
       <h2 id="download-title" className="font-bold">
@@ -22,10 +22,10 @@ export default function DownloadPanel({
       {allowed ? (
         <div className="flex gap-2">
           <a href={api.exportUrl(designId, "stl", version)} className={`${btn} bg-amber-500 text-white hover:bg-amber-600`} download>
-            STL{partCount > 1 ? " (zip)" : ""} 내려받기
+            STL{partCount > 1 ? " (zip)" : ""} 받기
           </a>
           <a href={api.exportUrl(designId, "3mf", version)} className={`${btn} border border-amber-500 text-amber-700 hover:bg-amber-50`} download>
-            3MF 내려받기
+            3MF 받기
           </a>
         </div>
       ) : (

@@ -104,3 +104,29 @@ test("수정 루프: 추가 프롬프트로 v2 생성, 이전 버전 유지·전
   expect(Number(await sizeOf())).toBeLessThan(v1Width);
   await expect(versions.getByRole("button")).toHaveCount(3);
 });
+
+test("여러 구조물: 은신처와 터널을 한쪽에 몰아서", async ({ page, request }) => {
+  await page.goto("/");
+  await page.getByText("골든 (시리안)").click();
+  await page.getByRole("button", { name: "대형 80×50×40cm" }).click();
+  await page.getByRole("button", { name: "다음" }).click();
+  await page.getByRole("button", { name: "은신처와 터널을 한쪽에 몰아서 넣고 싶어요" }).click();
+  const meshes: string[] = [];
+  page.on("response", (r) => {
+    if (r.url().includes("/parts/") && r.status() === 200) meshes.push(r.url());
+  });
+  await page.getByRole("button", { name: "맞춤 설계 받기" }).click();
+  await page.waitForURL(/\/designs\//);
+  await expect(page.getByRole("button", { name: /은신처 #1/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^터널 #2 \d/ })).toBeVisible();
+  await expect(page.getByText("통과", { exact: true })).toBeVisible();
+  await expect.poll(() => meshes.length).toBe(2);
+  await page.getByRole("button", { name: /^터널 #2 \d/ }).click();
+  await expect(page.getByText("터널 내경", { exact: false }).or(page.getByText("내경"))).toBeVisible();
+  await page.waitForTimeout(1500);
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/design-mixed.png`, fullPage: true });
+
+  const href = await page.getByRole("link", { name: /STL \(zip\)/ }).getAttribute("href");
+  const zip = await request.get(href!);
+  expect(zip.headers()["content-type"]).toBe("application/zip");
+});
