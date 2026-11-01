@@ -30,6 +30,7 @@ log = logging.getLogger(__name__)
 
 COOKIE_NAME = "kkomul_session"
 MAX_TOKEN_LEN = 1024
+MAX_TOKEN_LIFETIME_S = 720 * 3600 + 60  # SESSION_TTL_HOURS 상한(30일) + 시계 오차
 
 
 class AuthRequiredError(RuntimeError):
@@ -87,11 +88,14 @@ def verify_token(token: str | None, key: bytes, now: float | None = None) -> str
         if not hmac.compare_digest(sig.encode("ascii"), _sign(body, key).encode("ascii")):
             return None
         payload = json.loads(_unb64(body))
-        sub, exp = payload["sub"], float(payload["exp"])
+        sub, exp = payload["sub"], payload["exp"]
     except (ValueError, KeyError, TypeError, binascii.Error):
         return None
+    # issue_token 은 항상 정수 exp 를 쓴다 (NaN·Infinity·거대한 수는 거부)
+    if not isinstance(sub, str) or type(exp) is not int:
+        return None
     now = time.time() if now is None else now
-    if exp < now or not isinstance(sub, str):
+    if exp < now or exp > now + MAX_TOKEN_LIFETIME_S:
         return None
     return sub
 
@@ -124,6 +128,8 @@ def client_key(settings: Settings, request: Request) -> str:
         ip = ipaddress.ip_address(raw)
     except ValueError:
         return raw[:64] or "unknown"
+    if ip.version == 6 and ip.ipv4_mapped is not None:  # ::ffff:a.b.c.d → a.b.c.d
+        ip = ip.ipv4_mapped
     if ip.version == 6:
         return str(ipaddress.ip_network(f"{ip}/64", strict=False))
     return str(ip)
@@ -132,13 +138,16 @@ def client_key(settings: Settings, request: Request) -> str:
 class LoginRateLimiter:
     """키(IP) 별로 window_s 동안 max_failures 번 넘게 틀리면 잠시 막는다 (인스턴스 메모리 기준).
 
-    기록하는 키 수는 max_keys 로 제한한다 (오래된 키부터 버림 → 메모리가 끝없이 늘지 않게)."""
+    기록하는 키 수는 max_keys 로 제한한다. 넘치면 막히지 않은 가장 오래된 키부터 버리고,
+    막힌 키는 버리지 않는다 (키를 대량으로 바꿔 가며 차단을 풀지 못하게).
+    표가 막힌 키로만 가득 차면 window_s 동안 새 키의 로그인도 막는다 (fail closed)."""
 
     def __init__(self, max_failures: int = 10, window_s: float = 900.0, max_keys: int = 10_000):
         self.max_failures = max_failures
         self.window_s = window_s
         self.max_keys = max_keys
         self._failures: OrderedDict[str, deque[float]] = OrderedDict()
+        self._saturated_until = 0.0
         self._lock = threading.Lock()
 
     def _prune(self, key: str, now: float) -> int:
@@ -155,7 +164,9 @@ class LoginRateLimiter:
     def blocked(self, key: str, now: float | None = None) -> bool:
         now = time.time() if now is None else now
         with self._lock:
-            return self._prune(key, now) >= self.max_failures
+            if self._prune(key, now) >= self.max_failures:
+                return True
+            return key not in self._failures and now < self._saturated_until
 
     def record_failure(self, key: str, now: float | None = None) -> None:
         now = time.time() if now is None else now
@@ -164,8 +175,19 @@ class LoginRateLimiter:
             q = self._failures.setdefault(key, deque())
             q.append(now)
             self._failures.move_to_end(key)
-            while len(self._failures) > self.max_keys:
-                self._failures.popitem(last=False)
+            if len(self._failures) > self.max_keys:
+                self._evict(keep=key, now=now)
+
+    def _evict(self, keep: str, now: float) -> None:
+        for k in list(self._failures):
+            if k != keep and self._prune(k, now) < self.max_failures:
+                self._failures.pop(k, None)
+                if len(self._failures) <= self.max_keys:
+                    return
+        # 남은 키가 모두 차단 중: 새 키 기록을 버리는 대신 새 키 전체를 잠시 막는다
+        self._failures.pop(keep, None)
+        self._saturated_until = now + self.window_s
+        log.error("로그인 실패 기록이 가득 찼습니다 (차단된 키 %d개). 새 접속의 로그인을 잠시 막습니다.", len(self._failures))
 
     def reset(self, key: str) -> None:
         with self._lock:

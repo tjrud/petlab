@@ -46,7 +46,16 @@ test("관리자 인증: 사이트는 공개, 설계 기능은 로그인 후에�
 });
 
 test("로그인 후 이동 경로는 같은 사이트 안으로만", async ({ page }) => {
-  for (const next of ["/\\evil.example/x", "/\t/evil.example", "//evil.example", "https://evil.example/"]) {
+  for (const next of [
+    "/\\evil.example/x",
+    "/\t/evil.example",
+    "//evil.example",
+    "https://evil.example/",
+    "/..//evil.example",
+    "/.//evil.example",
+    "/%2e%2e//evil.example",
+    "/a/..//evil.example",
+  ]) {
     await page.goto(`/login?next=${encodeURIComponent(next)}`);
     await page.getByLabel("아이디").fill(ADMIN.username);
     await page.getByLabel("비밀번호").fill(ADMIN.password);

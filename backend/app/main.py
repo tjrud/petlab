@@ -6,6 +6,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import DataError
@@ -85,7 +86,8 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
         title="꼬물공방 API",
         version="0.1.0",
         lifespan=lifespan,
-        docs_url=f"{prefix}/docs",
+        # 인증이 켜지면 Swagger UI 페이지(외부 CDN 스크립트를 세션 쿠키와 같은 출처에서 실행)는 끈다. JSON 스키마는 유지
+        docs_url=None if settings.auth_enabled else f"{prefix}/docs",
         redoc_url=None,
         openapi_url=f"{prefix}/openapi.json",
     )
@@ -105,6 +107,15 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
         response.headers.setdefault("Cache-Control", "no-store")
         response.headers.add_vary_header("Cookie")  # 기존 Vary(Origin 등)에 덧붙인다
         return response
+
+    @app.exception_handler(RequestValidationError)
+    async def _validation_error(_: Request, e: RequestValidationError):
+        # 기본 처리기는 입력값(비밀번호 포함)을 그대로 되돌려 보내고, 짝 없는 서로게이트 문자가 섞이면 500 이 난다.
+        # 위치·종류·메시지만 돌려준다.
+        errors = [{"loc": list(err.get("loc", ())), "type": err.get("type"), "msg": err.get("msg")} for err in e.errors()]
+        return JSONResponse(status_code=422, content={"detail": {
+            "code": "validation_error", "message_ko": "입력값을 확인해 주세요.", "errors": errors,
+        }})
 
     @app.exception_handler(LLMError)
     async def _llm_error(_: Request, e: LLMError):

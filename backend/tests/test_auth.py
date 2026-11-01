@@ -161,7 +161,7 @@ def test_login_then_full_flow_then_logout(client):
     assert client.get(d["current"]["items"][0]["mesh_url"]).status_code == 200
     assert client.get(f"/designs/{d['id']}/export?format=3mf").status_code == 200
 
-    client.post("/auth/logout")
+    client.post("/auth/logout", json={})
     assert client.get("/auth/me").json()["authenticated"] is False
     assert client.get(f"/designs/{d['id']}").status_code == 401
 
@@ -235,7 +235,7 @@ def test_cookie_secure_flag(tmp_path):
     with TestClient(create_app(settings(tmp_path, cookie_secure=True))) as c:
         r = c.post("/auth/login", json=ADMIN)
         assert r.status_code == 200 and "secure" in r.headers["set-cookie"].lower()
-        assert "secure" in c.post("/auth/logout").headers["set-cookie"].lower()
+        assert "secure" in c.post("/auth/logout", json={}).headers["set-cookie"].lower()
     with TestClient(create_app(settings(tmp_path)), base_url="https://testserver") as c:  # 미지정 → scheme 기준
         assert "secure" in c.post("/auth/login", json=ADMIN).headers["set-cookie"].lower()
 
@@ -260,3 +260,101 @@ def test_password_rotation_invalidates_sessions(tmp_path):
     with TestClient(create_app(settings(tmp_path, admin_password="a brand new password"))) as c:
         c.cookies.set(COOKIE_NAME, token)
         assert c.get("/species").status_code == 401
+
+
+def test_exp_must_be_integer():
+    key = b"k" * 32
+    for raw in (b'{"sub":"admin","exp":NaN}', b'{"sub":"admin","exp":Infinity}', b'{"sub":"admin","exp":1e999}',
+                b'{"sub":"admin","exp":9999999999.5}', b'{"sub":"admin","exp":"9999999999"}',
+                b'{"sub":"admin","exp":' + b"9" * 400 + b"}", b'{"sub":"admin","exp":true}'):
+        body = base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+        sig = base64.urlsafe_b64encode(hmac.new(key, body.encode(), hashlib.sha256).digest()).rstrip(b"=").decode()
+        assert verify_token(f"{body}.{sig}", key) is None, raw[:40]
+
+
+def test_login_with_lone_surrogate_is_422_without_echo(client):
+    """짝 없는 서로게이트 문자 → 500 이 아니라 422, 응답에 입력값(비밀번호)을 되돌려 보내지 않는다."""
+    raw = '{"username":"admin","password":"secret-\\ud800-value"}'
+    r = client.post("/auth/login", content=raw, headers={"content-type": "application/json"})
+    assert r.status_code == 422
+    assert r.json()["detail"]["code"] == "validation_error"
+    assert "secret" not in r.text and "input" not in r.text
+
+
+def test_validation_errors_do_not_echo_input(client):
+    login(client)
+    r = client.post("/habitats", json={**HABITAT, "count": "my-private-text"})
+    assert r.status_code == 422 and "my-private-text" not in r.text
+    assert r.json()["detail"]["errors"][0]["loc"][-1] == "count"
+
+
+def test_ipv4_mapped_addresses_are_not_bucketed_together(tmp_path):
+    from starlette.requests import Request
+
+    s = settings(tmp_path, client_ip_header="x-vercel-forwarded-for")
+
+    def key(ip):
+        return client_key(s, Request({"type": "http", "headers": [(b"x-vercel-forwarded-for", ip.encode())],
+                                      "client": ("10.0.0.1", 1)}))
+
+    assert key("::ffff:1.2.3.4") == "1.2.3.4"
+    assert key("::ffff:5.6.7.8") == "5.6.7.8"
+
+
+def test_rate_limiter_eviction_never_unblocks():
+    rl = LoginRateLimiter(max_failures=2, window_s=100, max_keys=3)
+    for _ in range(2):
+        rl.record_failure("victim-blocked", now=1)
+    assert rl.blocked("victim-blocked", now=2)
+    for i in range(50):  # 새 키를 잔뜩 만들어도 막힌 키는 버려지지 않는다
+        rl.record_failure(f"new{i}", now=2)
+    assert rl.blocked("victim-blocked", now=3)
+    assert len(rl) <= 3
+
+
+def test_rate_limiter_saturated_with_blocked_keys_fails_closed():
+    rl = LoginRateLimiter(max_failures=1, window_s=100, max_keys=2)
+    rl.record_failure("a", now=1)
+    rl.record_failure("b", now=1)
+    assert rl.blocked("a", now=2) and rl.blocked("b", now=2)
+    rl.record_failure("c", now=2)  # 표가 막힌 키로 가득 → 새 키는 잠시 모두 막힘
+    assert rl.blocked("c", now=3) and rl.blocked("never-seen", now=3)
+    assert not rl.blocked("never-seen", now=200)  # 시간이 지나면 풀림
+
+
+def test_logout_rejects_cross_site_forms(client):
+    login(client)
+    for headers in ({"content-type": "application/x-www-form-urlencoded"}, {"content-type": "text/plain"}, {},
+                    {"content-type": "application/json", "sec-fetch-site": "cross-site"}):
+        r = client.post("/auth/logout", headers=headers, content=b"")
+        assert r.status_code == 403 and r.json()["detail"]["code"] == "cross_site_request", headers
+        assert COOKIE_NAME not in r.headers.get("set-cookie", "")
+        assert client.get("/species").status_code == 200  # 세션 유지
+    r = client.post("/auth/logout", json={}, headers={"sec-fetch-site": "same-origin"})
+    assert r.status_code == 200 and client.get("/species").status_code == 401
+
+
+def test_admin_username_whitespace_is_stripped(tmp_path):
+    with TestClient(create_app(settings(tmp_path, admin_username="  admin \n"))) as c:
+        assert c.post("/auth/login", json=ADMIN).status_code == 200
+
+
+def test_padded_or_short_password_is_misconfigured(tmp_path):
+    for pw in (" correct horse battery staple", "correct horse battery staple\n", "fifteen-chars!!"):
+        assert settings(tmp_path, admin_password=pw).auth_mode == "misconfigured", repr(pw)
+
+
+def test_session_ttl_bounds(tmp_path):
+    from pydantic import ValidationError
+
+    for bad in (0, -1, float("inf"), float("nan"), 1e300):
+        with pytest.raises(ValidationError):
+            settings(tmp_path, session_ttl_hours=bad)
+
+
+def test_swagger_ui_disabled_when_auth_on(tmp_path):
+    with TestClient(create_app(settings(tmp_path))) as c:
+        assert c.get("/docs").status_code == 404
+        assert c.get("/openapi.json").status_code == 200
+    with TestClient(create_app(settings(tmp_path, admin_password=None))) as c:
+        assert c.get("/docs").status_code == 200

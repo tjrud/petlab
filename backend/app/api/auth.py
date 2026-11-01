@@ -81,9 +81,20 @@ async def login(data: LoginIn, request: Request) -> Response:
     return response
 
 
+def _is_cross_site_form(request: Request) -> bool:
+    """다른 사이트의 폼 전송으로 온 요청인지. 폼은 application/json 을 보낼 수 없고(보내려면 CORS 사전 요청 필요),
+    브라우저는 Sec-Fetch-Site 로 출처를 알려 준다."""
+    media = request.headers.get("content-type", "").split(";")[0].strip().lower()
+    return media != "application/json" or request.headers.get("sec-fetch-site") == "cross-site"
+
+
 @router.post("/logout", summary="로그아웃 (이 브라우저의 세션 쿠키 삭제)")
 def logout(request: Request) -> Response:
     settings = request.app.state.settings
+    if _is_cross_site_form(request):  # 다른 사이트에서 강제로 로그아웃시키는 요청(CSRF) 차단
+        return JSONResponse(status_code=403, content={"detail": {
+            "code": "cross_site_request", "message_ko": "이 요청은 처리할 수 없어요. 화면의 로그아웃 버튼을 이용해 주세요.",
+        }})
     response = JSONResponse({"auth_enabled": settings.auth_enabled, "authenticated": False, "username": None})
     response.delete_cookie(COOKIE_NAME, path="/", httponly=True, samesite="lax",
                            secure=cookie_secure(settings, request))

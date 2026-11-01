@@ -6,14 +6,14 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import AliasChoices, Field, SecretStr
+from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 REPO_DIR = BACKEND_DIR.parent
 
 MIN_SESSION_SECRET_BYTES = 32
-MIN_ADMIN_PASSWORD_LEN = 12
+MIN_ADMIN_PASSWORD_LEN = 16
 
 
 class Settings(BaseSettings):
@@ -59,11 +59,17 @@ class Settings(BaseSettings):
     admin_username: str = "admin"
     admin_password: SecretStr | None = None
     session_secret: SecretStr | None = None  # 세션 쿠키 서명 키 (32바이트 이상 무작위 문자열, 필수)
-    session_ttl_hours: float = 24.0
+    session_ttl_hours: float = Field(default=24.0, gt=0, le=720)  # 최대 30일
     # 세션 쿠키 Secure 속성. 비우면 요청 scheme(https)으로 판단하고, 컨테이너 이미지는 1 로 고정한다.
     cookie_secure: bool | None = None
     # 로그인 시도 제한에 쓸 클라이언트 IP 헤더 (플랫폼이 덮어써 위조할 수 없는 헤더만. 예: x-vercel-forwarded-for)
     client_ip_header: str | None = None
+
+    @field_validator("admin_username", mode="after")
+    @classmethod
+    def _strip_admin_username(cls, v: str) -> str:
+        # 붙여 넣기로 섞인 앞뒤 공백 때문에 로그인이 영영 안 되는 일을 막는다 (아이디는 비밀값이 아님)
+        return v.strip()
 
     @property
     def auth_problems(self) -> list[str]:
@@ -72,6 +78,8 @@ class Settings(BaseSettings):
         if not password.strip():
             return ["ADMIN_PASSWORD 가 없습니다"] if self.auth_required else []
         problems = []
+        if password != password.strip():
+            problems.append("ADMIN_PASSWORD 앞뒤에 공백·줄바꿈이 있습니다 (붙여 넣기 실수일 수 있음)")
         if len(password) < MIN_ADMIN_PASSWORD_LEN:
             problems.append(f"ADMIN_PASSWORD 는 {MIN_ADMIN_PASSWORD_LEN}자 이상이어야 합니다")
         if not self.admin_username.strip():
