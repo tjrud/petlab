@@ -2,22 +2,35 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
+
 import pytest
 from fastapi.testclient import TestClient
 
-from app.auth import COOKIE_NAME, LoginRateLimiter, issue_token, signing_key, verify_token
+from app.auth import (
+    COOKIE_NAME,
+    AuthUnavailableError,
+    LoginRateLimiter,
+    client_key,
+    issue_token,
+    signing_key,
+    verify_token,
+)
 from app.config import Settings
 from app.main import create_app
 
 CAGE = {"width_mm": 600, "depth_mm": 400, "height_mm": 300}
 HABITAT = {"species": "hamster", "size": "syrian", "count": 1, "cage": CAGE}
 ADMIN = {"username": "admin", "password": "correct horse battery staple"}
+SECRET = "s" * 40
 
 
 def settings(tmp_path, **kw) -> Settings:
     base = dict(llm_provider="mock", database_url=f"sqlite:///{tmp_path / 'test.db'}",
                 mesh_cache_dir=tmp_path / "meshes", admin_username=ADMIN["username"],
-                admin_password=ADMIN["password"], session_secret="test-secret", _env_file=None)
+                admin_password=ADMIN["password"], session_secret=SECRET, _env_file=None)
     base.update(kw)
     return Settings(**base)
 
@@ -50,11 +63,26 @@ def test_token_roundtrip_and_tamper():
         assert verify_token(bad, key) is None
 
 
-def test_signing_key_falls_back_to_password_and_rotates(tmp_path):
-    s1 = settings(tmp_path, session_secret=None)
-    s2 = settings(tmp_path, session_secret=None, admin_password="another")
-    assert signing_key(s1) != signing_key(s2)  # 비밀번호를 바꾸면 기존 세션 무효
-    assert signing_key(settings(tmp_path)) == b"test-secret"
+def test_verify_token_never_raises():
+    key = b"k" * 32
+    for bad in ("é.x", "a" * 5000 + ".b", "abc.%%%", "!!!.AAAA", "\x00.\x00", "e30.é"):
+        assert verify_token(bad, key) is None
+    # 서명은 맞지만 내용이 JSON 이 아니거나 필드가 빠진 경우
+    for raw in (b"not json", b"{}", b'{"sub":1,"exp":9999999999}', b'{"sub":"a","exp":"x"}'):
+        body = base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+        sig = base64.urlsafe_b64encode(hmac.new(key, body.encode(), hashlib.sha256).digest()).rstrip(b"=").decode()
+        assert verify_token(f"{body}.{sig}", key) is None
+
+
+def test_signing_key_requires_secret_and_rotates_with_password(tmp_path):
+    base = signing_key(settings(tmp_path))
+    assert base != SECRET.encode()  # 비밀값을 그대로 쓰지 않는다
+    assert signing_key(settings(tmp_path, admin_password="another password!")) != base  # 비밀번호 교체 → 세션 무효
+    assert signing_key(settings(tmp_path, session_secret="t" * 40)) != base  # 서명 키 교체 → 세션 무효
+    # SESSION_SECRET 이 없거나 짧으면 비밀번호에서 키를 유도하지 않고 거부한다
+    for secret in (None, "", "short-secret"):
+        with pytest.raises(AuthUnavailableError):
+            signing_key(settings(tmp_path, session_secret=secret))
 
 
 def test_rate_limiter():
@@ -65,6 +93,33 @@ def test_rate_limiter():
     assert rl.blocked("ip", now=10)
     assert not rl.blocked("ip", now=200)  # 시간이 지나면 풀림
     assert not rl.blocked("other", now=10)
+    assert len(rl) == 0  # 지난 기록과 빈 키는 지운다
+
+
+def test_rate_limiter_memory_is_bounded():
+    rl = LoginRateLimiter(max_failures=3, window_s=100, max_keys=50)
+    for i in range(1000):
+        rl.record_failure(f"ip{i}", now=1)
+    assert len(rl) == 50
+    assert not rl.blocked("ip0", now=2)  # 가장 오래된 키부터 버림
+
+
+def test_client_key(tmp_path):
+    from starlette.requests import Request
+
+    def req(headers: dict, host: str = "10.0.0.1"):
+        return Request({"type": "http", "headers": [(k.encode(), v.encode()) for k, v in headers.items()],
+                        "client": (host, 1234)})
+
+    s = settings(tmp_path)
+    assert client_key(s, req({"x-vercel-forwarded-for": "1.2.3.4"})) == "10.0.0.1"  # 헤더를 믿도록 설정하지 않음
+    s = settings(tmp_path, client_ip_header="x-vercel-forwarded-for")
+    assert client_key(s, req({"x-vercel-forwarded-for": "1.2.3.4, 5.6.7.8"})) == "1.2.3.4"
+    assert client_key(s, req({})) == "10.0.0.1"
+    # IPv6 는 /64 로 묶는다
+    a = client_key(s, req({"x-vercel-forwarded-for": "2001:db8:1:2::1"}))
+    b = client_key(s, req({"x-vercel-forwarded-for": "2001:db8:1:2:ffff::9"}))
+    assert a == b == "2001:db8:1:2::/64"
 
 
 # ── API 보호 ───────────────────────────────────────────────
@@ -72,7 +127,7 @@ def test_rate_limiter():
 
 def test_public_endpoints(client):
     h = client.get("/health").json()
-    assert h["status"] == "ok" and h["auth_enabled"] is True
+    assert h["status"] == "ok" and h["auth_enabled"] is True and h["auth_ready"] is True
     me = client.get("/auth/me").json()
     assert me == {"auth_enabled": True, "authenticated": False, "username": None}
 
@@ -144,3 +199,61 @@ def test_auth_disabled_without_admin_password(tmp_path):
         assert c.get("/health").json()["auth_enabled"] is False
         assert c.get("/species").status_code == 200
         assert c.get("/auth/me").json() == {"auth_enabled": False, "authenticated": True, "username": None}
+
+
+def test_auth_required_fails_closed(tmp_path):
+    """AUTH_REQUIRED=1 (컨테이너 기본값) 에서 비밀번호·서명 키가 빠지면 인증을 끄지 않고 503 으로 막는다."""
+    cases = [
+        {"auth_required": True, "admin_password": None},
+        {"auth_required": True, "admin_password": "   "},
+        {"session_secret": None},
+        {"session_secret": "too-short"},
+        {"admin_password": "short"},
+    ]
+    for kw in cases:
+        s = settings(tmp_path, **kw)
+        assert s.auth_mode == "misconfigured" and s.auth_problems, kw
+        with TestClient(create_app(s)) as c:
+            h = c.get("/health").json()
+            assert h["auth_enabled"] is True and h["auth_ready"] is False
+            for path in ("/species", "/designs/" + "0" * 32):
+                r = c.get(path)
+                assert r.status_code == 503 and r.json()["detail"]["code"] == "auth_unavailable", kw
+            assert c.post("/habitats", json=HABITAT).status_code == 503
+            assert c.post("/auth/login", json=ADMIN).status_code == 503
+            assert c.get("/auth/me").json() == {"auth_enabled": True, "authenticated": False, "username": None}
+
+
+def test_non_ascii_cookie_is_rejected_not_500(client):
+    for raw in ("kkomul_session=\xe9.x", "kkomul_session=\xff\xfe", "kkomul_session=" + "a" * 3000 + ".b"):
+        headers = {"cookie": raw.encode("latin-1")}
+        assert client.get("/species", headers=headers).status_code == 401
+        assert client.get("/auth/me", headers=headers).json()["authenticated"] is False
+
+
+def test_cookie_secure_flag(tmp_path):
+    with TestClient(create_app(settings(tmp_path, cookie_secure=True))) as c:
+        r = c.post("/auth/login", json=ADMIN)
+        assert r.status_code == 200 and "secure" in r.headers["set-cookie"].lower()
+        assert "secure" in c.post("/auth/logout").headers["set-cookie"].lower()
+    with TestClient(create_app(settings(tmp_path)), base_url="https://testserver") as c:  # 미지정 → scheme 기준
+        assert "secure" in c.post("/auth/login", json=ADMIN).headers["set-cookie"].lower()
+
+
+def test_protected_responses_are_not_shared_cached(client):
+    login(client)
+    assert client.get("/species").headers["cache-control"] == "no-store"
+    hid = client.post("/habitats", json=HABITAT).json()["id"]
+    d = client.post("/designs", json={"habitat_id": hid, "prompt": "은신처"}).json()
+    mesh = client.get(d["current"]["items"][0]["mesh_url"])
+    assert mesh.headers["cache-control"].startswith("private") and "cookie" in mesh.headers["vary"].lower()
+    exp = client.get(f"/designs/{d['id']}/export?format=stl")
+    assert exp.headers["cache-control"] == "no-store"
+
+
+def test_password_rotation_invalidates_sessions(tmp_path):
+    s = settings(tmp_path)
+    token = issue_token("admin", signing_key(s), 3600)
+    with TestClient(create_app(settings(tmp_path, admin_password="a brand new password"))) as c:
+        c.cookies.set(COOKIE_NAME, token)
+        assert c.get("/species").status_code == 401

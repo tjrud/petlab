@@ -16,14 +16,9 @@ export class ApiError extends Error {
 
 const FALLBACK_MESSAGE = "서버와 통신하지 못했어요. 잠시 후 다시 시도해 주세요.";
 
-/** 관리자 로그인이 필요한 API 를 로그인 없이 호출했을 때 로그인 화면으로 보낸다. */
-function redirectToLogin() {
-  if (typeof window === "undefined" || window.location.pathname.startsWith("/login")) return;
-  const next = window.location.pathname + window.location.search;
-  // 전체 새로고침으로 이동 (현재 화면 상태를 버리고 로그인 후 원래 경로로 돌아온다).
-  // React 컴포넌트 밖의 공용 함수라 router 를 쓸 수 없다.
-  // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-  window.location.href = `/login?next=${encodeURIComponent(next)}`;
+/** 관리자 로그인이 필요해서 실패한 요청인지 */
+export function isAuthError(e: unknown): boolean {
+  return e instanceof ApiError && (e.code === "auth_required" || e.code === "auth_unavailable");
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -47,7 +42,6 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const detail = (body as { detail?: unknown } | null)?.detail;
     if (detail && typeof detail === "object" && !Array.isArray(detail) && "message_ko" in detail) {
       const d = detail as { message_ko: string; code?: string; errors?: unknown };
-      if (res.status === 401 && d.code === "auth_required") redirectToLogin();
       throw new ApiError(res.status, d.message_ko, d.code, d.errors);
     }
     if (res.status === 422) {

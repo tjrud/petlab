@@ -12,6 +12,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 REPO_DIR = BACKEND_DIR.parent
 
+MIN_SESSION_SECRET_BYTES = 32
+MIN_ADMIN_PASSWORD_LEN = 12
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -51,14 +54,46 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000"
 
     # 관리자 인증: ADMIN_PASSWORD 가 있으면 켜진다. 사이트는 공개, API 는 관리자 로그인 후 사용.
+    # AUTH_REQUIRED=1 (컨테이너 이미지 기본값) 이면 설정이 빠졌을 때 인증을 끄지 않고 API 를 막는다(503).
+    auth_required: bool = False
     admin_username: str = "admin"
     admin_password: SecretStr | None = None
-    session_secret: SecretStr | None = None  # 세션 쿠키 서명 키 (없으면 비밀번호에서 유도)
-    session_ttl_hours: float = 168.0
+    session_secret: SecretStr | None = None  # 세션 쿠키 서명 키 (32바이트 이상 무작위 문자열, 필수)
+    session_ttl_hours: float = 24.0
+    # 세션 쿠키 Secure 속성. 비우면 요청 scheme(https)으로 판단하고, 컨테이너 이미지는 1 로 고정한다.
+    cookie_secure: bool | None = None
+    # 로그인 시도 제한에 쓸 클라이언트 IP 헤더 (플랫폼이 덮어써 위조할 수 없는 헤더만. 예: x-vercel-forwarded-for)
+    client_ip_header: str | None = None
+
+    @property
+    def auth_problems(self) -> list[str]:
+        """관리자 인증 설정 문제 (비밀값 자체는 담지 않는다). 비어 있으면 정상 또는 인증 꺼짐."""
+        password = self.admin_password.get_secret_value() if self.admin_password else ""
+        if not password.strip():
+            return ["ADMIN_PASSWORD 가 없습니다"] if self.auth_required else []
+        problems = []
+        if len(password) < MIN_ADMIN_PASSWORD_LEN:
+            problems.append(f"ADMIN_PASSWORD 는 {MIN_ADMIN_PASSWORD_LEN}자 이상이어야 합니다")
+        if not self.admin_username.strip():
+            problems.append("ADMIN_USERNAME 이 비어 있습니다")
+        secret = self.session_secret.get_secret_value() if self.session_secret else ""
+        if len(secret.encode()) < MIN_SESSION_SECRET_BYTES:
+            problems.append(f"SESSION_SECRET 이 없거나 {MIN_SESSION_SECRET_BYTES}바이트보다 짧습니다")
+        return problems
+
+    @property
+    def auth_mode(self) -> Literal["disabled", "enabled", "misconfigured"]:
+        """disabled: 인증 꺼짐(로컬 개발) · enabled: 관리자 로그인 필요 · misconfigured: 설정 오류로 API 차단"""
+        if self.auth_problems:
+            return "misconfigured"
+        if self.admin_password and self.admin_password.get_secret_value().strip():
+            return "enabled"
+        return "disabled"
 
     @property
     def auth_enabled(self) -> bool:
-        return bool(self.admin_password and self.admin_password.get_secret_value())
+        """API 가 관리자 인증으로 보호되는지 (설정 오류로 막힌 경우도 포함)."""
+        return self.auth_mode != "disabled"
 
     @property
     def normalized_api_prefix(self) -> str:

@@ -54,10 +54,16 @@ RUN python -m compileall -q -j0 --invalidation-mode unchecked-hash \
 # - DATABASE_URL 은 배포 환경변수(Neon Postgres)가 덮어쓴다. 기본값 SQLite(/tmp)는 데이터가 유지되지 않으며,
 #   이 경우 /api/health 의 database.persistent=false 와 화면 안내로 표시된다.
 # API_PREFIX=/api: 이 이미지는 Vercel rewrite(/api/* → backend, 경로 유지) 뒤에서만 실행된다
+# AUTH_REQUIRED=1: ADMIN_PASSWORD·SESSION_SECRET 이 빠지면 인증을 끄지 않고 API 를 503 으로 막는다
+# COOKIE_SECURE=1: 세션 쿠키는 항상 Secure (HTTPS 전용)
+# CLIENT_IP_HEADER: 로그인 시도 제한에 쓰는 클라이언트 IP (Vercel 이 설정하는 헤더)
 ENV PATH=/opt/venv/bin:$PATH \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     API_PREFIX=/api \
+    AUTH_REQUIRED=1 \
+    COOKIE_SECURE=1 \
+    CLIENT_IP_HEADER=x-vercel-forwarded-for \
     EPHEMERAL_FILESYSTEM=1 \
     HOME=/tmp \
     XDG_CACHE_HOME=/tmp/.cache \

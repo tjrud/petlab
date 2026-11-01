@@ -9,7 +9,8 @@ import ItemList from "@/components/ItemList";
 import RevisePanel from "@/components/RevisePanel";
 import ValidationPanel from "@/components/ValidationPanel";
 import VersionList from "@/components/VersionList";
-import { api, ApiError } from "@/lib/api";
+import LoginRequired from "@/components/LoginRequired";
+import { api, ApiError, isAuthError } from "@/lib/api";
 import type { Design } from "@/lib/types";
 
 const CageViewer = dynamic(() => import("@/components/CageViewer"), {
@@ -23,6 +24,7 @@ export default function DesignView({ id }: { id: string }) {
   const [selected, setSelected] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<ApiError | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -32,7 +34,9 @@ export default function DesignView({ id }: { id: string }) {
         if (alive) setDesign(d);
       })
       .catch((e: unknown) => {
-        if (alive) setError(e instanceof ApiError ? e.messageKo : "설계를 불러오지 못했어요.");
+        if (!alive) return;
+        if (isAuthError(e)) setAuthError(e as ApiError);
+        else setError(e instanceof ApiError ? e.messageKo : "설계를 불러오지 못했어요.");
       });
     return () => {
       alive = false;
@@ -46,7 +50,8 @@ export default function DesignView({ id }: { id: string }) {
       setDesign(await api.getDesign(id, v));
       setSelected(null);
     } catch (e) {
-      setActionError(e instanceof ApiError ? e.messageKo : "버전을 불러오지 못했어요.");
+      if (isAuthError(e)) setAuthError(e as ApiError);
+      else setActionError(e instanceof ApiError ? e.messageKo : "버전을 불러오지 못했어요.");
     } finally {
       setBusy(false);
     }
@@ -61,7 +66,8 @@ export default function DesignView({ id }: { id: string }) {
       setSelected(null);
       return true;
     } catch (e) {
-      setActionError(e instanceof ApiError ? e.messageKo : "수정 중 문제가 생겼어요. 다시 시도해 주세요.");
+      if (isAuthError(e)) setAuthError(e as ApiError);
+      else setActionError(e instanceof ApiError ? e.messageKo : "수정 중 문제가 생겼어요. 다시 시도해 주세요.");
       return false;
     } finally {
       setBusy(false);
@@ -74,6 +80,13 @@ export default function DesignView({ id }: { id: string }) {
       .map((i) => i.item_index as number),
   );
 
+  if (authError) {
+    return (
+      <div className="mx-auto max-w-xl">
+        <LoginRequired unavailable={authError.code === "auth_unavailable"} />
+      </div>
+    );
+  }
   if (error && !design) {
     return (
       <div className="mx-auto max-w-xl rounded-2xl bg-red-50 p-6 text-red-800">

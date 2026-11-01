@@ -16,6 +16,7 @@ def health(request: Request) -> dict:
         "llm_provider": settings.resolved_llm_provider,
         "llm_ready": request.app.state.llm_config_error is None,
         "auth_enabled": settings.auth_enabled,
+        "auth_ready": settings.auth_mode != "misconfigured",
         "database": {
             "dialect": request.app.state.db_dialect,
             "persistent": not request.app.state.db_ephemeral,

@@ -8,7 +8,16 @@ from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.auth import COOKIE_NAME, check_credentials, current_admin, issue_token, signing_key
+from app.auth import (
+    COOKIE_NAME,
+    AuthUnavailableError,
+    check_credentials,
+    client_key,
+    cookie_secure,
+    current_admin,
+    issue_token,
+    signing_key,
+)
 
 router = APIRouter(prefix="/auth", tags=["관리자 인증"])
 
@@ -22,16 +31,12 @@ class LoginIn(BaseModel):
     password: str = Field(min_length=1, max_length=200)
 
 
-def _client_key(request: Request) -> str:
-    return request.client.host if request.client else "unknown"
-
-
 def _status(request: Request) -> dict:
     settings = request.app.state.settings
     user = current_admin(request)
     return {
         "auth_enabled": settings.auth_enabled,
-        "authenticated": (not settings.auth_enabled) or user is not None,
+        "authenticated": settings.auth_mode == "disabled" or user is not None,
         "username": user,
     }
 
@@ -44,10 +49,12 @@ def me(request: Request) -> dict:
 @router.post("/login", summary="관리자 로그인 (세션 쿠키 발급)")
 async def login(data: LoginIn, request: Request) -> Response:
     settings = request.app.state.settings
-    if not settings.auth_enabled:
+    if settings.auth_mode == "disabled":
         return JSONResponse({"auth_enabled": False, "authenticated": True, "username": None})
+    if settings.auth_mode == "misconfigured":
+        raise AuthUnavailableError()
     limiter = request.app.state.login_limiter
-    key = _client_key(request)
+    key = client_key(settings, request)
     if limiter.blocked(key):
         return JSONResponse(status_code=429, content={"detail": {
             "code": "too_many_attempts",
@@ -67,17 +74,17 @@ async def login(data: LoginIn, request: Request) -> Response:
         issue_token(settings.admin_username, signing_key(settings), ttl_s),
         max_age=int(ttl_s),
         httponly=True,
-        secure=request.url.scheme == "https",
+        secure=cookie_secure(settings, request),
         samesite="lax",
         path="/",
     )
     return response
 
 
-@router.post("/logout", summary="로그아웃 (세션 쿠키 삭제)")
+@router.post("/logout", summary="로그아웃 (이 브라우저의 세션 쿠키 삭제)")
 def logout(request: Request) -> Response:
-    response = JSONResponse({"auth_enabled": request.app.state.settings.auth_enabled, "authenticated": False,
-                             "username": None})
+    settings = request.app.state.settings
+    response = JSONResponse({"auth_enabled": settings.auth_enabled, "authenticated": False, "username": None})
     response.delete_cookie(COOKIE_NAME, path="/", httponly=True, samesite="lax",
-                           secure=request.url.scheme == "https")
+                           secure=cookie_secure(settings, request))
     return response

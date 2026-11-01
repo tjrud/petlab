@@ -15,11 +15,17 @@ test("관리자 인증: 사이트는 공개, 설계 기능은 로그인 후에�
   // 로그인 없이 API 호출 → 401
   const r = await request.get("http://localhost:8000/species");
   expect(r.status()).toBe(401);
-  // 화면은 열리고, 설계 기능을 쓰려 하면 로그인 화면으로 이동
+  // 첫 화면은 누구나 열 수 있고, 설계 폼 대신 로그인 안내가 보인다 (자동으로 이동하지 않음)
   await page.goto("/");
-  await page.waitForURL(/\/login\?next=%2F/);
+  await expect(page.getByRole("heading", { name: /구조물을 설계해 드려요/ })).toBeVisible();
+  await expect(page.getByText("관리자 로그인 후 사용할 수 있어요")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "사육 환경을 알려 주세요" })).toHaveCount(0);
+  await page.getByRole("main").getByRole("link", { name: "관리자 로그인" }).click();
+  await page.waitForURL(/\/login\?next=%2F$/);
   await expect(page.getByRole("heading", { name: "관리자 로그인" })).toBeVisible();
+  await expect(page.getByLabel("아이디")).toHaveValue(""); // 아이디를 미리 채워 두지 않는다
   // 틀린 비밀번호
+  await page.getByLabel("아이디").fill(ADMIN.username);
   await page.getByLabel("비밀번호").fill("wrong-password");
   await page.getByRole("button", { name: "로그인", exact: true }).click();
   await expect(page.getByText("아이디 또는 비밀번호가 올바르지 않아요.")).toBeVisible();
@@ -29,11 +35,31 @@ test("관리자 인증: 사이트는 공개, 설계 기능은 로그인 후에�
   await page.waitForURL((url) => url.pathname === "/");
   await expect(page.getByRole("heading", { name: "사육 환경을 알려 주세요" })).toBeVisible();
   await expect(page.getByText("관리자 admin")).toBeVisible();
-  // 로그아웃 → 다시 로그인 화면
+  // 로그아웃 → 로그인 화면 (현재 기록을 바꿔치기해 뒤로 가도 로그인 전 화면이 다시 보이지 않는다)
   await page.getByRole("button", { name: "로그아웃" }).click();
-  await page.waitForURL(/\/login/);
+  await page.waitForURL(/\/login$/);
+  await expect(page.getByText("관리자 admin")).toHaveCount(0);
+  await page.goBack();
+  await expect(page.getByRole("heading", { name: "사육 환경을 알려 주세요" })).toHaveCount(0);
   await page.goto("/");
-  await page.waitForURL(/\/login\?next=/);
+  await expect(page.getByText("관리자 로그인 후 사용할 수 있어요")).toBeVisible();
+});
+
+test("로그인 후 이동 경로는 같은 사이트 안으로만", async ({ page }) => {
+  for (const next of ["/\\evil.example/x", "/\t/evil.example", "//evil.example", "https://evil.example/"]) {
+    await page.goto(`/login?next=${encodeURIComponent(next)}`);
+    await page.getByLabel("아이디").fill(ADMIN.username);
+    await page.getByLabel("비밀번호").fill(ADMIN.password);
+    await page.getByRole("button", { name: "로그인", exact: true }).click();
+    await page.waitForURL((url) => url.origin === "http://localhost:3000" && url.pathname === "/");
+    await page.context().clearCookies();
+  }
+  // 같은 사이트 경로는 그대로 돌아간다
+  await page.goto(`/login?next=${encodeURIComponent("/order?design=abc")}`);
+  await page.getByLabel("아이디").fill(ADMIN.username);
+  await page.getByLabel("비밀번호").fill(ADMIN.password);
+  await page.getByRole("button", { name: "로그인", exact: true }).click();
+  await page.waitForURL((url) => url.pathname === "/order" && url.search === "?design=abc");
 });
 
 test("사육 환경 등록 → 요구사항 → 3D 뷰어 → 다운로드 → 제작 신청", async ({ page }) => {

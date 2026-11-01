@@ -3,7 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
-import { api, ApiError } from "@/lib/api";
+import LoginRequired from "@/components/LoginRequired";
+import { api, ApiError, isAuthError } from "@/lib/api";
 import type { SpeciesResponse } from "@/lib/types";
 
 const CAGE_PRESETS = [
@@ -27,6 +28,7 @@ export default function NewDesignWizard() {
   const router = useRouter();
   const [meta, setMeta] = useState<SpeciesResponse | null>(null);
   const [metaError, setMetaError] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<ApiError | null>(null);
   const [step, setStep] = useState<Step>(1);
 
   const [species, setSpecies] = useState("hamster");
@@ -44,7 +46,11 @@ export default function NewDesignWizard() {
     api
       .species()
       .then((m) => alive && setMeta(m))
-      .catch((e: unknown) => alive && setMetaError(e instanceof ApiError ? e.messageKo : "정보를 불러오지 못했어요."));
+      .catch((e: unknown) => {
+        if (!alive) return;
+        if (isAuthError(e)) setAuthError(e as ApiError);
+        else setMetaError(e instanceof ApiError ? e.messageKo : "정보를 불러오지 못했어요.");
+      });
     return () => {
       alive = false;
     };
@@ -93,10 +99,13 @@ export default function NewDesignWizard() {
       // 이전 화면은 숨김 상태로 유지되므로(뒤로 가기 시 복원) 진행 상태를 풀어 둔다
       setSubmitting(false);
     } catch (e) {
-      setError(e instanceof ApiError ? e.messageKo : "설계 중 문제가 생겼어요. 다시 시도해 주세요.");
+      if (isAuthError(e)) setAuthError(e as ApiError); // 사용 중 세션이 만료된 경우
+      else setError(e instanceof ApiError ? e.messageKo : "설계 중 문제가 생겼어요. 다시 시도해 주세요.");
       setSubmitting(false);
     }
   }
+
+  if (authError) return <LoginRequired unavailable={authError.code === "auth_unavailable"} />;
 
   return (
     <div className="rounded-2xl border border-amber-200 bg-white p-5 shadow-sm sm:p-8">

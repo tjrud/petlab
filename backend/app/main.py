@@ -12,7 +12,12 @@ from sqlalchemy.exc import DataError
 
 from app.api import auth as auth_api
 from app.api import designs, habitats, meta, waitlist
-from app.auth import AuthRequiredError, LoginRateLimiter, require_admin
+from app.auth import (
+    AuthRequiredError,
+    AuthUnavailableError,
+    LoginRateLimiter,
+    require_admin,
+)
 from app.config import Settings, get_settings
 from app.db import init_db, is_ephemeral_database, make_engine, make_session_factory
 from app.llm.base import Interpreter, LLMConfigError, LLMError
@@ -44,8 +49,11 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
         app.state.session_factory = make_session_factory(engine)
         app.state.llm_config_error = None
         app.state.login_limiter = LoginRateLimiter()
-        if settings.auth_enabled and not settings.session_secret:
-            log.warning("SESSION_SECRET 이 없어 관리자 비밀번호에서 세션 서명 키를 유도합니다. 별도 비밀값 설정을 권장합니다.")
+        if settings.auth_mode == "misconfigured":
+            # 비밀값은 기록하지 않는다. API 는 503 으로 막힌 채 기동한다 (인증을 끄지 않음)
+            log.error("관리자 인증 설정 오류로 API 를 막습니다: %s", "; ".join(settings.auth_problems))
+        elif settings.auth_mode == "disabled" and (settings.ephemeral_filesystem or settings.normalized_api_prefix):
+            log.error("관리자 인증이 꺼져 있습니다 (ADMIN_PASSWORD 없음). 배포 환경이라면 API 가 공개 상태입니다.")
         app.state.db_dialect = engine.dialect.name
         app.state.db_ephemeral = is_ephemeral_database(settings.database_url, settings.ephemeral_filesystem)
         if app.state.db_ephemeral:
@@ -90,6 +98,14 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
         expose_headers=["Content-Disposition"],
     )
 
+    @app.middleware("http")
+    async def _no_shared_cache(request: Request, call_next):
+        # 관리자 세션으로 받은 응답이 CDN·공유 캐시에 남지 않게 한다 (따로 지정한 응답은 그대로)
+        response = await call_next(request)
+        response.headers.setdefault("Cache-Control", "no-store")
+        response.headers.setdefault("Vary", "Cookie")
+        return response
+
     @app.exception_handler(LLMError)
     async def _llm_error(_: Request, e: LLMError):
         log.warning("LLM 오류 (%s): %s", type(e).__name__, e.detail)
@@ -99,6 +115,10 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
     @app.exception_handler(AuthRequiredError)
     async def _auth_required(_: Request, e: AuthRequiredError):
         return JSONResponse(status_code=401, content={"detail": {"code": "auth_required", "message_ko": e.message_ko}})
+
+    @app.exception_handler(AuthUnavailableError)
+    async def _auth_unavailable(_: Request, e: AuthUnavailableError):
+        return JSONResponse(status_code=503, content={"detail": {"code": "auth_unavailable", "message_ko": e.message_ko}})
 
     @app.exception_handler(NotFoundError)
     async def _not_found(_: Request, e: NotFoundError):

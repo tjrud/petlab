@@ -5,16 +5,24 @@ import { useState } from "react";
 
 import { api, ApiError } from "@/lib/api";
 
-/** 내부 경로만 허용 (외부 주소로 보내는 open redirect 방지) */
-function safeNext(raw: string | null): string {
-  if (!raw || !raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/login")) return "/";
-  return raw;
+/** 로그인 후 돌아갈 경로. 같은 출처의 경로만 허용한다 (외부 주소로 보내는 open redirect 방지).
+ *  브라우저는 경로 안의 역슬래시·탭·줄바꿈을 정규화해 "/\\evil.com" 같은 값을 외부 주소로 해석하므로,
+ *  접두사 검사 대신 실제 URL 로 해석해 출처를 비교한다. */
+export function safeNext(raw: string | null, origin: string): string {
+  if (!raw || !raw.startsWith("/") || /[\\\u0000-\u001f\u007f]/.test(raw)) return "/";
+  let url: URL;
+  try {
+    url = new URL(raw, origin);
+  } catch {
+    return "/";
+  }
+  if (url.origin !== origin || url.pathname.startsWith("/login")) return "/";
+  return url.pathname + url.search + url.hash;
 }
 
 export default function LoginForm() {
   const params = useSearchParams();
-  const next = safeNext(params.get("next"));
-  const [username, setUsername] = useState("admin");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -26,7 +34,7 @@ export default function LoginForm() {
     try {
       await api.login(username.trim(), password);
       // 전체 새로고침으로 이동해 헤더 등 모든 화면이 로그인 상태를 다시 읽게 한다
-      window.location.assign(next);
+      window.location.assign(safeNext(params.get("next"), window.location.origin));
     } catch (err) {
       setError(err instanceof ApiError ? err.messageKo : "로그인하지 못했어요.");
       setSubmitting(false);
