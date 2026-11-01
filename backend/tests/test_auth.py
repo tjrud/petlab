@@ -243,6 +243,9 @@ def test_cookie_secure_flag(tmp_path):
 def test_protected_responses_are_not_shared_cached(client):
     login(client)
     assert client.get("/species").headers["cache-control"] == "no-store"
+    # CORS 등이 이미 Vary 를 넣은 응답에도 Cookie 가 덧붙는다
+    vary = client.get("/species", headers={"Origin": "http://localhost:3000"}).headers["vary"].lower()
+    assert "cookie" in vary and "origin" in vary
     hid = client.post("/habitats", json=HABITAT).json()["id"]
     d = client.post("/designs", json={"habitat_id": hid, "prompt": "은신처"}).json()
     mesh = client.get(d["current"]["items"][0]["mesh_url"])

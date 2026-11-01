@@ -103,7 +103,7 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
         # 관리자 세션으로 받은 응답이 CDN·공유 캐시에 남지 않게 한다 (따로 지정한 응답은 그대로)
         response = await call_next(request)
         response.headers.setdefault("Cache-Control", "no-store")
-        response.headers.setdefault("Vary", "Cookie")
+        response.headers.add_vary_header("Cookie")  # 기존 Vary(Origin 등)에 덧붙인다
         return response
 
     @app.exception_handler(LLMError)
