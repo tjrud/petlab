@@ -40,7 +40,7 @@ MAX_TOKEN_LIFETIME_S = 720 * 3600 + 60  # SESSION_TTL_HOURS 상한(30일) + 시�
 
 
 LOCAL_USERNAME = "local"  # 인증이 꺼진 로컬 개발 환경의 가상 관리자
-ADMIN_NICKNAME = "관리자"
+ADMIN_NICKNAME = "NestForge 운영팀"  # 화면에는 "관리자" 배지와 함께 보인다
 _ID_RE = __import__("re").compile(r"[0-9a-f]{32}")
 
 

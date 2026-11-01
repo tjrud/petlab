@@ -437,3 +437,27 @@ def test_migration_from_previous_schema(tmp_path):
         assert got["is_owner"] is True and got["title"]  # 제목은 첫 버전 요약에서
         assert c.get("/designs").json()["total"] == 1      # 관리자 내역에 옛 설계 포함
     assert init_db(create_engine(url)) == []  # 두 번째 실행은 아무것도 바꾸지 않는다
+
+
+def test_design_title_from_prompt():
+    from app.services.design_service import make_title
+
+    assert make_title("  은신처를 왼쪽에  \n환기구 8개") == "은신처를 왼쪽에"
+    long = "가" * 60
+    assert make_title(long) == "가" * 39 + "…" and len(make_title(long)) == 40
+    assert make_title("\n\n") == "맞춤 설계"
+
+
+def test_explicit_nulls_are_accepted(client):
+    """화면은 빈 선택 항목을 null 로 보낸다 (제약이 null 에 걸려 500 이 나던 문제)."""
+    signup(client, "user_a")
+    body = {"name": "콩이", "species": "hamster", "size": "syrian", "sex": "female", "birth_date": None,
+            "notes": None, "cage": CAGE}
+    r = client.post("/me/pets", json=body)
+    assert r.status_code == 201, r.text
+    assert client.put(f"/me/pets/{r.json()['id']}", json={**body, "cage": None}).status_code == 200
+    post = client.post("/community/posts", json={"title": "t", "body": "b", "design_id": None,
+                                                 "design_version": None}).json()
+    r = client.patch(f"/community/posts/{post['id']}", json={"title": "새 제목", "body": None})
+    assert r.status_code == 200 and r.json()["title"] == "새 제목" and r.json()["body"] == "b"
+    assert client.post("/me/pets", json={**body, "notes": "x" * 501}).status_code == 422

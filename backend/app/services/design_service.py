@@ -94,6 +94,15 @@ class DesignLimits:
     global_: int = 300
 
 
+TITLE_LEN = 40
+
+
+def make_title(prompt: str) -> str:
+    """설계 제목: 사용자가 쓴 첫 요청의 첫 줄 (길면 줄임표). LLM 설명문보다 짧고 본인이 알아보기 쉽다."""
+    first = next((line.strip() for line in prompt.splitlines() if line.strip()), "") or "맞춤 설계"
+    return first if len(first) <= TITLE_LEN else first[: TITLE_LEN - 1].rstrip() + "…"
+
+
 def _can_edit(design: Design, user: User) -> bool:
     """수정·공유 권한: 소유자, 또는 관리자 (소유자가 없는 옛 설계는 관리자만)."""
     return user.is_admin or (design.owner_id is not None and design.owner_id == user.id)
@@ -194,8 +203,7 @@ class DesignService:
         # LLM 호출(수십 초) 동안 DB 연결을 '트랜잭션 중' 상태로 잡아 두지 않도록 읽기 트랜잭션을 끝낸다
         db.commit()
         version = self._generate(h, prompt, previous=None)  # LLM 실패 시 예외 → 아무것도 저장하지 않음
-        summary = (version["interpret"].spec.summary_ko or "").strip()
-        design = Design(habitat_id=h.id, owner_id=user.id, title=(summary or prompt.strip())[:80])
+        design = Design(habitat_id=h.id, owner_id=user.id, title=make_title(prompt))
         db.add(design)
         db.flush()
         self._save_version(db, design, version, 1, user)
@@ -353,9 +361,7 @@ class DesignService:
         if design.title:
             return design.title
         first = design.versions[0] if design.versions else None
-        if first is not None:
-            return (first.llm_spec.get("summary_ko") or first.prompt or "맞춤 설계")[:80]
-        return "맞춤 설계"
+        return make_title(first.prompt) if first is not None else "맞춤 설계"
 
     def get_version(self, db: Session, design: Design, version: int | None) -> DesignVersion:
         if not design.versions:

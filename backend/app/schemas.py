@@ -244,7 +244,8 @@ class PetIn(BaseModel):
     size: str = Field(max_length=32, examples=["syrian"])
     sex: Literal["male", "female", "unknown"] = "unknown"
     birth_date: Annotated[date | None, AfterValidator(_past_date)] = None
-    notes: Annotated[str | None, Text1, Field(max_length=500)] = None
+    # 제약은 str 쪽에만 건다 (str | None 전체에 걸면 null 이 올 때 검증 단계에서 500)
+    notes: Annotated[str, Text1, Field(max_length=500)] | None = None
     cage: CageIn | None = None
 
 
@@ -284,7 +285,7 @@ class PostUpdateIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     title: Title | None = None
-    body: Annotated[str | None, Text1, Field(min_length=1, max_length=5000)] = None
+    body: Annotated[str, Text1, Field(min_length=1, max_length=5000)] | None = None
 
 
 class CommentIn(BaseModel):
