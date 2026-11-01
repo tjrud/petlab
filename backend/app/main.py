@@ -1,4 +1,4 @@
-"""꼬물공방 FastAPI 앱 진입점."""
+"""NestForge FastAPI 앱 진입점."""
 
 from __future__ import annotations
 
@@ -83,7 +83,7 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
 
     prefix = settings.normalized_api_prefix
     app = FastAPI(
-        title="꼬물공방 API",
+        title="NestForge API",
         version="0.1.0",
         lifespan=lifespan,
         # 인증이 켜지면 Swagger UI 페이지(외부 CDN 스크립트를 세션 쿠키와 같은 출처에서 실행)는 끈다. JSON 스키마는 유지

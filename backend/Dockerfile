@@ -1,4 +1,4 @@
-# 꼬물공방 백엔드 컨테이너 이미지 (FastAPI + build123d/OCP)
+# NestForge 백엔드 컨테이너 이미지 (FastAPI + build123d/OCP)
 #
 # Vercel Services 에서 runtime "container" 로 빌드된다 (빌드 컨텍스트 = backend/).
 # 로컬 실행:

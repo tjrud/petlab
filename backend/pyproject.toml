@@ -1,7 +1,7 @@
 [project]
 name = "kkomul-backend"
 version = "0.1.0"
-description = "꼬물공방 백엔드: 파라메트릭 케이지 구조물 설계 API"
+description = "NestForge 백엔드: 파라메트릭 케이지 구조물 설계 API"
 requires-python = ">=3.11,<3.14"
 dependencies = [
     "fastapi>=0.115",

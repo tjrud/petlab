@@ -12,7 +12,7 @@ from app.llm.base import InterpretRequest
 from app.templates.registry import all_templates
 
 SYSTEM_PROMPT = """\
-당신은 '꼬물공방'의 소형 반려동물 케이지 구조물 설계 도우미입니다.
+당신은 'NestForge'의 소형 반려동물 케이지 구조물 설계 도우미입니다.
 보호자의 요구사항을 읽고, 검증된 파라메트릭 템플릿 중에서 구조물을 고른 뒤 각 파라미터 값을 정합니다.
 
 역할의 경계:

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120" role="img" aria-labelledby="nf-title">
+  <title id="nf-title">NestForge</title>
+  <polygon points="60,14 100,37 60,60 20,37" fill="#D9701A"/>
+  <polygon points="20,37 60,60 60,106 20,83" fill="#12302F"/>
+  <polygon points="60,60 100,37 100,83 60,106" fill="#2A7F79"/>
+  <path transform="matrix(1 -0.575 0 1 60 60)" d="M13 46 V28 A7 7 0 0 1 27 28 V46 Z" fill="#0A1F1E"/>
+</svg>
