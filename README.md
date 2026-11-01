@@ -76,6 +76,16 @@ npm run dev
 cd backend && uv run pytest              # 백엔드 단위·API 테스트 (실제 LLM 호출 없음)
 cd backend && uv run pytest -m live      # 실제 Anthropic API 호출 테스트 (키 필요)
 cd frontend && npm run build             # 프론트엔드 타입 검사 + 빌드
+cd frontend && npm run lint
+```
+
+E2E 스모크 테스트(Playwright)는 모의 해석기 모드의 백엔드와 프론트엔드 프로덕션 빌드를 자동으로 띄워 전체 흐름을 확인합니다.
+흐름은 사육 환경 등록 → 요구사항 → 3D 뷰어 → 다운로드 → 제작 신청입니다.
+
+```bash
+cd frontend
+npx playwright install chromium   # 최초 1회
+npm run test:e2e
 ```
 
 ## API

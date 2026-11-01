@@ -83,7 +83,7 @@ def _scaled(template, params: dict, factor: float) -> dict:
 def _apply_numbers(key: str, text: str, params: dict) -> dict:
     out = dict(params)
     if key == "hideout":
-        m = re.search(r"환기구\s*(\d+)\s*개", text)
+        m = re.search(r"환기구[^\d]{0,8}?(\d+)\s*개", text)
         if m:
             out["vent_count"] = int(m.group(1))
         m = re.search(r"출입구[^\d]{0,10}(\d+(?:\.\d+)?)\s*(mm|cm)", text)

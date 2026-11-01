@@ -1,0 +1,42 @@
+import { defineConfig, devices } from "@playwright/test";
+import os from "node:os";
+import path from "node:path";
+
+// E2E: 모의 해석기(LLM_PROVIDER=mock)와 임시 DB로 백엔드를 띄우고 프론트엔드(프로덕션 빌드)와 함께 테스트한다.
+const tmp = path.join(os.tmpdir(), `kkomul-e2e-${process.pid}`);
+
+export default defineConfig({
+  testDir: "./e2e",
+  timeout: 90_000,
+  expect: { timeout: 30_000 },
+  fullyParallel: false,
+  reporter: [["list"]],
+  use: {
+    baseURL: "http://localhost:3000",
+    trace: "retain-on-failure",
+    launchOptions: { args: ["--enable-unsafe-swiftshader", "--use-angle=swiftshader"] },
+  },
+  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"], viewport: { width: 1400, height: 1000 } } }],
+  webServer: [
+    {
+      command: "uv run uvicorn app.main:app --port 8000",
+      cwd: "../backend",
+      url: "http://localhost:8000/health",
+      reuseExistingServer: true,
+      timeout: 120_000,
+      env: {
+        LLM_PROVIDER: "mock",
+        DATABASE_URL: `sqlite:///${tmp}/e2e.db`,
+        MESH_CACHE_DIR: `${tmp}/meshes`,
+        CORS_ORIGINS: "http://localhost:3000",
+      },
+    },
+    {
+      command: "npm run build && npm run start -- --port 3000",
+      url: "http://localhost:3000",
+      reuseExistingServer: true,
+      timeout: 300_000,
+      env: { NEXT_PUBLIC_API_BASE_URL: "http://localhost:8000" },
+    },
+  ],
+});

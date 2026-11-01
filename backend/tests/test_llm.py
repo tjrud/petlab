@@ -229,6 +229,11 @@ def test_mock_grouping_and_numbers(req):
     assert it.params.width_mm > base.width_mm
 
 
+@pytest.mark.parametrize("phrase", ["환기구 8개", "환기구는 8개로", "환기구를 8개 정도"])
+def test_mock_vent_count_with_particles(req, phrase):
+    assert _mock(req, f"은신처, {phrase} 해 주세요").items[0].params.vent_count == 8
+
+
 def test_mock_revision_keeps_and_changes(req):
     v1 = _mock(req, "은신처를 왼쪽에")
     v2 = _mock(req, "더 작게 해 주세요", previous=v1)
