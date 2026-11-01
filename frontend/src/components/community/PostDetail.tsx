@@ -109,8 +109,19 @@ export default function PostDetail({ id }: { id: string }) {
       <CommentSection
         postId={post.id}
         comments={post.comments}
-        onAdded={(c) => update((p) => ({ ...p, comments: [...p.comments, c] }))}
-        onRemoved={(cid) => update((p) => ({ ...p, comments: p.comments.filter((x) => x.id !== cid) }))}
+        total={post.comment_total}
+        onAdded={(c) => update((p) => ({ ...p, comments: [...p.comments, c], comment_total: p.comment_total + 1 }))}
+        onRemoved={(cid) =>
+          update((p) =>
+            p.comments.some((x) => x.id === cid)
+              ? {
+                  ...p,
+                  comments: p.comments.filter((x) => x.id !== cid),
+                  comment_total: Math.max(0, p.comment_total - 1),
+                }
+              : p,
+          )
+        }
       />
     </div>
   );

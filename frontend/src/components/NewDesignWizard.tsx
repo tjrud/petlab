@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
+import { clearDraft, ReloginNotice, useDraftBackup } from "@/components/DraftRelogin";
 import LoginRequired from "@/components/LoginRequired";
 import { CAGE_LIMITS, CAGE_PRESETS } from "@/components/me/common";
 import { api, ApiError, isAuthError } from "@/lib/api";
@@ -23,6 +24,11 @@ const LOGIN_DESCRIPTION = "회원이 되면 설계 내역이 저장되고 커뮤
 
 type Step = 1 | 2;
 type Quota = Me["design_quota"];
+type Cage = { w: number; d: number; h: number };
+/** 로그인이 풀린 동안 맡겨 두는 입력 (다시 로그인하고 돌아오면 되살린다) */
+type WizardDraft = { species: string; size: string; count: number; cage: Cage; prompt: string; petId: string | null };
+
+const DRAFT_KEY = "design:new";
 
 /** 로그인 상태를 확인하는 동안(그리고 페이지의 Suspense 대기 중) 보여 주는 자리 */
 export function WizardSkeleton() {
@@ -49,7 +55,7 @@ export default function NewDesignWizard() {
   const router = useRouter();
   // 링크·router.push 로 새로 들어올 때마다 바뀌고, 뒤로·앞으로 가기로 돌아오면 그대로인 값
   const { bfcacheId } = router;
-  const { status, user } = useAuth();
+  const { status, user, refresh } = useAuth();
   const userId = user?.id ?? null;
   // /design?pet={id}: 내 정보의 "이 아이로 설계하기"에서 들어온 경우 그 반려동물로 미리 채운다
   const wantedPet = useSearchParams().get("pet");
@@ -62,7 +68,7 @@ export default function NewDesignWizard() {
   const [species, setSpecies] = useState("hamster");
   const [size, setSize] = useState("syrian");
   const [count, setCount] = useState(1);
-  const [cage, setCage] = useState({ w: 600, d: 400, h: 300 });
+  const [cage, setCage] = useState<Cage>({ w: 600, d: 400, h: 300 });
   const [prompt, setPrompt] = useState("");
 
   const [habitatId, setHabitatId] = useState<string | null>(null);
@@ -83,23 +89,33 @@ export default function NewDesignWizard() {
     petIdRef.current = petId;
   }, [petId]);
 
-  // 설계 요청이 두 번 나가지 않게 막는다 (버튼 상태보다 먼저 바뀐다)
+  // 설계를 만든 뒤 결과 화면으로 이동하는 동안 true. router.push 를 이 transition 안에서 부르므로
+  // 이동이 끝나면 저절로 false 가 된다 (다른 이동에 밀려 이 화면에 그대로 남는 경우도)
+  const [opening, startOpening] = useTransition();
+  // 설계 요청이 두 번 나가지 않게 막는다 (버튼 상태보다 먼저 바뀐다). 결과 화면으로의 이동까지 끝나면 푼다
   const submittingRef = useRef(false);
-  // 설계가 만들어져 결과 화면으로 이동하는 중
-  const leavingRef = useRef(false);
-  const visibleRef = useRef(false);
-  useLayoutEffect(() => {
-    visibleRef.current = true;
-    return () => {
-      visibleRef.current = false;
-      // 결과 화면이 떠서 이 화면이 숨겨지면(뒤로 가기로 다시 볼 수 있다) 그때 진행 상태를 푼다
-      if (leavingRef.current) {
-        leavingRef.current = false;
-        submittingRef.current = false;
-        setSubmitting(false);
-      }
-    };
-  }, []);
+  useEffect(() => {
+    if (!submitting && !opening) submittingRef.current = false;
+  }, [submitting, opening]);
+
+  // 로그인이 풀려도 쓰던 요구사항은 지운 것처럼 보이지 않게 폼을 두고, 다시 로그인하고 돌아오면 되살린다
+  const dirty = prompt.trim() !== "";
+  const needsLogin = status !== null && (!user || authError !== null);
+  useDraftBackup<WizardDraft>(
+    DRAFT_KEY,
+    dirty ? { species, size, count, cage, prompt, petId } : null,
+    needsLogin,
+    (d) => {
+      setSpecies(d.species);
+      setSize(d.size);
+      setCount(d.count);
+      setCage(d.cage);
+      setPrompt(d.prompt);
+      setPetId(d.petId);
+      setHabitatId(null);
+      setStep(2);
+    },
+  );
 
   // 종 목록은 누구나 볼 수 있다
   useEffect(() => {
@@ -191,7 +207,7 @@ export default function NewDesignWizard() {
   const resetHabitat = () => setHabitatId(null);
 
   async function submit() {
-    if (submittingRef.current) return; // 이미 설계 중이거나 결과 화면으로 이동 중
+    if (submittingRef.current || opening) return; // 이미 설계 중이거나 결과 화면으로 이동 중
     setError(null);
     if (!prompt.trim()) {
       setError("원하는 구조물이나 배치를 적어 주세요.");
@@ -199,6 +215,7 @@ export default function NewDesignWizard() {
     }
     submittingRef.current = true;
     setSubmitting(true);
+    setAuthError(null); // 다른 탭에서 다시 로그인했을 수 있다 (또 실패하면 다시 안내한다)
     try {
       let hid = habitatId;
       if (!hid) {
@@ -213,16 +230,14 @@ export default function NewDesignWizard() {
         setHabitatId(hid);
       }
       const design = await api.createDesign(hid, prompt.trim());
-      if (visibleRef.current) {
-        // 결과 화면이 뜰 때까지 버튼을 막아 둔다 (이동하는 동안 다시 눌러 같은 설계를 또 만들지 않게).
-        // 이 화면이 숨겨질 때 위의 useLayoutEffect 정리 함수가 풀어 준다
-        leavingRef.current = true;
-      } else {
-        // 설계하는 동안 이미 다른 화면으로 떠났다: 다시 돌아오면 바로 쓸 수 있게 지금 푼다
-        submittingRef.current = false;
+      clearDraft(DRAFT_KEY);
+      if (!user) void refresh(); // 다른 탭에서 다시 로그인한 경우: 헤더 등도 로그인 상태로 바꾼다
+      // 결과 화면이 뜰 때까지는 opening 이 버튼을 막는다 (이동하는 동안 다시 눌러 같은 설계를 또 만들지 않게).
+      // submitting 도 이동과 함께 풀리도록 같은 transition 안에서 바꾼다
+      startOpening(() => {
         setSubmitting(false);
-      }
-      router.push(`/designs/${design.id}`);
+        router.push(`/designs/${design.id}`);
+      });
     } catch (e) {
       if (isAuthError(e)) setAuthError(e as ApiError); // 사용 중 세션이 만료된 경우
       else if (e instanceof ApiError && e.code === "design_quota_exceeded" && quota && quota.limit !== null)
@@ -242,7 +257,8 @@ export default function NewDesignWizard() {
     }
   }
 
-  if (authError) {
+  // 쓰던 요구사항이 있으면 로그인이 풀려도 폼을 바꾸지 않는다 (위쪽 안내로 다시 로그인하게 한다)
+  if (authError && !dirty) {
     return (
       <LoginRequired
         unavailable={authError.code === "auth_unavailable"}
@@ -252,10 +268,15 @@ export default function NewDesignWizard() {
     );
   }
   if (!status) return <WizardSkeleton />;
-  if (!user) return <LoginRequired message={LOGIN_MESSAGE} description={LOGIN_DESCRIPTION} />;
+  if (!user && !dirty) return <LoginRequired message={LOGIN_MESSAGE} description={LOGIN_DESCRIPTION} />;
 
   return (
     <div className="rounded-2xl border border-amber-200 bg-white p-5 shadow-sm sm:p-8">
+      {needsLogin && (
+        <div className="mb-4">
+          <ReloginNotice next="/design" />
+        </div>
+      )}
       <ol className="mb-6 flex items-center gap-3 text-sm" aria-label="진행 단계">
         {(["사육 환경", "요구사항"] as const).map((label, i) => {
           const n = (i + 1) as Step;
@@ -518,7 +539,7 @@ export default function NewDesignWizard() {
             <button
               type="button"
               onClick={() => setStep(1)}
-              disabled={submitting}
+              disabled={submitting || opening}
               className="rounded-xl border border-stone-300 px-5 py-3 font-medium hover:bg-stone-50"
             >
               이전
@@ -526,20 +547,20 @@ export default function NewDesignWizard() {
             <button
               type="button"
               onClick={submit}
-              disabled={submitting || quotaExhausted}
+              disabled={submitting || opening || quotaExhausted}
               className={`rounded-xl bg-amber-500 px-6 py-3 font-semibold text-white hover:bg-amber-600 disabled:bg-amber-300 ${
-                submitting ? "disabled:cursor-wait" : "disabled:cursor-not-allowed"
+                submitting || opening ? "disabled:cursor-wait" : "disabled:cursor-not-allowed"
               }`}
             >
-              {submitting ? "AI가 설계하고 있어요…" : "맞춤 설계 받기"}
+              {opening ? "결과 화면을 여는 중…" : submitting ? "AI가 설계하고 있어요…" : "맞춤 설계 받기"}
             </button>
           </div>
-          {quota && quota.remaining !== null && !submitting && (
+          {quota && quota.remaining !== null && !submitting && !opening && (
             <p className={`text-right text-xs ${quotaExhausted ? "font-medium text-red-700" : "text-stone-500"}`}>
               최근 24시간 남은 설계 횟수: {quota.remaining}회 · 실패한 요청도 횟수에 포함돼요.
             </p>
           )}
-          {submitting && (
+          {submitting && !opening && (
             <p className="text-right text-xs text-stone-500">요구사항 해석 → 구조물 생성 → 안전 검증까지 최대 1분 정도 걸려요.</p>
           )}
         </section>

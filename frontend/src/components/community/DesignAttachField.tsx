@@ -93,7 +93,9 @@ export function useAttachOptions(userId: string | null, preId: string | null, pr
     };
   }, [userId, preId, preVersion, key]);
 
-  return result?.key === key ? result.state : ({ kind: "loading" } as const);
+  // 로그인이 풀린 경우에는 마지막으로 불러온 목록을 그대로 둔다 (쓰던 글을 지키려고 폼을 남겨 둘 때)
+  if (result && (result.key === key || userId === null)) return result.state;
+  return { kind: "loading" } as const;
 }
 
 /** "설계 첨부" 선택 + 고른 설계 미리 보기 */

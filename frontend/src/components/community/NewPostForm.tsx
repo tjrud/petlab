@@ -1,26 +1,19 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
-import {
-  checkPost,
-  COMMUNITY_PATH,
-  errorText,
-  loginHref,
-  NEW_POST_PATH,
-  Placeholder,
-  postHref,
-} from "@/components/community/common";
+import { checkPost, COMMUNITY_PATH, errorText, NEW_POST_PATH, Placeholder, postHref } from "@/components/community/common";
 import DesignAttachField, { useAttachOptions } from "@/components/community/DesignAttachField";
 import PostFields from "@/components/community/PostFields";
+import { clearDraft, ReloginNotice, useDraftBackup } from "@/components/DraftRelogin";
 import LoginRequired from "@/components/LoginRequired";
 import { api, isAuthError } from "@/lib/api";
 import { ui } from "@/lib/ui";
 
 const ID_RE = /^[0-9a-f]{32}$/;
+const DRAFT_KEY = "post:new";
 
 /** ?version= 값 (잘못된 값이면 최신 버전) */
 function parseVersion(raw: string | null): number | undefined {
@@ -40,7 +33,7 @@ export default function NewPostForm() {
   const preId = rawId && ID_RE.test(rawId) ? rawId : null;
   const preVersion = preId ? parseVersion(params.get("version")) : undefined;
 
-  const { status, user } = useAuth();
+  const { status, user, refresh } = useAuth();
   const attach = useAttachOptions(user?.id ?? null, preId, preVersion);
 
   const [title, setTitle] = useState("");
@@ -57,18 +50,34 @@ export default function NewPostForm() {
   const [error, setError] = useState<{ message: string; needsLogin: boolean } | null>(null);
   const [tried, setTried] = useState(false);
 
-  if (status === null) return <NewPostPlaceholder />;
-  if (!user) return <LoginRequired message="로그인하고 글을 써 보세요" />;
-  if (attach.kind === "error" && attach.authCode) {
-    return <LoginRequired message="로그인하고 글을 써 보세요" unavailable={attach.authCode === "auth_unavailable"} />;
-  }
-
   const selectedId =
     choice?.preKey === preKey ? choice.id : attach.kind === "ok" ? (attach.preselect ?? "") : "";
   const selected = attach.kind === "ok" ? (attach.options.find((o) => o.id === selectedId) ?? null) : null;
   const dirty = title.trim() !== "" || body.trim() !== "";
   const query = params.toString();
   const here = query ? `${NEW_POST_PATH}?${query}` : NEW_POST_PATH;
+  const attachAuthCode = attach.kind === "error" ? attach.authCode : null;
+  // 로그인이 필요한 상태: 로그인이 풀렸거나(세션 만료 등), 글 올리기·내 설계 목록이 로그인 문제로 실패했다
+  const needsLogin = status !== null && (!user || !!error?.needsLogin || attachAuthCode !== null);
+
+  // 그동안 쓴 내용은 맡겨 두었다가 다시 로그인하고 돌아오면 되살린다
+  useDraftBackup<{ title: string; body: string; design: string }>(
+    DRAFT_KEY,
+    dirty ? { title, body, design: selectedId } : null,
+    needsLogin,
+    (d) => {
+      setTitle(d.title);
+      setBody(d.body);
+      setChoice({ preKey, id: d.design });
+    },
+  );
+
+  if (status === null) return <NewPostPlaceholder />;
+  // 쓰던 내용이 있으면 로그인이 풀려도 폼을 바꾸지 않는다 (아래 안내로 다시 로그인하게 한다)
+  if (!user && !dirty) return <LoginRequired message="로그인하고 글을 써 보세요" />;
+  if (attachAuthCode && !dirty) {
+    return <LoginRequired message="로그인하고 글을 써 보세요" unavailable={attachAuthCode === "auth_unavailable"} />;
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -93,6 +102,8 @@ export default function NewPostForm() {
       setChoice(null);
       setTried(false);
       setSubmitting(false);
+      clearDraft(DRAFT_KEY);
+      if (!user) void refresh(); // 다른 탭에서 다시 로그인한 경우: 헤더 등도 로그인 상태로 바꾼다
       // 글쓰기 화면을 기록에서 빼서, 뒤로 가기로 같은 글을 다시 올리지 않게 한다
       router.replace(postHref(post.id));
     } catch (err) {
@@ -108,6 +119,7 @@ export default function NewPostForm() {
     setChoice(null);
     setError(null);
     setTried(false);
+    clearDraft(DRAFT_KEY);
     router.push(COMMUNITY_PATH);
   }
 
@@ -129,19 +141,12 @@ export default function NewPostForm() {
         disabled={submitting}
       />
 
-      {error && (
+      {error && !error.needsLogin && (
         <p role="alert" className={ui.error}>
           {error.message}
-          {error.needsLogin && (
-            <>
-              {" "}
-              <Link href={loginHref(here)} className="font-semibold underline underline-offset-2">
-                다시 로그인하기
-              </Link>
-            </>
-          )}
         </p>
       )}
+      {needsLogin && <ReloginNotice next={here} message={error?.needsLogin ? error.message : undefined} />}
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         <button type="button" className={ui.btnSecondary} onClick={cancel} disabled={submitting}>

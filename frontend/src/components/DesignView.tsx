@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 
 import DesignLoadError from "@/components/designs/DesignLoadError";
-import DesignTitleBar from "@/components/designs/DesignTitleBar";
+import DesignTitleBar, { seesUnsharedVersions } from "@/components/designs/DesignTitleBar";
 import DownloadPanel from "@/components/DownloadPanel";
 import ItemList from "@/components/ItemList";
 import LoginRequired from "@/components/LoginRequired";
@@ -31,6 +31,8 @@ export default function DesignView({ id, initialVersion }: { id: string; initial
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [authError, setAuthError] = useState<ApiError | null>(null);
+  /** 수정 요청이 로그인 문제로 실패했다 (쓴 요청은 지우지 않고 다시 로그인하게 한다) */
+  const [reviseNeedsLogin, setReviseNeedsLogin] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -75,9 +77,11 @@ export default function DesignView({ id, initialVersion }: { id: string; initial
     try {
       setDesign(await api.reviseDesign(id, prompt, design.current.version));
       setSelected(null);
+      setReviseNeedsLogin(false);
       return true;
     } catch (e) {
-      if (isAuthError(e)) setAuthError(e as ApiError);
+      // 화면 전체를 로그인 안내로 바꾸지 않는다: 쓰던 수정 요청이 사라지지 않게
+      if (isAuthError(e)) setReviseNeedsLogin(true);
       else setActionError(e instanceof ApiError ? e.messageKo : "수정 중 문제가 생겼어요. 다시 시도해 주세요.");
       return false;
     } finally {
@@ -148,6 +152,9 @@ export default function DesignView({ id, initialVersion }: { id: string; initial
             sharedVersions={design.shared_versions}
             busy={busy}
             error={actionError}
+            needsLogin={reviseNeedsLogin}
+            draftKey={`revise:${design.id}`}
+            loginNext={`/designs/${encodeURIComponent(design.id)}`}
             onSubmit={revise}
           />
         )}
@@ -163,14 +170,14 @@ export default function DesignView({ id, initialVersion }: { id: string; initial
             {actionError}
           </p>
         )}
-        {/* 남의 설계는 공유된 버전만 온다. 하나뿐이면 고를 것이 없으므로 목록을 보이지 않는다 */}
+        {/* 남의 설계에서 고를 버전이 하나뿐이면 목록을 보이지 않는다 (다른 회원에게는 공유된 버전만 온다) */}
         {(design.is_owner || design.versions.length > 1) && (
           <VersionList
             versions={design.versions}
             current={cur.version}
             loading={busy}
             onPick={pickVersion}
-            isOwner={design.is_owner}
+            allVersions={design.is_owner || seesUnsharedVersions(design)}
             sharedVersions={design.shared_versions}
           />
         )}

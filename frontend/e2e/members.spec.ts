@@ -138,3 +138,52 @@ test("회원가입 → 반려동물 등록 → 반려동물로 설계 → 내 �
   await expect(page.getByText("아직 만든 설계가 없어요")).toBeVisible();
   expect(pageErrors).toEqual([]);
 });
+
+test("로그인이 풀려도 쓰던 글은 그대로 남고, 다시 로그인하면 이어서 쓸 수 있다", async ({ page, context }) => {
+  const u = { username: `draft_${RUN}`, nickname: `초안${RUN}`, password: "draft-pass-789" };
+  await signup(page, u.username, u.nickname, u.password, "/community/new");
+  const title = page.getByRole("main").getByRole("textbox", { name: "제목", exact: true });
+  const body = page.getByRole("main").getByRole("textbox", { name: "내용", exact: true });
+  await title.fill(`쓰던 제목 ${RUN}`);
+  await body.fill("한참 쓰던 긴 내용");
+
+  await context.clearCookies(); // 세션 만료·다른 기기에서 비밀번호 변경과 같은 상황
+  await page.getByRole("button", { name: "등록" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "쓰던 내용은 그대로 두었어요" })).toBeVisible();
+  await expect(title).toHaveValue(`쓰던 제목 ${RUN}`); // 폼이 로그인 안내로 바뀌지 않는다
+  await expect(body).toHaveValue("한참 쓰던 긴 내용");
+
+  await page.getByRole("link", { name: "다시 로그인하기" }).click();
+  await page.waitForURL(/\/login/);
+  await page.locator("#login-username").fill(u.username);
+  await page.locator("#login-password").fill(u.password);
+  await page.getByRole("button", { name: "로그인", exact: true }).click();
+  await page.waitForURL((url) => url.pathname === "/community/new");
+  await expect(title).toHaveValue(`쓰던 제목 ${RUN}`);
+  await expect(body).toHaveValue("한참 쓰던 긴 내용");
+  await page.getByRole("button", { name: "등록" }).click();
+  await page.waitForURL(/\/community\/[0-9a-f]{32}$/);
+  await expect(page.getByRole("heading", { level: 1, name: `쓰던 제목 ${RUN}` })).toBeVisible();
+});
+
+test("설계 결과로 이동하는 중 다른 곳을 눌러도 설계 버튼이 멈춰 있지 않다", async ({ page }) => {
+  await signup(page, `wiz_${RUN}`, `마법사${RUN}`, "wizard-pass-321", "/design");
+  const wizard = page.getByRole("region", { name: "사육 환경을 알려 주세요" });
+  await wizard.getByLabel("케이지 가로 (mm)").fill("600");
+  await page.getByRole("button", { name: "다음" }).click();
+  await page.getByLabel("요구사항").fill("은신처 하나");
+  // 결과 화면(/designs/{id}) 데이터 요청을 늦춰 두고, 그 사이 상단 '설계하기'를 다시 누른다
+  let release: () => void = () => {};
+  const gate = new Promise<void>((r) => (release = r));
+  await page.route(/\/designs\/[0-9a-f]{32}(\?.*)?$/, async (route) => {
+    if (route.request().headers()["rsc"] || route.request().headers()["next-router-state-tree"]) await gate;
+    await route.continue();
+  });
+  await page.getByRole("button", { name: "맞춤 설계 받기" }).click();
+  await expect(page.getByRole("button", { name: /결과 화면을 여는 중|AI가 설계하고 있어요/ })).toBeVisible();
+  await page.getByRole("banner").getByRole("link", { name: "설계하기" }).click();
+  release();
+  await page.waitForLoadState("networkidle");
+  // 어느 화면에 있든 버튼이 '진행 중'으로 굳어 있지 않아야 한다
+  await expect(page.getByRole("button", { name: /결과 화면을 여는 중|AI가 설계하고 있어요/ })).toHaveCount(0, { timeout: 10_000 });
+});

@@ -190,7 +190,9 @@ export type Post = {
   created_at: string;
   updated_at: string;
   design: SharedDesign | null;
+  /** 최근 댓글 최대 200개 (오래된 것부터). 전체 개수는 comment_total */
   comments: Comment[];
+  comment_total: number;
   can_edit: boolean;
   can_delete: boolean;
 };
