@@ -1,44 +1,102 @@
 "use client";
 
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 
+import { useAuth, useAuthRecheck, useLogout } from "@/components/AuthProvider";
 import { api, ApiError } from "@/lib/api";
+import { safeNext, withNext } from "@/lib/safeNext";
+import { ui } from "@/lib/ui";
 
-/** 로그인 후 돌아갈 경로. 같은 출처의 경로만 허용한다 (외부 주소로 보내는 open redirect 방지).
- *  브라우저는 경로 안의 역슬래시·탭·줄바꿈을 정규화해 "/\\evil.com" 같은 값을 외부 주소로 해석하므로,
- *  접두사 검사 대신 실제 URL 로 해석해 출처를 비교하고, 돌려줄 값도 다시 확인한다. */
-export function safeNext(raw: string | null, origin: string): string {
-  if (!raw || !raw.startsWith("/") || /[\\\u0000-\u001f\u007f]/.test(raw)) return "/";
-  let url: URL;
-  try {
-    url = new URL(raw, origin);
-  } catch {
-    return "/";
-  }
-  // "/..//evil.com" 처럼 점 세그먼트가 접히면 경로가 "//evil.com" 이 되어 다른 사이트 주소로 해석된다.
-  // 실제로 돌려줄 값을 다시 검사한다.
-  const out = url.pathname + url.search + url.hash;
-  if (url.origin !== origin || url.pathname.startsWith("//") || url.pathname.startsWith("/login")) return "/";
-  if (new URL(out, origin).origin !== origin) return "/";
-  return out;
+/** 로그인 상태를 서버에 다시 확인하는 동안 (로그인·회원가입 화면) */
+export function AuthChecking() {
+  return (
+    <div className={ui.card}>
+      <p role="status" className={ui.muted}>
+        잠시만 기다려 주세요…
+      </p>
+    </div>
+  );
+}
+
+/** 서버에 닿지 못해 로그인 상태를 확인하지 못했을 때. 로그아웃·가입 마감으로 오해하지 않게 연결 문제라고 알린다 */
+export function ServerUnreachable() {
+  const { refresh } = useAuth();
+  const [retrying, setRetrying] = useState(false);
+  return (
+    <div role="alert" className={`${ui.error} flex flex-wrap items-center justify-between gap-2`}>
+      <span>서버에 연결하지 못했어요. 잠시 뒤 다시 시도해 주세요.</span>
+      <button
+        type="button"
+        disabled={retrying}
+        onClick={async () => {
+          setRetrying(true);
+          await refresh();
+          setRetrying(false);
+        }}
+        className="font-semibold underline underline-offset-2 disabled:opacity-50"
+      >
+        {retrying ? "확인 중…" : "다시 시도"}
+      </button>
+    </div>
+  );
+}
+
+/** 이미 로그인한 사람이 로그인·회원가입 화면에 들어왔을 때 폼 대신 보여 준다 */
+export function AlreadyLoggedIn({ nickname }: { nickname: string }) {
+  const { logout, busy, error } = useLogout();
+  return (
+    <div role="status" className={`${ui.card} text-center`}>
+      <h2 className={ui.h2}>이미 로그인했어요</h2>
+      <p className="mt-2 break-words text-sm text-stone-600">
+        <span className="font-medium text-stone-800">{nickname}</span>님으로 로그인한 상태예요. 다른 계정으로
+        로그인하려면 먼저 로그아웃해 주세요.
+      </p>
+      <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-center">
+        <Link href="/" className={ui.btnPrimary}>
+          메인 화면으로
+        </Link>
+        <Link href="/me" className={ui.btnSecondary}>
+          내 정보 보기
+        </Link>
+        <button type="button" onClick={logout} disabled={busy} className={ui.btnSecondary}>
+          {busy ? "로그아웃하는 중…" : "로그아웃"}
+        </button>
+      </div>
+      {error && (
+        <p role="alert" className={`${ui.error} mt-4`}>
+          {error}
+        </p>
+      )}
+    </div>
+  );
 }
 
 export default function LoginForm() {
   const params = useSearchParams();
+  const next = params.get("next");
+  const { status, user, unreachable } = useAuth();
+  // 저장해 둔 로그인 상태는 오래됐을 수 있다 (세션 만료 등). 들어올 때마다 서버에 다시 묻는다
+  const recheck = useAuthRecheck();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  if (user && recheck === "checking") return <AuthChecking />;
+  // 서버에 닿지 못해 확인하지 못했으면 폼을 보여 준다 (다시 로그인해도 문제없다)
+  if (user && recheck === "ok") return <AlreadyLoggedIn nickname={user.nickname} />;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
     try {
+      // 회원 아이디는 서버가 소문자로 맞춘다 (관리자 아이디는 대소문자를 그대로 비교하므로 여기서 바꾸지 않는다)
       await api.login(username.trim(), password);
       // 전체 새로고침으로 이동해 헤더 등 모든 화면이 로그인 상태를 다시 읽게 한다
-      window.location.assign(safeNext(params.get("next"), window.location.origin));
+      window.location.assign(safeNext(next, window.location.origin));
     } catch (err) {
       setError(err instanceof ApiError ? err.messageKo : "로그인하지 못했어요.");
       setSubmitting(false);
@@ -46,41 +104,61 @@ export default function LoginForm() {
   }
 
   return (
-    <form onSubmit={submit} className="space-y-4 rounded-2xl border border-amber-200 bg-white p-6">
-      <p className="text-sm text-stone-600">설계 기능은 관리자만 사용할 수 있어요. 관리자 계정으로 로그인해 주세요.</p>
-      <label className="block">
-        <span className="mb-1 block text-sm font-medium">아이디</span>
-        <input
-          autoComplete="username"
-          required
-          className="w-full rounded-lg border border-stone-300 px-3 py-2"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-        />
-      </label>
-      <label className="block">
-        <span className="mb-1 block text-sm font-medium">비밀번호</span>
-        <input
-          type="password"
-          autoComplete="current-password"
-          required
-          className="w-full rounded-lg border border-stone-300 px-3 py-2"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
-      </label>
-      {error && (
-        <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
-          {error}
+    <div className="space-y-4">
+      {unreachable && <ServerUnreachable />}
+      <form onSubmit={submit} className={`${ui.card} space-y-4`}>
+        <p className="text-sm text-stone-600">
+          회원 계정으로 로그인하면 AI 설계를 만들고, 내 설계 내역을 모아 보고, 커뮤니티에 글을 남길 수 있어요.
+        </p>
+        <div>
+          <label htmlFor="login-username" className={ui.label}>
+            아이디
+          </label>
+          <input
+            id="login-username"
+            name="username"
+            autoComplete="username"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            required
+            className={ui.input}
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+          />
+        </div>
+        <div>
+          <label htmlFor="login-password" className={ui.label}>
+            비밀번호
+          </label>
+          <input
+            id="login-password"
+            name="password"
+            type="password"
+            autoComplete="current-password"
+            required
+            className={ui.input}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </div>
+        {error && (
+          <p role="alert" className={ui.error}>
+            {error}
+          </p>
+        )}
+        <button type="submit" disabled={submitting} className={`${ui.btnPrimary} w-full`}>
+          {submitting ? "로그인 중…" : "로그인"}
+        </button>
+      </form>
+      {status?.signup_enabled !== false && (
+        <p className="text-center text-sm text-stone-600">
+          아직 회원이 아니신가요?{" "}
+          <Link href={withNext("/signup", next)} className={`${ui.link} font-medium`}>
+            회원가입
+          </Link>
         </p>
       )}
-      <button
-        type="submit"
-        disabled={submitting}
-        className="w-full rounded-xl bg-amber-500 px-6 py-3 font-semibold text-white hover:bg-amber-600 disabled:bg-amber-300"
-      >
-        {submitting ? "로그인 중…" : "로그인"}
-      </button>
-    </form>
+    </div>
   );
 }

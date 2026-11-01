@@ -1,23 +1,21 @@
 import Header from "@/components/Header";
-import NewDesignWizard from "@/components/NewDesignWizard";
+import Hero from "@/components/home/Hero";
+import HowItWorks from "@/components/home/HowItWorks";
+import MemberArea from "@/components/home/MemberArea";
+import RecentPosts from "@/components/home/RecentPosts";
+import SectionCards from "@/components/home/SectionCards";
 
+// 메인 화면: 소개·이용 순서·메뉴 안내는 서버에서 그리고, 로그인 상태에 따른 영역과 최근 글은 브라우저에서 불러온다
 export default function Home() {
   return (
     <>
       <Header />
-      <main className="mx-auto w-full max-w-3xl px-4 py-10">
-        <h1 className="text-3xl font-bold leading-tight sm:text-4xl">
-          우리 아이 케이지에 꼭 맞는{" "}
-          <br className="hidden sm:block" />
-          구조물을 설계해 드려요
-        </h1>
-        <p className="mt-3 text-stone-600">
-          케이지 크기와 원하는 구성을 알려 주시면 AI가 은신처 같은 구조물을 맞춤 설계합니다. 결과는 3D로
-          확인하고, 3D 프린팅 파일(STL·3MF)로 내려받을 수 있어요.
-        </p>
-        <div className="mt-8">
-          <NewDesignWizard />
-        </div>
+      <main className="mx-auto w-full max-w-6xl px-4 py-8">
+        <Hero />
+        <HowItWorks />
+        <SectionCards />
+        <MemberArea />
+        <RecentPosts />
       </main>
     </>
   );

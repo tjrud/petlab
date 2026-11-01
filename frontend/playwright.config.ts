@@ -33,6 +33,7 @@ export default defineConfig({
         DATABASE_URL: `sqlite:///${tmp}/e2e.db`,
         MESH_CACHE_DIR: `${tmp}/meshes`,
         CORS_ORIGINS: "http://localhost:3000",
+        SIGNUP_PER_IP_PER_HOUR: "1000", // 테스트마다 회원가입을 하므로 IP 제한을 넉넉하게
       },
     },
     {

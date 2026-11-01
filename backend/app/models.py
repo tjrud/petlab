@@ -1,11 +1,21 @@
-"""DB 모델: 사육 환경, 설계, 설계 버전, 제작·배송 대기 신청."""
+"""DB 모델: 회원, 반려동물, 사육 환경, 설계, 설계 버전, 커뮤니티, 제작·배송 대기 신청."""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -19,10 +29,54 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class User(Base):
+    """회원. 관리자는 환경변수(ADMIN_USERNAME/ADMIN_PASSWORD)로 로그인하며 password_hash 가 비어 있다."""
+
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    username: Mapped[str] = mapped_column(String(32), unique=True)
+    nickname: Mapped[str] = mapped_column(String(40), unique=True)
+    # 닉네임 비교용 정규화 키 (대소문자·공백 무시). 보기에 같은 닉네임으로 다른 회원을 사칭하지 못하게 유일하게 둔다
+    nickname_key: Mapped[str] = mapped_column(String(40), unique=True)
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    role: Mapped[str] = mapped_column(String(16), default="member")  # member | admin
+    # 비밀번호를 바꾸면 올려서 다른 기기의 세션을 끊는다
+    session_version: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+    @property
+    def is_admin(self) -> bool:
+        return self.role == "admin"
+
+
+class Pet(Base):
+    """내 반려동물 정보 (설계할 때 종·크기·케이지 치수를 채우는 데 쓴다)."""
+
+    __tablename__ = "pets"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    name: Mapped[str] = mapped_column(String(40))
+    species: Mapped[str] = mapped_column(String(32))
+    size: Mapped[str] = mapped_column(String(32))
+    sex: Mapped[str] = mapped_column(String(16), default="unknown")  # male | female | unknown
+    birth_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cage_width_mm: Mapped[float | None] = mapped_column(nullable=True)
+    cage_depth_mm: Mapped[float | None] = mapped_column(nullable=True)
+    cage_height_mm: Mapped[float | None] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+
 class Habitat(Base):
     __tablename__ = "habitats"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    # 아래 두 열은 기존 DB 에 마이그레이션으로 추가된다 (db.py MIGRATION_COLUMNS). 옛 행은 비어 있다.
+    owner_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    pet_id: Mapped[str | None] = mapped_column(ForeignKey("pets.id"), nullable=True)
     species: Mapped[str] = mapped_column(String(32))
     size: Mapped[str] = mapped_column(String(32))
     count: Mapped[int] = mapped_column(Integer)
@@ -37,9 +91,12 @@ class Design(Base):
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
     habitat_id: Mapped[str] = mapped_column(ForeignKey("habitats.id"))
+    owner_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)  # 옛 행은 비어 있음
+    title: Mapped[str | None] = mapped_column(String(80), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     habitat: Mapped[Habitat] = relationship()
+    owner: Mapped[User | None] = relationship()
     versions: Mapped[list["DesignVersion"]] = relationship(
         back_populates="design", order_by="DesignVersion.version", cascade="all, delete-orphan"
     )
@@ -62,7 +119,8 @@ class DesignVersion(Base):
     items: Mapped[list] = mapped_column(JSON)           # 항목별 최종 파라미터·배치·치수
     report: Mapped[dict] = mapped_column(JSON)          # 검증 보고서
     passed: Mapped[bool]
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)  # 사용량 집계
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
 
     design: Mapped[Design] = relationship(back_populates="versions")
 
@@ -74,4 +132,59 @@ class WaitlistEntry(Base):
     email: Mapped[str] = mapped_column(String(320))
     design_id: Mapped[str | None] = mapped_column(ForeignKey("designs.id"), nullable=True)
     version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class Post(Base):
+    """커뮤니티 글. 내 설계를 첨부하면 그 설계는 누구나 볼 수 있게 된다(공유)."""
+
+    __tablename__ = "posts"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    author_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    title: Mapped[str] = mapped_column(String(100))
+    body: Mapped[str] = mapped_column(Text)
+    design_id: Mapped[str | None] = mapped_column(ForeignKey("designs.id"), nullable=True, index=True)
+    design_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+    author: Mapped[User] = relationship()
+    design: Mapped[Design | None] = relationship()
+    comments: Mapped[list["Comment"]] = relationship(
+        back_populates="post", order_by="Comment.created_at", cascade="all, delete-orphan"
+    )
+
+
+class Comment(Base):
+    __tablename__ = "comments"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    post_id: Mapped[str] = mapped_column(ForeignKey("posts.id"), index=True)
+    author_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    body: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
+
+    post: Mapped[Post] = relationship(back_populates="comments")
+    author: Mapped[User] = relationship()
+
+
+class UsageEvent(Base):
+    """사용량 기록 (설계 요청·글·댓글·사육 환경·대기 신청). 상한 확인에 쓰며 지우지 않는다.
+
+    결과(설계 버전·글)와 따로 두는 이유: 실패한 설계 요청도 LLM 비용이 들고, 글을 지우고 다시 써서
+    상한을 피하지 못하게 하려면 '시도'를 세야 한다. 상한 확인과 기록은 한 트랜잭션에서 잠금을 잡고 한다
+    (services/usage.py)."""
+
+    __tablename__ = "usage_events"
+    __table_args__ = (
+        Index("ix_usage_events_kind_created", "kind", "created_at"),
+        Index("ix_usage_events_user_kind_created", "user_id", "kind", "created_at"),
+        Index("ix_usage_events_ip_kind_created", "ip_key", "kind", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    kind: Mapped[str] = mapped_column(String(16))  # design | post | comment | habitat | waitlist
+    ip_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

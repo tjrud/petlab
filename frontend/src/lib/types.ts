@@ -1,6 +1,22 @@
 // 백엔드 API 스키마 (backend/app/schemas.py) 와 맞춘 타입
 
-export type AuthStatus = { auth_enabled: boolean; authenticated: boolean; username: string | null };
+export type Role = "member" | "admin";
+
+export type User = { id: string; username: string; nickname: string; role: Role; created_at: string };
+
+export type AuthStatus = {
+  auth_enabled: boolean;
+  authenticated: boolean;
+  user: User | null;
+  signup_enabled: boolean;
+};
+
+export type Me = {
+  user: User;
+  stats: { pets: number; designs: number; posts: number };
+  /** 최근 24시간 설계 사용량. 관리자는 limit/remaining 이 null (상한 없음) */
+  design_quota: { used: number; limit: number | null; remaining: number | null };
+};
 
 export type Cage = { width_mm: number; depth_mm: number; height_mm: number };
 
@@ -22,6 +38,7 @@ export type SpeciesResponse = {
 
 export type Habitat = {
   id: string;
+  pet_id: string | null;
   species: string;
   species_name_ko: string;
   size: string;
@@ -85,7 +102,97 @@ export type Version = {
 
 export type Design = {
   id: string;
+  title: string;
   habitat: Habitat;
+  /** 소유자는 모든 버전. 다른 사람(관리자 포함)에게는 커뮤니티 글에 첨부된 버전만 온다 */
   versions: VersionSummary[];
+  /** 다른 사람에게는 기본으로 가장 최근에 공유된 버전 */
   current: Version;
+  /** 수정·공유는 실제 소유자만. 남의 설계는 관리자가 보더라도 false (읽기 전용) */
+  is_owner: boolean;
+  shared: boolean;
+  /** 커뮤니티 글에 첨부된 버전 번호 (오름차순, 없으면 빈 배열). 이 버전들만 다른 사람이 볼 수 있다 */
+  shared_versions: number[];
+  owner_nickname: string | null;
+};
+
+export type DesignListItem = {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  version_count: number;
+  latest_version: number;
+  latest_passed: boolean;
+  habitat: Habitat;
+  pet_name: string | null;
+  shared: boolean;
+};
+
+export type Paged<T> = { items: T[]; total: number; page: number; page_size: number };
+
+export type PetSex = "male" | "female" | "unknown";
+
+export type Pet = {
+  id: string;
+  name: string;
+  species: string;
+  species_name_ko: string;
+  size: string;
+  size_name_ko: string;
+  sex: PetSex;
+  birth_date: string | null; // YYYY-MM-DD
+  notes: string | null;
+  cage: Cage | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PetInput = {
+  name: string;
+  species: string;
+  size: string;
+  sex: PetSex;
+  birth_date: string | null;
+  notes: string | null;
+  cage: Cage | null;
+};
+
+export type Author = { nickname: string; role: Role };
+
+export type PostSummary = {
+  id: string;
+  title: string;
+  excerpt: string;
+  author: Author;
+  created_at: string;
+  comment_count: number;
+  has_design: boolean;
+};
+
+export type Comment = { id: string; body: string; author: Author; created_at: string; can_delete: boolean };
+
+export type SharedDesign = {
+  id: string;
+  version: number;
+  title: string;
+  summary_ko: string;
+  item_labels: string[];
+  passed: boolean;
+  habitat: Habitat;
+};
+
+export type Post = {
+  id: string;
+  title: string;
+  body: string;
+  author: Author;
+  created_at: string;
+  updated_at: string;
+  design: SharedDesign | null;
+  /** 최근 댓글 최대 200개 (오래된 것부터). 전체 개수는 comment_total */
+  comments: Comment[];
+  comment_total: number;
+  can_edit: boolean;
+  can_delete: boolean;
 };

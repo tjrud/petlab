@@ -4,25 +4,29 @@ const SHOTS = process.env.E2E_SCREENSHOT_DIR;
 const ADMIN = { username: "admin", password: "e2e-admin-password" };
 
 async function login(page: Page) {
-  await page.goto("/login?next=/");
+  await page.goto("/login?next=/design");
   await page.getByLabel("아이디").fill(ADMIN.username);
   await page.getByLabel("비밀번호").fill(ADMIN.password);
   await page.getByRole("button", { name: "로그인", exact: true }).click();
-  await page.waitForURL((url) => url.pathname === "/");
+  await page.waitForURL((url) => url.pathname === "/design");
 }
 
-test("관리자 인증: 사이트는 공개, 설계 기능은 로그인 후에만", async ({ page, request }) => {
-  // 로그인 없이 API 호출 → 401
-  const r = await request.get("http://localhost:8000/species");
+const version = (page: Page) => page.getByTestId("design-version");
+
+test("관리자 로그인: 사이트는 공개, 설계 기능은 로그인 후에만", async ({ page, request }) => {
+  // 로그인 없이 회원 API 호출 → 401
+  const r = await request.get("http://localhost:8000/designs");
   expect(r.status()).toBe(401);
-  // 첫 화면은 누구나 열 수 있고, 설계 폼 대신 로그인 안내가 보인다 (자동으로 이동하지 않음)
+  // 메인 화면은 누구나 열 수 있다
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: /구조물을 설계해 드려요/ })).toBeVisible();
-  await expect(page.getByText("관리자 로그인 후 사용할 수 있어요")).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "우리 아이 케이지에 꼭 맞는 구조물을 설계해 드려요" })).toBeVisible();
+  // 설계하기는 로그인 안내 (자동으로 이동하지 않음)
+  await page.goto("/design");
+  await expect(page.getByText("로그인하고 맞춤 설계를 시작해 보세요")).toBeVisible();
   await expect(page.getByRole("heading", { name: "사육 환경을 알려 주세요" })).toHaveCount(0);
-  await page.getByRole("main").getByRole("link", { name: "관리자 로그인" }).click();
-  await page.waitForURL(/\/login\?next=%2F$/);
-  await expect(page.getByRole("heading", { name: "관리자 로그인" })).toBeVisible();
+  await page.getByRole("main").getByRole("link", { name: "로그인", exact: true }).click();
+  await page.waitForURL(/\/login\?next=%2Fdesign$/);
+  await expect(page.getByRole("heading", { name: "로그인", exact: true })).toBeVisible();
   await expect(page.getByLabel("아이디")).toHaveValue(""); // 아이디를 미리 채워 두지 않는다
   // 틀린 비밀번호
   await page.getByLabel("아이디").fill(ADMIN.username);
@@ -32,17 +36,15 @@ test("관리자 인증: 사이트는 공개, 설계 기능은 로그인 후에�
   // 올바른 비밀번호 → 원래 화면으로
   await page.getByLabel("비밀번호").fill(ADMIN.password);
   await page.getByRole("button", { name: "로그인", exact: true }).click();
-  await page.waitForURL((url) => url.pathname === "/");
+  await page.waitForURL((url) => url.pathname === "/design");
   await expect(page.getByRole("heading", { name: "사육 환경을 알려 주세요" })).toBeVisible();
-  await expect(page.getByText("관리자 admin")).toBeVisible();
-  // 로그아웃 → 로그인 화면 (현재 기록을 바꿔치기해 뒤로 가도 로그인 전 화면이 다시 보이지 않는다)
+  await expect(page.getByRole("banner").getByText("NestForge 운영팀")).toBeVisible();
+  // 로그아웃 → 메인 화면 (현재 기록을 바꿔치기해 뒤로 가도 로그인 상태 화면이 다시 보이지 않는다)
   await page.getByRole("button", { name: "로그아웃" }).click();
-  await page.waitForURL(/\/login$/);
-  await expect(page.getByText("관리자 admin")).toHaveCount(0);
-  await page.goBack();
-  await expect(page.getByRole("heading", { name: "사육 환경을 알려 주세요" })).toHaveCount(0);
-  await page.goto("/");
-  await expect(page.getByText("관리자 로그인 후 사용할 수 있어요")).toBeVisible();
+  await page.waitForURL((url) => url.pathname === "/");
+  await expect(page.getByRole("banner").getByText("NestForge 운영팀")).toHaveCount(0);
+  await page.goto("/design");
+  await expect(page.getByText("로그인하고 맞춤 설계를 시작해 보세요")).toBeVisible();
 });
 
 test("로그인 후 이동 경로는 같은 사이트 안으로만", async ({ page }) => {
@@ -90,7 +92,8 @@ test("사육 환경 등록 → 요구사항 → 3D 뷰어 → 다운로드 → �
 
   // 3~4. 설계 결과 + 3D 뷰어
   await page.waitForURL(/\/designs\/[0-9a-f]+$/);
-  await expect(page.getByRole("heading", { name: "맞춤 설계 v1" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "은신처를 왼쪽에 넣고 환기구는 8개로 해 주세요" })).toBeVisible();
+  await expect(version(page)).toHaveText("v1");
   await expect(page.getByTestId("viewer").locator("canvas")).toBeVisible();
   await expect(page.getByText("통과", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /은신처 #1/ })).toBeVisible();
@@ -145,7 +148,7 @@ test("수정 루프: 추가 프롬프트로 v2 생성, 이전 버전 유지·전
   await page.getByLabel("요구사항").fill("은신처를 왼쪽에 넣어 주세요");
   await page.getByRole("button", { name: "맞춤 설계 받기" }).click();
   await page.waitForURL(/\/designs\//);
-  await expect(page.getByRole("heading", { name: "맞춤 설계 v1" })).toBeVisible();
+  await expect(version(page)).toHaveText("v1");
 
   const sizeOf = async () => (await page.getByRole("button", { name: /은신처 #1/ }).innerText()).match(/(\d+)×/)![1];
   const v1Width = Number(await sizeOf());
@@ -153,7 +156,7 @@ test("수정 루프: 추가 프롬프트로 v2 생성, 이전 버전 유지·전
   // 수정 → v2
   await page.getByLabel("수정할 내용").fill("조금 더 크게 해 주세요");
   await page.getByRole("button", { name: "v1 기준으로 다시 설계" }).click();
-  await expect(page.getByRole("heading", { name: "맞춤 설계 v2" })).toBeVisible();
+  await expect(version(page)).toHaveText("v2");
   expect(Number(await sizeOf())).toBeGreaterThan(v1Width);
   const versions = page.getByRole("region", { name: /설계 버전/ });
   await expect(versions.getByRole("button")).toHaveCount(2);
@@ -162,14 +165,14 @@ test("수정 루프: 추가 프롬프트로 v2 생성, 이전 버전 유지·전
 
   // v1 으로 전환 → 원래 값 유지
   await versions.getByRole("button", { name: /^v1/ }).click();
-  await expect(page.getByRole("heading", { name: "맞춤 설계 v1" })).toBeVisible();
+  await expect(version(page)).toHaveText("v1");
   expect(Number(await sizeOf())).toBe(v1Width);
   await expect(page.getByText("v1을 보고 있어요", { exact: false })).toBeVisible();
 
   // v1 기준으로 다시 수정 → v3 (v1·v2 유지)
   await page.getByLabel("수정할 내용").fill("더 작게 해 주세요");
   await page.getByRole("button", { name: "v1 기준으로 다시 설계" }).click();
-  await expect(page.getByRole("heading", { name: "맞춤 설계 v3" })).toBeVisible();
+  await expect(version(page)).toHaveText("v3");
   expect(Number(await sizeOf())).toBeLessThan(v1Width);
   await expect(versions.getByRole("button")).toHaveCount(3);
 });

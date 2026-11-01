@@ -1,0 +1,47 @@
+import { IconChevronRight, IconCube, IconPencil, IconSparkle } from "@/components/home/icons";
+
+const STEPS = [
+  {
+    title: "사육 환경 입력",
+    body: "종과 크기, 마릿수, 케이지 내부 치수를 고르고 원하는 구성을 편하게 적어 주세요.",
+    Icon: IconPencil,
+  },
+  {
+    title: "AI 맞춤 설계·자동 검증",
+    body: "AI가 구조물을 설계하고, 출입구 크기·오르는 높이·벽 두께 같은 안전·출력 기준을 자동으로 확인해요.",
+    Icon: IconSparkle,
+  },
+  {
+    title: "3D 확인·프린팅 파일(STL·3MF)",
+    body: "3D로 돌려 보며 확인하고, 고치고 싶은 부분은 말로 요청하세요. 완성되면 STL·3MF 파일로 내려받아요.",
+    Icon: IconCube,
+  },
+];
+
+export default function HowItWorks() {
+  return (
+    <section aria-labelledby="how-title" className="mt-12">
+      <h2 id="how-title" className="text-xl font-bold sm:text-2xl">
+        이렇게 만들어요
+      </h2>
+      <p className="mt-1 text-sm text-stone-600">세 단계면 우리 아이만의 구조물이 완성돼요.</p>
+      <ol className="mt-5 grid gap-3 md:grid-cols-3 md:gap-8">
+        {STEPS.map(({ title, body, Icon }, i) => (
+          <li key={title} className="relative rounded-2xl border border-amber-200 bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold text-amber-700">{i + 1}단계</span>
+              <span className="grid h-10 w-10 place-items-center rounded-xl bg-teal-50 text-teal-800">
+                <Icon className="h-5 w-5" />
+              </span>
+            </div>
+            <h3 className="mt-2 font-semibold sm:text-lg">{title}</h3>
+            <p className="mt-1 text-sm leading-relaxed text-stone-600">{body}</p>
+            {i < STEPS.length - 1 && (
+              <IconChevronRight className="absolute -right-6 top-1/2 hidden h-4 w-4 -translate-y-1/2 text-amber-400 md:block" />
+            )}
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
