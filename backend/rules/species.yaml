@@ -46,7 +46,7 @@ species:
         sand_bath_min_depth_mm: 40      # [임시] 모래목욕통 최소 깊이
         # 은신처 출입구 최소 개수
         hideout_min_entrances:
-          # 혼자 키울 때: 근거 수치 없음 → 추가 요구 없음 (앞 출입구 하나). 햄스터는 단독 사육이 기본이다
+          # [임시] 혼자 키울 때: 근거 수치 없음 → 추가 요구 없음 (앞 출입구 하나). 햄스터는 단독 사육이 기본이다
           single: 1
           # 두 마리 이상 함께 키울 때
           # [근거] DTSchB: 집 출입구가 하나뿐이면 안 되고 최소 2개가 낫다.
@@ -75,7 +75,7 @@ species:
         sand_bath_min_inner_mm: [200, 200]  # [근거] TVT-G: 모래목욕통 최소 20×20cm
         sand_bath_min_depth_mm: 50          # [임시]
         hideout_min_entrances:              # 드워프와 같음
-          single: 1                         # 근거 수치 없음 → 추가 요구 없음
+          single: 1                         # [임시] 근거 수치 없음 → 추가 요구 없음
           group: 2                          # [근거] DTSchB, 여러 마리일 때만
         # [근거] TVT-G: 사육장 최소 100×50×50cm, 이보다 작으면 안 됨. 높이는 비교하지 않음 (바닥재 25cm 별도)
         enclosure_min_floor_mm: [1000, 500]

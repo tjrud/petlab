@@ -57,7 +57,7 @@ class SizeRules(_Strict):
     sand_bath_min_depth_mm: PositiveMM
     # 은신처 출입구 최소 개수 (여러 마리가 함께 지낼 때 막다른 곳 방지)
     hideout_min_entrances: HideoutEntranceRule
-    # 권장 최소 사육장 바닥 [긴 변, 짧은 변]. 작으면 경고만 한다 (설계는 막지 않음)
+    # 사육장 최소 바닥 기준 [긴 변, 짧은 변]. 작으면 경고만 한다 (설계는 막지 않음)
     enclosure_min_floor_mm: tuple[PositiveMM, PositiveMM]
     max_recommended_count: Annotated[int, Field(ge=1)]
     count_warning_ko: str
