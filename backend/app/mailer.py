@@ -14,6 +14,7 @@ import ssl
 import time
 import uuid
 from dataclasses import asdict, dataclass
+from email.errors import MessageError
 from email.message import EmailMessage
 from email.utils import formataddr, make_msgid, parseaddr
 from pathlib import Path
@@ -53,7 +54,7 @@ class SmtpMailer:
         self.security = settings.smtp_security
         self.sender = settings.email_from.strip()
 
-    def send(self, mail: Mail) -> None:
+    def _message(self, mail: Mail) -> EmailMessage:
         msg = EmailMessage()
         name, addr = parseaddr(self.sender)
         msg["From"] = formataddr((name, addr)) if name else addr
@@ -62,6 +63,13 @@ class SmtpMailer:
         msg["Message-ID"] = make_msgid(domain=addr.rpartition("@")[2] or None)
         msg.set_content(mail.text)
         msg.add_alternative(mail.html, subtype="html")
+        return msg
+
+    def send(self, mail: Mail) -> None:
+        try:  # 헤더로 만들 수 없는 주소(줄바꿈으로 풀리는 인코딩 등)는 보내지 않는다
+            msg = self._message(mail)
+        except (ValueError, MessageError) as e:
+            raise MailError(f"메일을 만들 수 없음: {type(e).__name__}") from None
         context = ssl.create_default_context()
         try:
             if self.security == "ssl":

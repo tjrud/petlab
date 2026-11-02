@@ -28,6 +28,7 @@ from app.auth import (
     get_optional_user,
     issue_token,
     signing_key,
+    usage_ip_key,
 )
 from app.captcha import CaptchaUnavailableError, check_captcha
 from app.config import Settings
@@ -163,7 +164,8 @@ def signup(data: SignupIn, request: Request, db: Session = Depends(get_db)) -> R
     sent = None
     if email_on:
         try:
-            sent = email_verify.send_verification(db, settings, request.app.state.mailer, user)
+            sent = email_verify.send_verification(db, settings, request.app.state.mailer, user,
+                                                  ip_key=usage_ip_key(settings, request))
         except QuotaExceededError as e:  # 서비스 전체 발송 상한: 가입은 됐고, 나중에 다시 보낼 수 있다
             log.warning("가입 인증 메일을 보내지 않았습니다 (%s)", e.code)
             sent = False
@@ -261,7 +263,8 @@ def resend_verification(request: Request, db: Session = Depends(get_db), user: U
         raise ForbiddenError("관리자 계정은 이메일 인증이 필요 없어요.")
     if user.email_verified_at is not None:
         return ResendVerificationOut(sent=False, email=user.email, message_ko="이미 인증한 이메일이에요.")
-    sent = email_verify.send_verification(db, settings, request.app.state.mailer, user)
+    sent = email_verify.send_verification(db, settings, request.app.state.mailer, user,
+                                          ip_key=usage_ip_key(settings, request))
     return ResendVerificationOut(
         sent=sent, email=user.email,
         message_ko=f"{user.email} 로 인증 메일을 보냈어요. 메일의 링크를 눌러 주세요." if sent

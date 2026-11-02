@@ -530,3 +530,87 @@ def test_concurrent_verification_of_same_address_on_postgres(tmp_path, mailer):
         with ThreadPoolExecutor(2) as pool:
             codes = sorted(pool.map(lambda t: c.post("/auth/verify-email", json={"token": t}).status_code, tokens))
         assert codes == [200, 409]
+
+
+# ── 리뷰에서 확인된 문제 ──────────────────────────────────
+
+
+def test_email_change_racing_verification_never_leaves_new_address_verified(client, mailer):
+    """주소 A 의 링크로 인증하는 것과 주소 V 로 바꾸는 것이 겹쳐도 V 가 인증된 채로 남지 않는다."""
+    from app.services import email_verify
+
+    signup(client, "kong_01", "a@example.com")
+    token = last_token(mailer, "a@example.com")
+    factory = client.app.state.session_factory
+    stale_db = factory()
+    stale = stale_db.query(User).filter_by(username="kong_01").one()  # 이메일 변경 요청이 먼저 읽어 둔 상태
+    assert stale.email_verified_at is None
+    other = factory()
+    email_verify.verify(other, token)  # 그 사이 A 의 링크로 인증
+    other.close()
+    email_verify.set_email(stale_db, stale, "victim@example.com", email_key("victim@example.com"))
+    stale_db.commit()
+    stale_db.close()
+    check = factory()
+    u = check.query(User).filter_by(username="kong_01").one()
+    assert u.email == "victim@example.com" and u.email_verified_at is None
+    check.close()
+
+
+def test_link_for_old_address_after_change_is_invalid(client, mailer):
+    signup(client, "kong_01", "a@example.com")
+    token = last_token(mailer, "a@example.com")
+    age_usage(client)
+    assert client.patch("/me/email", json={"email": "b@example.com", "current_password": PW}).status_code == 200
+    r = client.post("/auth/verify-email", json={"token": token})
+    assert r.status_code == 400 and r.json()["detail"]["code"] == "invalid_token"
+
+
+def test_email_change_attempts_are_capped_even_when_taken(client, mailer):
+    other = signup(client, "owner_01", "taken@example.com")
+    client.post("/auth/verify-email", json={"token": last_token(mailer, "taken@example.com")})
+    signup(client, "prober_1", "p@example.com")
+    codes = []
+    for i in range(6):
+        age_usage(client)
+        email = "taken@example.com" if i % 2 == 0 else f"probe{i}@example.com"
+        codes.append(client.patch("/me/email", json={"email": email, "current_password": PW}).status_code)
+    assert codes == [409, 200, 409, 200, 409, 429]
+    assert other["user"]["email"] == "taken@example.com"
+
+
+def test_verification_mail_limits_per_ip_and_lifetime(tmp_path, mailer, monkeypatch):
+    from app.services import email_verify
+
+    monkeypatch.setattr(email_verify, "PER_IP_DAILY", 2)
+    with TestClient(app_with(tmp_path, mailer=mailer, client_ip_header="x-test-ip", **EMAIL_ON)) as c:
+        def join(name):
+            c.cookies.clear()
+            r = c.post("/auth/signup", json={"username": name, "nickname": f"{name}님", "password": PW,
+                                             "email": f"{name}@example.com"}, headers={"x-test-ip": "203.0.113.9"})
+            assert r.status_code == 201
+            return r.json()["verification_email_sent"]
+        assert [join("ip_a1"), join("ip_a2"), join("ip_a3")] == [True, True, False]  # 같은 IP 3번째 메일은 안 보냄
+
+    monkeypatch.setattr(email_verify, "UNVERIFIED_LIFETIME", 3)
+    with TestClient(app_with(tmp_path / "b", mailer=mailer, **EMAIL_ON)) as c:
+        signup(c, "life_01", "life@example.com")
+        results = []
+        for _ in range(4):
+            age_usage(c, seconds=2 * 24 * 3600)  # 하루 상한은 풀려도
+            results.append(c.post("/auth/verify-email/resend").status_code)
+        assert results == [200, 200, 429, 429]  # 평생 상한(3통)에 걸린다
+
+
+@pytest.mark.parametrize("bad", ["=?utf-8?q?a=0D=0ABcc=3A_v=40evil.com?=@example.com", "a=?x?=b@example.com"])
+def test_encoded_word_addresses_are_rejected(client, bad):
+    r = client.post("/auth/signup", json={"username": "enc_01", "nickname": "인코딩", "password": PW, "email": bad})
+    assert r.status_code == 422
+
+
+def test_smtp_mailer_turns_unbuildable_headers_into_mail_error():
+    s = Settings(_env_file=None, email_provider="smtp", email_from="bot@example.com", smtp_host="smtp.example.com",
+                 app_base_url="https://x")
+    with pytest.raises(MailError):
+        SmtpMailer(s).send(Mail(to="=?utf-8?q?a=0D=0ABcc=3A_v=40evil.com?=@example.com", subject="s", text="t",
+                                html="h"))

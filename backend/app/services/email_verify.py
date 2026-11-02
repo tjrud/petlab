@@ -14,12 +14,12 @@ import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.errors import AppError, ConflictError, ForbiddenError
+from app.errors import AppError, ConflictError, ForbiddenError, QuotaExceededError
 from app.mailer import Mail, Mailer, MailError
 from app.models import EmailToken, User
 from app.services import usage
@@ -30,6 +30,9 @@ TOKEN_BYTES = 32
 MAX_TOKEN_LEN = 128
 RESEND_COOLDOWN = timedelta(seconds=60)
 PER_USER_DAILY = 5
+PER_IP_DAILY = 20          # 같은 IP(IPv6 /56)에서 24시간 (계정 여러 개로 서비스 전체 상한을 다 쓰지 못하게)
+UNVERIFIED_LIFETIME = 10   # 한 계정이 받을 수 있는 인증 메일 수 (평생: 인증하지 않는 계정이 매일 한도를 다시 쓰지 못하게)
+LIFETIME = timedelta(days=36500)
 
 
 class InvalidTokenError(AppError):
@@ -102,16 +105,21 @@ def _mail(user: User, link: str, ttl_hours: float) -> Mail:
     return Mail(to=user.email or "", subject="[NestForge] 이메일 주소를 인증해 주세요", text=text, html=body)
 
 
-def send_verification(db: Session, settings: Settings, mailer: Mailer, user: User) -> bool:
+def send_verification(db: Session, settings: Settings, mailer: Mailer, user: User, ip_key: str | None = None) -> bool:
     """보내기 횟수를 확인·기록하고 새 링크를 만들어 보낸다.
     상한에 닿았으면 QuotaExceededError (기록·발송 안 함). 메일 서비스 오류면 False (다시 보내기를 안내)."""
     if not user.email:
         raise AppError("내 정보에서 이메일을 먼저 등록해 주세요.", code="email_required")
+    if usage.count(db, "email", user_id=user.id, window=LIFETIME) >= UNVERIFIED_LIFETIME:
+        raise QuotaExceededError("인증 메일을 너무 많이 보냈어요. 받은 편지함과 스팸함을 확인하거나 운영팀에 문의해 주세요.",
+                                 code="too_many_emails")
     usage.reserve(
-        db, "email", user,
+        db, "email", user, ip_key=ip_key,
         cooldown=(RESEND_COOLDOWN, usage.Cap(1, "인증 메일을 방금 보냈어요. 1분 뒤에 다시 보낼 수 있어요.", "email_cooldown")),
         per_user=usage.Cap(PER_USER_DAILY, "인증 메일은 24시간에 5번까지 보낼 수 있어요. 받은 편지함과 스팸함을 확인해 주세요.",
                            "too_many_emails"),
+        per_ip=usage.Cap(PER_IP_DAILY, "이 네트워크에서 인증 메일 요청이 너무 많았어요. 잠시 뒤 다시 시도해 주세요.",
+                         "too_many_emails"),
         global_=usage.Cap(settings.email_daily_limit, "오늘은 인증 메일을 더 보낼 수 없어요. 내일 다시 시도해 주세요.",
                           "too_many_emails"),
     )
@@ -133,27 +141,52 @@ def forget_tokens(db: Session, user_id: str) -> None:
     db.execute(delete(EmailToken).where(EmailToken.user_id == user_id))
 
 
-def verify(db: Session, token: str) -> User:
-    """링크의 토큰으로 이메일을 인증한다. 이미 인증된 회원이면 그대로 돌려준다."""
+def verify(db: Session, token: str) -> None:
+    """링크의 토큰으로 이메일을 인증한다 (이미 인증된 회원이면 그대로 성공).
+
+    쓰기는 모두 조건부 UPDATE 로 한다: 동시에 이메일을 바꾸거나 같은 링크를 두 번 눌러도
+    (1) 토큰은 한 번만 쓰이고 (2) 링크를 보낸 주소가 지금 주소일 때만 인증된다."""
     if not token or len(token) > MAX_TOKEN_LEN or not token.isascii():
         raise InvalidTokenError()
-    row = db.get(EmailToken, _hash(token))
+    h = _hash(token)
+    row = db.get(EmailToken, h)
     now = _now()
     if row is None or row.purpose != "verify" or row.used_at is not None or _aware(row.expires_at) < now:
         raise InvalidTokenError()
-    user = db.get(User, row.user_id)
-    if user is None or user.email != row.email:  # 링크를 보낸 뒤 주소를 바꿨다
-        raise InvalidTokenError()
-    row.used_at = now
-    if user.email_verified_at is None:
-        if verified_email_taken(db, user.email_key or "", exclude_user_id=user.id):
-            db.rollback()
-            raise ConflictError("이 이메일은 이미 다른 계정에서 인증했어요. 다른 이메일로 바꿔 주세요.", code="email_taken")
-        user.email_verified_at = now
+    user_id, address = row.user_id, row.email
     try:
+        used = db.execute(update(EmailToken).where(EmailToken.token_hash == h, EmailToken.used_at.is_(None))
+                          .values(used_at=now))
+        if used.rowcount != 1:  # 같은 링크를 동시에 눌렀다
+            raise InvalidTokenError()
+        current = db.execute(select(User.email, User.email_key, User.email_verified_at)
+                             .where(User.id == user_id)).one_or_none()
+        if current is None or current.email != address:  # 링크를 보낸 뒤 주소를 바꿨다
+            raise InvalidTokenError()
+        if current.email_verified_at is None:
+            if verified_email_taken(db, current.email_key or "", exclude_user_id=user_id):
+                raise ConflictError("이 이메일은 이미 다른 계정에서 인증했어요. 다른 이메일로 바꿔 주세요.",
+                                    code="email_taken")
+            done = db.execute(update(User).where(User.id == user_id, User.email == address,
+                                                 User.email_verified_at.is_(None)).values(email_verified_at=now))
+            if done.rowcount != 1:  # 그 사이 주소가 바뀌었거나 이미 인증됐다: 다시 확인
+                again = db.execute(select(User.email, User.email_verified_at).where(User.id == user_id)).one_or_none()
+                if again is None or again.email != address or again.email_verified_at is None:
+                    raise InvalidTokenError()
         db.commit()
     except IntegrityError:  # 같은 주소를 두 계정이 동시에 인증 (ux_users_email_key_verified)
         db.rollback()
         raise ConflictError("이 이메일은 이미 다른 계정에서 인증했어요. 다른 이메일로 바꿔 주세요.",
                             code="email_taken") from None
-    return user
+    except BaseException:
+        db.rollback()
+        raise
+
+
+def set_email(db: Session, user: User, address: str, key: str) -> None:
+    """이메일을 바꾸고 인증 전으로 되돌린다 (조건 없는 UPDATE: 메모리의 user 가 오래됐어도 인증 표시를 반드시 지운다).
+    이 회원의 예전 링크도 모두 지운다. 커밋은 호출한 쪽에서."""
+    db.execute(update(User).where(User.id == user.id)
+               .values(email=address, email_key=key, email_verified_at=None))
+    forget_tokens(db, user.id)
+    user.email, user.email_key, user.email_verified_at = address, key, None

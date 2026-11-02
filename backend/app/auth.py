@@ -143,6 +143,12 @@ def client_ip(settings: Settings, request: Request) -> str | None:
         return None
 
 
+def usage_ip_key(settings: Settings, request: Request) -> str | None:
+    """IP 별 사용량 상한의 키 (IPv6 는 /56). 플랫폼이 넣는 클라이언트 IP 헤더(CLIENT_IP_HEADER)가 없으면 None
+    (프록시 주소로 모든 사람이 하나로 묶이지 않게)."""
+    return client_key(settings, request, v6_prefix=56) if settings.client_ip_header else None
+
+
 def client_key(settings: Settings, request: Request, v6_prefix: int = 64) -> str:
     """시도 제한용 클라이언트 식별자. IPv6 는 v6_prefix 단위로 묶는다 (주소를 바꿔 가며 우회하지 못하게).
     계정을 여러 개 만드는 일(회원가입·설계 사용량)은 더 넓게(/56) 묶는다."""

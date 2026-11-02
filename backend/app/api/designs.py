@@ -8,21 +8,15 @@ from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, get_service, make_router
-from app.auth import client_key, get_current_user, get_optional_user, get_verified_user
+from app.auth import get_current_user, get_optional_user, get_verified_user, usage_ip_key
 from app.models import User
 from app.schemas import DesignCreateIn, DesignListOut, DesignOut, DesignReviseIn
 from app.services.design_service import DesignService
 
 router = make_router(prefix="/designs", tags=["설계"])
 
-USAGE_V6_PREFIX = 56
-
-
 def _ip_key(request: Request) -> str | None:
-    """IP 별 설계 사용량 키. 플랫폼이 넣는 클라이언트 IP 헤더(CLIENT_IP_HEADER)가 없으면 세지 않는다
-    (프록시 주소로 모든 사람이 하나로 묶이는 것을 막기 위해)."""
-    settings = request.app.state.settings
-    return client_key(settings, request, v6_prefix=USAGE_V6_PREFIX) if settings.client_ip_header else None
+    return usage_ip_key(request.app.state.settings, request)
 
 
 @router.get("", response_model=DesignListOut, summary="내 설계 내역 (최근 수정순)")

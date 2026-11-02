@@ -218,7 +218,14 @@ class AuthStatusOut(BaseModel):
     verification_email_sent: bool | None = None  # 가입·이메일 변경 응답에서만: 인증 메일을 보냈는지
 
 
-Email = Annotated[EmailStr, Field(max_length=254)]
+def _plain_address(v: str) -> str:
+    """RFC 2047 인코딩(=?…?=)이 들어간 주소는 받지 않는다 (메일 헤더에서 줄바꿈 등으로 풀릴 수 있다)."""
+    if "=?" in v or "?=" in v:
+        raise ValueError("이메일 주소에 쓸 수 없는 문자가 있습니다")
+    return v
+
+
+Email = Annotated[EmailStr, Field(max_length=254), AfterValidator(_plain_address)]
 CaptchaToken = Annotated[str, Field(max_length=2048)]
 
 
