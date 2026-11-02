@@ -8,8 +8,9 @@ import { checkPost, COMMUNITY_PATH, errorText, NEW_POST_PATH, Placeholder, postH
 import DesignAttachField, { useAttachOptions } from "@/components/community/DesignAttachField";
 import PostFields from "@/components/community/PostFields";
 import { clearDraft, ReloginNotice, useDraftBackup } from "@/components/DraftRelogin";
+import { EmailUnverifiedNotice } from "@/components/EmailVerification";
 import LoginRequired from "@/components/LoginRequired";
-import { api, isAuthError } from "@/lib/api";
+import { api, isAuthError, isEmailUnverified } from "@/lib/api";
 import { ui } from "@/lib/ui";
 
 const ID_RE = /^[0-9a-f]{32}$/;
@@ -33,7 +34,7 @@ export default function NewPostForm() {
   const preId = rawId && ID_RE.test(rawId) ? rawId : null;
   const preVersion = preId ? parseVersion(params.get("version")) : undefined;
 
-  const { status, user, refresh } = useAuth();
+  const { status, user, refresh, emailUnverified } = useAuth();
   const attach = useAttachOptions(user?.id ?? null, preId, preVersion);
 
   const [title, setTitle] = useState("");
@@ -49,6 +50,8 @@ export default function NewPostForm() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<{ message: string; needsLogin: boolean } | null>(null);
   const [tried, setTried] = useState(false);
+  /** 서버가 이메일 인증 전이라고 거절했다 (쓴 내용은 그대로 두고 안내한다) */
+  const [emailBlocked, setEmailBlocked] = useState(false);
 
   const selectedId =
     choice?.preKey === preKey ? choice.id : attach.kind === "ok" ? (attach.preselect ?? "") : "";
@@ -82,6 +85,7 @@ export default function NewPostForm() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setEmailBlocked(false);
     setTried(true);
     const invalid = checkPost(title, body);
     if (invalid) {
@@ -107,7 +111,8 @@ export default function NewPostForm() {
       // 글쓰기 화면을 기록에서 빼서, 뒤로 가기로 같은 글을 다시 올리지 않게 한다
       router.replace(postHref(post.id));
     } catch (err) {
-      setError({ message: errorText(err, "글을 올리지 못했어요. 다시 시도해 주세요."), needsLogin: isAuthError(err) });
+      if (isEmailUnverified(err)) setEmailBlocked(true); // 아래 안내로 알려 준다 (쓴 내용은 그대로)
+      else setError({ message: errorText(err, "글을 올리지 못했어요. 다시 시도해 주세요."), needsLogin: isAuthError(err) });
       setSubmitting(false);
     }
   }
@@ -147,12 +152,17 @@ export default function NewPostForm() {
         </p>
       )}
       {needsLogin && <ReloginNotice next={here} message={error?.needsLogin ? error.message : undefined} />}
+      {!needsLogin && (emailUnverified || emailBlocked) && <EmailUnverifiedNotice action="글을 올릴" />}
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         <button type="button" className={ui.btnSecondary} onClick={cancel} disabled={submitting}>
           취소
         </button>
-        <button type="submit" className={ui.btnPrimary} disabled={submitting || attach.kind === "loading"}>
+        <button
+          type="submit"
+          className={ui.btnPrimary}
+          disabled={submitting || attach.kind === "loading" || emailUnverified}
+        >
           {submitting ? "등록 중…" : "등록"}
         </button>
       </div>

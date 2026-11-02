@@ -2,14 +2,46 @@
 
 export type Role = "member" | "admin";
 
-export type User = { id: string; username: string; nickname: string; role: Role; created_at: string };
+export type User = {
+  id: string;
+  username: string;
+  nickname: string;
+  role: Role;
+  created_at: string;
+  /** 이 기능 전에 가입한 회원은 없을 수 있다. 관리자는 null */
+  email: string | null;
+  /** 관리자는 늘 true */
+  email_verified: boolean;
+};
+
+/** 회원가입 보안 확인 (Cloudflare Turnstile) */
+export type CaptchaConfig = { provider: "turnstile"; site_key: string };
 
 export type AuthStatus = {
   auth_enabled: boolean;
   authenticated: boolean;
   user: User | null;
   signup_enabled: boolean;
+  /** 서버가 이메일 인증을 요구하는지 (인증 전 회원은 설계·글쓰기·댓글·제작 신청을 못 한다) */
+  email_verification: boolean;
+  /** 회원가입에 보안 확인이 필요하면 설정, 아니면 null */
+  captcha: CaptchaConfig | null;
 };
+
+/** 회원가입·이메일 변경 응답: 로그인 상태와 인증 메일 발송 결과 (이메일 인증을 쓰지 않으면 null) */
+export type AuthStatusWithMail = AuthStatus & { verification_email_sent: boolean | null };
+
+export type SignupInput = {
+  username: string;
+  nickname: string;
+  password: string;
+  email?: string;
+  captcha_token?: string;
+};
+
+export type VerifyEmailResult = { ok: true; message_ko: string };
+
+export type ResendVerificationResult = { sent: boolean; email: string; message_ko: string };
 
 export type Me = {
   user: User;

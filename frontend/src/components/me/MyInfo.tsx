@@ -8,6 +8,7 @@ import { api, ApiError, isAuthError } from "@/lib/api";
 import type { Me, Pet, SpeciesOption } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
+import EmailForm from "./EmailForm";
 import NicknameForm from "./NicknameForm";
 import PasswordForm from "./PasswordForm";
 import PetSection from "./PetSection";
@@ -64,10 +65,11 @@ export default function MyInfo() {
     };
   }, [userId]);
 
-  // /me#pets 로 들어온 경우: 내용을 불러온 뒤에 반려동물 영역으로 스크롤한다 (처음에는 그 영역이 아직 없다)
+  // /me#pets·/me#email 로 들어온 경우: 내용을 불러온 뒤에 그 영역으로 스크롤한다 (처음에는 그 영역이 아직 없다)
   const ready = (me !== null || meError !== null) && (pets !== null || petsError !== null);
   useEffect(() => {
-    if (ready && window.location.hash === "#pets") document.getElementById("pets")?.scrollIntoView();
+    const hash = window.location.hash;
+    if (ready && (hash === "#pets" || hash === "#email")) document.getElementById(hash.slice(1))?.scrollIntoView();
   }, [ready]);
 
   const onAuthError = (e: ApiError) => setAuthError(e);
@@ -111,6 +113,7 @@ export default function MyInfo() {
         </h2>
         <div className="mt-4 space-y-6 divide-y divide-stone-200 [&>*+*]:pt-6">
           <NicknameForm user={user} onAuthError={onAuthError} />
+          <EmailForm user={user} onAuthError={onAuthError} />
           <PasswordForm user={user} onAuthError={onAuthError} />
         </div>
       </section>

@@ -9,7 +9,7 @@ const BENEFITS = [
 ];
 
 /** 로그인하지 않은 방문자에게 보여 주는 가입 안내 */
-export default function SignupBanner({ signupEnabled }: { signupEnabled: boolean }) {
+export default function SignupBanner({ signupEnabled, emailRequired }: { signupEnabled: boolean; emailRequired: boolean }) {
   return (
     <section
       aria-labelledby="join-title"
@@ -22,7 +22,10 @@ export default function SignupBanner({ signupEnabled }: { signupEnabled: boolean
           </h2>
           <p className="mt-2 text-sm text-teal-50/90 sm:text-base">
             설계 만들기는 회원만 할 수 있어요.
-            {signupEnabled && " 가입은 무료이고, 아이디와 닉네임만 있으면 돼요."}
+            {signupEnabled &&
+              (emailRequired
+                ? " 가입은 무료이고, 아이디·닉네임·이메일만 있으면 돼요."
+                : " 가입은 무료이고, 아이디와 닉네임만 있으면 돼요.")}
           </p>
           <ul className="mt-5 space-y-2 text-sm text-teal-50">
             {BENEFITS.map((b) => (

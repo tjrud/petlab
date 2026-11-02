@@ -1,5 +1,6 @@
 import type {
   AuthStatus,
+  AuthStatusWithMail,
   Cage,
   Comment,
   Design,
@@ -11,7 +12,10 @@ import type {
   PetInput,
   Post,
   PostSummary,
+  ResendVerificationResult,
+  SignupInput,
   SpeciesResponse,
+  VerifyEmailResult,
 } from "./types";
 
 export const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, "");
@@ -35,9 +39,14 @@ export function isAuthError(e: unknown): boolean {
   return e instanceof ApiError && (e.code === "auth_required" || e.code === "auth_unavailable");
 }
 
+/** 이메일 인증을 마치지 않아 막힌 요청인지 (설계·글쓰기·댓글·제작 신청) */
+export function isEmailUnverified(e: unknown): boolean {
+  return e instanceof ApiError && e.code === "email_unverified";
+}
+
 /**
- * 요청이 로그인 문제(isAuthError)로 실패하면 window 에 보내는 이벤트.
- * AuthProvider 가 받아서 로그인 상태를 서버에 다시 묻는다 (세션 만료·다른 기기에서 비밀번호 변경 등).
+ * 요청이 로그인 문제(isAuthError)나 이메일 미인증으로 실패하면 window 에 보내는 이벤트.
+ * AuthProvider 가 받아서 로그인 상태를 서버에 다시 묻는다 (세션 만료·다른 기기에서 비밀번호 변경·인증 여부 변경 등).
  */
 export const AUTH_ERROR_EVENT = "nestforge:auth-error";
 
@@ -70,8 +79,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   if (!res.ok) {
     const err = await errorFrom(res);
-    // /auth/* (로그인 상태 확인·로그인·로그아웃) 실패는 알리지 않는다: 다시 확인하는 요청이 또 이벤트를 보내 끝없이 되풀이되지 않게
-    if (isAuthError(err) && !path.startsWith("/auth/") && typeof window !== "undefined") {
+    // 로그인 상태 확인(/auth/me) 자체의 실패는 알리지 않는다: 다시 확인하는 요청이 또 이벤트를 보내 끝없이 되풀이되지 않게
+    if ((isAuthError(err) || isEmailUnverified(err)) && path !== "/auth/me" && typeof window !== "undefined") {
       window.dispatchEvent(new Event(AUTH_ERROR_EVENT));
     }
     throw err;
@@ -89,13 +98,17 @@ export const api = {
   // 회원
   authStatus: () => request<AuthStatus>("/auth/me"),
   login: (username: string, password: string) => request<AuthStatus>("/auth/login", json("POST", { username, password })),
-  signup: (username: string, nickname: string, password: string) =>
-    request<AuthStatus>("/auth/signup", json("POST", { username, nickname, password })),
+  signup: (body: SignupInput) => request<AuthStatusWithMail>("/auth/signup", json("POST", body)),
+  /** 메일의 인증 링크 (로그인하지 않아도 된다: 다른 브라우저에서 열 수 있다) */
+  verifyEmail: (token: string) => request<VerifyEmailResult>("/auth/verify-email", json("POST", { token })),
+  resendVerification: () => request<ResendVerificationResult>("/auth/verify-email/resend", json("POST", {})),
   logout: () => request<AuthStatus>("/auth/logout", json("POST", {})),
   me: () => request<Me>("/me"),
   updateProfile: (nickname: string) => request<AuthStatus>("/me", json("PATCH", { nickname })),
   changePassword: (current_password: string, new_password: string) =>
     request<AuthStatus>("/me/password", json("POST", { current_password, new_password })),
+  changeEmail: (email: string, current_password: string) =>
+    request<AuthStatusWithMail>("/me/email", json("PATCH", { email, current_password })),
 
   // 반려동물
   pets: () => request<Pet[]>("/me/pets"),
