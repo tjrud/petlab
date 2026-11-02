@@ -72,8 +72,6 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
             log.error("이메일 인증 설정 오류로 회원가입을 막습니다: %s", "; ".join(settings.email_problems))
         elif settings.email_mode == "enabled":
             log.info("이메일 인증 사용 (%s)", settings.email_provider)
-            if settings.email_provider == "file" and (settings.ephemeral_filesystem or settings.normalized_api_prefix):
-                log.error("EMAIL_PROVIDER=file 은 메일을 보내지 않고 파일로만 저장합니다 (로컬 개발·테스트용).")
         if settings.captcha_mode == "misconfigured":
             log.error("CAPTCHA 설정 오류로 회원가입을 막습니다: TURNSTILE_SITE_KEY 와 TURNSTILE_SECRET_KEY 를 함께 설정하세요.")
         # 비밀번호 변경 시 현재 비밀번호 확인: 회원별 15분에 5번까지 틀릴 수 있다

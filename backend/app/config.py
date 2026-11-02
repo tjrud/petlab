@@ -5,6 +5,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -139,7 +140,20 @@ class Settings(BaseSettings):
             problems.append("RESEND_API_KEY 가 없습니다")
         if not self.email_base_url.startswith(("https://", "http://")):
             problems.append("APP_BASE_URL(메일 속 링크 주소)이 없거나 http(s):// 로 시작하지 않습니다")
+        if self.deployed:
+            # 배포 환경: 링크 주소를 직접 정해야 하고(로컬 기본값으로 메일이 나가지 않게), 파일 저장 방식은 쓸 수 없다
+            base = self.app_base_url.strip()
+            host = urlsplit(base).hostname or ""
+            if not base.startswith("https://") or host in ("localhost", "127.0.0.1", "::1"):
+                problems.append("배포 환경에서는 APP_BASE_URL 을 실제 사이트 주소(https://…)로 정해야 합니다")
+            if self.email_provider == "file":
+                problems.append("EMAIL_PROVIDER=file 은 로컬 개발·테스트용입니다 (배포 환경에서는 smtp 또는 resend)")
         return problems
+
+    @property
+    def deployed(self) -> bool:
+        """배포 환경인지 (컨테이너 이미지가 EPHEMERAL_FILESYSTEM=1, Vercel 은 API_PREFIX=/api 를 쓴다)."""
+        return self.ephemeral_filesystem or bool(self.normalized_api_prefix)
 
     @property
     def email_mode(self) -> Literal["disabled", "enabled", "misconfigured"]:

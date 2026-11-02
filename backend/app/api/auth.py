@@ -165,7 +165,7 @@ def signup(data: SignupIn, request: Request, db: Session = Depends(get_db)) -> R
     if email_on:
         try:
             sent = email_verify.send_verification(db, settings, request.app.state.mailer, user,
-                                                  ip_key=usage_ip_key(settings, request))
+                                                  ip_key=usage_ip_key(settings, request), first=True)
         except QuotaExceededError as e:  # 서비스 전체 발송 상한: 가입은 됐고, 나중에 다시 보낼 수 있다
             log.warning("가입 인증 메일을 보내지 않았습니다 (%s)", e.code)
             sent = False

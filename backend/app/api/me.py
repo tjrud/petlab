@@ -83,15 +83,16 @@ EMAIL_CHANGES_PER_DAY = 5  # 이메일 변경 시도 (이미 인증된 주소인
 
 
 def _change_email(db: Session, settings, mailer, user: User, current: str, new_email: str,
-                  ip_key: str | None) -> tuple[bool, bool | None]:
-    """현재 비밀번호를 확인하고 이메일을 바꾼다 (스레드 풀에서 실행). (비밀번호 맞음, 인증 메일 보냄) 을 돌려준다."""
+                  ip_key: str | None) -> dict | None:
+    """현재 비밀번호를 확인하고 이메일을 바꾼다 (스레드 풀에서 실행). 비밀번호가 틀리면 None, 맞으면 응답 본문.
+    응답도 여기서 만든다: 상한 오류 뒤 롤백으로 만료된 회원 정보를 이벤트 루프에서 다시 읽지(DB 조회) 않게."""
     try:
         if not verify_password(current, user.password_hash):
-            return False, None
+            return None
         key = email_key(new_email)
         if user.email_key == key and user.email == new_email and user.email_verified_at is not None:
             db.commit()
-            return True, None  # 그대로
+            return auth_status(settings, user)  # 그대로
         usage.reserve(db, "email_change", user, per_user=usage.Cap(
             EMAIL_CHANGES_PER_DAY, "이메일은 24시간에 5번까지 바꿀 수 있어요. 잠시 뒤 다시 시도해 주세요.", "too_many_attempts"))
         if email_verify.verified_email_taken(db, key, exclude_user_id=user.id):
@@ -101,12 +102,15 @@ def _change_email(db: Session, settings, mailer, user: User, current: str, new_e
     except BaseException:
         db.rollback()
         raise
-    if settings.email_mode != "enabled":
-        return True, None
-    try:
-        return True, email_verify.send_verification(db, settings, mailer, user, ip_key=ip_key)
-    except QuotaExceededError:
-        return True, False  # 주소는 바뀌었고, 나중에 다시 보낼 수 있다
+    sent = None
+    if settings.email_mode == "enabled":
+        try:
+            sent = email_verify.send_verification(db, settings, mailer, user, ip_key=ip_key)
+        except QuotaExceededError:
+            sent = False  # 주소는 바뀌었고, 나중에 다시 보낼 수 있다
+    db.refresh(user)
+    db.commit()
+    return auth_status(settings, user, verification_email_sent=sent)
 
 
 @router.patch("/email", summary="이메일 변경 (새 주소로 인증 메일을 보낸다)")
@@ -121,16 +125,16 @@ async def change_email(data: EmailChangeIn, request: Request, db: Session = Depe
         raise QuotaExceededError("비밀번호 확인 시도가 너무 많아요. 15분 뒤에 다시 시도해 주세요.",
                                  code="too_many_attempts")
     try:
-        ok, sent = await run_in_threadpool(_change_email, db, settings, request.app.state.mailer, user,
-                                           data.current_password, str(data.email), usage_ip_key(settings, request))
+        payload = await run_in_threadpool(_change_email, db, settings, request.app.state.mailer, user,
+                                          data.current_password, str(data.email), usage_ip_key(settings, request))
     except BaseException:
         limiter.release(key, failed=False)
         raise
-    limiter.release(key, failed=not ok)
-    if not ok:
+    limiter.release(key, failed=payload is None)
+    if payload is None:
         await asyncio.sleep(FAILED_LOGIN_DELAY_S)
         raise AppError("현재 비밀번호가 올바르지 않아요.", code="invalid_credentials")
-    return JSONResponse(auth_status(settings, user, verification_email_sent=sent))
+    return JSONResponse(payload)
 
 
 @router.post("/password", summary="비밀번호 변경 (다른 기기의 로그인은 풀림)")

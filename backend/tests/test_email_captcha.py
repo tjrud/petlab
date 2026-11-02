@@ -614,3 +614,60 @@ def test_smtp_mailer_turns_unbuildable_headers_into_mail_error():
     with pytest.raises(MailError):
         SmtpMailer(s).send(Mail(to="=?utf-8?q?a=0D=0ABcc=3A_v=40evil.com?=@example.com", subject="s", text="t",
                                 html="h"))
+
+
+def test_failed_sends_do_not_use_up_quota(tmp_path):
+    flaky = MemoryMailer(fail=True)
+    with TestClient(app_with(tmp_path, mailer=flaky, **EMAIL_ON)) as c:
+        signup(c, "kong_01", "kong@example.com")  # 메일 서비스 장애: 못 보냄
+        r = c.post("/auth/verify-email/resend")
+        assert r.status_code == 429 and r.json()["detail"]["code"] == "email_cooldown"  # 실패해도 1분 간격은 지킨다
+        for _ in range(6):  # 장애 동안 여러 번 눌러도
+            age_usage(c)
+            assert c.post("/auth/verify-email/resend").json()["sent"] is False
+        flaky.fail = False  # 복구되면 바로 받을 수 있다 (하루 상한에 걸리지 않는다)
+        age_usage(c)
+        r = c.post("/auth/verify-email/resend")
+        assert r.status_code == 200 and r.json()["sent"] is True
+        db = c.app.state.session_factory()
+        assert db.query(EmailToken).count() == 1  # 못 보낸 링크는 지웠다
+        db.close()
+
+
+def test_resends_keep_part_of_daily_budget_for_new_signups(tmp_path, mailer):
+    with TestClient(app_with(tmp_path, mailer=mailer, email_daily_limit=3, **EMAIL_ON)) as c:
+        signup(c, "user_a", "a@example.com")
+        age_usage(c)
+        assert c.post("/auth/verify-email/resend").json()["sent"] is True   # 2통 (다시 보내기 몫: 3*0.7=2)
+        age_usage(c)
+        r = c.post("/auth/verify-email/resend")
+        assert r.status_code == 429 and r.json()["detail"]["code"] == "too_many_emails"
+        assert signup(c, "user_b", "b@example.com")["verification_email_sent"] is True  # 가입 첫 메일은 남은 몫으로
+
+
+def test_email_change_during_cooldown_answers_without_error(client, mailer):
+    signup(client, "kong_01", "typo@exmaple.com")
+    r = client.patch("/me/email", json={"email": "kong@example.com", "current_password": PW})  # 가입 직후 (1분 안)
+    assert r.status_code == 200
+    assert r.json()["verification_email_sent"] is False and r.json()["user"]["email"] == "kong@example.com"
+
+
+@pytest.mark.parametrize("kw,mode", [
+    ({"api_prefix": "/api"}, "misconfigured"),                                         # APP_BASE_URL 없음 → localhost 로
+    ({"api_prefix": "/api", "app_base_url": "http://localhost:3000"}, "misconfigured"),
+    ({"api_prefix": "/api", "app_base_url": "https://petlab-sage.vercel.app"}, "misconfigured"),  # file 은 배포 불가
+    ({"api_prefix": "/api", "app_base_url": "https://petlab-sage.vercel.app", "email_provider": "smtp",
+      "smtp_host": "smtp.gmail.com"}, "enabled"),
+    ({"ephemeral_filesystem": True, "app_base_url": "https://x.example", "email_provider": "smtp",
+      "smtp_host": "smtp.gmail.com"}, "enabled"),
+])
+def test_deployed_email_settings(kw, mode):
+    base = {"email_provider": "file", "email_from": "NestForge <bot@example.com>"}
+    assert Settings(_env_file=None, **(base | kw)).email_mode == mode
+
+
+def test_file_mailer_write_failure_is_mail_error(tmp_path):
+    blocker = tmp_path / "not-a-dir"
+    blocker.write_text("x")
+    with pytest.raises(MailError):
+        FileMailer(blocker / "outbox").send(MAIL)

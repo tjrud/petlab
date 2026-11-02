@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import atexit
 import os
 from datetime import date, timedelta
 from uuid import uuid4
@@ -23,6 +24,20 @@ PW = "hamster-love-123"
 # TEST_PG_URL=postgresql+psycopg://user@host:port 를 주면 테스트마다 새 Postgres DB 로 실행한다 (방언 차이 확인용)
 PG_URL = os.environ.get("TEST_PG_URL")
 _pg_dbs: dict[str, str] = {}
+
+
+def _drop_pg_dbs() -> None:
+    """테스트가 만든 Postgres DB 를 끝날 때 지운다 (쌓이면 디스크를 다 쓴다)."""
+    if not _pg_dbs:
+        return
+    with create_engine(f"{PG_URL}/postgres", isolation_level="AUTOCOMMIT").connect() as conn:
+        for url in _pg_dbs.values():
+            conn.execute(text(f'DROP DATABASE IF EXISTS "{url.rsplit("/", 1)[1]}" WITH (FORCE)'))
+    _pg_dbs.clear()
+
+
+if PG_URL:
+    atexit.register(_drop_pg_dbs)
 
 
 def _db_url(tmp_path) -> str:

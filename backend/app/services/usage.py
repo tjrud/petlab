@@ -22,7 +22,8 @@ WINDOW = timedelta(hours=24)
 
 # Postgres advisory lock 키 (db.init_db 의 727274 와 겹치지 않게). 종류별로 따로 직렬화한다.
 _LOCK_NS = 727275
-_KIND_IDS = {"design": 1, "post": 2, "comment": 3, "habitat": 4, "waitlist": 5, "email": 6, "email_change": 7}
+_KIND_IDS = {"design": 1, "post": 2, "comment": 3, "habitat": 4, "waitlist": 5, "email": 6, "email_change": 7,
+             "email_fail": 8}
 _local_lock = threading.Lock()  # SQLite(로컬·테스트, 단일 프로세스)용
 
 
@@ -57,8 +58,8 @@ def _serialized(db: Session, kind: str) -> Iterator[None]:
 
 def reserve(db: Session, kind: str, user: User, *, per_user: Cap | None = None, per_ip: Cap | None = None,
             global_: Cap | None = None, ip_key: str | None = None,
-            cooldown: tuple[timedelta, Cap] | None = None) -> None:
-    """상한을 확인하고 사용 1회를 기록한 뒤 커밋한다. 상한에 닿았으면 QuotaExceededError (기록하지 않음).
+            cooldown: tuple[timedelta, Cap] | None = None) -> int:
+    """상한을 확인하고 사용 1회를 기록한 뒤 커밋한다 (기록 id 를 돌려준다). 상한에 닿았으면 QuotaExceededError (기록하지 않음).
 
     앞서 열린 읽기 트랜잭션은 먼저 끝낸다. 잠금은 확인·기록 사이에만 잡으므로 짧다."""
     db.commit()
@@ -74,8 +75,10 @@ def reserve(db: Session, kind: str, user: User, *, per_user: Cap | None = None, 
             for cap, where in checks:
                 if cap is not None and where is not None and count(db, kind, **where) >= cap.limit:
                     raise QuotaExceededError(cap.message_ko, code=cap.code)
-            db.add(UsageEvent(user_id=user.id, kind=kind, ip_key=ip_key))
+            event = UsageEvent(user_id=user.id, kind=kind, ip_key=ip_key)
+            db.add(event)
             db.commit()
+            return event.id
     except BaseException:
         db.rollback()
         raise

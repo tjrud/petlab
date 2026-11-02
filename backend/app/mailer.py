@@ -115,11 +115,14 @@ class FileMailer:
         self.outbox = Path(outbox)
 
     def send(self, mail: Mail) -> None:
-        self.outbox.mkdir(parents=True, exist_ok=True)
         name = f"{time.time_ns()}-{uuid.uuid4().hex[:8]}.json"
         tmp = self.outbox / f".{name}.tmp"
-        tmp.write_text(json.dumps(asdict(mail), ensure_ascii=False), encoding="utf-8")
-        os.replace(tmp, self.outbox / name)  # 읽는 쪽이 반쯤 쓴 파일을 보지 않게
+        try:
+            self.outbox.mkdir(parents=True, exist_ok=True)
+            tmp.write_text(json.dumps(asdict(mail), ensure_ascii=False), encoding="utf-8")
+            os.replace(tmp, self.outbox / name)  # 읽는 쪽이 반쯤 쓴 파일을 보지 않게
+        except OSError as e:
+            raise MailError(f"메일 파일을 쓰지 못함: {type(e).__name__}") from None
         log.info("메일을 파일로 저장했습니다 (EMAIL_PROVIDER=file): %s", self.outbox / name)
 
 

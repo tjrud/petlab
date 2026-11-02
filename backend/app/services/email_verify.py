@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.errors import AppError, ConflictError, ForbiddenError, QuotaExceededError
 from app.mailer import Mail, Mailer, MailError
-from app.models import EmailToken, User
+from app.models import EmailToken, UsageEvent, User
 from app.services import usage
 
 log = logging.getLogger(__name__)
@@ -33,6 +33,7 @@ PER_USER_DAILY = 5
 PER_IP_DAILY = 20          # 같은 IP(IPv6 /56)에서 24시간 (계정 여러 개로 서비스 전체 상한을 다 쓰지 못하게)
 UNVERIFIED_LIFETIME = 10   # 한 계정이 받을 수 있는 인증 메일 수 (평생: 인증하지 않는 계정이 매일 한도를 다시 쓰지 못하게)
 LIFETIME = timedelta(days=36500)
+RESEND_BUDGET = 0.7  # 다시 보내기·이메일 변경은 서비스 전체 상한의 70% 까지만 (가입 첫 메일 몫을 남겨 둔다)
 
 
 class InvalidTokenError(AppError):
@@ -105,26 +106,34 @@ def _mail(user: User, link: str, ttl_hours: float) -> Mail:
     return Mail(to=user.email or "", subject="[NestForge] 이메일 주소를 인증해 주세요", text=text, html=body)
 
 
-def send_verification(db: Session, settings: Settings, mailer: Mailer, user: User, ip_key: str | None = None) -> bool:
-    """보내기 횟수를 확인·기록하고 새 링크를 만들어 보낸다.
-    상한에 닿았으면 QuotaExceededError (기록·발송 안 함). 메일 서비스 오류면 False (다시 보내기를 안내)."""
+COOLDOWN_MESSAGE = "인증 메일을 방금 보냈어요. 1분 뒤에 다시 보낼 수 있어요."
+
+
+def send_verification(db: Session, settings: Settings, mailer: Mailer, user: User, ip_key: str | None = None,
+                      first: bool = False) -> bool:
+    """보내기 횟수를 확인·기록하고 새 링크를 만들어 보낸다. first 는 가입할 때의 첫 메일.
+    상한에 닿았으면 QuotaExceededError (기록·발송 안 함). 메일 서비스 오류면 False (다시 보내기를 안내).
+    보내지 못한 메일은 횟수에서 빼고, 1분 간격만 남긴다 (메일 서비스가 잠시 멈췄다고 하루 동안 막히지 않게)."""
     if not user.email:
         raise AppError("내 정보에서 이메일을 먼저 등록해 주세요.", code="email_required")
     if usage.count(db, "email", user_id=user.id, window=LIFETIME) >= UNVERIFIED_LIFETIME:
         raise QuotaExceededError("인증 메일을 너무 많이 보냈어요. 받은 편지함과 스팸함을 확인하거나 운영팀에 문의해 주세요.",
                                  code="too_many_emails")
-    usage.reserve(
+    if usage.count(db, "email_fail", user_id=user.id, window=RESEND_COOLDOWN) > 0:
+        raise QuotaExceededError(COOLDOWN_MESSAGE, code="email_cooldown")
+    global_cap = settings.email_daily_limit if first else int(settings.email_daily_limit * RESEND_BUDGET)
+    event_id = usage.reserve(
         db, "email", user, ip_key=ip_key,
-        cooldown=(RESEND_COOLDOWN, usage.Cap(1, "인증 메일을 방금 보냈어요. 1분 뒤에 다시 보낼 수 있어요.", "email_cooldown")),
+        cooldown=(RESEND_COOLDOWN, usage.Cap(1, COOLDOWN_MESSAGE, "email_cooldown")),
         per_user=usage.Cap(PER_USER_DAILY, "인증 메일은 24시간에 5번까지 보낼 수 있어요. 받은 편지함과 스팸함을 확인해 주세요.",
                            "too_many_emails"),
         per_ip=usage.Cap(PER_IP_DAILY, "이 네트워크에서 인증 메일 요청이 너무 많았어요. 잠시 뒤 다시 시도해 주세요.",
                          "too_many_emails"),
-        global_=usage.Cap(settings.email_daily_limit, "오늘은 인증 메일을 더 보낼 수 없어요. 내일 다시 시도해 주세요.",
-                          "too_many_emails"),
+        global_=usage.Cap(global_cap, "오늘은 인증 메일을 더 보낼 수 없어요. 내일 다시 시도해 주세요.", "too_many_emails"),
     )
     token = secrets.token_urlsafe(TOKEN_BYTES)
-    db.add(EmailToken(token_hash=_hash(token), user_id=user.id, purpose="verify", email=user.email,
+    token_hash = _hash(token)
+    db.add(EmailToken(token_hash=token_hash, user_id=user.id, purpose="verify", email=user.email,
                       expires_at=_now() + timedelta(hours=settings.email_token_ttl_hours)))
     db.commit()  # 발송(네트워크) 동안 DB 연결을 쥐고 있지 않게 먼저 커밋한다
     link = f"{settings.email_base_url}/verify-email?token={token}"
@@ -132,6 +141,14 @@ def send_verification(db: Session, settings: Settings, mailer: Mailer, user: Use
         mailer.send(_mail(user, link, settings.email_token_ttl_hours))
     except MailError as e:
         log.error("인증 메일을 보내지 못했습니다 (user=%s): %s", user.id, e)
+        try:  # 보내지 못한 메일은 횟수에서 빼고 링크도 지운다. 1분 간격만 남긴다
+            db.execute(delete(UsageEvent).where(UsageEvent.id == event_id))
+            db.execute(delete(EmailToken).where(EmailToken.token_hash == token_hash))
+            db.add(UsageEvent(user_id=user.id, kind="email_fail", ip_key=ip_key))
+            db.commit()
+        except Exception:
+            db.rollback()
+            log.exception("보내지 못한 인증 메일 기록을 정리하지 못했습니다 (user=%s)", user.id)
         return False
     return True
 
