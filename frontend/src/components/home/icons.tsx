@@ -100,3 +100,13 @@ export function IconChevronRight(p: IconProps) {
     </Svg>
   );
 }
+
+export function IconCage(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M3 9l9-5 9 5v10l-9 3-9-3z" />
+      <path d="M3 9l9 3 9-3M12 12v10" />
+      <path d="M7 15.5h2.5v2.5" />
+    </Svg>
+  );
+}

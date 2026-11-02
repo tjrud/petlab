@@ -52,6 +52,22 @@ export type Me = {
 
 export type Cage = { width_mm: number; depth_mm: number; height_mm: number };
 
+/** 가상 케이지 배치 검토에 쓰는 종·크기별 규칙 값 (backend/rules/species.yaml) */
+export type LayoutRules = {
+  gap_safe_max_mm: number;
+  gap_passable_min_mm: number;
+  entrance_min_diameter_mm: number;
+  tunnel_min_inner_diameter_mm: number;
+  max_climb_height_mm: number;
+  max_step_height_mm: number;
+  /** 은신처 출입구 최소 개수 (막다른 곳 방지) */
+  hideout_min_entrances: number;
+  /** 모래목욕통 최소 안쪽 크기 [가로, 세로] mm */
+  sand_bath_min_inner_mm: [number, number];
+  /** 권장 최소 사육장 바닥 [긴 변, 짧은 변] mm */
+  enclosure_min_floor_mm: [number, number];
+};
+
 export type SizeOption = {
   key: string;
   display_name: string;
@@ -59,6 +75,7 @@ export type SizeOption = {
   count_warning_ko: string;
   /** 권장 최소 사육장 바닥 [긴 변, 짧은 변] mm */
   enclosure_min_floor_mm: [number, number];
+  layout_rules: LayoutRules;
 };
 
 export type SpeciesOption = { key: string; display_name: string; sizes: SizeOption[] };
@@ -229,4 +246,33 @@ export type Post = {
   comment_total: number;
   can_edit: boolean;
   can_delete: boolean;
+};
+
+// ── 가상 케이지 배치안 ──
+
+/** 배치한 에셋 하나. 좌표는 케이지 좌표계(mm, 원점=앞-왼쪽 바닥 모서리)의 에셋 바닥 중심, 회전은 위에서 볼 때 반시계 방향 */
+export type LayoutItem = { id: string; asset: string; x_mm: number; y_mm: number; rotation_deg: number };
+
+export type CageLayoutSummary = {
+  id: string;
+  name: string;
+  species: string;
+  size: string;
+  size_name_ko: string;
+  pet_id: string | null;
+  cage: Cage;
+  item_count: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CageLayout = CageLayoutSummary & { items: LayoutItem[] };
+
+export type CageLayoutInput = {
+  name: string;
+  species: string;
+  size: string;
+  cage: Cage;
+  pet_id: string | null;
+  items: LayoutItem[];
 };

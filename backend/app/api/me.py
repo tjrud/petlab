@@ -22,7 +22,7 @@ from app.api.auth import (
 from app.api.deps import get_db, get_service, make_router
 from app.auth import get_current_user, usage_ip_key
 from app.errors import AppError, ConflictError, ForbiddenError, QuotaExceededError
-from app.models import Design, Habitat, Pet, Post, User
+from app.models import CageLayout, Design, Habitat, Pet, Post, User
 from app.names import email_key, nickname_key
 from app.passwords import hash_password, verify_password
 from app.schemas import CageIn, EmailChangeIn, MeOut, PasswordChangeIn, PetIn, PetOut, ProfileUpdateIn
@@ -235,9 +235,11 @@ def update_pet(pet_id: str, data: PetIn, db: Session = Depends(get_db), svc: Des
 @router.delete("/pets/{pet_id}", status_code=status.HTTP_204_NO_CONTENT, summary="반려동물 정보 삭제")
 def delete_pet(pet_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     pet = _my_pet(db, pet_id, user)
-    # 이 반려동물로 만든 사육 환경·설계는 그대로 두고 연결만 끊는다
+    # 이 반려동물로 만든 사육 환경·설계·배치안은 그대로 두고 연결만 끊는다
     for h in db.scalars(select(Habitat).where(Habitat.pet_id == pet.id)):
         h.pet_id = None
+    for lay in db.scalars(select(CageLayout).where(CageLayout.pet_id == pet.id)):
+        lay.pet_id = None
     db.delete(pet)
     db.commit()
     return Response(status_code=204)
