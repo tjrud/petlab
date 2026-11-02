@@ -1,14 +1,22 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # 종별 치수 기준 (species rules)
 #
-# ⚠️ 이 파일의 모든 수치는 "임시 기본값"입니다.
-#    수의사·사육 전문가의 검수를 거친 뒤 이 파일만 교체하면 서버 재시작 시 반영됩니다.
-#    코드에는 종별 수치를 하드코딩하지 않습니다.
+# ⚠️ 아직 수의사·사육 전문가 검수 전입니다 (reviewed: false).
+#    값마다 근거를 주석으로 단다:
+#      [근거] 공개 문서에 수치가 있는 값 (출처 약어는 아래 목록)
+#      [임시] 근거 수치를 찾지 못한 값. 전문가 검수 때 우선 확인할 것
+#    이 파일만 교체하면 서버 재시작 시 반영됩니다. 코드에는 종별 수치를 하드코딩하지 않습니다.
+#
+# 출처
+#   TVT-G  Tierärztliche Vereinigung für Tierschutz (독일 수의사 동물보호협회), Merkblatt "Goldhamster"
+#   TVT-Z  같은 협회, Merkblatt "Zwerghamster" (Phodopus: 정글리안·캠벨·로보로브스키)
+#   DTSchB Deutscher Tierschutzbund (독일 동물보호연맹), Positionspapier "Tierschutzwidriges Zubehör"
+#          (Stand 06/2024), 장 "Kleine Heimtiere"
 #
 # 단위: 길이 mm, 각도 deg
 # 형식이 잘못되면(키 누락·오타·범위 오류) 서버가 기동하지 않고 오류를 알려줍니다.
 # ─────────────────────────────────────────────────────────────────────────────
-version: "0.1-draft"
+version: "0.2-draft"
 reviewed: false   # 전문가 검수 완료 시 true 로 변경
 
 species:
@@ -18,39 +26,51 @@ species:
       dwarf:
         display_name: 드워프 (정글리안·캠벨·로보로브스키)
         # 은신처 출입구(아치형) 최소 폭
+        # [근거] TVT-Z: 집·은신처·터널의 출입구는 최소 5cm 폭
         entrance_min_diameter_mm: 50
         # 터널 최소 내경
+        # [근거] TVT-Z: 출입구·통로(Röhren) 최소 5cm 폭
         tunnel_min_inner_diameter_mm: 50
         # 끼임 틈새 한계: safe_max < 틈 < passable_min 이면 끼임 위험으로 판정
         gap_trap:
-          safe_max_mm: 4        # 이 이하: 발가락·발이 들어가지 않는 틈 (환기구 최대 지름도 이 값)
-          passable_min_mm: 50   # 이 이상: 몸이 자유롭게 통과하는 폭
+          safe_max_mm: 4        # [임시] 발가락·발이 들어가지 않는 틈 (환기구 최대 지름도 이 값)
+          passable_min_mm: 50   # [근거] 출입구 최소 폭(TVT-Z 5cm)과 같게 둔다
         # 갉음 내구성을 고려한 최소 벽 두께 (출력 기준 min_wall 과 비교해 큰 값 적용)
-        min_wall_thickness_mm: 2.4
-        # 램프 최대 경사각
-        max_ramp_angle_deg: 30
-        # 오를 수 있는 구조물(램프·계단) 최대 높이 – 낙상 위험
-        max_climb_height_mm: 120
-        # 한 번에 넘을 수 있는 최대 턱 높이 (계단 1단, 모래목욕통 턱)
-        max_step_height_mm: 35
-        # 모래목욕통 최소 내부 크기 [가로, 세로], 최소 깊이
-        sand_bath_min_inner_mm: [140, 100]
-        sand_bath_min_depth_mm: 40
+        min_wall_thickness_mm: 2.4      # [임시]
+        max_ramp_angle_deg: 30          # [임시] 램프 최대 경사각
+        max_climb_height_mm: 120        # [임시] 오르는 구조물(램프·계단) 최대 높이 – 낙상 위험
+        max_step_height_mm: 35          # [임시] 한 번에 넘는 최대 턱 높이 (계단 1단, 모래목욕통 턱)
+        # 모래목욕통 최소 내부 크기 [가로, 세로]
+        # [근거] TVT-Z: 모래목욕통 한 변 최소 20cm
+        sand_bath_min_inner_mm: [200, 200]
+        sand_bath_min_depth_mm: 40      # [임시] 모래목욕통 최소 깊이
+        # 은신처 출입구 최소 개수
+        # [근거] DTSchB: 출입구가 하나뿐인 집은 피하고 최소 2개가 낫다 (막다른 곳 방지)
+        hideout_min_entrances: 2
+        # 권장 최소 사육장 바닥 [긴 변, 짧은 변]. 작으면 경고
+        # [근거] TVT-Z: 사육장 최소 100×50×50cm (가로×세로×높이)
+        #   높이는 비교하지 않는다: 입력받는 높이는 바닥재 위 공간이고, TVT 는 바닥재 25cm 이상도 함께 권장한다
+        enclosure_min_floor_mm: [1000, 500]
         # 권장 최대 마릿수 (초과 시 경고)
+        # [근거] TVT-Z: 야생에서 단독 생활, 사육 시에도 단독 사육을 강하게 권장 (쌍 사육은 예외적)
         max_recommended_count: 1
-        count_warning_ko: 드워프 햄스터도 합사 시 다툼·부상 위험이 있어 단독 사육을 권장합니다.
+        count_warning_ko: 드워프 햄스터도 야생에서 혼자 사는 동물이라 단독 사육을 강하게 권장합니다. 함께 키우면 다툼·부상 위험이 있습니다.
       syrian:
         display_name: 골든 (시리안)
+        # [근거] TVT-G: 집·은신처·통로의 출입구는 최소 7cm 폭 (볼주머니가 찬 상태로도 지나가도록)
         entrance_min_diameter_mm: 70
-        tunnel_min_inner_diameter_mm: 70
+        tunnel_min_inner_diameter_mm: 70    # [근거] TVT-G 같은 항목
         gap_trap:
-          safe_max_mm: 5
-          passable_min_mm: 70
-        min_wall_thickness_mm: 3.0
-        max_ramp_angle_deg: 30
-        max_climb_height_mm: 150
-        max_step_height_mm: 45
-        sand_bath_min_inner_mm: [200, 140]
-        sand_bath_min_depth_mm: 50
+          safe_max_mm: 5                    # [임시]
+          passable_min_mm: 70               # [근거] 출입구 최소 폭(TVT-G 7cm)과 같게 둔다
+        min_wall_thickness_mm: 3.0          # [임시]
+        max_ramp_angle_deg: 30              # [임시]
+        max_climb_height_mm: 150            # [임시]
+        max_step_height_mm: 45              # [임시]
+        sand_bath_min_inner_mm: [200, 200]  # [근거] TVT-G: 모래목욕통 최소 20×20cm
+        sand_bath_min_depth_mm: 50          # [임시]
+        hideout_min_entrances: 2            # [근거] DTSchB (드워프와 같음)
+        enclosure_min_floor_mm: [1000, 500] # [근거] TVT-G: 사육장 최소 100×50×50cm, 이보다 작으면 안 됨
+        # [근거] TVT-G: 야생에서 번식기 외에는 동족을 용납하지 않는 단독 생활 동물
         max_recommended_count: 1
         count_warning_ko: 골든(시리안) 햄스터는 영역성이 강해 반드시 단독 사육해야 합니다.

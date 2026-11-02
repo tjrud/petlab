@@ -75,6 +75,8 @@ class Features:
     climb_height_mm: float | None = None
     slope_deg: float | None = None
     step_height_mm: float | None = None
+    # 은신처처럼 드나드는 구조물의 출입구 개수 (해당 시). 종별 최소 개수와 비교한다
+    entrance_count: int | None = None
     extra: dict = field(default_factory=dict)
 
 
@@ -95,6 +97,13 @@ class Template(ABC):
     height_field: ClassVar[str | None] = None
     # 공간이 부족할 때 줄일 수 있는 크기 파라미터
     size_fields: ClassVar[tuple[str, ...]] = ()
+    # 나중에 추가된 Params 필드 중, 새 기본값이 예전 형상과 다른 필드의 "예전 값".
+    # 저장된 설계를 다시 만들 때(메시 캐시가 비었을 때) 저장 당시와 같은 형상이 나오게 한다.
+    legacy_defaults: ClassVar[dict[str, object]] = {}
+
+    def load_stored_params(self, raw: dict) -> TemplateParams:
+        """DB 에 저장된 최종 파라미터를 읽는다. 저장 당시 없던 필드는 legacy_defaults 로 채운다."""
+        return self.Params.model_validate({**self.legacy_defaults, **raw})
 
     def default_params(self, ctx: RuleContext | None = None) -> TemplateParams:
         return self.Params()

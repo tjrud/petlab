@@ -26,8 +26,8 @@ _CUT = 1.0
 
 
 class SandBathParams(TemplateParams):
-    width_mm: float = Field(210, ge=100, le=350, description="외형 가로(X) mm")
-    depth_mm: float = Field(150, ge=80, le=300, description="외형 세로(Y) mm")
+    width_mm: float = Field(216, ge=100, le=350, description="외형 가로(X) mm")
+    depth_mm: float = Field(216, ge=80, le=300, description="외형 세로(Y) mm")
     basin_depth_mm: float = Field(55, ge=20, le=120, description="안쪽 깊이 mm (바닥판 위 벽 높이)")
     lip_height_mm: float = Field(
         30, ge=8, le=100, description="출입 홈의 턱 높이 mm (바깥 바닥 기준). 종별 최대 턱 높이 이하"

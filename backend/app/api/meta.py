@@ -46,6 +46,7 @@ def species(request: Request) -> dict:
                         "display_name": s.display_name,
                         "max_recommended_count": s.max_recommended_count,
                         "count_warning_ko": s.count_warning_ko,
+                        "enclosure_min_floor_mm": list(s.enclosure_min_floor_mm),
                     }
                     for skey, s in sp.sizes.items()
                 ],
