@@ -57,6 +57,8 @@ export type SizeOption = {
   display_name: string;
   max_recommended_count: number;
   count_warning_ko: string;
+  /** 권장 최소 사육장 바닥 [긴 변, 짧은 변] mm */
+  enclosure_min_floor_mm: [number, number];
 };
 
 export type SpeciesOption = { key: string; display_name: string; sizes: SizeOption[] };

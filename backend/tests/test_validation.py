@@ -125,13 +125,15 @@ def test_entrance_facing_wall_is_blocked(rules, syrian):
 
 
 def test_entrance_facing_open_space_ok(rules, syrian):
-    # 회전 180° → 출입구가 뒤(+Y)를 향함. 앞 벽에 붙여도 출입구 앞은 비어 있음.
-    it = _hideout(rules, rot=180, x=300, y=55, width_mm=140, depth_mm=110, entrance_diameter_mm=75)
+    # 출입구 1개, 회전 180° → 출입구가 뒤(+Y)를 향함. 앞 벽에 붙여도 출입구 앞은 비어 있음.
+    it = _hideout(rules, rot=180, x=300, y=55, width_mm=140, depth_mm=110, entrance_diameter_mm=75,
+                  entrance_count=1)
     assert checks.check_access([it], CAGE, syrian) == []
 
 
 def test_entrance_blocked_by_other_item(rules, syrian):
-    it = _hideout(rules, rot=180, x=300, y=55, width_mm=140, depth_mm=110, entrance_diameter_mm=75)
+    it = _hideout(rules, rot=180, x=300, y=55, width_mm=140, depth_mm=110, entrance_diameter_mm=75,
+                  entrance_count=1)
     blocker = box_item(1, 140, 40, 50, x=300, y=130)
     issues = checks.check_access([it, blocker], CAGE, syrian)
     assert codes(issues) == ["access_blocked"]
@@ -155,6 +157,28 @@ def test_count_warning(syrian):
     assert checks.check_count(1, syrian) == []
     issues = checks.check_count(2, syrian)
     assert issues[0].severity == "warning" and syrian.count_warning_ko in issues[0].message_ko
+
+
+def test_single_entrance_hideout_flagged(rules, syrian):
+    """DTSchB 근거: 출입구가 하나뿐인 은신처는 막다른 곳이 되므로 오류."""
+    one = _hideout(rules, entrance_diameter_mm=75, entrance_count=1)
+    two = _hideout(rules, entrance_diameter_mm=75, entrance_count=2)
+    assert codes(checks.check_openings([one], syrian)) == ["too_few_entrances"]
+    assert checks.check_openings([two], syrian) == []
+
+
+def test_two_entrance_hideout_prints_without_support(rules):
+    it = _hideout(rules, x=300, y=200, entrance_diameter_mm=75, entrance_count=2)
+    assert checks.check_overhang([it], rules.printing) == []
+
+
+@pytest.mark.parametrize("w,d,warn", [(1000, 500, False), (500, 1000, False), (1200, 600, False),
+                                      (999, 500, True), (1000, 499, True), (600, 400, True)])
+def test_cage_below_recommended_warning(syrian, w, d, warn):
+    """TVT 근거: 사육장 바닥 최소 100×50cm. 방향과 무관하게 긴 변·짧은 변끼리 비교하고 경고만 한다."""
+    issues = checks.check_enclosure(Cage(w, d, 300), syrian)
+    assert codes(issues) == (["cage_below_recommended"] if warn else [])
+    assert all(i.severity == "warning" for i in issues)
 
 
 # ── 벽 두께 ────────────────────────────────────────────────

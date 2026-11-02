@@ -45,8 +45,19 @@ class SizeRules(_Strict):
     max_step_height_mm: PositiveMM
     sand_bath_min_inner_mm: tuple[PositiveMM, PositiveMM]
     sand_bath_min_depth_mm: PositiveMM
+    # 은신처 출입구 최소 개수 (막다른 곳 방지)
+    hideout_min_entrances: Annotated[int, Field(ge=1)]
+    # 권장 최소 사육장 바닥 [긴 변, 짧은 변]. 작으면 경고만 한다 (설계는 막지 않음)
+    enclosure_min_floor_mm: tuple[PositiveMM, PositiveMM]
     max_recommended_count: Annotated[int, Field(ge=1)]
     count_warning_ko: str
+
+    @model_validator(mode="after")
+    def _check_floor_order(self) -> "SizeRules":
+        long_side, short_side = self.enclosure_min_floor_mm
+        if long_side < short_side:
+            raise ValueError("enclosure_min_floor_mm 는 [긴 변, 짧은 변] 순서여야 합니다")
+        return self
 
 
 class SpeciesEntry(_Strict):

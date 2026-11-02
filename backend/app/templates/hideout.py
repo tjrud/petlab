@@ -1,6 +1,7 @@
 """은신처(하우스) 템플릿.
 
 형상: 바닥이 열린 상자. 앞면(-Y)에 바닥에서 시작하는 아치형 출입구, 지붕에 수직 환기구.
+  출입구가 2개면 뒷면(+Y)에 같은 아치를 마주 보게 낸다 (막다른 곳이 없도록).
 출력: 지붕을 베드에 대고 뒤집어 출력한다.
   - 지붕 아랫면은 뒤집으면 바닥이 되므로 넓은 천장 브리지가 없다.
   - 아치 꼭대기는 뒤집으면 아래쪽 반원이 되므로 오버행이 없다.
@@ -34,6 +35,9 @@ class HideoutParams(TemplateParams):
     height_mm: float = Field(90, ge=50, le=250, description="외형 높이(Z) mm")
     entrance_diameter_mm: float = Field(
         60, ge=25, le=150, description="아치형 출입구 폭(=높이) mm. 종별 최소값 이상"
+    )
+    entrance_count: int = Field(
+        2, ge=1, le=2, description="출입구 개수. 1=앞면만, 2=앞·뒷면 마주 보기. 종별 최소 개수 이상"
     )
     vent_count: int = Field(6, ge=0, le=30, description="지붕 환기구 개수")
     vent_diameter_mm: float = Field(
@@ -89,12 +93,14 @@ class HideoutTemplate(Template):
     key = "hideout"
     display_name_ko = "은신처"
     description_ko = (
-        "바닥이 열린 상자형 은신처. 앞면에 아치형 출입구, 지붕에 작은 환기구. "
-        "가로·세로·높이, 출입구 폭, 환기구 개수·지름, 벽 두께를 정한다."
+        "바닥이 열린 상자형 은신처. 앞면(과 뒷면)에 아치형 출입구, 지붕에 작은 환기구. "
+        "가로·세로·높이, 출입구 폭·개수, 환기구 개수·지름, 벽 두께를 정한다."
     )
     Params = HideoutParams
     height_field = "height_mm"
     size_fields = ("width_mm", "depth_mm", "height_mm")
+    # entrance_count 가 생기기 전에 저장된 은신처는 출입구가 앞면 하나였다
+    legacy_defaults = {"entrance_count": 1}
 
     def default_params(self, ctx: RuleContext | None = None) -> HideoutParams:
         if ctx is None:
@@ -107,6 +113,7 @@ class HideoutTemplate(Template):
             depth_mm=max(110.0, d + 2 * t + 50),
             height_mm=max(90.0, d + 2 * t + 15),
             entrance_diameter_mm=d,
+            entrance_count=min(2, s.hideout_min_entrances),
             vent_count=6,
             vent_diameter_mm=min(4.0, s.gap_trap.safe_max_mm),
             wall_thickness_mm=t,
@@ -129,6 +136,12 @@ class HideoutTemplate(Template):
                 min=s.entrance_min_diameter_mm,
                 source="species",
                 reason_ko=f"{s.display_name} 출입구는 최소 {s.entrance_min_diameter_mm:g}mm 이상이어야 합니다",
+            ),
+            ParamConstraint(
+                "entrance_count",
+                min=s.hideout_min_entrances,
+                source="species",
+                reason_ko=f"막다른 곳이 없도록 은신처 출입구는 {s.hideout_min_entrances}개 이상이어야 합니다",
             ),
             ParamConstraint(
                 "vent_diameter_mm",
@@ -167,11 +180,12 @@ class HideoutTemplate(Template):
         part = outer - cavity
 
         # 아치형 출입구: 바닥~반지름 높이의 직사각형 + 반지름 높이에 중심을 둔 원기둥 (전체 높이 = 지름)
-        wall_y = -D / 2 + t / 2
         through = 2 * t + 2 * _CUT
-        door_rect = Pos(0, wall_y, -_CUT) * Box(2 * r, through, r + _CUT, align=_BOTTOM)
-        door_arch = Pos(0, wall_y, r) * Rot(90, 0, 0) * Cylinder(r, through)
-        part = part - door_rect - door_arch
+        walls_y = (-D / 2 + t / 2, D / 2 - t / 2)[: p.entrance_count]  # 앞면, (뒷면)
+        for wall_y in walls_y:
+            door_rect = Pos(0, wall_y, -_CUT) * Box(2 * r, through, r + _CUT, align=_BOTTOM)
+            door_arch = Pos(0, wall_y, r) * Rot(90, 0, 0) * Cylinder(r, through)
+            part = part - door_rect - door_arch
 
         # 지붕 환기구
         for x, y in vent_positions(p):
@@ -183,13 +197,21 @@ class HideoutTemplate(Template):
         return np.diag([1.0, -1.0, -1.0])
 
     def features(self, p: HideoutParams) -> Features:
+        two = p.entrance_count >= 2
         openings = [
-            Opening("passage", p.entrance_diameter_mm, "출입구", rule_key="entrance_min_diameter_mm"),
+            Opening("passage", p.entrance_diameter_mm, "앞 출입구" if two else "출입구",
+                    rule_key="entrance_min_diameter_mm"),
         ]
+        if two:
+            openings.append(
+                Opening("passage", p.entrance_diameter_mm, "뒤 출입구", rule_key="entrance_min_diameter_mm")
+            )
         if p.vent_count > 0:
             openings.append(Opening("vent", p.vent_diameter_mm, "환기구"))
         return Features(
             min_wall_thickness_mm=p.wall_thickness_mm,
             openings=tuple(openings),
-            access_sides=("front",),
+            # 출입구마다 앞이 비어 있어야 한다 (벽에 붙은 뒷문은 막다른 곳이 된다)
+            access_sides=("front", "back") if two else ("front",),
+            entrance_count=p.entrance_count,
         )

@@ -49,7 +49,8 @@ def test_height_clamped_to_cage(rules):
 
 
 def test_resized_to_fit_small_cage(rules):
-    cage = Cage(260, 230, 300)
+    # 출입구 2개(앞·뒤) 은신처는 양쪽에 70mm 통로가 필요하다: 300-140=160 ≥ 줄인 세로 150 (60%)
+    cage = Cage(300, 260, 300)
     spec = ItemSpec("hideout", dict(width_mm=300, depth_mm=250, height_mm=150, entrance_diameter_mm=75))
     res = run_engine([spec], ctx(rules, cage))
     assert by_code(res.report, "resized_to_fit")

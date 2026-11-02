@@ -71,6 +71,27 @@ def test_inverted_gap_trap_rejected(rules_copy):
         load_rules(rules_copy)
 
 
+def test_sourced_values(rules):
+    """근거 문서(TVT·DTSchB) 수치가 그대로 들어 있는지. 바꾸려면 species.yaml 의 출처 주석도 함께 고칠 것."""
+    for size in ("dwarf", "syrian"):
+        s = rules.size_rules("hamster", size)
+        assert s.sand_bath_min_inner_mm == (200, 200)
+        assert s.enclosure_min_floor_mm == (1000, 500)
+        assert s.hideout_min_entrances == 2
+        assert s.max_recommended_count == 1
+    assert rules.size_rules("hamster", "dwarf").entrance_min_diameter_mm == 50
+    assert rules.size_rules("hamster", "syrian").entrance_min_diameter_mm == 70
+
+
+def test_reversed_enclosure_floor_rejected(rules_copy):
+    _edit_species(
+        rules_copy,
+        lambda d: d["species"]["hamster"]["sizes"]["dwarf"].update(enclosure_min_floor_mm=[500, 1000]),
+    )
+    with pytest.raises(RuleFileError, match="긴 변"):
+        load_rules(rules_copy)
+
+
 def test_missing_file(tmp_path):
     with pytest.raises(RuleFileError, match="없습니다"):
         load_rules(tmp_path)

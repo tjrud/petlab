@@ -158,6 +158,31 @@ def test_export_rebuilds_missing_mesh_cache(client, tmp_path):
     assert client.get(d["current"]["items"][0]["mesh_url"]).status_code == 200
 
 
+def test_legacy_hideout_rebuilds_with_single_entrance(client, tmp_path):
+    """entrance_count 가 없던 시절 저장된 은신처는 캐시를 다시 만들어도 출입구 1개 형상 그대로여야 한다."""
+    from app.models import DesignVersion
+    from app.templates.hideout import HideoutParams, HideoutTemplate
+
+    d = design(client)
+    it = d["current"]["items"][0]
+    with client.app.state.session_factory() as db:
+        v = db.query(DesignVersion).filter_by(design_id=d["id"]).one()
+        items = [dict(x) for x in v.items]
+        stored = dict(items[0]["params"])
+        assert stored.pop("entrance_count") == 2
+        items[0] = {**items[0], "params": stored}
+        v.items = items
+        db.commit()
+    shutil.rmtree(tmp_path / "meshes")
+    r = client.get(it["mesh_url"])
+    assert r.status_code == 200
+    mesh = trimesh.load(io.BytesIO(r.content), file_type="stl")
+    single = HideoutTemplate().build(HideoutParams(**stored, entrance_count=1)).volume
+    double = HideoutTemplate().build(HideoutParams(**stored, entrance_count=2)).volume
+    assert abs(mesh.volume - single) < abs(mesh.volume - double)
+    assert mesh.volume == pytest.approx(single, rel=5e-3)
+
+
 # ── LLM 오류 안내 ───────────────────────────────────────────
 
 
