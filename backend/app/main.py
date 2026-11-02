@@ -19,11 +19,13 @@ from app.auth import (
     LoginRateLimiter,
     ensure_admin_user,
 )
+from app.captcha import CaptchaVerifier, turnstile_verifier
 from app.config import Settings, get_settings
 from app.db import init_db, is_ephemeral_database, make_engine, make_session_factory
 from app.errors import AppError
 from app.llm.base import Interpreter, LLMConfigError, LLMError
 from app.llm.interpreter import make_interpreter
+from app.mailer import Mailer, make_mailer
 from app.rules.loader import load_rules
 from app.services.design_service import (
     DesignLimits,
@@ -37,7 +39,9 @@ from app.services.design_service import (
 log = logging.getLogger(__name__)
 
 
-def create_app(settings: Settings | None = None, interpreter: Interpreter | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, interpreter: Interpreter | None = None,
+               mailer: Mailer | None = None, captcha_verifier: CaptchaVerifier | None = None) -> FastAPI:
+    """mailer·captcha_verifier 는 테스트에서 바꿔 끼울 때만 준다 (주지 않으면 설정으로 만든다)."""
     settings = settings or get_settings()
 
     @asynccontextmanager
@@ -59,6 +63,17 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
             LoginRateLimiter(max_failures=settings.signup_per_ip_per_hour, window_s=3600.0, fail_closed=False)
             if settings.signup_per_ip_per_hour > 0 else None
         )
+        # 이메일 인증·CAPTCHA (설정이 잘못됐으면 신규 가입을 막는다: 인증 없이 계정이 생기지 않게)
+        app.state.mailer = mailer if mailer is not None else make_mailer(settings)
+        app.state.captcha_verifier = None
+        if settings.captcha_mode == "enabled":
+            app.state.captcha_verifier = captcha_verifier or turnstile_verifier(settings)
+        if settings.email_mode == "misconfigured":
+            log.error("이메일 인증 설정 오류로 회원가입을 막습니다: %s", "; ".join(settings.email_problems))
+        elif settings.email_mode == "enabled":
+            log.info("이메일 인증 사용 (%s)", settings.email_provider)
+        if settings.captcha_mode == "misconfigured":
+            log.error("CAPTCHA 설정 오류로 회원가입을 막습니다: TURNSTILE_SITE_KEY 와 TURNSTILE_SECRET_KEY 를 함께 설정하세요.")
         # 비밀번호 변경 시 현재 비밀번호 확인: 회원별 15분에 5번까지 틀릴 수 있다
         app.state.password_limiter = LoginRateLimiter(max_failures=5, window_s=900.0, fail_closed=False)
         if settings.auth_mode == "misconfigured":

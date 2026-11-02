@@ -8,21 +8,15 @@ from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, get_service, make_router
-from app.auth import client_key, get_current_user, get_optional_user
+from app.auth import get_current_user, get_optional_user, get_verified_user, usage_ip_key
 from app.models import User
 from app.schemas import DesignCreateIn, DesignListOut, DesignOut, DesignReviseIn
 from app.services.design_service import DesignService
 
 router = make_router(prefix="/designs", tags=["설계"])
 
-USAGE_V6_PREFIX = 56
-
-
 def _ip_key(request: Request) -> str | None:
-    """IP 별 설계 사용량 키. 플랫폼이 넣는 클라이언트 IP 헤더(CLIENT_IP_HEADER)가 없으면 세지 않는다
-    (프록시 주소로 모든 사람이 하나로 묶이는 것을 막기 위해)."""
-    settings = request.app.state.settings
-    return client_key(settings, request, v6_prefix=USAGE_V6_PREFIX) if settings.client_ip_header else None
+    return usage_ip_key(request.app.state.settings, request)
 
 
 @router.get("", response_model=DesignListOut, summary="내 설계 내역 (최근 수정순)")
@@ -34,7 +28,7 @@ def list_designs(page: int = Query(default=1, ge=1, le=10_000), page_size: int =
 
 @router.post("", response_model=DesignOut, status_code=status.HTTP_201_CREATED, summary="프롬프트로 설계 생성")
 def create_design(data: DesignCreateIn, request: Request, db: Session = Depends(get_db),
-                  svc: DesignService = Depends(get_service), user: User = Depends(get_current_user)):
+                  svc: DesignService = Depends(get_service), user: User = Depends(get_verified_user)):
     design, version = svc.create_design(db, data.habitat_id, data.prompt, user, ip_key=_ip_key(request))
     return svc.design_out(db, design, version, user)
 
@@ -42,7 +36,7 @@ def create_design(data: DesignCreateIn, request: Request, db: Session = Depends(
 @router.post("/{design_id}/revise", response_model=DesignOut, status_code=status.HTTP_201_CREATED,
              summary="추가 프롬프트로 설계 수정 (새 버전 생성, 이전 버전 유지)")
 def revise_design(design_id: str, data: DesignReviseIn, request: Request, db: Session = Depends(get_db),
-                  svc: DesignService = Depends(get_service), user: User = Depends(get_current_user)):
+                  svc: DesignService = Depends(get_service), user: User = Depends(get_verified_user)):
     design, version = svc.revise_design(db, design_id, data.prompt, user, data.base_version,
                                         ip_key=_ip_key(request))
     return svc.design_out(db, design, version, user)

@@ -62,6 +62,14 @@ cp frontend/.env.example frontend/.env.local      # 프론트엔드
 | `DESIGN_IP_DAILY_LIMIT` | `.env` | 같은 IP(IPv6 는 /56)의 최근 24시간 설계·수정 횟수 (계정 여러 개로 우회 방지). `CLIENT_IP_HEADER` 가 있을 때만 적용, `0` 이면 끔 | `40` |
 | `DESIGN_GLOBAL_DAILY_LIMIT` | `.env` | 서비스 전체의 최근 24시간 설계·수정 횟수 상한 (관리자 제외) | `300` |
 | `POST_DAILY_LIMIT` / `COMMENT_DAILY_LIMIT` | `.env` | 회원 1명이 최근 24시간 동안 쓸 수 있는 글 / 댓글 수 (지운 글·댓글도 셈) | `20` / `100` |
+| `EMAIL_PROVIDER` | `.env` | 이메일 인증 메일 발송 방식: `smtp`·`resend`·`file`(로컬: 파일로 저장). 비우면 이메일 인증을 쓰지 않음 | (없음) |
+| `EMAIL_FROM` | `.env` | 보내는 사람. 예: `NestForge <no-reply@example.com>` | |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USERNAME` / `SMTP_PASSWORD` / `SMTP_SECURITY` | `.env` | SMTP 발송 설정 (`SMTP_SECURITY`: `starttls`·`ssl`·`none`) | `587`, `starttls` |
+| `RESEND_API_KEY` | `.env` | Resend 발송 키 | |
+| `APP_BASE_URL` | `.env` | 메일 속 인증 링크의 사이트 주소. 예: `https://petlab-sage.vercel.app` | (없음 = `CORS_ORIGINS` 첫 값) |
+| `EMAIL_DAILY_LIMIT` | `.env` | 서비스 전체 최근 24시간 인증 메일 수 (메일 서비스 한도 보호) | `300` |
+| `EMAIL_TOKEN_TTL_HOURS` | `.env` | 인증 링크 유효 시간 | `24` |
+| `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` | `.env` | Cloudflare Turnstile 키. 둘 다 있으면 회원가입에 CAPTCHA 를 요구 | (없음) |
 | `CLIENT_IP_HEADER` | `.env` | 로그인·가입 시도 제한, IP 별 설계 상한에 쓸 클라이언트 IP 헤더. 플랫폼이 덮어써 위조할 수 없는 헤더만 지정. 컨테이너 이미지 기본값 `x-vercel-forwarded-for` | (없음 = 접속 주소) |
 | `NEXT_PUBLIC_API_BASE_URL` | `frontend/.env.local` | 백엔드 주소 | `http://localhost:8000` |
 
@@ -125,7 +133,17 @@ npm run test:e2e
 - **사용량 상한** (최근 24시간, `429`, 관리자 제외): 설계 생성·수정은 LLM 을 호출하므로 회원별(`DESIGN_DAILY_LIMIT`)·IP 별(`DESIGN_IP_DAILY_LIMIT`)·서비스 전체(`DESIGN_GLOBAL_DAILY_LIMIT`) 횟수를 제한합니다.
   - LLM 을 부르기 전에 한 번을 기록하므로(`usage_events` 테이블, 확인과 기록을 잠금 안에서 함께) 동시에 여러 번 요청해도 상한을 넘지 못하고, 해석에 실패한 요청도 비용이 들므로 횟수에 들어갑니다.
   - 글·댓글(`POST_DAILY_LIMIT`·`COMMENT_DAILY_LIMIT`), 사육 환경 등록(100회), 제작·배송 대기 신청(10회, 같은 이메일·설계는 한 번만)도 같은 방식으로 셉니다. 지워도 횟수는 그대로입니다. 글 보기에는 최근 댓글 200개를 보여 줍니다(전체 수는 함께 표시).
-  - 알려진 한계: 계정을 아주 많이 만들면(여러 IP) 서비스 전체 상한을 먼저 써 버릴 수 있습니다. 이메일 인증·CAPTCHA 는 아직 없습니다.
+  - 계정을 대량으로 만들어 상한을 피하는 일은 아래 이메일 인증·CAPTCHA 로 막습니다 (설정했을 때).
+- **이메일 인증** (`EMAIL_PROVIDER` 를 설정하면 켜짐): 가입할 때 이메일이 필수이고, 받은 메일의 링크를 눌러 인증하기 전에는
+  설계 만들기·수정, 글·댓글 쓰기, 제작·배송 대기 신청을 할 수 없습니다(`403 email_unverified`). 로그인·내 정보·반려동물·읽기는 됩니다.
+  - 링크는 무작위 토큰(DB 에는 SHA-256 해시만 저장)이고 한 번만, `EMAIL_TOKEN_TTL_HOURS`(기본 24시간) 동안 쓸 수 있습니다. 링크를 보낸 뒤 주소를 바꾸면 그 링크로는 인증되지 않습니다.
+  - 같은 주소는 한 계정만 인증할 수 있습니다. 대소문자, 주소 뒤 `+태그`, Gmail 의 점(.)은 무시하고 비교합니다(`users.email_key`).
+    인증 전 주소는 겹쳐도 되므로, 남의 주소를 먼저 적어 두는 것으로 그 사람의 가입을 막을 수 없습니다.
+  - 인증 메일은 회원마다 1분에 1통, 24시간에 5통, 서비스 전체 24시간 `EMAIL_DAILY_LIMIT` 통까지 보냅니다. 내 정보에서 이메일을 바꾸면(현재 비밀번호 필요) 새 주소로 다시 인증합니다.
+  - 이메일 기능 전에 가입한 회원은 내 정보에서 이메일을 등록하고 인증하면 됩니다. 관리자는 인증이 필요 없습니다.
+  - 메일 설정이 잘못되면(예: `SMTP_HOST` 없음) 신규 가입을 막고(`503 email_unavailable`) 서버 로그와 `/api/health` 의 `email_verification: "misconfigured"` 로 알립니다. 기존 회원은 막지 않습니다.
+- **CAPTCHA** (`TURNSTILE_SITE_KEY`·`TURNSTILE_SECRET_KEY` 를 설정하면 켜짐): 회원가입에 Cloudflare Turnstile 확인을 요구합니다. 서버가 Cloudflare 에 토큰을 확인하며(접속 IP 포함),
+  아이디·닉네임 중복 확인보다 먼저 해서 가입 가능 여부를 자동으로 캐 볼 수 없게 합니다. 키가 하나만 있으면 가입을 막고(`503 captcha_unavailable`) 로그로 알립니다.
 - **권한**: 사육 환경·설계·반려동물은 만든 회원의 것입니다. 남의 것은 존재 여부도 알리지 않고 `404` 를 반환합니다.
   - 커뮤니티 글에 내 설계를 첨부하면 **첨부한 버전만** 누구나 볼 수 있습니다(읽기 전용, 수정·재공유 불가). 첨부하지 않은 이전 버전과 공유한 뒤에 만든 버전은 계속 나만 봅니다. 글을 지우면 그 버전은 다시 비공개가 됩니다.
   - 이전 버전에서 만든(소유자가 없는) 설계는 관리자만 볼 수 있습니다.
@@ -183,7 +201,10 @@ LLM은 아래 템플릿 중에서 고르고 파라미터 값만 정합니다. �
 
 | 메서드 | 경로 | 설명 |
 |---|---|---|
-| POST | `/auth/signup` | 회원가입 (가입 후 바로 로그인) |
+| POST | `/auth/signup` | 회원가입 (가입 후 바로 로그인. 켜져 있으면 `email`·`captcha_token` 필요) |
+| POST | `/auth/verify-email` | 이메일 인증 (메일 속 링크의 토큰, 로그인 없이) |
+| POST | `/auth/verify-email/resend` | 인증 메일 다시 보내기 |
+| PATCH | `/me/email` | 이메일 변경 (현재 비밀번호 필요, 새 주소로 인증 메일) |
 | POST | `/auth/login` · `/auth/logout` | 로그인 · 로그아웃 |
 | GET | `/auth/me` | 로그인 상태 |
 | GET · PATCH | `/me` | 내 정보(통계·설계 사용량) · 닉네임 변경 |
@@ -254,9 +275,25 @@ LLM은 아래 템플릿 중에서 고르고 파라미터 값만 정합니다. �
 | `ADMIN_USERNAME` | (직접 입력) | 관리자 아이디(32자 이하, 넘으면 API 가 503 으로 막힘). 기본값 `admin`보다 추측하기 어려운 값을 권장 |
 | `ADMIN_PASSWORD` | (직접 입력, 16자 이상) | **Sensitive**. 관리자 로그인 비밀번호. 없으면 API가 503으로 막힙니다 |
 | `SESSION_SECRET` | (32바이트 이상 무작위 문자열) | **Sensitive**. 세션 쿠키 서명 키. 없으면 API가 503으로 막힙니다 |
+| `EMAIL_PROVIDER` 등 | 아래 "이메일 인증·CAPTCHA 켜기" 참고 | 비밀값(`SMTP_PASSWORD`·`RESEND_API_KEY`·`TURNSTILE_SECRET_KEY`)은 **Sensitive** |
 | `DATABASE_URL` | Neon 연결 시 자동 주입 | 없으면 `/tmp` SQLite입니다. 데이터가 유지되지 않고, 인스턴스마다 데이터가 달라 설계를 못 찾는(404) 일이 생길 수 있습니다. `/api/health`의 `database.persistent`와 화면 안내로 표시됩니다. |
 
 환경변수는 Production과 Preview에 모두 설정하세요.
+
+### 이메일 인증·CAPTCHA 켜기
+
+**CAPTCHA (Cloudflare Turnstile, 무료)**
+1. Cloudflare 대시보드 → Turnstile → 사이트 추가. 도메인에 `petlab-sage.vercel.app`(실제 서비스 주소)을 넣고, 위젯 모드는 Managed 를 고릅니다.
+2. 발급된 Site Key 를 `TURNSTILE_SITE_KEY`, Secret Key 를 `TURNSTILE_SECRET_KEY`(Sensitive)로 등록하고 재배포합니다.
+   사이트 키는 서버가 `/api/auth/me` 로 화면에 알려 주므로 프론트엔드 설정은 따로 없습니다.
+
+**이메일 (둘 중 하나)**
+- Gmail SMTP (도메인 없이 바로 가능, 하루 약 500통): Google 계정에 2단계 인증을 켜고 앱 비밀번호를 만든 뒤
+  `EMAIL_PROVIDER=smtp`, `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`, `SMTP_USERNAME=<gmail 주소>`, `SMTP_PASSWORD=<앱 비밀번호>`(Sensitive),
+  `EMAIL_FROM=NestForge <같은 gmail 주소>` 로 등록합니다.
+- Resend (보내는 도메인을 인증해야 다른 사람에게 보낼 수 있음): `EMAIL_PROVIDER=resend`, `RESEND_API_KEY`(Sensitive), `EMAIL_FROM=NestForge <no-reply@인증한-도메인>`.
+
+두 경우 모두 `APP_BASE_URL=https://petlab-sage.vercel.app` 을 함께 등록하고 재배포합니다. 적용 여부는 `/api/health` 의 `email_verification`·`captcha` 가 `enabled` 인지로 확인합니다.
 
 ### 공개 범위 (Deployment Protection)
 

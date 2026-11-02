@@ -148,7 +148,8 @@ def test_public_endpoints(client):
     h = client.get("/health").json()
     assert h["status"] == "ok" and h["auth_enabled"] is True and h["auth_ready"] is True
     me = client.get("/auth/me").json()
-    assert me == {"auth_enabled": True, "authenticated": False, "user": None, "signup_enabled": True}
+    assert me == {"auth_enabled": True, "authenticated": False, "user": None, "signup_enabled": True,
+                  "email_verification": False, "captcha": None, "verification_email_sent": None}
     assert client.get("/species").status_code == 200  # 종 목록은 누구나
     assert client.get("/community/posts").status_code == 200  # 커뮤니티 읽기는 누구나
 
@@ -254,7 +255,8 @@ def test_auth_required_fails_closed(tmp_path):
             assert c.post("/auth/signup", json={"username": "user1", "nickname": "닉네임",
                                                 "password": "password123"}).status_code == 503
             assert c.get("/auth/me").json() == {"auth_enabled": True, "authenticated": False, "user": None,
-                                                "signup_enabled": False}
+                                                "signup_enabled": False, "email_verification": False,
+                                                "captcha": None, "verification_email_sent": None}
 
 
 def test_non_ascii_cookie_is_rejected_not_500(client):

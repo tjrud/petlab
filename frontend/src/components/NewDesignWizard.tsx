@@ -6,9 +6,10 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, useTransition
 
 import { useAuth } from "@/components/AuthProvider";
 import { clearDraft, ReloginNotice, useDraftBackup } from "@/components/DraftRelogin";
+import { EmailUnverifiedNotice, useEmailBlocked } from "@/components/EmailVerification";
 import LoginRequired from "@/components/LoginRequired";
 import { CAGE_LIMITS, CAGE_PRESETS } from "@/components/me/common";
-import { api, ApiError, isAuthError } from "@/lib/api";
+import { api, ApiError, isAuthError, isEmailUnverified } from "@/lib/api";
 import type { Me, Pet, SpeciesResponse } from "@/lib/types";
 
 const EXAMPLE_PROMPTS = [
@@ -55,7 +56,7 @@ export default function NewDesignWizard() {
   const router = useRouter();
   // 링크·router.push 로 새로 들어올 때마다 바뀌고, 뒤로·앞으로 가기로 돌아오면 그대로인 값
   const { bfcacheId } = router;
-  const { status, user, refresh } = useAuth();
+  const { status, user, refresh, emailUnverified } = useAuth();
   const userId = user?.id ?? null;
   // /design?pet={id}: 내 정보의 "이 아이로 설계하기"에서 들어온 경우 그 반려동물로 미리 채운다
   const wantedPet = useSearchParams().get("pet");
@@ -74,6 +75,8 @@ export default function NewDesignWizard() {
   const [habitatId, setHabitatId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** 서버가 이메일 인증 전이라고 거절했다 (쓴 내용은 그대로 두고 안내한다) */
+  const [emailBlocked, setEmailBlocked] = useEmailBlocked();
 
   const [pets, setPets] = useState<Pet[] | null>(null);
   /** 값을 채워 온 반려동물 (종·크기를 고쳐도 그대로 두고, "직접 입력"을 고르면 지운다) */
@@ -216,6 +219,7 @@ export default function NewDesignWizard() {
     submittingRef.current = true;
     setSubmitting(true);
     setAuthError(null); // 다른 탭에서 다시 로그인했을 수 있다 (또 실패하면 다시 안내한다)
+    setEmailBlocked(false);
     try {
       let hid = habitatId;
       if (!hid) {
@@ -240,6 +244,7 @@ export default function NewDesignWizard() {
       });
     } catch (e) {
       if (isAuthError(e)) setAuthError(e as ApiError); // 사용 중 세션이 만료된 경우
+      else if (isEmailUnverified(e)) setEmailBlocked(true); // 위쪽 안내로 알려 준다 (로그인 상태도 다시 확인한다)
       else if (e instanceof ApiError && e.code === "design_quota_exceeded" && quota && quota.limit !== null)
         setQuota({ ...quota, used: Math.max(quota.used, quota.limit), remaining: 0 }); // 아래 안내로 알려 준다
       else {
@@ -275,6 +280,11 @@ export default function NewDesignWizard() {
       {needsLogin && (
         <div className="mb-4">
           <ReloginNotice next="/design" />
+        </div>
+      )}
+      {!needsLogin && (emailUnverified || emailBlocked) && (
+        <div className="mb-4">
+          <EmailUnverifiedNotice action="맞춤 설계를 받을" />
         </div>
       )}
       <ol className="mb-6 flex items-center gap-3 text-sm" aria-label="진행 단계">
@@ -547,7 +557,7 @@ export default function NewDesignWizard() {
             <button
               type="button"
               onClick={submit}
-              disabled={submitting || opening || quotaExhausted}
+              disabled={submitting || opening || quotaExhausted || emailUnverified}
               className={`rounded-xl bg-amber-500 px-6 py-3 font-semibold text-white hover:bg-amber-600 disabled:bg-amber-300 ${
                 submitting || opening ? "disabled:cursor-wait" : "disabled:cursor-not-allowed"
               }`}

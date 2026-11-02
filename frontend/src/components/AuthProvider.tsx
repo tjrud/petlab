@@ -11,6 +11,8 @@ type AuthContextValue = {
   user: User | null;
   /** 마지막 확인이 실패했다 (서버에 닿지 못했거나 서버 오류). 이때도 이전에 확인한 status 는 그대로 둔다 */
   unreachable: boolean;
+  /** 이메일 인증을 마치지 않은 회원 (서버가 인증을 요구할 때만). 설계·글쓰기·댓글·제작 신청이 막혀 있다 */
+  emailUnverified: boolean;
   /** 서버에 로그인 상태를 다시 묻는다. 서버가 답하면 true */
   refresh: () => Promise<boolean>;
   /** 로그인·회원가입 응답으로 바로 갱신 */
@@ -94,15 +96,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [failures, refresh]);
 
+  const user = state.status?.user ?? null;
+  const emailUnverified = !!state.status?.email_verification && !!user && user.role !== "admin" && !user.email_verified;
+
+  // 인증 링크는 보통 다른 탭(메일)에서 연다: 이 탭으로 돌아오면 인증을 마쳤는지 다시 묻는다
+  useEffect(() => {
+    if (!emailUnverified) return;
+    const recheck = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    window.addEventListener("focus", recheck);
+    document.addEventListener("visibilitychange", recheck);
+    return () => {
+      window.removeEventListener("focus", recheck);
+      document.removeEventListener("visibilitychange", recheck);
+    };
+  }, [emailUnverified, refresh]);
+
   const value = useMemo(
     () => ({
       status: state.status,
-      user: state.status?.user ?? null,
+      user,
       unreachable: state.failures > 0,
+      emailUnverified,
       refresh,
       setStatus,
     }),
-    [state, refresh, setStatus],
+    [state, user, emailUnverified, refresh, setStatus],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

@@ -1,24 +1,14 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+
+import { emailOf, logout, signup, stubTurnstile, verifyEmail } from "./support";
 
 const SHOTS = process.env.E2E_SCREENSHOT_DIR;
 const RUN = Date.now().toString(36).slice(-5); // 실행마다 다른 아이디 (같은 DB 를 재사용해도 겹치지 않게)
 
-async function signup(page: Page, username: string, nickname: string, password: string, next = "/") {
-  await page.goto(`/signup?next=${encodeURIComponent(next)}`);
-  await page.getByLabel("아이디").fill(username);
-  await page.getByLabel("닉네임").fill(nickname);
-  await page.getByLabel("비밀번호", { exact: true }).fill(password);
-  await page.getByLabel("비밀번호 확인").fill(password);
-  await page.getByRole("button", { name: "가입하기" }).click();
-  await page.waitForURL((url) => url.pathname === next);
-  await expect(page.getByRole("banner").getByText(nickname)).toBeVisible();
-}
-
-async function logout(page: Page) {
-  await page.getByRole("button", { name: "로그아웃" }).click();
-  await page.waitForURL((url) => url.pathname === "/");
-  await expect(page.getByRole("banner").getByRole("link", { name: "로그인" })).toBeVisible();
-}
+// 회원가입 화면의 CAPTCHA(Turnstile) 스크립트는 가짜 위젯으로 바꾼다 (e2e/support.ts)
+test.beforeEach(async ({ page }) => {
+  await stubTurnstile(page);
+});
 
 test("로그인하지 않으면 회원 기능 대신 안내가 보이고, 커뮤니티는 읽을 수 있다", async ({ page }) => {
   await page.goto("/designs");
@@ -33,20 +23,30 @@ test("로그인하지 않으면 회원 기능 대신 안내가 보이고, 커뮤
 
 test("회원가입: 입력 확인과 중복 아이디", async ({ page }) => {
   const username = `dup_${RUN}`;
-  await signup(page, username, `중복검사${RUN}`, "password-123");
+  await signup(page, { username, nickname: `중복검사${RUN}`, password: "password-123" }, { verify: false });
   await logout(page);
 
   await page.goto("/signup");
   await page.getByLabel("아이디").fill(username);
   await page.getByLabel("닉네임").fill(`다른닉${RUN}`);
+  await page.getByLabel("이메일").fill(emailOf(`dup2_${RUN}`));
   await page.getByLabel("비밀번호", { exact: true }).fill("password-123");
   await page.getByLabel("비밀번호 확인").fill("password-999");
+  // 칸을 벗어나면 불일치 안내가 나타나 아래 요소가 밀리므로, 먼저 벗어난 뒤 보안 확인을 누른다
+  await page.getByLabel("비밀번호 확인").blur();
+  await expect(page.getByText("비밀번호가 서로 달라요. 다시 확인해 주세요.")).toBeVisible();
+  // 보안 확인 전에는 가입 버튼이 막혀 있다
+  await expect(page.getByRole("button", { name: "가입하기" })).toBeDisabled();
+  await page.getByLabel("로봇이 아니에요").check();
   await page.getByRole("button", { name: "가입하기" }).click();
   await expect(page.getByText("비밀번호가 서로 달라요. 다시 확인해 주세요.")).toBeVisible();
   await page.getByLabel("비밀번호 확인").fill("password-123");
   await page.getByRole("button", { name: "가입하기" }).click();
   await expect(page.getByRole("alert").filter({ hasText: "이미 사용 중인 아이디예요." })).toBeVisible();
   await expect(page).toHaveURL(/\/signup/);
+  // 토큰은 한 번만 쓸 수 있으므로 거절된 뒤에는 보안 확인을 다시 해야 한다
+  await expect(page.getByLabel("로봇이 아니에요")).not.toBeChecked();
+  await expect(page.getByRole("button", { name: "가입하기" })).toBeDisabled();
 });
 
 test("회원가입 → 반려동물 등록 → 반려동물로 설계 → 내 설계 → 커뮤니티 공유 → 다른 회원의 댓글·읽기 전용 보기", async ({
@@ -57,8 +57,8 @@ test("회원가입 → 반려동물 등록 → 반려동물로 설계 → 내 �
   const a = { username: `kong_${RUN}`, nickname: `콩이맘${RUN}`, password: "hamster-love-123" };
   const b = { username: `tunnel_${RUN}`, nickname: `터널아빠${RUN}`, password: "tunnel-dad-456" };
 
-  // 1. 회원가입 (가입하면 바로 로그인)
-  await signup(page, a.username, a.nickname, a.password);
+  // 1. 회원가입 (가입하면 바로 로그인) → 메일의 링크로 이메일 인증
+  await signup(page, a);
   await expect(page.getByRole("heading", { name: "내 공간" })).toBeVisible();
 
   // 2. 내 정보 → 반려동물 등록
@@ -114,7 +114,7 @@ test("회원가입 → 반려동물 등록 → 반려동물로 설계 → 내 �
   await logout(page);
 
   // 6. 다른 회원: 커뮤니티 목록 → 글 → 댓글
-  await signup(page, b.username, b.nickname, b.password, "/community");
+  await signup(page, b, { next: "/community" });
   await page.getByRole("main").getByRole("link", { name: new RegExp(`콩이네 배치 공유 ${RUN}`) }).click();
   await page.waitForURL(postUrl);
   await expect(page.getByRole("button", { name: "수정" })).toHaveCount(0); // 남의 글
@@ -141,7 +141,7 @@ test("회원가입 → 반려동물 등록 → 반려동물로 설계 → 내 �
 
 test("로그인이 풀려도 쓰던 글은 그대로 남고, 다시 로그인하면 이어서 쓸 수 있다", async ({ page, context }) => {
   const u = { username: `draft_${RUN}`, nickname: `초안${RUN}`, password: "draft-pass-789" };
-  await signup(page, u.username, u.nickname, u.password, "/community/new");
+  await signup(page, u, { next: "/community/new" });
   const title = page.getByRole("main").getByRole("textbox", { name: "제목", exact: true });
   const body = page.getByRole("main").getByRole("textbox", { name: "내용", exact: true });
   await title.fill(`쓰던 제목 ${RUN}`);
@@ -167,7 +167,7 @@ test("로그인이 풀려도 쓰던 글은 그대로 남고, 다시 로그인하
 });
 
 test("설계 결과로 이동하는 중 다른 곳을 눌러도 설계 버튼이 멈춰 있지 않다", async ({ page }) => {
-  await signup(page, `wiz_${RUN}`, `마법사${RUN}`, "wizard-pass-321", "/design");
+  await signup(page, { username: `wiz_${RUN}`, nickname: `마법사${RUN}`, password: "wizard-pass-321" }, { next: "/design" });
   const wizard = page.getByRole("region", { name: "사육 환경을 알려 주세요" });
   await wizard.getByLabel("케이지 가로 (mm)").fill("600");
   await page.getByRole("button", { name: "다음" }).click();
@@ -186,4 +186,147 @@ test("설계 결과로 이동하는 중 다른 곳을 눌러도 설계 버튼이
   await page.waitForLoadState("networkidle");
   // 어느 화면에 있든 버튼이 '진행 중'으로 굳어 있지 않아야 한다
   await expect(page.getByRole("button", { name: /결과 화면을 여는 중|AI가 설계하고 있어요/ })).toHaveCount(0, { timeout: 10_000 });
+});
+
+test("이메일 인증 전: 안내 띠가 보이고 설계·글쓰기가 막혀 있다가, 메일의 링크로 인증하면 설계할 수 있다", async ({ page }) => {
+  const m = { username: `unv_${RUN}`, nickname: `인증전${RUN}`, password: "verify-later-123" };
+  const email = await signup(page, m, { verify: false });
+
+  const banner = page.getByRole("region", { name: "이메일 인증 안내" });
+  await expect(banner).toContainText("이메일 인증을 마치면 설계·글쓰기·댓글을 쓸 수 있어요.");
+  await expect(banner).toContainText(email);
+
+  // 설계하기: 안내가 보이고, 요구사항까지 써도 설계 버튼은 막혀 있다
+  await page.goto("/design");
+  await expect(page.getByText("이메일 인증을 마치면 맞춤 설계를 받을 수 있어요.", { exact: false })).toBeVisible();
+  await page.getByText("골든 (시리안)").click();
+  await page.getByRole("button", { name: "다음" }).click();
+  await page.getByLabel("요구사항").fill("은신처를 왼쪽에 넣어 주세요");
+  await expect(page.getByRole("button", { name: "맞춤 설계 받기" })).toBeDisabled();
+
+  // 글쓰기도 막혀 있다
+  await page.goto("/community/new");
+  await expect(page.getByText("이메일 인증을 마치면 글을 올릴 수 있어요.", { exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: "등록", exact: true })).toBeDisabled();
+
+  // 메일의 링크로 인증하면 안내 띠가 사라지고 바로 설계할 수 있다
+  await verifyEmail(page, email);
+  await expect(banner).toHaveCount(0);
+  // 새로고침해도(쓴 토큰을 다시 보내지 않으므로) "만료" 대신 인증 완료가 보인다
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "이메일 인증을 마쳤어요" })).toBeVisible();
+  await page.goto("/design");
+  await page.getByText("골든 (시리안)").click();
+  await page.getByRole("button", { name: "다음" }).click();
+  await page.getByLabel("요구사항").fill("은신처를 왼쪽에 넣어 주세요");
+  await page.getByRole("button", { name: "맞춤 설계 받기" }).click();
+  await page.waitForURL(/\/designs\/[0-9a-f]{32}/);
+  await expect(page.getByTestId("design-version")).toHaveText("v1");
+});
+
+test("CAPTCHA 가 거절되면 오류를 보여 주고 보안 확인을 다시 하게 한다", async ({ page }) => {
+  // 가짜 위젯은 아이디에 capfail 이 있으면 통과하지 못하는 토큰("e2e-fail")을 보낸다
+  await page.goto("/signup");
+  await page.getByLabel("아이디").fill(`capfail_${RUN}`);
+  await page.getByLabel("닉네임").fill(`캡차실패${RUN}`);
+  await page.getByLabel("이메일").fill(emailOf(`capfail_${RUN}`));
+  await page.getByLabel("비밀번호", { exact: true }).fill("captcha-fail-123");
+  await page.getByLabel("비밀번호 확인").fill("captcha-fail-123");
+  await page.getByLabel("로봇이 아니에요").check();
+
+  const response = page.waitForResponse((r) => r.url().endsWith("/auth/signup") && r.request().method() === "POST");
+  await page.getByRole("button", { name: "가입하기" }).click();
+  const r = await response;
+  expect(r.status()).toBe(400);
+  const { detail } = (await r.json()) as { detail: { code: string; message_ko: string } };
+  expect(detail.code).toBe("captcha_failed");
+
+  await expect(page.getByRole("alert").filter({ hasText: detail.message_ko })).toBeVisible();
+  await expect(page.getByLabel("로봇이 아니에요")).not.toBeChecked(); // 위젯을 처음 상태로 되돌렸다
+  await expect(page.getByRole("button", { name: "가입하기" })).toBeDisabled();
+  await expect(page).toHaveURL(/\/signup/);
+});
+
+test("인증 메일 다시 보내기: 곧바로 또 누르면 잠시 뒤에 보내라는 안내가 보인다", async ({ page }) => {
+  const m = { username: `resend_${RUN}`, nickname: `재발송${RUN}`, password: "resend-mail-123" };
+  await signup(page, m, { verify: false });
+
+  const banner = page.getByRole("region", { name: "이메일 인증 안내" });
+  const resend = banner.getByRole("button", { name: "인증 메일 다시 보내기" });
+  // 첫 번째: 가입 메일을 막 보냈으므로 바로 1분 제한에 걸릴 수도 있다 (어느 쪽이든 끝날 때까지 기다린다)
+  await resend.click();
+  await expect(resend).toBeEnabled();
+
+  const second = page.waitForResponse(
+    (r) => r.url().endsWith("/auth/verify-email/resend") && r.request().method() === "POST",
+  );
+  await resend.click();
+  const r = await second;
+  expect(r.status()).toBe(429);
+  const { detail } = (await r.json()) as { detail: { code: string; message_ko: string } };
+  expect(detail.code).toBe("email_cooldown");
+  await expect(banner.getByRole("alert")).toHaveText(detail.message_ko);
+});
+
+test("인증 링크가 잘못되면 안내를 보여 준다", async ({ page }) => {
+  await page.goto("/verify-email?token=not-a-real-token-123");
+  await expect(page.getByRole("heading", { name: "인증 링크가 올바르지 않거나 만료되었어요", exact: true })).toBeVisible();
+  // 로그인하지 않은 사람(다른 기기에서 링크를 다시 연 경우 등)에게는 이미 인증했을 수 있다고 알려 준다
+  await expect(page.getByText("이미 이 링크로 인증했다면 인증은 끝났어요.", { exact: false })).toBeVisible();
+  await page.goto("/verify-email");
+  await expect(page.getByRole("heading", { name: "인증 링크가 올바르지 않아요", exact: true })).toBeVisible();
+});
+
+test("서버가 이메일 주소를 거절하면 그 칸을 짚고, 보안 확인은 다시 하지 않아도 된다", async ({ page }) => {
+  const username = `bademail_${RUN}`;
+  await page.goto("/signup");
+  await page.getByLabel("아이디").fill(username);
+  await page.getByLabel("닉네임").fill(`주소확인${RUN}`);
+  // 화면의 형식 검사는 통과하지만 서버(EmailStr)는 거절하는 주소 (.test 는 예약된 도메인)
+  await page.getByLabel("이메일").fill(`${username}@nestforge.test`);
+  await page.getByLabel("비밀번호", { exact: true }).fill("bad-email-123");
+  await page.getByLabel("비밀번호 확인").fill("bad-email-123");
+  await page.getByLabel("로봇이 아니에요").check();
+
+  const response = page.waitForResponse((r) => r.url().endsWith("/auth/signup") && r.request().method() === "POST");
+  await page.getByRole("button", { name: "가입하기" }).click();
+  expect((await response).status()).toBe(422);
+
+  const emailField = page.getByLabel("이메일");
+  await expect(emailField).toHaveAttribute("aria-invalid", "true");
+  await expect(emailField).toBeFocused();
+  await expect(page.getByText("이메일 주소를 확인해 주세요.")).toBeVisible();
+  // 입력 검사에서 거절되어 토큰을 쓰지 않았으므로 보안 확인은 그대로다
+  await expect(page.getByLabel("로봇이 아니에요")).toBeChecked();
+  await expect(page.getByRole("button", { name: "가입하기" })).toBeEnabled();
+
+  // 주소만 고치면 그대로 가입할 수 있다
+  await emailField.fill(emailOf(username));
+  await expect(emailField).not.toHaveAttribute("aria-invalid", "true");
+  await page.getByRole("button", { name: "가입하기" }).click();
+  await expect(page.getByRole("heading", { name: "인증 메일을 보냈어요" })).toBeVisible();
+});
+
+test("다른 기기에서 인증한 뒤 '다시 보내기'를 누르면 막혔던 기능이 바로 풀린다", async ({ page, browser }) => {
+  const m = { username: `other_${RUN}`, nickname: `다른기기${RUN}`, password: "other-device-123" };
+  const email = await signup(page, m, { next: "/community/new", verify: false });
+  await expect(page.getByRole("button", { name: "등록", exact: true })).toBeDisabled();
+
+  // 다른 기기(로그인하지 않은 별도 브라우저)에서 메일의 링크를 연다
+  const phone = await browser.newContext();
+  const phonePage = await phone.newPage();
+  await verifyEmail(phonePage, email);
+  await phone.close();
+
+  // 이 화면은 아직 인증 전으로 알고 있다. 다시 보내기를 누르면 서버가 "이미 인증"이라 답하고 로그인 상태를 다시 읽는다
+  const banner = page.getByRole("region", { name: "이메일 인증 안내" });
+  if (await banner.isVisible()) {
+    await banner.getByRole("button", { name: "인증 메일 다시 보내기" }).click();
+  }
+  await expect(banner).toHaveCount(0);
+  await expect(page.getByText("이메일 인증을 마치면 글을 올릴 수 있어요.", { exact: false })).toHaveCount(0);
+  await page.getByRole("main").getByRole("textbox", { name: "제목", exact: true }).fill(`다른 기기 인증 ${RUN}`);
+  await page.getByRole("main").getByRole("textbox", { name: "내용", exact: true }).fill("인증하고 바로 글을 올려요.");
+  await page.getByRole("button", { name: "등록", exact: true }).click();
+  await page.waitForURL(/\/community\/[0-9a-f]{32}$/);
 });

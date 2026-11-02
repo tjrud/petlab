@@ -6,12 +6,13 @@ import { useEffect, useState } from "react";
 import DesignLoadError from "@/components/designs/DesignLoadError";
 import DesignTitleBar, { seesUnsharedVersions } from "@/components/designs/DesignTitleBar";
 import DownloadPanel from "@/components/DownloadPanel";
+import { useEmailBlocked } from "@/components/EmailVerification";
 import ItemList from "@/components/ItemList";
 import LoginRequired from "@/components/LoginRequired";
 import RevisePanel from "@/components/RevisePanel";
 import ValidationPanel from "@/components/ValidationPanel";
 import VersionList from "@/components/VersionList";
-import { api, ApiError, isAuthError } from "@/lib/api";
+import { api, ApiError, isAuthError, isEmailUnverified } from "@/lib/api";
 import type { Design } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
@@ -33,6 +34,8 @@ export default function DesignView({ id, initialVersion }: { id: string; initial
   const [authError, setAuthError] = useState<ApiError | null>(null);
   /** 수정 요청이 로그인 문제로 실패했다 (쓴 요청은 지우지 않고 다시 로그인하게 한다) */
   const [reviseNeedsLogin, setReviseNeedsLogin] = useState(false);
+  /** 수정 요청을 서버가 이메일 인증 전이라고 거절했다 */
+  const [reviseEmailBlocked, setReviseEmailBlocked] = useEmailBlocked();
 
   useEffect(() => {
     let alive = true;
@@ -74,6 +77,7 @@ export default function DesignView({ id, initialVersion }: { id: string; initial
     if (!design?.is_owner) return false;
     setBusy(true);
     setActionError(null);
+    setReviseEmailBlocked(false);
     try {
       setDesign(await api.reviseDesign(id, prompt, design.current.version));
       setSelected(null);
@@ -82,6 +86,7 @@ export default function DesignView({ id, initialVersion }: { id: string; initial
     } catch (e) {
       // 화면 전체를 로그인 안내로 바꾸지 않는다: 쓰던 수정 요청이 사라지지 않게
       if (isAuthError(e)) setReviseNeedsLogin(true);
+      else if (isEmailUnverified(e)) setReviseEmailBlocked(true);
       else setActionError(e instanceof ApiError ? e.messageKo : "수정 중 문제가 생겼어요. 다시 시도해 주세요.");
       return false;
     } finally {
@@ -153,6 +158,7 @@ export default function DesignView({ id, initialVersion }: { id: string; initial
             busy={busy}
             error={actionError}
             needsLogin={reviseNeedsLogin}
+            emailBlocked={reviseEmailBlocked}
             draftKey={`revise:${design.id}`}
             loginNext={`/designs/${encodeURIComponent(design.id)}`}
             onSubmit={revise}

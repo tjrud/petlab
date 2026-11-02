@@ -6,18 +6,21 @@ import { useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { CharCount, errorText, LIMITS, loginHref, postHref } from "@/components/community/common";
 import { clearDraft, ReloginNotice, useDraftBackup } from "@/components/DraftRelogin";
-import { api, isAuthError } from "@/lib/api";
+import { EmailUnverifiedNotice, useEmailBlocked } from "@/components/EmailVerification";
+import { api, isAuthError, isEmailUnverified } from "@/lib/api";
 import type { Comment } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
 /** 댓글 쓰기 (회원만). 로그인하지 않았으면 로그인 안내를 보여 준다 */
 export default function CommentForm({ postId, onAdded }: { postId: string; onAdded: (c: Comment) => void }) {
-  const { status, user, refresh } = useAuth();
+  const { status, user, refresh, emailUnverified } = useAuth();
   const [body, setBody] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /** 댓글 등록이 로그인 문제로 실패했다 */
   const [loginLost, setLoginLost] = useState(false);
+  /** 서버가 이메일 인증 전이라고 거절했다 (쓴 내용은 그대로 두고 안내한다) */
+  const [emailBlocked, setEmailBlocked] = useEmailBlocked();
 
   const draftKey = `comment:${postId}`;
   const dirty = body.trim() !== "";
@@ -41,6 +44,7 @@ export default function CommentForm({ postId, onAdded }: { postId: string; onAdd
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setEmailBlocked(false);
     const text = body.trim();
     if (!text) {
       setError("댓글 내용을 입력해 주세요.");
@@ -60,6 +64,7 @@ export default function CommentForm({ postId, onAdded }: { postId: string; onAdd
       onAdded(c);
     } catch (err) {
       if (isAuthError(err)) setLoginLost(true); // 쓴 내용은 그대로 두고 다시 로그인하게 한다
+      else if (isEmailUnverified(err)) setEmailBlocked(true);
       else setError(errorText(err, "댓글을 올리지 못했어요. 다시 시도해 주세요."));
     } finally {
       setSubmitting(false);
@@ -88,9 +93,10 @@ export default function CommentForm({ postId, onAdded }: { postId: string; onAdd
         </p>
       )}
       {needsLogin && <ReloginNotice next={postHref(postId)} />}
+      {!needsLogin && (emailUnverified || emailBlocked) && <EmailUnverifiedNotice action="댓글을 쓸" />}
       <div className="flex items-center justify-between gap-3">
         <CharCount id="comment-body-count" length={body.length} max={LIMITS.comment} />
-        <button type="submit" className={ui.btnPrimary} disabled={submitting}>
+        <button type="submit" className={ui.btnPrimary} disabled={submitting || emailUnverified}>
           {submitting ? "등록 중…" : "댓글 등록"}
         </button>
       </div>

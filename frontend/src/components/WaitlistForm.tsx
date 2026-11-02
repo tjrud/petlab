@@ -4,7 +4,9 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 
-import { api, ApiError } from "@/lib/api";
+import { useAuth } from "@/components/AuthProvider";
+import { EmailUnverifiedNotice, useEmailBlocked } from "@/components/EmailVerification";
+import { api, ApiError, isEmailUnverified } from "@/lib/api";
 
 export default function WaitlistForm() {
   const params = useSearchParams();
@@ -17,10 +19,14 @@ export default function WaitlistForm() {
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { emailUnverified } = useAuth();
+  /** 서버가 이메일 인증 전이라고 거절했다 */
+  const [emailBlocked, setEmailBlocked] = useEmailBlocked();
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setEmailBlocked(false);
     if (!agree) {
       setError("알림 수신에 동의해 주세요.");
       return;
@@ -30,6 +36,10 @@ export default function WaitlistForm() {
       const r = await api.joinWaitlist(email.trim(), designId, version);
       setDone(r.message_ko);
     } catch (err) {
+      if (isEmailUnverified(err)) {
+        setEmailBlocked(true);
+        return;
+      }
       setError(err instanceof ApiError ? (err.status === 422 ? "이메일 주소를 확인해 주세요." : err.messageKo) : "등록하지 못했어요.");
     } finally {
       setSubmitting(false);
@@ -79,9 +89,10 @@ export default function WaitlistForm() {
           {error}
         </p>
       )}
+      {(emailUnverified || emailBlocked) && <EmailUnverifiedNotice action="제작·배송 신청을 할" />}
       <button
         type="submit"
-        disabled={submitting}
+        disabled={submitting || emailUnverified}
         className="w-full rounded-xl bg-amber-500 px-6 py-3 font-semibold text-white hover:bg-amber-600 disabled:bg-amber-300"
       >
         {submitting ? "등록 중…" : "대기 명단에 등록하기"}

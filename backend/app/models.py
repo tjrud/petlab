@@ -15,6 +15,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -33,6 +34,14 @@ class User(Base):
     """회원. 관리자는 환경변수(ADMIN_USERNAME/ADMIN_PASSWORD)로 로그인하며 password_hash 가 비어 있다."""
 
     __tablename__ = "users"
+    # 같은 이메일은 한 계정만 인증할 수 있다 (인증 전 주소는 겹칠 수 있다: 남의 주소를 먼저 적어 가입을 막지 못하게).
+    # 기존 DB 에는 db.py MIGRATION_INDEXES 가 같은 이름으로 만든다.
+    __table_args__ = (
+        Index("ix_users_email_key", "email_key"),
+        Index("ux_users_email_key_verified", "email_key", unique=True,
+              sqlite_where=text("email_verified_at IS NOT NULL"),
+              postgresql_where=text("email_verified_at IS NOT NULL")),
+    )
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
     username: Mapped[str] = mapped_column(String(32), unique=True)
@@ -43,6 +52,10 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(16), default="member")  # member | admin
     # 비밀번호를 바꾸면 올려서 다른 기기의 세션을 끊는다
     session_version: Mapped[int] = mapped_column(Integer, default=1)
+    # 이메일 인증 (아래 세 열은 기존 DB 에 마이그레이션으로 추가된다). email_key 는 비교용 정규화 주소
+    email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    email_key: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     @property
@@ -188,3 +201,18 @@ class UsageEvent(Base):
     kind: Mapped[str] = mapped_column(String(16))  # design | post | comment | habitat | waitlist
     ip_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class EmailToken(Base):
+    """이메일 인증 링크 토큰. 토큰 자체는 저장하지 않고 SHA-256 해시만 둔다 (DB 가 새어도 링크를 쓸 수 없게).
+    한 번 쓰면 used_at 을 채운다. email 은 토큰을 보낸 주소 (그 뒤 주소를 바꿨으면 이 토큰으로 인증되지 않는다)."""
+
+    __tablename__ = "email_tokens"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    purpose: Mapped[str] = mapped_column(String(16), default="verify")
+    email: Mapped[str] = mapped_column(String(320))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

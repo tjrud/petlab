@@ -22,7 +22,7 @@ export default function MemberArea() {
     );
   }
 
-  if (!user) return <SignupBanner signupEnabled={status.signup_enabled} />;
+  if (!user) return <SignupBanner signupEnabled={status.signup_enabled} emailRequired={status.email_verification} />;
 
   return (
     <section aria-labelledby="my-area-title" className="mt-12">

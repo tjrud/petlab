@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
 import { clearDraft, ReloginNotice, useDraftBackup } from "@/components/DraftRelogin";
+import { EmailUnverifiedNotice } from "@/components/EmailVerification";
 
 const EXAMPLES = ["조금 더 크게 해 주세요", "환기구를 10개로 늘려 주세요", "오른쪽으로 옮겨 주세요"];
 
@@ -14,6 +15,7 @@ export default function RevisePanel({
   busy,
   error,
   needsLogin,
+  emailBlocked,
   draftKey,
   loginNext,
   onSubmit,
@@ -26,13 +28,15 @@ export default function RevisePanel({
   error: string | null;
   /** 수정 요청이 로그인 문제로 실패했다 */
   needsLogin: boolean;
+  /** 수정 요청을 서버가 이메일 인증 전이라고 거절했다 */
+  emailBlocked: boolean;
   /** 로그인이 풀린 동안 쓴 요청을 맡겨 둘 이름 (설계마다 다르게) */
   draftKey: string;
   /** 다시 로그인한 뒤 돌아올 주소 */
   loginNext: string;
   onSubmit: (prompt: string) => Promise<boolean>;
 }) {
-  const { status, user } = useAuth();
+  const { status, user, emailUnverified } = useAuth();
   const [prompt, setPrompt] = useState("");
   const relogin = needsLogin || (status !== null && !user);
   // 쓴 요청은 맡겨 두었다가 다시 로그인하고 돌아오면 되살린다
@@ -94,9 +98,10 @@ export default function RevisePanel({
         </p>
       )}
       {relogin && <ReloginNotice next={loginNext} />}
+      {!relogin && (emailUnverified || emailBlocked) && <EmailUnverifiedNotice action="수정을 요청할" />}
       <button
         type="submit"
-        disabled={busy || !prompt.trim()}
+        disabled={busy || !prompt.trim() || emailUnverified}
         className="w-full rounded-xl bg-stone-800 px-4 py-2.5 font-semibold text-white hover:bg-stone-900 disabled:cursor-not-allowed disabled:bg-stone-300"
       >
         {busy ? "다시 설계하고 있어요…" : `v${baseVersion} 기준으로 다시 설계`}
