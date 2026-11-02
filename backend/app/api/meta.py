@@ -46,6 +46,15 @@ def species(request: Request) -> dict:
                         "display_name": s.display_name,
                         "max_recommended_count": s.max_recommended_count,
                         "count_warning_ko": s.count_warning_ko,
+                        # 가상 케이지 배치 검토(끼임 틈·출입구 앞 공간·오르는 높이)에 쓰는 규칙 값
+                        "layout_rules": {
+                            "gap_safe_max_mm": s.gap_trap.safe_max_mm,
+                            "gap_passable_min_mm": s.gap_trap.passable_min_mm,
+                            "entrance_min_diameter_mm": s.entrance_min_diameter_mm,
+                            "tunnel_min_inner_diameter_mm": s.tunnel_min_inner_diameter_mm,
+                            "max_climb_height_mm": s.max_climb_height_mm,
+                            "max_step_height_mm": s.max_step_height_mm,
+                        },
                     }
                     for skey, s in sp.sizes.items()
                 ],

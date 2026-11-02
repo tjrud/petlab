@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 
 export const NAV = [
   { href: "/design", label: "설계하기" },
+  { href: "/cage", label: "가상 케이지" },
   { href: "/designs", label: "내 설계" },
   { href: "/community", label: "커뮤니티" },
   { href: "/me", label: "내 정보" },

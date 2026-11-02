@@ -2,6 +2,9 @@ import type {
   AuthStatus,
   AuthStatusWithMail,
   Cage,
+  CageLayout,
+  CageLayoutInput,
+  CageLayoutSummary,
   Comment,
   Design,
   DesignListItem,
@@ -136,6 +139,14 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ email, design_id: designId ?? null, version: version ?? null }),
     }),
+
+  // 가상 케이지 배치안
+  layouts: () => request<CageLayoutSummary[]>("/layouts"),
+  layout: (id: string) => request<CageLayout>(`/layouts/${encodeURIComponent(id)}`),
+  createLayout: (body: CageLayoutInput) => request<CageLayout>("/layouts", json("POST", body)),
+  updateLayout: (id: string, body: CageLayoutInput) =>
+    request<CageLayout>(`/layouts/${encodeURIComponent(id)}`, json("PUT", body)),
+  deleteLayout: (id: string) => request<void>(`/layouts/${encodeURIComponent(id)}`, json("DELETE")),
 
   // 커뮤니티 (읽기는 누구나)
   posts: (page = 1, pageSize = 20) => request<Paged<PostSummary>>(`/community/posts?page=${page}&page_size=${pageSize}`),

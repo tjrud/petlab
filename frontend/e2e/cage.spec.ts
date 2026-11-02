@@ -1,0 +1,109 @@
+import { expect, type Page, test } from "@playwright/test";
+
+import { signup, stubTurnstile } from "./support";
+
+const SHOTS = process.env.E2E_SCREENSHOT_DIR;
+const RUN = Date.now().toString(36).slice(-5);
+
+test.beforeEach(async ({ page }) => {
+  await stubTurnstile(page);
+});
+
+const xPos = (page: Page) => page.getByLabel("가로 위치 (mm)");
+const status = (page: Page) => page.getByText(/^케이지 \d+×\d+×\d+mm · 구조물 \d+개$/);
+
+test("가상 케이지: 에셋 놓기·끌어 옮기기·되돌리기·회전·케이지 크기·저장", async ({ page }) => {
+  await page.goto("/cage");
+  await expect(page.getByRole("heading", { level: 1, name: "가상 케이지 공간 설계" })).toBeVisible();
+  await expect(status(page)).toHaveText("케이지 600×400×300mm · 구조물 0개");
+
+  // 기본 구성: 높이 30cm 케이지에는 21cm 쳇바퀴가 들어가요 (28cm 는 높이 초과)
+  await page.getByRole("button", { name: /기본 구성 한 번에 넣기/ }).click();
+  await expect(status(page)).toHaveText("케이지 600×400×300mm · 구조물 5개");
+  await expect(page.getByText(/쳇바퀴 높이 .*케이지 높이/)).toHaveCount(0);
+  // 벽·모서리부터 채워서 겹치거나 끼임 틈·출입구 막힘이 생기지 않아요
+  await expect(page.getByText("오류 0")).toBeVisible();
+  await expect(page.getByText("경고 0")).toBeVisible();
+  // 3D 위 치수 글자
+  await expect(page.getByText("가로 600mm · 앞")).toBeVisible();
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/cage-starter.png`, fullPage: true });
+
+  // 새로 만들기 (저장하지 않은 변경이 있어 확인 창이 뜬다)
+  page.once("dialog", (d) => void d.accept());
+  await page.getByRole("button", { name: "새로 만들기" }).click();
+  await expect(status(page)).toHaveText("케이지 600×400×300mm · 구조물 0개");
+
+  // 하나 놓으면 벽·모서리부터 채우고(뒤-왼쪽 모서리) 선택돼요
+  await page.getByRole("button", { name: "땅굴 상자 추가" }).click();
+  await expect(page.getByRole("heading", { level: 3, name: "땅굴 상자" })).toBeVisible();
+  await expect(xPos(page)).toHaveValue("150");
+  await expect(page.getByLabel("세로 위치 (mm)")).toHaveValue("300");
+  // 위치를 직접 입력해 가운데로
+  await xPos(page).fill("300");
+  await xPos(page).press("Enter");
+  await page.getByLabel("세로 위치 (mm)").fill("200");
+  await page.getByLabel("세로 위치 (mm)").press("Enter");
+  await expect(xPos(page)).toHaveValue("300");
+
+  // 위에서 보기: 화면 가운데가 케이지 가운데. 끌어서 오른쪽으로 옮겨요
+  await page.getByRole("button", { name: "위에서" }).click();
+  const canvas = page.locator("canvas");
+  const box = (await canvas.boundingBox())!;
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  await page.waitForTimeout(500);
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  for (let i = 1; i <= 10; i++) await page.mouse.move(cx + i * 8, cy, { steps: 2 });
+  await page.mouse.up();
+  await expect.poll(async () => Number(await xPos(page).inputValue())).toBeGreaterThan(310);
+
+  // 되돌리기 → 제자리
+  await page.getByRole("button", { name: "↶ 되돌리기" }).click();
+  await expect(xPos(page)).toHaveValue("300");
+
+  // 키보드: R 은 90° 회전, 방향키는 1cm 이동
+  await page.locator("body").press("r");
+  await expect(page.getByLabel("회전 (°)")).toHaveValue("90");
+  await page.locator("body").press("ArrowRight");
+  await expect(xPos(page)).toHaveValue("310");
+
+  // 위치를 직접 입력해 벽 밖으로 → 오류
+  await xPos(page).fill("20");
+  await xPos(page).press("Enter");
+  await expect(page.getByText("땅굴 상자가 케이지 밖으로 나가 있어요.").first()).toBeVisible();
+
+  // 케이지 크기 바꾸기
+  await page.getByRole("tab", { name: "케이지 크기" }).click();
+  await page.getByRole("button", { name: "대형 80×50×40" }).click();
+  await expect(status(page)).toHaveText("케이지 800×500×400mm · 구조물 1개");
+  await page.getByLabel("케이지 가로 (mm)").fill("150");
+  await expect(page.getByText("가로는 200~2000mm 사이로 입력해 주세요.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "크기 적용" })).toBeDisabled();
+  await page.getByLabel("케이지 가로 (mm)").fill("700");
+  await page.getByRole("button", { name: "크기 적용" }).click();
+  await expect(status(page)).toHaveText("케이지 700×500×400mm · 구조물 1개");
+  await page.getByRole("button", { name: "벽 안쪽으로 모두 옮기기" }).click();
+  await expect(page.getByText(/케이지 밖으로 나가 있어요/)).toHaveCount(0);
+
+  // 로그인 전에는 저장 대신 로그인 안내. 가입하고 돌아오면 작업이 그대로 있어요 (브라우저 임시 저장)
+  await expect(page.getByRole("link", { name: "로그인하고 저장" })).toBeVisible();
+  await signup(page, { username: `cage_${RUN}`, nickname: `케이지${RUN}`, password: "password-123" }, { next: "/cage" });
+  await page.goto("/cage");
+  await expect(status(page)).toHaveText("케이지 700×500×400mm · 구조물 1개");
+
+  await page.getByLabel("배치안 이름").fill("거실 케이지");
+  await page.getByRole("button", { name: "저장", exact: true }).click();
+  await expect(page.getByText("새 배치안으로 저장했어요.")).toBeVisible();
+  await expect(page).toHaveURL(/\/cage\?layout=[0-9a-f]{32}$/);
+  await expect(page.getByRole("button", { name: "저장", exact: true })).toBeDisabled();
+
+  // 새로 고침하면 계정에서 다시 불러와요
+  await page.reload();
+  await expect(page.getByLabel("배치안 이름")).toHaveValue("거실 케이지");
+  await expect(status(page)).toHaveText("케이지 700×500×400mm · 구조물 1개");
+  await page.getByRole("tab", { name: "내 배치안" }).click();
+  await expect(page.getByText("거실 케이지")).toBeVisible();
+  await expect(page.getByRole("button", { name: "열려 있음" })).toBeDisabled();
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/cage-saved.png`, fullPage: true });
+});

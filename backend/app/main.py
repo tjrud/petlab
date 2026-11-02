@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import DataError
 
 from app.api import auth as auth_api
-from app.api import community, designs, habitats, me, meta, waitlist
+from app.api import community, designs, habitats, layouts, me, meta, waitlist
 from app.auth import (
     AuthRequiredError,
     AuthUnavailableError,
@@ -200,9 +200,9 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
     # 응답의 mesh_url 등은 API 루트 기준 경로(/designs/...)이고, 프론트엔드가 API_BASE(/api)를 앞에 붙인다.
     # 권한은 엔드포인트마다 의존성으로 정한다:
     #  - 누구나: 상태 확인, 종 목록, 회원가입·로그인, 커뮤니티 읽기, 공유된 설계 보기
-    #  - 회원: 설계 만들기·수정·내역, 내 정보·반려동물, 글·댓글 쓰기, 제작 신청
-    for router in (meta.router, auth_api.router, me.router, habitats.router, designs.router, community.router,
-                   waitlist.router):
+    #  - 회원: 설계 만들기·수정·내역, 내 정보·반려동물, 가상 케이지 배치안, 글·댓글 쓰기, 제작 신청
+    for router in (meta.router, auth_api.router, me.router, habitats.router, designs.router, layouts.router,
+                   community.router, waitlist.router):
         app.include_router(router, prefix=prefix)
     return app
 

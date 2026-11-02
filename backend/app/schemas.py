@@ -314,6 +314,57 @@ class PetOut(BaseModel):
     updated_at: datetime
 
 
+# ── 가상 케이지 배치안 ─────────────────────────────────────
+
+MAX_LAYOUT_ITEMS = 80
+
+
+class LayoutItemIn(BaseModel):
+    """배치한 에셋 하나. 좌표는 케이지 좌표계(mm, 원점=앞-왼쪽 바닥 모서리)의 에셋 바닥 중심."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,40}$", description="화면이 붙인 항목 ID (배치안 안에서 유일)")
+    asset: str = Field(pattern=r"^[a-z0-9_]{1,40}$", description="에셋 카탈로그 키")
+    x_mm: float = Field(ge=-500, le=2500)
+    y_mm: float = Field(ge=-500, le=2500)
+    rotation_deg: float = Field(ge=0, lt=360)
+
+
+def _unique_item_ids(items: list[LayoutItemIn]) -> list[LayoutItemIn]:
+    if len({i.id for i in items}) != len(items):
+        raise ValueError("항목 ID 가 겹칩니다")
+    return items
+
+
+class CageLayoutIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: Annotated[str, Text1, Field(min_length=1, max_length=40), AfterValidator(_single_line)]
+    species: str = Field(max_length=32, examples=["hamster"])
+    size: str = Field(max_length=32, examples=["syrian"])
+    cage: CageIn
+    pet_id: EntityId | None = None
+    items: Annotated[list[LayoutItemIn], Field(max_length=MAX_LAYOUT_ITEMS), AfterValidator(_unique_item_ids)] = []
+
+
+class CageLayoutSummary(BaseModel):
+    id: str
+    name: str
+    species: str
+    size: str
+    size_name_ko: str
+    pet_id: str | None
+    cage: CageIn
+    item_count: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class CageLayoutOut(CageLayoutSummary):
+    items: list[LayoutItemIn]
+
+
 # ── 커뮤니티 ───────────────────────────────────────────────
 
 

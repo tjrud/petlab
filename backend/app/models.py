@@ -216,3 +216,23 @@ class EmailToken(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class CageLayout(Base):
+    """가상 케이지 배치안. 케이지 치수와 기본 에셋(쳇바퀴·은신처 등)의 위치·회전만 저장한다.
+    에셋 형상·치수는 프론트엔드 카탈로그(frontend/src/lib/cageAssets.ts)가 정하고, 서버는 키만 보관한다."""
+
+    __tablename__ = "cage_layouts"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    pet_id: Mapped[str | None] = mapped_column(ForeignKey("pets.id"), nullable=True)
+    name: Mapped[str] = mapped_column(String(40))
+    species: Mapped[str] = mapped_column(String(32))
+    size: Mapped[str] = mapped_column(String(32))
+    cage_width_mm: Mapped[float]
+    cage_depth_mm: Mapped[float]
+    cage_height_mm: Mapped[float]
+    items: Mapped[list] = mapped_column(JSON)  # [{id, asset, x_mm, y_mm, rotation_deg}]
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
