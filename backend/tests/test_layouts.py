@@ -24,6 +24,8 @@ def test_species_exposes_layout_rules(client):
     r = syrian["layout_rules"]
     assert r["gap_safe_max_mm"] < r["gap_passable_min_mm"]
     assert r["entrance_min_diameter_mm"] > 0 and r["max_climb_height_mm"] > 0
+    assert r["hideout_min_entrances"] >= 1 and len(r["sand_bath_min_inner_mm"]) == 2
+    assert r["enclosure_min_floor_mm"] == syrian["enclosure_min_floor_mm"]
 
 
 def test_layouts_require_login(client):

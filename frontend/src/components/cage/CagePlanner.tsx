@@ -36,12 +36,13 @@ const PlannerScene = dynamic(() => import("@/components/cage/PlannerScene"), {
   loading: () => <div className="grid h-full place-items-center text-sm text-stone-500">3D 화면 준비 중…</div>,
 });
 
-const DEFAULT_CAGE: Cage = { width_mm: 600, depth_mm: 400, height_mm: 300 };
+// 처음 크기는 종 규칙의 권장 최소 사육장(100×50×50cm, species.yaml enclosure_min_floor_mm)에 맞춰요
+const DEFAULT_CAGE: Cage = { width_mm: 1000, depth_mm: 500, height_mm: 500 };
 const DEFAULT_NAME = "새 배치안";
 const DRAFT_KEY = "nestforge:cage-draft:v1";
 const MAX_ITEMS = 80; // 서버 MAX_LAYOUT_ITEMS 와 같다
 /** "기본 구성 한 번에 넣기": 쳇바퀴는 케이지 높이에 들어가는 것 중 큰 것으로 */
-const STARTER = ["hideout_house", "wheel", "sand_bath", "bowl", "water_stand"];
+const STARTER = ["hideout_multi", "wheel", "sand_bath", "bowl", "water_stand"];
 const WHEELS = ["wheel_280", "wheel_210"];
 
 // ── 되돌리기 기록 ──

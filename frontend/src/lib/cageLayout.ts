@@ -189,6 +189,20 @@ export function checkLayout(cage: Cage, items: LayoutItem[], rules: LayoutRules 
   const isTrap = (gap: number) =>
     rules !== null && gap > rules.gap_safe_max_mm + TOL && gap < rules.gap_passable_min_mm - TOL;
 
+  // 케이지 자체가 권장 최소 바닥보다 작으면 (긴 변·짧은 변끼리 비교)
+  if (rules) {
+    const [minLong, minShort] = rules.enclosure_min_floor_mm;
+    const long = Math.max(W, D);
+    const short = Math.min(W, D);
+    if (long < minLong - TOL || short < minShort - TOL) {
+      add(
+        "warning",
+        "floor",
+        `케이지 바닥 ${Math.round(W / 10)}×${Math.round(D / 10)}cm가 권장 최소 ${Math.round(minLong / 10)}×${Math.round(minShort / 10)}cm보다 작아요. 더 넓은 케이지를 권장해요.`,
+      );
+    }
+  }
+
   for (const { item, asset, poly } of placed) {
     const g = wallGaps(poly, cage);
     const out = Object.values(g).some((v) => v < -TOL);
@@ -236,6 +250,26 @@ export function checkLayout(cage: Cage, items: LayoutItem[], rules: LayoutRules 
           "warning",
           `ceiling:${item.id}`,
           `${asset.name} 위와 천장 사이(${fmt(head)})에 끼일 수 있어요. 더 낮은 구조물을 쓰거나 천장이 높은 케이지가 좋아요.`,
+          item.id,
+        );
+      }
+    }
+    if (asset.entranceCount !== undefined && asset.entranceCount < rules.hideout_min_entrances) {
+      add(
+        "warning",
+        `exits:${item.id}`,
+        `${josa(asset.name, "은는")} 출입구가 ${asset.entranceCount}개라 막다른 곳이 될 수 있어요. 출입구가 ${rules.hideout_min_entrances}개 이상인 은신처를 권장해요.`,
+        item.id,
+      );
+    }
+    if (asset.sandBathInnerMm) {
+      const [mw, md] = rules.sand_bath_min_inner_mm;
+      const [iw, id] = asset.sandBathInnerMm;
+      if (Math.max(iw, id) < Math.max(mw, md) - TOL || Math.min(iw, id) < Math.min(mw, md) - TOL) {
+        add(
+          "warning",
+          `bath:${item.id}`,
+          `${asset.name} 안쪽 ${fmt(iw)}×${fmt(id)}가 권장 최소 ${fmt(mw)}×${fmt(md)}보다 작아요.`,
           item.id,
         );
       }

@@ -44,6 +44,10 @@ export type CageAsset = {
   climbHeightMm?: number;
   /** 넘어 들어가야 하는 턱 높이 mm (목욕통·땅굴 상자): 종별 최대 턱 높이와 비교해요 */
   stepHeightMm?: number;
+  /** 은신처 출입구 개수: 종별 최소 개수와 비교해요 (출입구가 하나면 막다른 곳이 돼요) */
+  entranceCount?: number;
+  /** 모래목욕통 안쪽 [가로, 세로] mm: 종별 최소 크기와 비교해요 */
+  sandBathInnerMm?: [number, number];
 };
 
 export const CATEGORIES: { key: AssetCategory; label: string }[] = [
@@ -66,6 +70,7 @@ export const CAGE_ASSETS: CageAsset[] = [
     description: "지붕 있는 1인용 집. 앞쪽 아치 출입구",
     accessSides: ["front"],
     entranceMm: 75,
+    entranceCount: 1,
   },
   {
     key: "hideout_multi",
@@ -74,9 +79,10 @@ export const CAGE_ASSETS: CageAsset[] = [
     shape: "multi_room",
     size: [300, 200, 140],
     color: "#c98f55",
-    description: "방이 2~3개로 나뉜 큰 은신처. 앞쪽 출입구",
+    description: "방이 나뉜 큰 은신처. 앞쪽 출입구 2개",
     accessSides: ["front"],
     entranceMm: 75,
+    entranceCount: 2,
   },
   {
     key: "hideout_log",
@@ -88,6 +94,7 @@ export const CAGE_ASSETS: CageAsset[] = [
     description: "앞뒤가 뚫린 반원형 굴",
     accessSides: ["front", "back"],
     entranceMm: 80,
+    entranceCount: 2,
   },
   {
     key: "hideout_corner",
@@ -99,6 +106,7 @@ export const CAGE_ASSETS: CageAsset[] = [
     description: "모서리에 붙여 쓰는 삼각 지붕 집",
     accessSides: ["front"],
     entranceMm: 75,
+    entranceCount: 1,
   },
   // 놀이·운동
   {
@@ -140,8 +148,8 @@ export const CAGE_ASSETS: CageAsset[] = [
     shape: "tray",
     size: [300, 200, 150],
     color: "#c4a484",
-    description: "깊게 파고들 수 있는 바닥재 상자. 앞쪽 턱 40mm",
-    stepHeightMm: 40,
+    description: "깊게 파고들 수 있는 바닥재 상자. 앞쪽 턱 30mm",
+    stepHeightMm: 30,
   },
   // 지형·층
   {
@@ -212,10 +220,11 @@ export const CAGE_ASSETS: CageAsset[] = [
     name: "모래목욕통",
     category: "care",
     shape: "tray",
-    size: [220, 160, 70],
+    size: [240, 220, 70],
     color: "#e6cf8f",
-    description: "모래를 담는 낮은 통. 턱 높이 40mm",
-    stepHeightMm: 40,
+    description: "모래를 담는 낮은 통. 안쪽 22×20cm, 턱 높이 30mm",
+    stepHeightMm: 30,
+    sandBathInnerMm: [224, 204],
   },
   {
     key: "toilet_corner",

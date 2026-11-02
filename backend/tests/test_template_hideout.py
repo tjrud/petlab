@@ -55,18 +55,32 @@ def test_parameter_range_builds_watertight(kwargs):
     np.testing.assert_allclose((lo[:2] + hi[:2]) / 2, [0, 0], atol=1e-6)
 
 
-def test_volume_matches_analytic_openings():
+@pytest.mark.parametrize("n_entrances", [1, 2])
+def test_volume_matches_analytic_openings(n_entrances):
     """출입구·환기구가 정확히 뚫렸는지 해석적 부피와 비교."""
     p = HideoutParams(width_mm=150, depth_mm=120, height_mm=100, entrance_diameter_mm=60,
-                      vent_count=6, vent_diameter_mm=4, wall_thickness_mm=3)
+                      entrance_count=n_entrances, vent_count=6, vent_diameter_mm=4, wall_thickness_mm=3)
     W, D, H, t, d = p.width_mm, p.depth_mm, p.height_mm, p.wall_thickness_mm, p.entrance_diameter_mm
     r = d / 2
     shell = W * D * H - (W - 2 * t) * (D - 2 * t) * (H - t)
     entrance = t * (d * r + math.pi * r**2 / 2)
     vents = p.vent_count * math.pi * (p.vent_diameter_mm / 2) ** 2 * t
-    expected = shell - entrance - vents
+    expected = shell - n_entrances * entrance - vents
     actual = T.build(p).volume
     assert actual == pytest.approx(expected, rel=2e-3)
+
+
+def test_back_entrance_is_open():
+    """출입구 2개: 뒷면 아치도 뚫리고, 뒤집어 출력해도 서포트가 필요 없다."""
+    p = HideoutParams(entrance_count=2)
+    part = T.build(p)
+    t, r, D = p.wall_thickness_mm, p.entrance_diameter_mm / 2, p.depth_mm
+    for wall_y in (-D / 2 + t / 2, D / 2 - t / 2):
+        assert not part.is_inside(Vector(0, wall_y, r * 0.5))
+        assert not part.is_inside(Vector(0, wall_y, r * 1.9))
+        assert part.is_inside(Vector(p.width_mm / 2 - t / 2, wall_y, r))
+    one = T.build(p.model_copy(update={"entrance_count": 1}))
+    assert one.is_inside(Vector(0, D / 2 - t / 2, r * 0.5))  # 출입구 1개면 뒷벽은 막혀 있다
 
 
 def test_entrance_and_vents_are_open():
@@ -152,9 +166,23 @@ def test_print_orientation_puts_roof_on_bed():
     assert bed_area == pytest.approx(p.width_mm * p.depth_mm - vent_area, rel=1e-2)
 
 
+def test_stored_params_without_entrance_count_keep_single_entrance():
+    """entrance_count 가 생기기 전에 저장된 설계는 다시 만들어도 출입구 1개 그대로여야 한다."""
+    old = HideoutParams(entrance_count=1).model_dump()
+    del old["entrance_count"]
+    assert T.load_stored_params(old).entrance_count == 1
+    assert T.load_stored_params({**old, "entrance_count": 2}).entrance_count == 2
+    assert HideoutParams.model_validate(old).entrance_count == 2  # 새 설계(LLM 값)의 기본값은 2
+
+
 def test_features():
-    f = T.features(HideoutParams(vent_count=0))
+    f = T.features(HideoutParams(vent_count=0, entrance_count=1))
     assert f.access_sides == ("front",)
     assert [o.kind for o in f.openings] == ["passage"]
+    assert f.entrance_count == 1
+    f1 = T.features(HideoutParams(vent_count=0, entrance_count=2))
+    assert f1.access_sides == ("front", "back")
+    assert [o.kind for o in f1.openings] == ["passage", "passage"]
+    assert f1.entrance_count == 2
     f2 = T.features(HideoutParams(vent_count=4))
     assert {o.kind for o in f2.openings} == {"passage", "vent"}

@@ -15,35 +15,35 @@ const status = (page: Page) => page.getByText(/^케이지 \d+×\d+×\d+mm · 구
 test("가상 케이지: 에셋 놓기·끌어 옮기기·되돌리기·회전·케이지 크기·저장", async ({ page }) => {
   await page.goto("/cage");
   await expect(page.getByRole("heading", { level: 1, name: "가상 케이지 공간 설계" })).toBeVisible();
-  await expect(status(page)).toHaveText("케이지 600×400×300mm · 구조물 0개");
+  await expect(status(page)).toHaveText("케이지 1000×500×500mm · 구조물 0개");
 
   // 기본 구성: 높이 30cm 케이지에는 21cm 쳇바퀴가 들어가요 (28cm 는 높이 초과)
   await page.getByRole("button", { name: /기본 구성 한 번에 넣기/ }).click();
-  await expect(status(page)).toHaveText("케이지 600×400×300mm · 구조물 5개");
+  await expect(status(page)).toHaveText("케이지 1000×500×500mm · 구조물 5개");
   await expect(page.getByText(/쳇바퀴 높이 .*케이지 높이/)).toHaveCount(0);
   // 벽·모서리부터 채워서 겹치거나 끼임 틈·출입구 막힘이 생기지 않아요
   await expect(page.getByText("오류 0")).toBeVisible();
   await expect(page.getByText("경고 0")).toBeVisible();
   // 3D 위 치수 글자
-  await expect(page.getByText("가로 600mm · 앞")).toBeVisible();
+  await expect(page.getByText("가로 1000mm · 앞")).toBeVisible();
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/cage-starter.png`, fullPage: true });
 
   // 새로 만들기 (저장하지 않은 변경이 있어 확인 창이 뜬다)
   page.once("dialog", (d) => void d.accept());
   await page.getByRole("button", { name: "새로 만들기" }).click();
-  await expect(status(page)).toHaveText("케이지 600×400×300mm · 구조물 0개");
+  await expect(status(page)).toHaveText("케이지 1000×500×500mm · 구조물 0개");
 
   // 하나 놓으면 벽·모서리부터 채우고(뒤-왼쪽 모서리) 선택돼요
   await page.getByRole("button", { name: "땅굴 상자 추가" }).click();
   await expect(page.getByRole("heading", { level: 3, name: "땅굴 상자" })).toBeVisible();
   await expect(xPos(page)).toHaveValue("150");
-  await expect(page.getByLabel("세로 위치 (mm)")).toHaveValue("300");
+  await expect(page.getByLabel("세로 위치 (mm)")).toHaveValue("400");
   // 위치를 직접 입력해 가운데로
-  await xPos(page).fill("300");
+  await xPos(page).fill("500");
   await xPos(page).press("Enter");
-  await page.getByLabel("세로 위치 (mm)").fill("200");
+  await page.getByLabel("세로 위치 (mm)").fill("250");
   await page.getByLabel("세로 위치 (mm)").press("Enter");
-  await expect(xPos(page)).toHaveValue("300");
+  await expect(xPos(page)).toHaveValue("500");
 
   // 위에서 보기: 화면 가운데가 케이지 가운데. 끌어서 오른쪽으로 옮겨요
   await page.getByRole("button", { name: "위에서" }).click();
@@ -56,17 +56,17 @@ test("가상 케이지: 에셋 놓기·끌어 옮기기·되돌리기·회전·�
   await page.mouse.down();
   for (let i = 1; i <= 10; i++) await page.mouse.move(cx + i * 8, cy, { steps: 2 });
   await page.mouse.up();
-  await expect.poll(async () => Number(await xPos(page).inputValue())).toBeGreaterThan(310);
+  await expect.poll(async () => Number(await xPos(page).inputValue())).toBeGreaterThan(510);
 
   // 되돌리기 → 제자리
   await page.getByRole("button", { name: "↶ 되돌리기" }).click();
-  await expect(xPos(page)).toHaveValue("300");
+  await expect(xPos(page)).toHaveValue("500");
 
   // 키보드: R 은 90° 회전, 방향키는 1cm 이동
   await page.locator("body").press("r");
   await expect(page.getByLabel("회전 (°)")).toHaveValue("90");
   await page.locator("body").press("ArrowRight");
-  await expect(xPos(page)).toHaveValue("310");
+  await expect(xPos(page)).toHaveValue("510");
 
   // 위치를 직접 입력해 벽 밖으로 → 오류
   await xPos(page).fill("20");
@@ -83,6 +83,8 @@ test("가상 케이지: 에셋 놓기·끌어 옮기기·되돌리기·회전·�
   await page.getByLabel("케이지 가로 (mm)").fill("700");
   await page.getByRole("button", { name: "크기 적용" }).click();
   await expect(status(page)).toHaveText("케이지 700×500×400mm · 구조물 1개");
+  // 종 규칙의 권장 최소 바닥(100×50cm)보다 작으면 경고
+  await expect(page.getByText("케이지 바닥 70×50cm가 권장 최소 100×50cm보다 작아요. 더 넓은 케이지를 권장해요.")).toBeVisible();
   await page.getByRole("button", { name: "벽 안쪽으로 모두 옮기기" }).click();
   await expect(page.getByText(/케이지 밖으로 나가 있어요/)).toHaveCount(0);
 

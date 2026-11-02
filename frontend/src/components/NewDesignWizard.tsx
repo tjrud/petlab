@@ -42,6 +42,13 @@ export function WizardSkeleton() {
   );
 }
 
+/** 케이지 바닥이 권장 최소 크기보다 작은지 (긴 변·짧은 변끼리 비교, 서버 check_enclosure 와 같다) */
+function cageBelowRecommended(cage: { w: number; d: number }, min: [number, number] | undefined): boolean {
+  if (!min) return false;
+  const [needLong, needShort] = min;
+  return Math.max(cage.w, cage.d) < needLong || Math.min(cage.w, cage.d) < needShort;
+}
+
 /** 최근 24시간 설계 횟수를 모두 쓴 경우의 안내 */
 function QuotaExhausted({ limit }: { limit: number | null }) {
   return (
@@ -482,6 +489,12 @@ export default function NewDesignWizard() {
               ))}
             </div>
             <p className="mt-2 text-xs text-stone-500">바닥재를 깐 상태의 내부 공간 기준으로 재 주세요.</p>
+            {sizeOpt && cageBelowRecommended(cage, sizeOpt.enclosure_min_floor_mm) && (
+              <p className="mt-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
+                ⚠️ 권장 사육장 바닥은 최소 {sizeOpt.enclosure_min_floor_mm[0] / 10}×
+                {sizeOpt.enclosure_min_floor_mm[1] / 10}cm예요. 설계는 할 수 있지만 더 넓은 사육장을 권장해요.
+              </p>
+            )}
           </fieldset>
 
           {habitatErrors.length > 0 && (

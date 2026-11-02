@@ -171,6 +171,13 @@ def check_openings(items: list[BuiltItem], size: SizeRules) -> list[Issue]:
     out = []
     gt = size.gap_trap
     for it in items:
+        n = it.features.entrance_count
+        if n is not None and n < size.hideout_min_entrances:
+            out.append(_err(
+                "too_few_entrances",
+                f"{it.label_ko}: 출입구가 {n}개뿐입니다. 막다른 곳이 없도록 {size.hideout_min_entrances}개 이상이어야 합니다.",
+                item_index=it.index, details={"count": n, "required": size.hideout_min_entrances},
+            ))
         for op in it.features.openings:
             if op.kind == "passage":
                 req = float(getattr(size, op.rule_key)) if op.rule_key else gt.passable_min_mm
@@ -285,6 +292,21 @@ def check_build_volume(items: list[BuiltItem], printing: PrintingRules) -> list[
     return out
 
 
+def check_enclosure(cage: Cage, size: SizeRules) -> list[Issue]:
+    """케이지 바닥이 권장 최소 크기보다 작으면 경고 (긴 변·짧은 변끼리 비교, 설계는 막지 않음)."""
+    need_long, need_short = size.enclosure_min_floor_mm
+    long_side = max(cage.width_mm, cage.depth_mm)
+    short_side = min(cage.width_mm, cage.depth_mm)
+    if long_side + 1e-6 < need_long or short_side + 1e-6 < need_short:
+        return [_warn(
+            "cage_below_recommended",
+            f"케이지 바닥 {cage.width_mm:g}×{cage.depth_mm:g}mm 가 {size.display_name} 권장 최소 "
+            f"{need_long:g}×{need_short:g}mm 보다 작습니다. 더 넓은 사육장을 권장합니다.",
+            details={"floor_mm": [cage.width_mm, cage.depth_mm], "recommended_mm": [need_long, need_short]},
+        )]
+    return []
+
+
 def check_count(count: int, size: SizeRules) -> list[Issue]:
     if count > size.max_recommended_count:
         return [_warn("count_exceeds", f"{count}마리: {size.count_warning_ko}",
@@ -298,6 +320,7 @@ def validate_all(
 ) -> list[Issue]:
     issues: list[Issue] = []
     issues += check_count(count, size)
+    issues += check_enclosure(cage, size)
     issues += check_mesh(items)
     issues += check_fit(items, cage)
     issues += check_overlap(items)

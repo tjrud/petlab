@@ -55,7 +55,7 @@ export default function CatalogPanel({ onAdd, onStarter, empty }: { onAdd: (a: C
           onClick={onStarter}
           className="mt-3 w-full rounded-xl border border-dashed border-amber-400 bg-amber-50 px-3 py-2.5 text-sm font-medium text-amber-900 hover:bg-amber-100"
         >
-          기본 구성 한 번에 넣기 (은신처·쳇바퀴·모래목욕통·밥그릇·급수기)
+          기본 구성 한 번에 넣기 (다방 은신처·쳇바퀴·모래목욕통·밥그릇·급수기)
         </button>
       )}
       <ul className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">

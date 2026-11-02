@@ -61,6 +61,7 @@ def build_user_message(req: InterpretRequest) -> str:
         "최대 턱(단) 높이(mm)": s.max_step_height_mm,
         "모래목욕통 최소 내부 [가로, 세로](mm)": list(s.sand_bath_min_inner_mm),
         "모래목욕통 최소 깊이(mm)": s.sand_bath_min_depth_mm,
+        "은신처 최소 출입구 개수": s.hideout_min_entrances,
     }
     habitat = {
         "종": h.species_name_ko,

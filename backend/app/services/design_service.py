@@ -470,7 +470,7 @@ class DesignService:
                 for it in todo:
                     try:
                         t = get_template(it["template"])
-                        built = build_item(it["index"], t, t.Params.model_validate(it["params"]), PlacementHint(),
+                        built = build_item(it["index"], t, t.load_stored_params(it["params"]), PlacementHint(),
                                            self.rules.printing)
                     except Exception as e:  # 템플릿 삭제·파라미터 스키마 변경·형상 커널 오류
                         log.exception("mesh regeneration failed: design=%s v=%s item=%s", design.id, v.version, it)
