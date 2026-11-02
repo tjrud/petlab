@@ -32,6 +32,9 @@ test("회원가입: 입력 확인과 중복 아이디", async ({ page }) => {
   await page.getByLabel("이메일").fill(emailOf(`dup2_${RUN}`));
   await page.getByLabel("비밀번호", { exact: true }).fill("password-123");
   await page.getByLabel("비밀번호 확인").fill("password-999");
+  // 칸을 벗어나면 불일치 안내가 나타나 아래 요소가 밀리므로, 먼저 벗어난 뒤 보안 확인을 누른다
+  await page.getByLabel("비밀번호 확인").blur();
+  await expect(page.getByText("비밀번호가 서로 달라요. 다시 확인해 주세요.")).toBeVisible();
   // 보안 확인 전에는 가입 버튼이 막혀 있다
   await expect(page.getByRole("button", { name: "가입하기" })).toBeDisabled();
   await page.getByLabel("로봇이 아니에요").check();
