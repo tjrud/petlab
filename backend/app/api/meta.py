@@ -15,6 +15,8 @@ def health(request: Request) -> dict:
         "llm_ready": request.app.state.llm_config_error is None,
         "auth_enabled": settings.auth_enabled,
         "auth_ready": settings.auth_mode != "misconfigured",
+        "email_verification": settings.email_mode,   # disabled | enabled | misconfigured
+        "captcha": settings.captcha_mode,
         "database": {
             "dialect": request.app.state.db_dialect,
             "persistent": not request.app.state.db_ephemeral,

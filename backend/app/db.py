@@ -85,12 +85,20 @@ MIGRATION_COLUMNS: list[tuple[str, str, str]] = [
     ("designs", "owner_id", "VARCHAR(32)"),
     ("designs", "title", "VARCHAR(80)"),
     ("design_versions", "created_by", "VARCHAR(32)"),
+    ("users", "email", "VARCHAR(320)"),
+    ("users", "email_key", "VARCHAR(320)"),
+    ("users", "email_verified_at", "TIMESTAMP WITH TIME ZONE"),
 ]
+# (인덱스 이름, 테이블, 인덱스 정의). 정의는 Postgres·SQLite 공통 문법만 쓴다
 MIGRATION_INDEXES: list[tuple[str, str, str]] = [
-    ("ix_habitats_owner_id", "habitats", "owner_id"),
-    ("ix_designs_owner_id", "designs", "owner_id"),
-    ("ix_design_versions_created_by", "design_versions", "created_by"),
-    ("ix_design_versions_created_at", "design_versions", "created_at"),
+    ("ix_habitats_owner_id", "habitats", "INDEX {name} ON habitats (owner_id)"),
+    ("ix_designs_owner_id", "designs", "INDEX {name} ON designs (owner_id)"),
+    ("ix_design_versions_created_by", "design_versions", "INDEX {name} ON design_versions (created_by)"),
+    ("ix_design_versions_created_at", "design_versions", "INDEX {name} ON design_versions (created_at)"),
+    ("ix_users_email_key", "users", "INDEX {name} ON users (email_key)"),
+    # 인증한 주소끼리만 겹치지 않게 (부분 유일 인덱스)
+    ("ux_users_email_key_verified", "users",
+     "UNIQUE INDEX {name} ON users (email_key) WHERE email_verified_at IS NOT NULL"),
 ]
 
 
@@ -103,10 +111,11 @@ def _migrate(conn) -> list[str]:
         if table in tables and column not in {c["name"] for c in insp.get_columns(table)}:
             conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
             added.append(f"{table}.{column}")
-    for name, table, column in MIGRATION_INDEXES:
+    for name, table, definition in MIGRATION_INDEXES:
         # 이미 있으면 DDL 을 보내지 않는다 (CREATE INDEX IF NOT EXISTS 도 테이블 잠금을 먼저 잡아 쓰기를 막는다)
         if table in tables and name not in {i["name"] for i in insp.get_indexes(table)}:
-            conn.execute(text(f"CREATE INDEX IF NOT EXISTS {name} ON {table} ({column})"))
+            kind, rest = definition.split(" {name} ", 1)
+            conn.execute(text(f"CREATE {kind} IF NOT EXISTS {name} {rest}"))
             added.append(name)
     return added
 

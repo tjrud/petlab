@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import get_db, get_service, make_router
-from app.auth import get_current_user, get_optional_user
+from app.auth import get_current_user, get_optional_user, get_verified_user
 from app.errors import ForbiddenError
 from app.models import Comment, DesignVersion, Post, User
 from app.schemas import (
@@ -120,7 +120,7 @@ def list_posts(page: int = Query(default=1, ge=1, le=MAX_PAGE), page_size: int =
 
 @router.post("/posts", response_model=PostOut, status_code=status.HTTP_201_CREATED, summary="글쓰기 (설계 첨부 가능)")
 def create_post(data: PostIn, request: Request, db: Session = Depends(get_db),
-                svc: DesignService = Depends(get_service), user: User = Depends(get_current_user)):
+                svc: DesignService = Depends(get_service), user: User = Depends(get_verified_user)):
     version = None
     if data.design_id is not None:
         design = svc.get_editable_design(db, data.design_id, user)  # 내 설계만 공유할 수 있다
@@ -169,7 +169,7 @@ def delete_post(post_id: str, db: Session = Depends(get_db), user: User = Depend
 @router.post("/posts/{post_id}/comments", response_model=CommentOut, status_code=status.HTTP_201_CREATED,
              summary="댓글 쓰기")
 def create_comment(post_id: str, data: CommentIn, request: Request, db: Session = Depends(get_db),
-                   user: User = Depends(get_current_user)):
+                   user: User = Depends(get_verified_user)):
     post = _get_post(db, post_id)
     limit = request.app.state.settings.comment_daily_limit
     _reserve(db, "comment", user, limit, f"댓글은 24시간에 {limit}개까지 쓸 수 있어요.", "too_many_comments")

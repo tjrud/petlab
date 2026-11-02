@@ -52,3 +52,16 @@ def nickname_key(nickname: str) -> str:
 def lookalike_key(nickname: str) -> str:
     """예약어 확인용: nickname_key 에 숫자·기호 닮은꼴을 접는다 (NestF0rge → nestforge)."""
     return nickname_key(nickname).translate(_LOOKALIKE)
+
+
+_GMAIL_DOMAINS = {"gmail.com", "googlemail.com"}
+
+
+def email_key(email: str) -> str:
+    """이메일 비교용 키: 소문자, 주소 뒤 +태그 무시, Gmail 은 점(.) 무시.
+    한 사람이 user+1@…, u.s.e.r@gmail.com 처럼 주소를 바꿔 가며 계정을 여러 개 인증하지 못하게 한다."""
+    local, _, domain = unicodedata.normalize("NFKC", email).strip().casefold().rpartition("@")
+    local = local.split("+", 1)[0]
+    if domain in _GMAIL_DOMAINS:
+        local, domain = local.replace(".", ""), "gmail.com"
+    return f"{local}@{domain}"[:320]

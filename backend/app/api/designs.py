@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, get_service, make_router
-from app.auth import client_key, get_current_user, get_optional_user
+from app.auth import client_key, get_current_user, get_optional_user, get_verified_user
 from app.models import User
 from app.schemas import DesignCreateIn, DesignListOut, DesignOut, DesignReviseIn
 from app.services.design_service import DesignService
@@ -34,7 +34,7 @@ def list_designs(page: int = Query(default=1, ge=1, le=10_000), page_size: int =
 
 @router.post("", response_model=DesignOut, status_code=status.HTTP_201_CREATED, summary="프롬프트로 설계 생성")
 def create_design(data: DesignCreateIn, request: Request, db: Session = Depends(get_db),
-                  svc: DesignService = Depends(get_service), user: User = Depends(get_current_user)):
+                  svc: DesignService = Depends(get_service), user: User = Depends(get_verified_user)):
     design, version = svc.create_design(db, data.habitat_id, data.prompt, user, ip_key=_ip_key(request))
     return svc.design_out(db, design, version, user)
 
@@ -42,7 +42,7 @@ def create_design(data: DesignCreateIn, request: Request, db: Session = Depends(
 @router.post("/{design_id}/revise", response_model=DesignOut, status_code=status.HTTP_201_CREATED,
              summary="추가 프롬프트로 설계 수정 (새 버전 생성, 이전 버전 유지)")
 def revise_design(design_id: str, data: DesignReviseIn, request: Request, db: Session = Depends(get_db),
-                  svc: DesignService = Depends(get_service), user: User = Depends(get_current_user)):
+                  svc: DesignService = Depends(get_service), user: User = Depends(get_verified_user)):
     design, version = svc.revise_design(db, design_id, data.prompt, user, data.base_version,
                                         ip_key=_ip_key(request))
     return svc.design_out(db, design, version, user)

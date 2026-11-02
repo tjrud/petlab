@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, get_service, make_router
-from app.auth import get_current_user
+from app.auth import get_verified_user
 from app.models import User, WaitlistEntry
 from app.schemas import WaitlistIn, WaitlistOut
 from app.services import usage
@@ -21,7 +21,7 @@ DONE_MESSAGE = "제작·배송 서비스 대기 명단에 등록했어요. 서�
 
 @router.post("", response_model=WaitlistOut, status_code=status.HTTP_201_CREATED, summary="제작·배송 대기 등록")
 def join_waitlist(data: WaitlistIn, db: Session = Depends(get_db), svc: DesignService = Depends(get_service),
-                  user: User = Depends(get_current_user)):
+                  user: User = Depends(get_verified_user)):
     if data.design_id:
         design, allowed = svc.get_visible(db, data.design_id, user)
         if data.version is not None:

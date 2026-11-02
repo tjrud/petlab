@@ -130,6 +130,19 @@ def cookie_secure(settings: Settings, request: Request) -> bool:
 # ── 로그인 시도 제한 ────────────────────────────────────────
 
 
+def client_ip(settings: Settings, request: Request) -> str | None:
+    """클라이언트 IP (CAPTCHA 확인에 함께 보낸다). 형식이 IP 가 아니면 None."""
+    raw = ""
+    if settings.client_ip_header:
+        raw = request.headers.get(settings.client_ip_header, "").split(",")[0].strip()
+    if not raw and request.client:
+        raw = request.client.host
+    try:
+        return str(ipaddress.ip_address(raw))
+    except ValueError:
+        return None
+
+
 def client_key(settings: Settings, request: Request, v6_prefix: int = 64) -> str:
     """시도 제한용 클라이언트 식별자. IPv6 는 v6_prefix 단위로 묶는다 (주소를 바꿔 가며 우회하지 못하게).
     계정을 여러 개 만드는 일(회원가입·설계 사용량)은 더 넓게(/56) 묶는다."""
@@ -337,6 +350,15 @@ def get_current_user(request: Request, user: User | None = Depends(get_optional_
         if request.app.state.settings.auth_mode == "misconfigured":
             raise AuthUnavailableError()
         raise AuthRequiredError()
+    return user
+
+
+def get_verified_user(request: Request, user: User = Depends(get_current_user)) -> User:
+    """이메일 인증이 켜져 있으면 인증을 마친 회원만 (설계·글쓰기·댓글·대기 신청: 비용·스팸이 드는 기능)."""
+    from app.services.email_verify import EmailUnverifiedError, needs_verification
+
+    if needs_verification(request.app.state.settings, user):
+        raise EmailUnverifiedError()
     return user
 
 

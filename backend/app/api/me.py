@@ -1,4 +1,4 @@
-"""내 정보: 프로필(닉네임·비밀번호)과 반려동물 정보."""
+"""내 정보: 프로필(닉네임·비밀번호·이메일)과 반려동물 정보."""
 
 from __future__ import annotations
 
@@ -23,9 +23,10 @@ from app.api.deps import get_db, get_service, make_router
 from app.auth import get_current_user
 from app.errors import AppError, ConflictError, ForbiddenError, QuotaExceededError
 from app.models import Design, Habitat, Pet, Post, User
-from app.names import nickname_key
+from app.names import email_key, nickname_key
 from app.passwords import hash_password, verify_password
-from app.schemas import CageIn, MeOut, PasswordChangeIn, PetIn, PetOut, ProfileUpdateIn
+from app.schemas import CageIn, EmailChangeIn, MeOut, PasswordChangeIn, PetIn, PetOut, ProfileUpdateIn
+from app.services import email_verify
 from app.services.design_service import _ID_RE, DesignService, NotFoundError
 
 router = make_router(prefix="/me", tags=["내 정보"])
@@ -76,6 +77,55 @@ def _change_password(db: Session, user: User, current: str, new: str) -> bool:
     except BaseException:
         db.rollback()
         raise
+
+
+def _change_email(db: Session, settings, mailer, user: User, current: str, new_email: str) -> tuple[bool, bool | None]:
+    """현재 비밀번호를 확인하고 이메일을 바꾼다 (스레드 풀에서 실행). (비밀번호 맞음, 인증 메일 보냄) 을 돌려준다."""
+    try:
+        if not verify_password(current, user.password_hash):
+            return False, None
+        key = email_key(new_email)
+        if user.email_key == key and user.email == new_email and user.email_verified_at is not None:
+            db.commit()
+            return True, None  # 그대로
+        if email_verify.verified_email_taken(db, key, exclude_user_id=user.id):
+            raise ConflictError("이미 다른 계정에서 인증한 이메일이에요.", code="email_taken")
+        user.email, user.email_key, user.email_verified_at = new_email, key, None
+        email_verify.forget_tokens(db, user.id)  # 예전 주소로 보낸 링크는 더 이상 쓰지 못한다
+        db.commit()
+    except BaseException:
+        db.rollback()
+        raise
+    if settings.email_mode != "enabled":
+        return True, None
+    try:
+        return True, email_verify.send_verification(db, settings, mailer, user)
+    except QuotaExceededError:
+        return True, False  # 주소는 바뀌었고, 나중에 다시 보낼 수 있다
+
+
+@router.patch("/email", summary="이메일 변경 (새 주소로 인증 메일을 보낸다)")
+async def change_email(data: EmailChangeIn, request: Request, db: Session = Depends(get_db),
+                       user: User = Depends(get_current_user)) -> Response:
+    settings = request.app.state.settings
+    if user.is_admin:
+        raise ForbiddenError("관리자 계정은 이메일을 등록하지 않아요.")
+    limiter = request.app.state.password_limiter  # 비밀번호 변경과 같은 제한 (세션을 훔친 사람이 비밀번호를 맞혀 보지 못하게)
+    key = f"user:{user.id}"
+    if not limiter.acquire(key):
+        raise QuotaExceededError("비밀번호 확인 시도가 너무 많아요. 15분 뒤에 다시 시도해 주세요.",
+                                 code="too_many_attempts")
+    try:
+        ok, sent = await run_in_threadpool(_change_email, db, settings, request.app.state.mailer, user,
+                                           data.current_password, str(data.email))
+    except BaseException:
+        limiter.release(key, failed=False)
+        raise
+    limiter.release(key, failed=not ok)
+    if not ok:
+        await asyncio.sleep(FAILED_LOGIN_DELAY_S)
+        raise AppError("현재 비밀번호가 올바르지 않아요.", code="invalid_credentials")
+    return JSONResponse(auth_status(settings, user, verification_email_sent=sent))
 
 
 @router.post("/password", summary="비밀번호 변경 (다른 기기의 로그인은 풀림)")

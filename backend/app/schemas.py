@@ -199,6 +199,13 @@ class UserOut(BaseModel):
     nickname: str
     role: Literal["member", "admin"]
     created_at: datetime
+    email: str | None = None       # 본인에게만 보인다 (로그인 상태 응답)
+    email_verified: bool = False   # 관리자는 항상 true
+
+
+class CaptchaOut(BaseModel):
+    provider: Literal["turnstile"]
+    site_key: str
 
 
 class AuthStatusOut(BaseModel):
@@ -206,6 +213,13 @@ class AuthStatusOut(BaseModel):
     authenticated: bool
     user: UserOut | None
     signup_enabled: bool
+    email_verification: bool = False   # 가입 시 이메일 필수 + 인증 전 설계·글쓰기 제한
+    captcha: CaptchaOut | None = None  # 회원가입에 CAPTCHA 가 필요하면 위젯 설정
+    verification_email_sent: bool | None = None  # 가입·이메일 변경 응답에서만: 인증 메일을 보냈는지
+
+
+Email = Annotated[EmailStr, Field(max_length=254)]
+CaptchaToken = Annotated[str, Field(max_length=2048)]
 
 
 class SignupIn(BaseModel):
@@ -214,6 +228,27 @@ class SignupIn(BaseModel):
     username: Username
     nickname: Nickname
     password: NewPassword
+    email: Email | None = None             # 이메일 인증이 켜져 있으면 필수
+    captcha_token: CaptchaToken | None = None  # CAPTCHA 가 켜져 있으면 필수
+
+
+class VerifyEmailIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(min_length=1, max_length=128)
+
+
+class ResendVerificationOut(BaseModel):
+    sent: bool
+    email: str | None
+    message_ko: str
+
+
+class EmailChangeIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: Email
+    current_password: str = Field(min_length=1, max_length=200)
 
 
 class ProfileUpdateIn(BaseModel):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import logging
 
 from fastapi import Depends, Request, Response, status
 from fastapi.concurrency import run_in_threadpool
@@ -19,21 +20,26 @@ from app.auth import (
     LOCAL_USERNAME,
     AuthUnavailableError,
     check_admin_credentials,
+    client_ip,
     client_key,
     cookie_secure,
     ensure_admin_user,
+    get_current_user,
     get_optional_user,
     issue_token,
     signing_key,
 )
+from app.captcha import CaptchaUnavailableError, check_captcha
 from app.config import Settings
-from app.errors import ConflictError, ForbiddenError, QuotaExceededError
+from app.errors import AppError, ConflictError, ForbiddenError, QuotaExceededError
 from app.models import User
-from app.names import lookalike_key, nickname_key
+from app.names import email_key, lookalike_key, nickname_key
 from app.passwords import hash_password, verify_password
-from app.schemas import AuthStatusOut, SignupIn, UserOut
+from app.schemas import AuthStatusOut, CaptchaOut, ResendVerificationOut, SignupIn, UserOut, VerifyEmailIn
+from app.services import email_verify
 
 router = make_router(prefix="/auth", tags=["회원 인증"])
+log = logging.getLogger(__name__)
 
 FAILED_LOGIN_DELAY_S = 0.5  # 실패 응답을 조금 늦춰 무차별 대입을 느리게 한다
 
@@ -53,14 +59,27 @@ class LoginIn(BaseModel):
 
 def user_out(user: User) -> UserOut:
     return UserOut(id=user.id, username=user.username, nickname=user.nickname, role=user.role,
-                   created_at=user.created_at)
+                   created_at=user.created_at, email=user.email,
+                   email_verified=user.is_admin or user.email_verified_at is not None)
 
 
-def auth_status(settings: Settings, user: User | None) -> dict:
+def signup_open(settings: Settings) -> bool:
+    """가입을 받을 수 있는지 (메일·CAPTCHA 설정이 잘못됐으면 받지 않는다: 인증 없이 계정이 생기지 않게)."""
+    return (settings.signup_enabled and settings.auth_mode == "enabled"
+            and settings.email_mode != "misconfigured" and settings.captcha_mode != "misconfigured")
+
+
+def auth_status(settings: Settings, user: User | None, verification_email_sent: bool | None = None) -> dict:
+    captcha = None
+    if settings.captcha_mode == "enabled":
+        captcha = CaptchaOut(provider="turnstile", site_key=settings.turnstile_site_key.strip())
     return AuthStatusOut(
         auth_enabled=settings.auth_enabled, authenticated=user is not None,
         user=user_out(user) if user else None,
-        signup_enabled=settings.signup_enabled and settings.auth_mode == "enabled",
+        signup_enabled=signup_open(settings),
+        email_verification=settings.email_mode == "enabled",
+        captcha=captcha,
+        verification_email_sent=verification_email_sent,
     ).model_dump(mode="json")
 
 
@@ -103,12 +122,21 @@ def signup(data: SignupIn, request: Request, db: Session = Depends(get_db)) -> R
         raise AuthUnavailableError()
     if settings.auth_mode == "disabled" or not settings.signup_enabled:
         raise ForbiddenError("지금은 회원가입을 받지 않아요.", code="signup_closed")
+    if settings.email_mode == "misconfigured":
+        raise email_verify.EmailUnavailableError()
+    if settings.captcha_mode == "misconfigured":
+        raise CaptchaUnavailableError()
     limiter = request.app.state.signup_limiter  # SIGNUP_PER_IP_PER_HOUR=0 이면 None (IP 별 제한 없음)
     if limiter is not None:
         key = client_key(settings, request, v6_prefix=SIGNUP_V6_PREFIX)
         # 성공·실패와 관계없이 시도 횟수를 센다 (아이디 존재 여부를 마구 묻지 못하게). 검사와 기록은 한 번에
         if not limiter.hit(key):
             raise QuotaExceededError("회원가입 요청이 너무 많아요. 잠시 뒤 다시 시도해 주세요.", code="too_many_signups")
+    # 로봇 확인은 아이디·닉네임 중복 확인보다 먼저 (자동으로 가입 가능 여부를 캐 보지 못하게). DB 를 쓰기 전이다
+    check_captcha(request.app.state.captcha_verifier, data.captcha_token, client_ip(settings, request))
+    email_on = settings.email_mode == "enabled"
+    if email_on and not data.email:
+        raise AppError("이메일을 입력해 주세요. 인증 메일을 보내 드려요.", code="email_required")
     if data.username in RESERVED_USERNAMES or data.username == settings.admin_username.lower():
         raise ConflictError("사용할 수 없는 아이디예요.", code="username_taken")
     if is_reserved_nickname(data.nickname, settings):
@@ -119,16 +147,27 @@ def signup(data: SignupIn, request: Request, db: Session = Depends(get_db)) -> R
         raise ConflictError("이미 사용 중인 아이디예요.", code="username_taken")
     if nickname_taken(db, data.nickname):
         raise ConflictError("이미 사용 중인 닉네임이에요.", code="nickname_taken")
+    address = str(data.email) if data.email else None
+    if address and email_verify.verified_email_taken(db, email_key(address)):
+        raise ConflictError("이미 다른 계정에서 인증한 이메일이에요.", code="email_taken")
     db.commit()  # 해시 계산(수십 ms) 동안 DB 연결을 쥐고 있지 않게 읽기 트랜잭션을 끝낸다
     user = User(username=data.username, nickname=data.nickname, nickname_key=nickname_key(data.nickname),
-                password_hash=hash_password(data.password), role="member")
+                password_hash=hash_password(data.password), role="member",
+                email=address, email_key=email_key(address) if address else None)
     db.add(user)
     try:
         db.commit()
     except IntegrityError:  # 같은 아이디·닉네임으로 동시에 가입한 경우
         db.rollback()
         raise ConflictError("이미 사용 중인 아이디 또는 닉네임이에요.", code="username_taken") from None
-    response = JSONResponse(status_code=201, content=auth_status(settings, user))
+    sent = None
+    if email_on:
+        try:
+            sent = email_verify.send_verification(db, settings, request.app.state.mailer, user)
+        except QuotaExceededError as e:  # 서비스 전체 발송 상한: 가입은 됐고, 나중에 다시 보낼 수 있다
+            log.warning("가입 인증 메일을 보내지 않았습니다 (%s)", e.code)
+            sent = False
+    response = JSONResponse(status_code=201, content=auth_status(settings, user, verification_email_sent=sent))
     set_session_cookie(response, settings, request, user)
     return response
 
@@ -202,3 +241,29 @@ def logout(request: Request) -> Response:
     response.delete_cookie(COOKIE_NAME, path="/", httponly=True, samesite="lax",
                            secure=cookie_secure(settings, request))
     return response
+
+
+# ── 이메일 인증 ────────────────────────────────────────────
+
+
+@router.post("/verify-email", summary="이메일 인증 (메일 속 링크의 토큰, 로그인 없이도)")
+def verify_email(data: VerifyEmailIn, db: Session = Depends(get_db)) -> dict:
+    email_verify.verify(db, data.token)
+    return {"ok": True, "message_ko": "이메일 인증을 마쳤어요. 이제 설계·글쓰기·댓글을 쓸 수 있어요."}
+
+
+@router.post("/verify-email/resend", response_model=ResendVerificationOut, summary="인증 메일 다시 보내기")
+def resend_verification(request: Request, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    settings: Settings = request.app.state.settings
+    if settings.email_mode != "enabled":
+        raise ForbiddenError("지금은 이메일 인증을 쓰지 않아요.", code="email_verification_disabled")
+    if user.is_admin:
+        raise ForbiddenError("관리자 계정은 이메일 인증이 필요 없어요.")
+    if user.email_verified_at is not None:
+        return ResendVerificationOut(sent=False, email=user.email, message_ko="이미 인증한 이메일이에요.")
+    sent = email_verify.send_verification(db, settings, request.app.state.mailer, user)
+    return ResendVerificationOut(
+        sent=sent, email=user.email,
+        message_ko=f"{user.email} 로 인증 메일을 보냈어요. 메일의 링크를 눌러 주세요." if sent
+        else "인증 메일을 보내지 못했어요. 잠시 뒤 다시 시도해 주세요.",
+    )

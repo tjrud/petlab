@@ -75,6 +75,27 @@ class Settings(BaseSettings):
     post_daily_limit: int = Field(default=20, ge=0, le=10_000)
     comment_daily_limit: int = Field(default=100, ge=0, le=100_000)
 
+    # 이메일 인증: EMAIL_PROVIDER 를 정하면 켜진다. 가입할 때 이메일이 필수이고, 인증 전에는 설계·글쓰기·댓글을 못 한다.
+    # smtp (Gmail 앱 비밀번호, 네이버 등) · resend (Resend API, 보내는 도메인 인증 필요) · file (로컬 개발·테스트: 파일로 저장)
+    email_provider: Literal["", "smtp", "resend", "file"] = ""
+    email_from: str = ""  # 보내는 사람. 예: "NestForge <no-reply@example.com>" (SMTP 는 로그인한 계정 주소와 같아야 하는 경우가 많다)
+    smtp_host: str = ""
+    smtp_port: int = Field(default=587, ge=1, le=65535)
+    smtp_username: str = ""
+    smtp_password: SecretStr | None = None
+    smtp_security: Literal["starttls", "ssl", "none"] = "starttls"
+    resend_api_key: SecretStr | None = None
+    email_outbox_dir: Path = BACKEND_DIR / "data" / "outbox"
+    # 메일 속 링크에 쓰는 사이트 주소 (예: https://petlab-sage.vercel.app). 요청 헤더로 정하지 않는다 (주소 위조 방지)
+    app_base_url: str = ""
+    email_token_ttl_hours: float = Field(default=24.0, gt=0, le=168)
+    email_daily_limit: int = Field(default=300, ge=0, le=1_000_000)  # 서비스 전체 최근 24시간 발송 상한 (메일 서비스 한도 보호)
+
+    # CAPTCHA (Cloudflare Turnstile): 두 키가 모두 있으면 회원가입에 CAPTCHA 를 요구한다
+    turnstile_site_key: str = ""
+    turnstile_secret_key: SecretStr | None = None
+    turnstile_verify_url: str = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+
     # 로그인 시도 제한에 쓸 클라이언트 IP 헤더 (플랫폼이 덮어써 위조할 수 없는 헤더만. 예: x-vercel-forwarded-for)
     client_ip_header: str | None = None
 
@@ -103,6 +124,43 @@ class Settings(BaseSettings):
         if len(secret.encode()) < MIN_SESSION_SECRET_BYTES:
             problems.append(f"SESSION_SECRET 이 없거나 {MIN_SESSION_SECRET_BYTES}바이트보다 짧습니다")
         return problems
+
+    @property
+    def email_problems(self) -> list[str]:
+        """이메일 인증 설정 문제 (비밀값은 담지 않는다). EMAIL_PROVIDER 가 비어 있으면 검사하지 않는다."""
+        if not self.email_provider:
+            return []
+        problems = []
+        if not self.email_from.strip():
+            problems.append("EMAIL_FROM 이 없습니다")
+        if self.email_provider == "smtp" and not self.smtp_host.strip():
+            problems.append("SMTP_HOST 가 없습니다")
+        if self.email_provider == "resend" and not (self.resend_api_key and self.resend_api_key.get_secret_value()):
+            problems.append("RESEND_API_KEY 가 없습니다")
+        if not self.email_base_url.startswith(("https://", "http://")):
+            problems.append("APP_BASE_URL(메일 속 링크 주소)이 없거나 http(s):// 로 시작하지 않습니다")
+        return problems
+
+    @property
+    def email_mode(self) -> Literal["disabled", "enabled", "misconfigured"]:
+        """disabled: 이메일 인증 없음 · enabled: 가입 시 이메일 필수, 인증 전 일부 기능 제한 · misconfigured: 가입을 막는다"""
+        if not self.email_provider:
+            return "disabled"
+        return "misconfigured" if self.email_problems else "enabled"
+
+    @property
+    def email_base_url(self) -> str:
+        """메일 속 링크의 사이트 주소. APP_BASE_URL 이 없으면 CORS 허용 출처의 첫 값 (로컬 개발)."""
+        base = self.app_base_url.strip() or (self.cors_origin_list[0] if self.cors_origin_list else "")
+        return base.rstrip("/")
+
+    @property
+    def captcha_mode(self) -> Literal["disabled", "enabled", "misconfigured"]:
+        site = bool(self.turnstile_site_key.strip())
+        secret = bool(self.turnstile_secret_key and self.turnstile_secret_key.get_secret_value().strip())
+        if site and secret:
+            return "enabled"
+        return "misconfigured" if site or secret else "disabled"
 
     @property
     def auth_mode(self) -> Literal["disabled", "enabled", "misconfigured"]:
