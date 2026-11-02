@@ -36,7 +36,7 @@ const PlannerScene = dynamic(() => import("@/components/cage/PlannerScene"), {
   loading: () => <div className="grid h-full place-items-center text-sm text-stone-500">3D 화면 준비 중…</div>,
 });
 
-// 처음 크기는 종 규칙의 권장 최소 사육장(100×50×50cm, species.yaml enclosure_min_floor_mm)에 맞춰요
+// 처음 크기는 종 규칙의 사육장 최소 기준(100×50×50cm, species.yaml enclosure_min_floor_mm)에 맞춰요
 const DEFAULT_CAGE: Cage = { width_mm: 1000, depth_mm: 500, height_mm: 500 };
 const DEFAULT_NAME = "새 배치안";
 const DRAFT_KEY = "nestforge:cage-draft:v1";

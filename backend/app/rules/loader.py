@@ -34,6 +34,16 @@ class GapTrapRule(_Strict):
         return self.safe_max_mm + eps < gap_mm < self.passable_min_mm - eps
 
 
+class HideoutEntranceRule(_Strict):
+    """은신처 출입구 최소 개수. 혼자 키울 때와 여러 마리를 함께 키울 때를 따로 둔다."""
+
+    single: Annotated[int, Field(ge=1)]
+    group: Annotated[int, Field(ge=1)]
+
+    def for_count(self, count: int) -> int:
+        return self.group if count >= 2 else self.single
+
+
 class SizeRules(_Strict):
     display_name: str
     entrance_min_diameter_mm: PositiveMM
@@ -45,9 +55,9 @@ class SizeRules(_Strict):
     max_step_height_mm: PositiveMM
     sand_bath_min_inner_mm: tuple[PositiveMM, PositiveMM]
     sand_bath_min_depth_mm: PositiveMM
-    # 은신처 출입구 최소 개수 (막다른 곳 방지)
-    hideout_min_entrances: Annotated[int, Field(ge=1)]
-    # 권장 최소 사육장 바닥 [긴 변, 짧은 변]. 작으면 경고만 한다 (설계는 막지 않음)
+    # 은신처 출입구 최소 개수 (여러 마리가 함께 지낼 때 막다른 곳 방지)
+    hideout_min_entrances: HideoutEntranceRule
+    # 사육장 최소 바닥 기준 [긴 변, 짧은 변]. 작으면 경고만 한다 (설계는 막지 않음)
     enclosure_min_floor_mm: tuple[PositiveMM, PositiveMM]
     max_recommended_count: Annotated[int, Field(ge=1)]
     count_warning_ko: str

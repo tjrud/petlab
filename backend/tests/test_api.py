@@ -163,7 +163,7 @@ def test_legacy_hideout_rebuilds_with_single_entrance(client, tmp_path):
     from app.models import DesignVersion
     from app.templates.hideout import HideoutParams, HideoutTemplate
 
-    d = design(client)
+    d = design(client, count=2)  # 여러 마리 → 출입구 2개로 저장된다
     it = d["current"]["items"][0]
     with client.app.state.session_factory() as db:
         v = db.query(DesignVersion).filter_by(design_id=d["id"]).one()
@@ -181,6 +181,47 @@ def test_legacy_hideout_rebuilds_with_single_entrance(client, tmp_path):
     double = HideoutTemplate().build(HideoutParams(**stored, entrance_count=2)).volume
     assert abs(mesh.volume - single) < abs(mesh.volume - double)
     assert mesh.volume == pytest.approx(single, rel=5e-3)
+
+
+def test_revising_legacy_hideout_reports_added_door(client):
+    """예전(출입구 개수 없던 시절) 설계를 고치면 직전 설계를 출입구 1개로 읽고, 2개로 바뀌면 보정 안내를 남긴다."""
+    from app.models import DesignVersion
+
+    d = design(client, count=2)
+
+    def strip(spec):
+        items = [{**x, "params": {k: v for k, v in x["params"].items() if k != "entrance_count"}}
+                 for x in spec["items"]]
+        return {**spec, "items": items}
+
+    with client.app.state.session_factory() as db:
+        v = db.query(DesignVersion).filter_by(design_id=d["id"]).one()
+        v.effective_spec = strip(v.effective_spec)
+        v.llm_spec = strip(v.llm_spec)
+        db.commit()
+    r = client.post(f"/designs/{d['id']}/revise", json={"prompt": "환기구 10개로 바꿔 주세요"})
+    assert r.status_code == 201, r.text
+    cur = r.json()["current"]
+    assert cur["items"][0]["params"]["entrance_count"] == 2
+    fixed = [i for i in cur["validation"]["issues"]
+             if i["code"] == "param_adjusted" and i["details"].get("field") == "entrance_count"]
+    assert fixed, cur["validation"]["issues"]
+
+
+def test_previous_spec_fills_legacy_defaults():
+    from app.services.design_service import DesignService
+
+    spec = {"summary_ko": "", "items": [
+        {"template": "hideout", "params": {"width_mm": 150}},
+        {"template": "hideout", "params": {"entrance_count": 2}},
+        {"template": "castle", "params": {}},
+        "junk",
+    ]}
+    out = DesignService._with_legacy_defaults(spec)["items"]
+    assert out[0]["params"] == {"entrance_count": 1, "width_mm": 150}  # 저장 당시 없던 값만 채운다
+    assert out[1]["params"] == {"entrance_count": 2}
+    assert out[2] == {"template": "castle", "params": {}} and out[3] == "junk"  # 형식 검증은 parse_spec 몫
+    assert spec["items"][0]["params"] == {"width_mm": 150}  # 원본(DB 값)은 바꾸지 않는다
 
 
 # ── LLM 오류 안내 ───────────────────────────────────────────

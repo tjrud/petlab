@@ -189,7 +189,7 @@ export function checkLayout(cage: Cage, items: LayoutItem[], rules: LayoutRules 
   const isTrap = (gap: number) =>
     rules !== null && gap > rules.gap_safe_max_mm + TOL && gap < rules.gap_passable_min_mm - TOL;
 
-  // 케이지 자체가 권장 최소 바닥보다 작으면 (긴 변·짧은 변끼리 비교)
+  // 케이지 자체가 최소 바닥 기준보다 작으면 (긴 변·짧은 변끼리 비교)
   if (rules) {
     const [minLong, minShort] = rules.enclosure_min_floor_mm;
     const long = Math.max(W, D);
@@ -198,7 +198,7 @@ export function checkLayout(cage: Cage, items: LayoutItem[], rules: LayoutRules 
       add(
         "warning",
         "floor",
-        `케이지 바닥 ${Math.round(W / 10)}×${Math.round(D / 10)}cm가 권장 최소 ${Math.round(minLong / 10)}×${Math.round(minShort / 10)}cm보다 작아요. 더 넓은 케이지를 권장해요.`,
+        `케이지 바닥 ${Math.round(W / 10)}×${Math.round(D / 10)}cm가 최소 기준 ${Math.round(minLong / 10)}×${Math.round(minShort / 10)}cm보다 작아요. 더 넓은 케이지를 권장해요.`,
       );
     }
   }
@@ -269,7 +269,7 @@ export function checkLayout(cage: Cage, items: LayoutItem[], rules: LayoutRules 
         add(
           "warning",
           `bath:${item.id}`,
-          `${asset.name} 안쪽 ${fmt(iw)}×${fmt(id)}가 권장 최소 ${fmt(mw)}×${fmt(md)}보다 작아요.`,
+          `${asset.name} 안쪽 ${fmt(iw)}×${fmt(id)}가 최소 기준 ${fmt(mw)}×${fmt(md)}보다 작아요.`,
           item.id,
         );
       }

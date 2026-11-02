@@ -55,7 +55,9 @@ def species(request: Request) -> dict:
                             "tunnel_min_inner_diameter_mm": s.tunnel_min_inner_diameter_mm,
                             "max_climb_height_mm": s.max_climb_height_mm,
                             "max_step_height_mm": s.max_step_height_mm,
-                            "hideout_min_entrances": s.hideout_min_entrances,
+                            # 혼자 키울 때 / 여러 마리를 함께 키울 때 은신처 출입구 최소 개수
+                            "hideout_min_entrances": s.hideout_min_entrances.single,
+                            "hideout_min_entrances_group": s.hideout_min_entrances.group,
                             "sand_bath_min_inner_mm": list(s.sand_bath_min_inner_mm),
                             "enclosure_min_floor_mm": list(s.enclosure_min_floor_mm),
                         },

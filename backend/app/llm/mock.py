@@ -112,7 +112,7 @@ class MockInterpreter:
     def interpret(self, req: InterpretRequest) -> InterpretResult:
         text = req.prompt
         registry = {t.key: t for t in all_templates()}
-        ctx = RuleContext(req.size_rules, req.min_wall_mm)
+        ctx = RuleContext(req.size_rules, req.min_wall_mm, req.habitat.count)
         notes: list[str] = []
 
         requested = _find_templates(text)

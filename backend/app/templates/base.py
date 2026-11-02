@@ -86,6 +86,11 @@ class RuleContext:
 
     size: SizeRules
     min_wall_mm: float  # max(종 갉음 기준, 출력 최소 벽)
+    count: int = 1  # 함께 지내는 마릿수 (마릿수에 따라 달라지는 규칙용)
+
+    @property
+    def hideout_min_entrances(self) -> int:
+        return self.size.hideout_min_entrances.for_count(self.count)
 
 
 class Template(ABC):

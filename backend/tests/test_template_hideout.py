@@ -172,7 +172,15 @@ def test_stored_params_without_entrance_count_keep_single_entrance():
     del old["entrance_count"]
     assert T.load_stored_params(old).entrance_count == 1
     assert T.load_stored_params({**old, "entrance_count": 2}).entrance_count == 2
-    assert HideoutParams.model_validate(old).entrance_count == 2  # 새 설계(LLM 값)의 기본값은 2
+
+
+@pytest.mark.parametrize("count,doors", [(1, 1), (2, 2), (4, 2)])
+def test_default_and_constraints_follow_animal_count(rules, count, doors):
+    s = rules.size_rules("hamster", "syrian")
+    ctx = RuleContext(s, rules.min_wall_for("hamster", "syrian"), count)
+    assert T.default_params(ctx).entrance_count == doors
+    mins = [c.min for c in T.constraints(HideoutParams(), ctx) if c.field == "entrance_count"]
+    assert mins == ([] if doors == 1 else [2])
 
 
 def test_features():

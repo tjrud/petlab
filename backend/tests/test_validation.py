@@ -159,12 +159,14 @@ def test_count_warning(syrian):
     assert issues[0].severity == "warning" and syrian.count_warning_ko in issues[0].message_ko
 
 
-def test_single_entrance_hideout_flagged(rules, syrian):
-    """DTSchB 근거: 출입구가 하나뿐인 은신처는 막다른 곳이 되므로 오류."""
+def test_single_entrance_hideout_flagged_only_for_groups(rules, syrian):
+    """DTSchB 근거: 여러 마리가 함께 지내면 출입구 하나뿐인 은신처는 막다른 곳이 되므로 오류. 혼자면 괜찮다."""
     one = _hideout(rules, entrance_diameter_mm=75, entrance_count=1)
     two = _hideout(rules, entrance_diameter_mm=75, entrance_count=2)
-    assert codes(checks.check_openings([one], syrian)) == ["too_few_entrances"]
-    assert checks.check_openings([two], syrian) == []
+    assert checks.check_openings([one], syrian) == []
+    assert checks.check_openings([one], syrian, count=1) == []
+    assert codes(checks.check_openings([one], syrian, count=2)) == ["too_few_entrances"]
+    assert checks.check_openings([two], syrian, count=2) == []
 
 
 def test_two_entrance_hideout_prints_without_support(rules):
