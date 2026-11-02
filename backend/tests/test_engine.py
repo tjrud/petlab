@@ -49,13 +49,27 @@ def test_height_clamped_to_cage(rules):
 
 
 def test_resized_to_fit_small_cage(rules):
-    # 출입구 2개(앞·뒤) 은신처는 양쪽에 70mm 통로가 필요하다: 300-140=160 ≥ 줄인 세로 150 (60%)
-    cage = Cage(300, 260, 300)
+    cage = Cage(260, 230, 300)
     spec = ItemSpec("hideout", dict(width_mm=300, depth_mm=250, height_mm=150, entrance_diameter_mm=75))
     res = run_engine([spec], ctx(rules, cage))
     assert by_code(res.report, "resized_to_fit")
     assert res.items[0].placement is not None
     assert res.report.passed, res.report.errors
+
+
+@pytest.mark.parametrize("count,doors", [(1, 1), (2, 2), (3, 2)])
+def test_hideout_entrances_follow_animal_count(rules, count, doors):
+    """혼자면 출입구 1개(추가 요구 없음), 여러 마리면 DTSchB 근거로 2개."""
+    res = run_engine([ItemSpec("hideout", dict(entrance_diameter_mm=75))], ctx(rules, count=count))
+    assert res.items[0].params.entrance_count == doors
+    assert res.report.passed, res.report.errors
+
+
+def test_single_door_hideout_raised_for_group_with_notice(rules):
+    res = run_engine([ItemSpec("hideout", dict(entrance_diameter_mm=75, entrance_count=1))], ctx(rules, count=2))
+    assert res.items[0].params.entrance_count == 2
+    fixed = [i for i in by_code(res.report, "param_adjusted") if i.details.get("field") == "entrance_count"]
+    assert fixed and fixed[0].auto_fixed and "2마리" in fixed[0].message_ko
 
 
 def test_impossible_cage_reports_error(rules):

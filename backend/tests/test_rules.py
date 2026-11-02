@@ -77,7 +77,10 @@ def test_sourced_values(rules):
         s = rules.size_rules("hamster", size)
         assert s.sand_bath_min_inner_mm == (200, 200)
         assert s.enclosure_min_floor_mm == (1000, 500)
-        assert s.hideout_min_entrances == 2
+        # DTSchB 의 "출입구 최소 2개"는 여러 마리가 함께 지낼 때의 이유라서 그때만 적용한다
+        assert (s.hideout_min_entrances.single, s.hideout_min_entrances.group) == (1, 2)
+        assert s.hideout_min_entrances.for_count(1) == 1
+        assert s.hideout_min_entrances.for_count(2) == 2
         assert s.max_recommended_count == 1
     assert rules.size_rules("hamster", "dwarf").entrance_min_diameter_mm == 50
     assert rules.size_rules("hamster", "syrian").entrance_min_diameter_mm == 70

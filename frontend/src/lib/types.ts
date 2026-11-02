@@ -60,11 +60,13 @@ export type LayoutRules = {
   tunnel_min_inner_diameter_mm: number;
   max_climb_height_mm: number;
   max_step_height_mm: number;
-  /** 은신처 출입구 최소 개수 (막다른 곳 방지) */
+  /** 은신처 출입구 최소 개수 (혼자 키울 때) */
   hideout_min_entrances: number;
+  /** 은신처 출입구 최소 개수 (여러 마리를 함께 키울 때, 서로 피할 수 있도록) */
+  hideout_min_entrances_group?: number;
   /** 모래목욕통 최소 안쪽 크기 [가로, 세로] mm */
   sand_bath_min_inner_mm: [number, number];
-  /** 권장 최소 사육장 바닥 [긴 변, 짧은 변] mm */
+  /** 사육장 최소 바닥 기준 [긴 변, 짧은 변] mm */
   enclosure_min_floor_mm: [number, number];
 };
 
@@ -73,7 +75,7 @@ export type SizeOption = {
   display_name: string;
   max_recommended_count: number;
   count_warning_ko: string;
-  /** 권장 최소 사육장 바닥 [긴 변, 짧은 변] mm */
+  /** 사육장 최소 바닥 기준 [긴 변, 짧은 변] mm */
   enclosure_min_floor_mm: [number, number];
   layout_rules: LayoutRules;
 };

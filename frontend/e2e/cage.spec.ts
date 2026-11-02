@@ -83,8 +83,8 @@ test("가상 케이지: 에셋 놓기·끌어 옮기기·되돌리기·회전·�
   await page.getByLabel("케이지 가로 (mm)").fill("700");
   await page.getByRole("button", { name: "크기 적용" }).click();
   await expect(status(page)).toHaveText("케이지 700×500×400mm · 구조물 1개");
-  // 종 규칙의 권장 최소 바닥(100×50cm)보다 작으면 경고
-  await expect(page.getByText("케이지 바닥 70×50cm가 권장 최소 100×50cm보다 작아요. 더 넓은 케이지를 권장해요.")).toBeVisible();
+  // 종 규칙의 최소 바닥 기준(100×50cm)보다 작으면 경고
+  await expect(page.getByText("케이지 바닥 70×50cm가 최소 기준 100×50cm보다 작아요. 더 넓은 케이지를 권장해요.")).toBeVisible();
   await page.getByRole("button", { name: "벽 안쪽으로 모두 옮기기" }).click();
   await expect(page.getByText(/케이지 밖으로 나가 있어요/)).toHaveCount(0);
 

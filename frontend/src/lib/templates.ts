@@ -12,6 +12,7 @@ export const PARAM_LABELS: Record<string, string> = {
   depth_mm: "세로",
   height_mm: "높이",
   entrance_diameter_mm: "출입구 폭",
+  entrance_count: "출입구 개수",
   vent_count: "환기구 개수",
   vent_diameter_mm: "환기구 지름",
   wall_thickness_mm: "벽 두께",

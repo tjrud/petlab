@@ -234,12 +234,29 @@ class DesignService:
         return design, generated["row"]
 
     @staticmethod
-    def _previous_spec(base: DesignVersion):
+    def _with_legacy_defaults(spec: dict) -> dict:
+        """저장 당시 없던 파라미터를 legacy_defaults 로 채운다 (메시 재생성과 같은 형상을 LLM 에게 보여 주도록)."""
+        items = []
+        for it in spec.get("items") or []:
+            if not isinstance(it, dict):  # 형식 오류는 parse_spec 이 걸러낸다
+                items.append(it)
+                continue
+            try:
+                legacy = get_template(it.get("template")).legacy_defaults
+            except Exception:  # 알 수 없는 템플릿도 parse_spec 이 걸러낸다
+                legacy = {}
+            if legacy and isinstance(it.get("params"), dict):
+                it = {**it, "params": {**legacy, **it["params"]}}
+            items.append(it)
+        return {**spec, "items": items}
+
+    @classmethod
+    def _previous_spec(cls, base: DesignVersion):
         for candidate in (base.effective_spec, base.llm_spec):
             try:
                 import json
 
-                return parse_spec(json.dumps(candidate, ensure_ascii=False))
+                return parse_spec(json.dumps(cls._with_legacy_defaults(candidate), ensure_ascii=False))
             except Exception:  # 검증 실패 시 다음 후보
                 continue
         return None

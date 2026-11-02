@@ -51,7 +51,7 @@ class EngineContext:
 
     @property
     def rule_ctx(self) -> RuleContext:
-        return RuleContext(self.size_rules, self.min_wall_mm)
+        return RuleContext(self.size_rules, self.min_wall_mm, self.count)
 
 
 @dataclass

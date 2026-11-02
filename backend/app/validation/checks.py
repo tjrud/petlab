@@ -167,16 +167,18 @@ def check_access(items: list[BuiltItem], cage: Cage, size: SizeRules) -> list[Is
 # ── 개구부 / 오르기 ─────────────────────────────────────────
 
 
-def check_openings(items: list[BuiltItem], size: SizeRules) -> list[Issue]:
+def check_openings(items: list[BuiltItem], size: SizeRules, count: int = 1) -> list[Issue]:
     out = []
     gt = size.gap_trap
+    need = size.hideout_min_entrances.for_count(count)
     for it in items:
         n = it.features.entrance_count
-        if n is not None and n < size.hideout_min_entrances:
+        if n is not None and n < need:
             out.append(_err(
                 "too_few_entrances",
-                f"{it.label_ko}: 출입구가 {n}개뿐입니다. 막다른 곳이 없도록 {size.hideout_min_entrances}개 이상이어야 합니다.",
-                item_index=it.index, details={"count": n, "required": size.hideout_min_entrances},
+                f"{it.label_ko}: 출입구가 {n}개뿐입니다. {count}마리가 함께 지내면 서로 피할 수 있도록 "
+                f"{need}개 이상이어야 합니다.",
+                item_index=it.index, details={"count": n, "required": need, "animals": count},
             ))
         for op in it.features.openings:
             if op.kind == "passage":
@@ -293,14 +295,14 @@ def check_build_volume(items: list[BuiltItem], printing: PrintingRules) -> list[
 
 
 def check_enclosure(cage: Cage, size: SizeRules) -> list[Issue]:
-    """케이지 바닥이 권장 최소 크기보다 작으면 경고 (긴 변·짧은 변끼리 비교, 설계는 막지 않음)."""
+    """케이지 바닥이 최소 기준보다 작으면 경고 (긴 변·짧은 변끼리 비교, 설계는 막지 않음)."""
     need_long, need_short = size.enclosure_min_floor_mm
     long_side = max(cage.width_mm, cage.depth_mm)
     short_side = min(cage.width_mm, cage.depth_mm)
     if long_side + 1e-6 < need_long or short_side + 1e-6 < need_short:
         return [_warn(
             "cage_below_recommended",
-            f"케이지 바닥 {cage.width_mm:g}×{cage.depth_mm:g}mm 가 {size.display_name} 권장 최소 "
+            f"케이지 바닥 {cage.width_mm:g}×{cage.depth_mm:g}mm 가 {size.display_name} 사육장 최소 기준 "
             f"{need_long:g}×{need_short:g}mm 보다 작습니다. 더 넓은 사육장을 권장합니다.",
             details={"floor_mm": [cage.width_mm, cage.depth_mm], "recommended_mm": [need_long, need_short]},
         )]
@@ -326,7 +328,7 @@ def validate_all(
     issues += check_overlap(items)
     issues += check_gaps(items, cage, size)
     issues += check_access(items, cage, size)
-    issues += check_openings(items, size)
+    issues += check_openings(items, size, count)
     issues += check_climb(items, size)
     issues += check_wall_thickness(items, min_wall_mm, measure=measure_thickness_mesh)
     issues += check_overhang(items, printing)

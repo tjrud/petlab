@@ -1,7 +1,7 @@
 """은신처(하우스) 템플릿.
 
 형상: 바닥이 열린 상자. 앞면(-Y)에 바닥에서 시작하는 아치형 출입구, 지붕에 수직 환기구.
-  출입구가 2개면 뒷면(+Y)에 같은 아치를 마주 보게 낸다 (막다른 곳이 없도록).
+  출입구가 2개면 뒷면(+Y)에 같은 아치를 마주 보게 낸다 (여러 마리가 함께 지낼 때 막다른 곳이 없도록).
 출력: 지붕을 베드에 대고 뒤집어 출력한다.
   - 지붕 아랫면은 뒤집으면 바닥이 되므로 넓은 천장 브리지가 없다.
   - 아치 꼭대기는 뒤집으면 아래쪽 반원이 되므로 오버행이 없다.
@@ -37,7 +37,8 @@ class HideoutParams(TemplateParams):
         60, ge=25, le=150, description="아치형 출입구 폭(=높이) mm. 종별 최소값 이상"
     )
     entrance_count: int = Field(
-        2, ge=1, le=2, description="출입구 개수. 1=앞면만, 2=앞·뒷면 마주 보기. 종별 최소 개수 이상"
+        1, ge=1, le=2,
+        description="출입구 개수. 1=앞면만, 2=앞·뒷면 마주 보기. 여러 마리를 함께 키우면 2 (종별 최소 개수 이상)",
     )
     vent_count: int = Field(6, ge=0, le=30, description="지붕 환기구 개수")
     vent_diameter_mm: float = Field(
@@ -113,7 +114,7 @@ class HideoutTemplate(Template):
             depth_mm=max(110.0, d + 2 * t + 50),
             height_mm=max(90.0, d + 2 * t + 15),
             entrance_diameter_mm=d,
-            entrance_count=min(2, s.hideout_min_entrances),
+            entrance_count=min(2, ctx.hideout_min_entrances),
             vent_count=6,
             vent_diameter_mm=min(4.0, s.gap_trap.safe_max_mm),
             wall_thickness_mm=t,
@@ -124,7 +125,18 @@ class HideoutTemplate(Template):
         t = max(p.wall_thickness_mm, ctx.min_wall_mm)
         d = max(p.entrance_diameter_mm, s.entrance_min_diameter_mm)
         cols, rows = _vent_grid_capacity(p)
-        return [
+        n_min = ctx.hideout_min_entrances
+        group_rule = (
+            [ParamConstraint(
+                "entrance_count",
+                min=n_min,
+                source="species",
+                reason_ko=f"{ctx.count}마리가 함께 지내면 서로 피할 수 있도록(막다른 곳 없이) "
+                          f"은신처 출입구는 {n_min}개 이상이어야 합니다",
+            )]
+            if n_min > 1 else []
+        )
+        return group_rule + [
             ParamConstraint(
                 "wall_thickness_mm",
                 min=ctx.min_wall_mm,
@@ -136,12 +148,6 @@ class HideoutTemplate(Template):
                 min=s.entrance_min_diameter_mm,
                 source="species",
                 reason_ko=f"{s.display_name} 출입구는 최소 {s.entrance_min_diameter_mm:g}mm 이상이어야 합니다",
-            ),
-            ParamConstraint(
-                "entrance_count",
-                min=s.hideout_min_entrances,
-                source="species",
-                reason_ko=f"막다른 곳이 없도록 은신처 출입구는 {s.hideout_min_entrances}개 이상이어야 합니다",
             ),
             ParamConstraint(
                 "vent_diameter_mm",
