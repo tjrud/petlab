@@ -5,13 +5,11 @@ import { useId, useLayoutEffect, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { ResendVerification } from "@/components/EmailVerification";
 import { api, ApiError, isAuthError } from "@/lib/api";
+import { isPlausibleEmail } from "@/lib/email";
 import type { User } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
 import { describedBy, FieldError, inputClass } from "./common";
-
-/** 대략적인 이메일 형식 (최종 판단은 서버가 한다) */
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 type Key = "email" | "password";
 type Errors = Partial<Record<Key, string>>;
@@ -20,7 +18,7 @@ function validate(email: string, password: string, current: string | null): Erro
   const errors: Errors = {};
   const v = email.trim();
   if (!v) errors.email = "새 이메일 주소를 입력해 주세요.";
-  else if (v.length > 254 || !EMAIL_RE.test(v)) errors.email = "이메일 주소를 확인해 주세요.";
+  else if (!isPlausibleEmail(v)) errors.email = "이메일 주소를 확인해 주세요.";
   else if (current && v.toLowerCase() === current.toLowerCase()) errors.email = "지금 쓰고 있는 이메일과 같아요.";
   if (!password) errors.password = "본인 확인을 위해 지금 쓰는 비밀번호를 입력해 주세요.";
   return errors;

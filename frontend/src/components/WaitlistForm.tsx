@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
-import { EmailUnverifiedNotice } from "@/components/EmailVerification";
+import { EmailUnverifiedNotice, useEmailBlocked } from "@/components/EmailVerification";
 import { api, ApiError, isEmailUnverified } from "@/lib/api";
 
 export default function WaitlistForm() {
@@ -21,7 +21,7 @@ export default function WaitlistForm() {
   const [error, setError] = useState<string | null>(null);
   const { emailUnverified } = useAuth();
   /** 서버가 이메일 인증 전이라고 거절했다 */
-  const [emailBlocked, setEmailBlocked] = useState(false);
+  const [emailBlocked, setEmailBlocked] = useEmailBlocked();
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();

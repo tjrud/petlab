@@ -6,7 +6,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, useTransition
 
 import { useAuth } from "@/components/AuthProvider";
 import { clearDraft, ReloginNotice, useDraftBackup } from "@/components/DraftRelogin";
-import { EmailUnverifiedNotice } from "@/components/EmailVerification";
+import { EmailUnverifiedNotice, useEmailBlocked } from "@/components/EmailVerification";
 import LoginRequired from "@/components/LoginRequired";
 import { CAGE_LIMITS, CAGE_PRESETS } from "@/components/me/common";
 import { api, ApiError, isAuthError, isEmailUnverified } from "@/lib/api";
@@ -76,7 +76,7 @@ export default function NewDesignWizard() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /** 서버가 이메일 인증 전이라고 거절했다 (쓴 내용은 그대로 두고 안내한다) */
-  const [emailBlocked, setEmailBlocked] = useState(false);
+  const [emailBlocked, setEmailBlocked] = useEmailBlocked();
 
   const [pets, setPets] = useState<Pet[] | null>(null);
   /** 값을 채워 온 반려동물 (종·크기를 고쳐도 그대로 두고, "직접 입력"을 고르면 지운다) */

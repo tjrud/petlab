@@ -8,6 +8,7 @@ import { useAuth, useAuthRecheck } from "@/components/AuthProvider";
 import { AlreadyLoggedIn, AuthChecking, ServerUnreachable } from "@/components/LoginForm";
 import Turnstile, { type TurnstileHandle } from "@/components/Turnstile";
 import { api, ApiError } from "@/lib/api";
+import { isPlausibleEmail } from "@/lib/email";
 import { NICKNAME_HINT, nicknameError } from "@/lib/nickname";
 import { safeNext, withNext } from "@/lib/safeNext";
 import { ui } from "@/lib/ui";
@@ -26,8 +27,30 @@ const SERVER_FIELD: Record<string, FieldKey> = {
   weak_password: "password",
 };
 
-/** 대략적인 이메일 형식 (최종 판단은 서버가 한다) */
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/** 서버의 입력 검사(422)가 칸을 짚었을 때 보여 줄 문구 */
+const FIELD_MESSAGE: Record<Exclude<FieldKey, "confirm">, string> = {
+  username: "아이디를 확인해 주세요.",
+  nickname: "닉네임을 확인해 주세요.",
+  email: "이메일 주소를 확인해 주세요.",
+  password: "비밀번호를 확인해 주세요.",
+};
+
+/** 422 응답의 errors([{ loc: ["body", "email"], msg }])에서 칸별 오류를 뽑는다 */
+function fieldErrorsFrom422(details: unknown): Errors {
+  const out: Errors = {};
+  if (!Array.isArray(details)) return out;
+  for (const item of details) {
+    const { loc, msg } = (item ?? {}) as { loc?: unknown; msg?: unknown };
+    const key = Array.isArray(loc) ? loc[loc.length - 1] : undefined;
+    if (typeof key !== "string" || !(key in FIELD_MESSAGE)) continue;
+    const field = key as keyof typeof FIELD_MESSAGE;
+    if (out[field]) continue;
+    // 서버가 한국어로 설명하면(닉네임 규칙 등) 그대로 보여 준다. 이메일 형식 설명은 영어라 우리 문구를 쓴다
+    const text = typeof msg === "string" ? msg.replace(/^Value error,\s*/, "") : "";
+    out[field] = field !== "email" && /[가-힣]/.test(text) ? text : FIELD_MESSAGE[field];
+  }
+  return out;
+}
 
 /** 서버(Python)와 같은 기준으로 글자 수를 센다 (이모지 같은 문자도 한 글자) */
 const charCount = (s: string) => Array.from(s).length;
@@ -47,7 +70,7 @@ function validate(v: Values, needEmail: boolean): Errors {
 
   if (needEmail) {
     if (!email) errors.email = "이메일을 입력해 주세요.";
-    else if (email.length > 254 || !EMAIL_RE.test(email)) errors.email = "이메일 주소를 확인해 주세요.";
+    else if (!isPlausibleEmail(email)) errors.email = "이메일 주소를 확인해 주세요.";
   }
 
   if (!v.password) errors.password = "비밀번호를 입력해 주세요.";
@@ -153,6 +176,8 @@ export default function SignupForm() {
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** 서버가 짚은 칸별 오류 (그 칸을 고치면 지운다) */
+  const [serverErrors, setServerErrors] = useState<Errors>({});
   /** 보안 확인 토큰 (한 번만 쓸 수 있다) */
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const turnstile = useRef<TurnstileHandle>(null);
@@ -187,13 +212,14 @@ export default function SignupForm() {
   const needEmail = status.email_verification;
   const captcha = status.captcha;
   const errors = validate(values, needEmail);
-  const shown = (k: FieldKey) => ((touched[k] || submitted) && errors[k]) || undefined;
+  const shown = (k: FieldKey) => ((touched[k] || submitted) && errors[k]) || serverErrors[k] || undefined;
 
   const change = (k: FieldKey) => (e: React.ChangeEvent<HTMLInputElement>) => {
     // 아이디는 서버도 소문자로 저장하므로 입력할 때부터 소문자로 맞춘다
     const value = k === "username" ? e.target.value.toLowerCase() : e.target.value;
     setValues((prev) => ({ ...prev, [k]: value }));
     setError(null); // 고치기 시작하면 이전 서버 오류는 지운다
+    setServerErrors((prev) => (prev[k] ? { ...prev, [k]: undefined } : prev));
   };
   const blur = (k: FieldKey) => () => {
     // 비어 있는 칸을 그냥 지나간 경우에는 아직 오류를 보여 주지 않는다
@@ -233,14 +259,22 @@ export default function SignupForm() {
       // 이메일 인증을 쓰지 않으면 바로 이동한다. 전체 새로고침으로 모든 화면이 로그인 상태를 다시 읽게 한다
       window.location.assign(safeNext(next, window.location.origin));
     } catch (err) {
-      setError(err instanceof ApiError ? err.messageKo : "회원가입하지 못했어요. 잠시 뒤 다시 시도해 주세요.");
       setSubmitting(false);
-      // 보안 확인 토큰은 한 번만 쓸 수 있다: 어떤 이유로든 거절되면 새로 풀게 한다
-      if (captcha) {
+      // 입력 검사(422)는 서버가 보안 확인보다 먼저 거절한 것이라 토큰을 쓰지 않았다
+      const invalidInput = err instanceof ApiError && err.code === "validation_error";
+      const fieldErrors = invalidInput ? fieldErrorsFrom422(err.details) : {};
+      const badField = FIELD_ORDER.find((k) => fieldErrors[k]);
+      if (badField) {
+        setServerErrors(fieldErrors); // 칸 아래에 보여 주고 그 칸으로 옮긴다
+      } else {
+        setError(err instanceof ApiError ? err.messageKo : "회원가입하지 못했어요. 잠시 뒤 다시 시도해 주세요.");
+      }
+      // 그 밖의 거절은 토큰을 이미 썼을 수 있다 (한 번만 쓸 수 있으므로 새로 풀게 한다)
+      if (captcha && !invalidInput) {
         turnstile.current?.reset();
         setCaptchaToken(null);
       }
-      const field = err instanceof ApiError && err.code ? SERVER_FIELD[err.code] : undefined;
+      const field = badField ?? (err instanceof ApiError && err.code ? SERVER_FIELD[err.code] : undefined);
       if (field) focusField(field);
     }
   }

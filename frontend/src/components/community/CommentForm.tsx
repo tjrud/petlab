@@ -6,7 +6,7 @@ import { useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { CharCount, errorText, LIMITS, loginHref, postHref } from "@/components/community/common";
 import { clearDraft, ReloginNotice, useDraftBackup } from "@/components/DraftRelogin";
-import { EmailUnverifiedNotice } from "@/components/EmailVerification";
+import { EmailUnverifiedNotice, useEmailBlocked } from "@/components/EmailVerification";
 import { api, isAuthError, isEmailUnverified } from "@/lib/api";
 import type { Comment } from "@/lib/types";
 import { ui } from "@/lib/ui";
@@ -20,7 +20,7 @@ export default function CommentForm({ postId, onAdded }: { postId: string; onAdd
   /** 댓글 등록이 로그인 문제로 실패했다 */
   const [loginLost, setLoginLost] = useState(false);
   /** 서버가 이메일 인증 전이라고 거절했다 (쓴 내용은 그대로 두고 안내한다) */
-  const [emailBlocked, setEmailBlocked] = useState(false);
+  const [emailBlocked, setEmailBlocked] = useEmailBlocked();
 
   const draftKey = `comment:${postId}`;
   const dirty = body.trim() !== "";

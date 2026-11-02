@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import DesignLoadError from "@/components/designs/DesignLoadError";
 import DesignTitleBar, { seesUnsharedVersions } from "@/components/designs/DesignTitleBar";
 import DownloadPanel from "@/components/DownloadPanel";
+import { useEmailBlocked } from "@/components/EmailVerification";
 import ItemList from "@/components/ItemList";
 import LoginRequired from "@/components/LoginRequired";
 import RevisePanel from "@/components/RevisePanel";
@@ -34,7 +35,7 @@ export default function DesignView({ id, initialVersion }: { id: string; initial
   /** 수정 요청이 로그인 문제로 실패했다 (쓴 요청은 지우지 않고 다시 로그인하게 한다) */
   const [reviseNeedsLogin, setReviseNeedsLogin] = useState(false);
   /** 수정 요청을 서버가 이메일 인증 전이라고 거절했다 */
-  const [reviseEmailBlocked, setReviseEmailBlocked] = useState(false);
+  const [reviseEmailBlocked, setReviseEmailBlocked] = useEmailBlocked();
 
   useEffect(() => {
     let alive = true;

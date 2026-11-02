@@ -10,14 +10,19 @@ import { api, ApiError } from "@/lib/api";
 
 type ResendResult = { ok: boolean; message: string };
 
-/** 인증 메일 다시 보내기. 1분 안에 다시 누르거나 하루 한도를 넘으면 서버 안내(email_cooldown·too_many_emails)를 보여 준다 */
+/**
+ * 인증 메일 다시 보내기. 1분 안에 다시 누르거나 하루 한도를 넘으면 서버 안내(email_cooldown·too_many_emails)를 보여 준다.
+ * 서버가 답하면 로그인 상태도 다시 묻는다: 다른 기기에서 이미 인증했으면("이미 인증한 이메일이에요") 안내 띠와 막힌 버튼이 바로 풀린다.
+ */
 export function useResendVerification() {
+  const { refresh } = useAuth();
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ResendResult | null>(null);
 
   const resend = useCallback(async () => {
     setBusy(true);
     setResult(null);
+    let answered = true;
     try {
       const r = await api.resendVerification();
       setResult(
@@ -26,6 +31,7 @@ export function useResendVerification() {
           : { ok: false, message: r.message_ko },
       );
     } catch (e) {
+      answered = e instanceof ApiError && e.status > 0; // 0: 서버에 닿지 못함
       setResult({
         ok: false,
         message: e instanceof ApiError ? e.messageKo : "인증 메일을 보내지 못했어요. 잠시 뒤 다시 시도해 주세요.",
@@ -33,9 +39,27 @@ export function useResendVerification() {
     } finally {
       setBusy(false);
     }
-  }, []);
+    if (answered) void refresh(); // 같은 확인이 이미 진행 중이면 함께 기다린다
+  }, [refresh]);
 
   return { resend, busy, result };
+}
+
+/**
+ * 서버가 "이메일 인증 전"(403 email_unverified)이라고 거절했는지. 그 응답은 로그인 상태를 다시 묻게 하므로(AUTH_ERROR_EVENT)
+ * 보통은 emailUnverified 가 곧 true 가 되고, 이후 인증을 마쳐 emailUnverified 가 false 로 바뀌면 이 표시도 저절로 지운다.
+ * (다시 보낼 때도 폼이 직접 false 로 되돌린다)
+ */
+export function useEmailBlocked() {
+  const { emailUnverified } = useAuth();
+  const [blocked, setBlocked] = useState(false);
+  const [wasUnverified, setWasUnverified] = useState(emailUnverified);
+  if (wasUnverified !== emailUnverified) {
+    // 이전 렌더의 값과 비교해 조정한다 (effect 없이: https://react.dev/learn/you-might-not-need-an-effect)
+    setWasUnverified(emailUnverified);
+    if (!emailUnverified) setBlocked(false); // 인증을 마쳤다
+  }
+  return [blocked, setBlocked] as const;
 }
 
 /** "인증 메일 다시 보내기" 버튼과 결과 */

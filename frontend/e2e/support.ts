@@ -86,10 +86,11 @@ export async function verifyLinkFor(email: string): Promise<string> {
   return url.pathname + url.search;
 }
 
-/** 메일의 인증 링크를 열어 이메일 인증을 마친다 */
+/** 메일의 인증 링크를 열어 이메일 인증을 마친다 (성공하면 주소에서 토큰이 빠진다) */
 export async function verifyEmail(page: Page, email: string) {
   await page.goto(await verifyLinkFor(email));
   await expect(page.getByRole("heading", { name: "이메일 인증을 마쳤어요" })).toBeVisible();
+  await expect(page).toHaveURL(/\/verify-email\?done=1$/);
 }
 
 export type NewMember = { username: string; nickname: string; password: string };

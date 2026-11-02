@@ -8,7 +8,7 @@ import { checkPost, COMMUNITY_PATH, errorText, NEW_POST_PATH, Placeholder, postH
 import DesignAttachField, { useAttachOptions } from "@/components/community/DesignAttachField";
 import PostFields from "@/components/community/PostFields";
 import { clearDraft, ReloginNotice, useDraftBackup } from "@/components/DraftRelogin";
-import { EmailUnverifiedNotice } from "@/components/EmailVerification";
+import { EmailUnverifiedNotice, useEmailBlocked } from "@/components/EmailVerification";
 import LoginRequired from "@/components/LoginRequired";
 import { api, isAuthError, isEmailUnverified } from "@/lib/api";
 import { ui } from "@/lib/ui";
@@ -51,7 +51,7 @@ export default function NewPostForm() {
   const [error, setError] = useState<{ message: string; needsLogin: boolean } | null>(null);
   const [tried, setTried] = useState(false);
   /** 서버가 이메일 인증 전이라고 거절했다 (쓴 내용은 그대로 두고 안내한다) */
-  const [emailBlocked, setEmailBlocked] = useState(false);
+  const [emailBlocked, setEmailBlocked] = useEmailBlocked();
 
   const selectedId =
     choice?.preKey === preKey ? choice.id : attach.kind === "ok" ? (attach.preselect ?? "") : "";

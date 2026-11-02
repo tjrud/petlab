@@ -212,6 +212,9 @@ test("이메일 인증 전: 안내 띠가 보이고 설계·글쓰기가 막혀 
   // 메일의 링크로 인증하면 안내 띠가 사라지고 바로 설계할 수 있다
   await verifyEmail(page, email);
   await expect(banner).toHaveCount(0);
+  // 새로고침해도(쓴 토큰을 다시 보내지 않으므로) "만료" 대신 인증 완료가 보인다
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "이메일 인증을 마쳤어요" })).toBeVisible();
   await page.goto("/design");
   await page.getByText("골든 (시리안)").click();
   await page.getByRole("button", { name: "다음" }).click();
@@ -268,6 +271,62 @@ test("인증 메일 다시 보내기: 곧바로 또 누르면 잠시 뒤에 보�
 test("인증 링크가 잘못되면 안내를 보여 준다", async ({ page }) => {
   await page.goto("/verify-email?token=not-a-real-token-123");
   await expect(page.getByRole("heading", { name: "인증 링크가 올바르지 않거나 만료되었어요", exact: true })).toBeVisible();
+  // 로그인하지 않은 사람(다른 기기에서 링크를 다시 연 경우 등)에게는 이미 인증했을 수 있다고 알려 준다
+  await expect(page.getByText("이미 이 링크로 인증했다면 인증은 끝났어요.", { exact: false })).toBeVisible();
   await page.goto("/verify-email");
   await expect(page.getByRole("heading", { name: "인증 링크가 올바르지 않아요", exact: true })).toBeVisible();
+});
+
+test("서버가 이메일 주소를 거절하면 그 칸을 짚고, 보안 확인은 다시 하지 않아도 된다", async ({ page }) => {
+  const username = `bademail_${RUN}`;
+  await page.goto("/signup");
+  await page.getByLabel("아이디").fill(username);
+  await page.getByLabel("닉네임").fill(`주소확인${RUN}`);
+  // 화면의 형식 검사는 통과하지만 서버(EmailStr)는 거절하는 주소 (.test 는 예약된 도메인)
+  await page.getByLabel("이메일").fill(`${username}@nestforge.test`);
+  await page.getByLabel("비밀번호", { exact: true }).fill("bad-email-123");
+  await page.getByLabel("비밀번호 확인").fill("bad-email-123");
+  await page.getByLabel("로봇이 아니에요").check();
+
+  const response = page.waitForResponse((r) => r.url().endsWith("/auth/signup") && r.request().method() === "POST");
+  await page.getByRole("button", { name: "가입하기" }).click();
+  expect((await response).status()).toBe(422);
+
+  const emailField = page.getByLabel("이메일");
+  await expect(emailField).toHaveAttribute("aria-invalid", "true");
+  await expect(emailField).toBeFocused();
+  await expect(page.getByText("이메일 주소를 확인해 주세요.")).toBeVisible();
+  // 입력 검사에서 거절되어 토큰을 쓰지 않았으므로 보안 확인은 그대로다
+  await expect(page.getByLabel("로봇이 아니에요")).toBeChecked();
+  await expect(page.getByRole("button", { name: "가입하기" })).toBeEnabled();
+
+  // 주소만 고치면 그대로 가입할 수 있다
+  await emailField.fill(emailOf(username));
+  await expect(emailField).not.toHaveAttribute("aria-invalid", "true");
+  await page.getByRole("button", { name: "가입하기" }).click();
+  await expect(page.getByRole("heading", { name: "인증 메일을 보냈어요" })).toBeVisible();
+});
+
+test("다른 기기에서 인증한 뒤 '다시 보내기'를 누르면 막혔던 기능이 바로 풀린다", async ({ page, browser }) => {
+  const m = { username: `other_${RUN}`, nickname: `다른기기${RUN}`, password: "other-device-123" };
+  const email = await signup(page, m, { next: "/community/new", verify: false });
+  await expect(page.getByRole("button", { name: "등록", exact: true })).toBeDisabled();
+
+  // 다른 기기(로그인하지 않은 별도 브라우저)에서 메일의 링크를 연다
+  const phone = await browser.newContext();
+  const phonePage = await phone.newPage();
+  await verifyEmail(phonePage, email);
+  await phone.close();
+
+  // 이 화면은 아직 인증 전으로 알고 있다. 다시 보내기를 누르면 서버가 "이미 인증"이라 답하고 로그인 상태를 다시 읽는다
+  const banner = page.getByRole("region", { name: "이메일 인증 안내" });
+  if (await banner.isVisible()) {
+    await banner.getByRole("button", { name: "인증 메일 다시 보내기" }).click();
+  }
+  await expect(banner).toHaveCount(0);
+  await expect(page.getByText("이메일 인증을 마치면 글을 올릴 수 있어요.", { exact: false })).toHaveCount(0);
+  await page.getByRole("main").getByRole("textbox", { name: "제목", exact: true }).fill(`다른 기기 인증 ${RUN}`);
+  await page.getByRole("main").getByRole("textbox", { name: "내용", exact: true }).fill("인증하고 바로 글을 올려요.");
+  await page.getByRole("button", { name: "등록", exact: true }).click();
+  await page.waitForURL(/\/community\/[0-9a-f]{32}$/);
 });

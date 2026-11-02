@@ -72,10 +72,34 @@ function Links({ primary }: { primary: "design" | "me" }) {
   );
 }
 
-/** 메일의 인증 링크(/verify-email?token=...)를 연 화면. 로그인하지 않아도 된다 (다른 브라우저에서 열 수 있다) */
+/** 인증을 마친 화면 */
+function Verified({ message, loggedOut }: { message: string; loggedOut: boolean }) {
+  return (
+    <div role="status" className={`${ui.card} text-center`}>
+      <p className="text-4xl" aria-hidden>
+        🎉
+      </p>
+      <h2 className={`${ui.h2} mt-2`}>이메일 인증을 마쳤어요</h2>
+      <p className="mt-2 text-sm text-stone-600">
+        {message}
+        {loggedOut && " 로그인하면 바로 설계·글쓰기·댓글을 쓸 수 있어요."}
+      </p>
+      <Links primary="design" />
+    </div>
+  );
+}
+
+/**
+ * 메일의 인증 링크(/verify-email?token=...)를 연 화면. 로그인하지 않아도 된다 (다른 브라우저에서 열 수 있다).
+ * 인증에 성공하면 주소를 /verify-email?done=1 로 바꿔 토큰을 방문 기록에서 지운다
+ * (새로고침하거나 탭을 되살려도 쓴 토큰을 다시 보내 "만료"로 보이지 않게).
+ */
 export default function VerifyEmail() {
-  const token = useSearchParams().get("token")?.trim() ?? "";
-  const { user, refresh } = useAuth();
+  const params = useSearchParams();
+  const token = params.get("token")?.trim() ?? "";
+  const done = params.get("done") === "1";
+  const { status, user, refresh } = useAuth();
+  const loggedOut = status !== null && !user;
   const [attempt, setAttempt] = useState(0);
   const [result, setResult] = useState<{ key: string; state: State } | null>(null);
   const key = `${token}|${attempt}`;
@@ -88,6 +112,8 @@ export default function VerifyEmail() {
         if (!alive) return;
         setResult({ key, state: { kind: "ok", message: r.message_ko } });
         void refresh(); // 헤더의 안내 띠를 걷고, 막혀 있던 기능을 바로 쓸 수 있게
+        // 쓴 토큰을 주소와 방문 기록에서 지운다 (Next 가 useSearchParams 에 반영한다)
+        window.history.replaceState(null, "", "/verify-email?done=1");
       },
       (e: unknown) => {
         if (alive) setResult({ key, state: classify(e) });
@@ -99,6 +125,7 @@ export default function VerifyEmail() {
   }, [token, key, refresh]);
 
   if (!token) {
+    if (done) return <Verified message="이제 설계·글쓰기·댓글을 쓸 수 있어요." loggedOut={loggedOut} />;
     return (
       <div role="alert" className={`${ui.card} text-center`}>
         <h2 className={ui.h2}>인증 링크가 올바르지 않아요</h2>
@@ -114,21 +141,7 @@ export default function VerifyEmail() {
   const state = result?.key === key ? result.state : null;
   if (!state) return <VerifyEmailPlaceholder />;
 
-  if (state.kind === "ok") {
-    return (
-      <div role="status" className={`${ui.card} text-center`}>
-        <p className="text-4xl" aria-hidden>
-          🎉
-        </p>
-        <h2 className={`${ui.h2} mt-2`}>이메일 인증을 마쳤어요</h2>
-        <p className="mt-2 text-sm text-stone-600">
-          {state.message}
-          {!user && " 로그인하면 바로 설계·글쓰기·댓글을 쓸 수 있어요."}
-        </p>
-        <Links primary="design" />
-      </div>
-    );
-  }
+  if (state.kind === "ok") return <Verified message={state.message} loggedOut={loggedOut} />;
 
   if (state.kind === "invalid") {
     // 이미 인증을 마친 회원이 예전 링크를 다시 연 경우
@@ -144,6 +157,14 @@ export default function VerifyEmail() {
         {!alreadyVerified && user?.email && !user.email_verified && (
           <p className="mt-3 text-sm">
             <ResendVerification className="justify-center" />
+          </p>
+        )}
+        {loggedOut && (
+          <p className="mt-3 text-sm text-stone-600">
+            이미 이 링크로 인증했다면 인증은 끝났어요. 로그인하면 확인할 수 있어요.{" "}
+            <Link href={`/login?next=${encodeURIComponent("/me#email")}`} className={`${ui.link} font-semibold`}>
+              로그인하기
+            </Link>
           </p>
         )}
         <Links primary={alreadyVerified ? "design" : "me"} />
