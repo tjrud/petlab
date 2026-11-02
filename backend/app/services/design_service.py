@@ -20,8 +20,9 @@ import trimesh
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.domain import Cage, Placement, PlacementHint
+from app.domain import BuiltItem, Cage, Placement, PlacementHint
 from app.geometry.export import ExportFile, ExportPart, export_parts
+from app.geometry.fingerprint import file_digest, geometry_fingerprint
 from app.llm.base import HabitatInfo, Interpreter, InterpretRequest
 from app.llm.spec import parse_spec, to_item_specs
 from app.models import Design, DesignVersion, Habitat, Pet, Post, User
@@ -39,7 +40,7 @@ from app.schemas import (
     VersionSummary,
 )
 from app.services import usage
-from app.services.engine import EngineContext, build_item, run_engine
+from app.services.engine import EngineContext, build_item, revalidate, run_engine
 from app.templates.registry import get_template
 
 log = logging.getLogger(__name__)
@@ -75,14 +76,35 @@ class MeshRegenerationError(RuntimeError):
         self.message_ko = message_ko
 
 
-def _atomic_export(mesh: trimesh.Trimesh, path: Path) -> None:
+class GeometryChangedError(MeshRegenerationError):
+    """다시 만든 형상이 저장할 때 검증한 형상과 같다고 확인되지 않았고, 다시 검증해도 통과하지 못할 때."""
+
+    MESSAGE_KO = (
+        "이 설계 버전을 만든 뒤 서비스가 업데이트되어, 지금 다시 만든 형상이 처음 검증한 형상과 같다고 확인할 수 "
+        "없었어요. 다시 검증해 보니 안전 기준을 통과하지 못해 내려받을 수 없어요. 같은 요청으로 새 버전을 만들어 주세요."
+    )
+
+    def __init__(self, errors: list[dict]):
+        super().__init__(self.MESSAGE_KO)
+        self.errors = errors
+
+
+def _atomic_write(path: Path, data: bytes) -> None:
     """임시 파일에 쓴 뒤 os.replace 로 바꿔 끼운다. 동시에 읽는 요청이 반쯤 쓰인 파일을 받지 않게 한다."""
     tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     try:
-        mesh.export(tmp, file_type="stl")
+        tmp.write_bytes(data)
         os.replace(tmp, path)
     finally:
         tmp.unlink(missing_ok=True)
+
+
+def _mesh_files(item: BuiltItem) -> dict[str, bytes]:
+    """구조물 하나의 메시 캐시 파일: 출력 자세(print_i), 배치된 경우 케이지 좌표계 뷰어 메시(world_i)."""
+    files = {f"print_{item.index}.stl": item.print_mesh.export(file_type="stl")}
+    if item.placement is not None:
+        files[f"world_{item.index}.stl"] = item.world_mesh().export(file_type="stl")
+    return files
 
 
 @dataclass(frozen=True)
@@ -126,6 +148,9 @@ class DesignService:
         self.limits = limits or DesignLimits()
         self._locks_guard = threading.Lock()
         self._version_locks: dict[str, threading.Lock] = {}
+        # 다시 검증에 실패한 버전 → 오류 목록. 같은 코드로 실행되는 동안 결과는 바뀌지 않으므로, 요청마다
+        # 형상 생성·검증을 되풀이하지 않고 바로 막는다 (공유된 설계의 뷰어가 메시를 여러 번 요청해도 가볍게).
+        self._geometry_blocked: dict[tuple[str, int], list[dict]] = {}
 
     def _version_lock(self, design_id: str, version: int) -> threading.Lock:
         """버전별 메시 재생성 잠금 (같은 버전을 동시에 여러 번 만들지 않도록)."""
@@ -287,11 +312,20 @@ class DesignService:
         if effective_items:
             effective["items"] = effective_items
 
+        # 검증한 형상 그대로의 메시 파일. 해시를 함께 저장해 두고, 캐시를 다시 만들 때 같은 형상인지 확인한다
+        files: dict[str, bytes] = {}
+        for it in engine.items:
+            files.update(_mesh_files(it))
+        geometry = {
+            "fingerprint": geometry_fingerprint((it.key for it in engine.items), self.rules.printing),
+            "files": {name: file_digest(data) for name, data in files.items()},
+        }
         row = DesignVersion(
             design_id=design.id, version=version_no, prompt=g["prompt"],
             provider=g["interpret"].provider, llm_attempts=g["interpret"].attempts,
             llm_spec=llm_spec, effective_spec=effective, items=built_items,
-            report=engine.report.model_dump(mode="json"), passed=engine.report.passed, created_by=user.id,
+            report=engine.report.model_dump(mode="json"), passed=engine.report.passed, geometry=geometry,
+            created_by=user.id,
         )
         db.add(row)
         db.flush()
@@ -299,10 +333,8 @@ class DesignService:
         # 메시 캐시 저장 (뷰어용 배치 메시 + 출력 자세 메시)
         d = self._version_dir(design.id, version_no)
         d.mkdir(parents=True, exist_ok=True)
-        for it in engine.items:
-            _atomic_export(it.print_mesh, d / f"print_{it.index}.stl")
-            if it.placement is not None:
-                _atomic_export(it.world_mesh(), d / f"world_{it.index}.stl")
+        for name, data in files.items():
+            _atomic_write(d / name, data)
 
     # ── 조회 ────────────────────────────────────────────────
 
@@ -400,13 +432,16 @@ class DesignService:
         raise NotFoundError(f"버전 {version} 을(를) 찾을 수 없습니다.")
 
     def design_out(self, db: Session, design: Design, v: DesignVersion, user: User | None) -> DesignOut:
+        # 뷰어 메시 URL 에 지금 형상 코드의 지문을 붙인다: 배포로 형상이 바뀌면 URL 도 바뀌어 브라우저 캐시
+        # (max-age 하루)가 옛 형상을 보여주지 않는다
+        g = geometry_fingerprint((it["template"] for it in v.items), self.rules.printing)[:16]
         items = [
             ItemOut(
                 index=it["index"], template=it["template"], label_ko=it["label_ko"], params=it["params"],
                 reason_ko=it["reason_ko"],
                 placement=PlacementOut(**it["placement"]) if it["placement"] else None,
                 size_mm=it["size_mm"], print_size_mm=it["print_size_mm"],
-                mesh_url=(f"/designs/{design.id}/versions/{v.version}/parts/{it['index']}.stl"
+                mesh_url=(f"/designs/{design.id}/versions/{v.version}/parts/{it['index']}.stl?g={g}"
                           if it["placement"] else None),
             )
             for it in v.items
@@ -451,8 +486,62 @@ class DesignService:
     def _version_dir(self, design_id: str, version: int) -> Path:
         return self.mesh_dir / design_id / f"v{version}"
 
+    def _rebuild(self, design: Design, v: DesignVersion, it: dict) -> BuiltItem:
+        """저장된 최종 파라미터·배치로 구조물 하나를 다시 만든다."""
+        try:
+            t = get_template(it["template"])
+            built = build_item(it["index"], t, t.Params.model_validate(it["params"]), PlacementHint(),
+                               self.rules.printing)
+        except Exception as e:  # 템플릿 삭제·파라미터 스키마 변경·형상 커널 오류
+            log.exception("mesh regeneration failed: design=%s v=%s item=%s", design.id, v.version, it)
+            raise MeshRegenerationError(
+                "이 설계 버전의 형상을 다시 만들 수 없어요. 같은 요청으로 새 버전을 만들어 주세요."
+            ) from e
+        if it["placement"]:
+            built.placement = Placement(**it["placement"])
+        return built
+
+    def _revalidate(self, design: Design, v: DesignVersion, rebuilt: dict[int, BuiltItem], changed: list[str]) -> None:
+        """다시 만든 형상이 저장할 때 검증한 형상과 다를 때(또는 확인할 해시가 없는 옛 버전일 때),
+        구조물 전체를 저장된 배치 그대로 지금 기준으로 다시 검증한다. 통과하지 못하면 GeometryChangedError.
+        rebuilt 에 아직 다시 만들지 않은 구조물을 채운다 (겹침·틈새는 구조물끼리 함께 봐야 한다)."""
+        stored = v.geometry or {}
+        current = geometry_fingerprint((it["template"] for it in v.items), self.rules.printing)
+        if stored.get("files"):
+            log.warning(
+                "rebuilt geometry differs from the validated geometry: design=%s v=%s files=%s "
+                "fingerprint %s -> %s; re-validating",
+                design.id, v.version, ",".join(changed), stored.get("fingerprint"), current,
+            )
+        else:
+            log.warning("no stored geometry digests (version predates them): design=%s v=%s; re-validating",
+                        design.id, v.version)
+        for it in v.items:
+            if it["index"] not in rebuilt:
+                rebuilt[it["index"]] = self._rebuild(design, v, it)
+        try:
+            report = revalidate([rebuilt[i] for i in sorted(rebuilt)], self._engine_ctx(design.habitat))
+        except Exception as e:  # 규칙 파일에서 종/크기가 빠짐, 검증 중 형상 오류 등 → 확인할 수 없으면 막는다
+            log.exception("re-validation failed to run: design=%s v=%s", design.id, v.version)
+            raise MeshRegenerationError(
+                "이 설계 버전의 형상을 다시 검증할 수 없어요. 같은 요청으로 새 버전을 만들어 주세요."
+            ) from e
+        if not report.passed:
+            errors = [i.model_dump(mode="json") for i in report.errors]
+            log.warning("re-validation failed: design=%s v=%s codes=%s", design.id, v.version,
+                        ",".join(sorted({e["code"] for e in errors})))
+            self._geometry_blocked[(design.id, v.version)] = errors
+            raise GeometryChangedError(errors)
+        log.info("re-validation passed: design=%s v=%s", design.id, v.version)
+
     def _ensure_meshes(self, design: Design, v: DesignVersion) -> Path:
-        """메시 캐시가 없으면(삭제 등) 저장된 최종 파라미터로 다시 생성한다 (형상 생성은 결정적)."""
+        """메시 캐시가 없으면(새 인스턴스·삭제 등) 저장된 최종 파라미터로 다시 만든다.
+
+        캐시에는 검증을 거친 형상만 둔다 (파일이 있으면 그대로 응답하므로):
+          - 다시 만든 파일이 저장할 때 기록한 해시와 바이트 단위로 같으면 그대로 쓴다 (형상 생성은 결정적).
+          - 다르거나 (배포 사이 템플릿 build()·테셀레이션 설정·형상 라이브러리 변경) 해시가 없는 옛 버전이면,
+            구조물 전체를 다시 검증한다. 통과하면 다시 만든 형상으로 캐시 전체를 맞추고(남아 있던 파일과
+            섞이지 않게), 통과하지 못하면 아무 파일도 쓰지 않고 뷰어·내려받기 모두 409 로 막는다."""
         d = self._version_dir(design.id, v.version)
 
         def missing() -> list[dict]:
@@ -464,23 +553,25 @@ class DesignService:
         # 컨테이너가 새로 뜨면 캐시가 비어 있어 여러 요청이 동시에 재생성을 시도할 수 있다.
         # 버전별 잠금으로 한 번만 만들고, 파일은 원자적으로 교체해 반쯤 쓰인 파일이 응답되지 않게 한다.
         with self._version_lock(design.id, v.version):
+            blocked = self._geometry_blocked.get((design.id, v.version))
+            if blocked is not None:
+                raise GeometryChangedError(blocked)
             todo = missing()
-            if todo:
-                d.mkdir(parents=True, exist_ok=True)
-                for it in todo:
-                    try:
-                        t = get_template(it["template"])
-                        built = build_item(it["index"], t, t.Params.model_validate(it["params"]), PlacementHint(),
-                                           self.rules.printing)
-                    except Exception as e:  # 템플릿 삭제·파라미터 스키마 변경·형상 커널 오류
-                        log.exception("mesh regeneration failed: design=%s v=%s item=%s", design.id, v.version, it)
-                        raise MeshRegenerationError(
-                            "이 설계 버전의 형상을 다시 만들 수 없어요. 같은 요청으로 새 버전을 만들어 주세요."
-                        ) from e
-                    _atomic_export(built.print_mesh, d / f"print_{it['index']}.stl")
-                    if it["placement"]:
-                        built.placement = Placement(**it["placement"])
-                        _atomic_export(built.world_mesh(), d / f"world_{it['index']}.stl")
+            if not todo:
+                return d
+            rebuilt = {it["index"]: self._rebuild(design, v, it) for it in todo}
+            files = {name: data for b in rebuilt.values() for name, data in _mesh_files(b).items()}
+            expected = (v.geometry or {}).get("files") or {}
+            changed = sorted(name for name, data in files.items() if expected.get(name) != file_digest(data))
+            if changed:
+                done = set(rebuilt)
+                self._revalidate(design, v, rebuilt, changed)
+                for i, b in rebuilt.items():
+                    if i not in done:
+                        files.update(_mesh_files(b))
+            d.mkdir(parents=True, exist_ok=True)
+            for name, data in files.items():
+                _atomic_write(d / name, data)
         return d
 
     def part_mesh_path(self, db: Session, design_id: str, version: int, index: int, user: User | None) -> Path:

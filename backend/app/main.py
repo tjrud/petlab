@@ -29,6 +29,7 @@ from app.services.design_service import (
     DesignLimits,
     DesignService,
     ExportBlockedError,
+    GeometryChangedError,
     InvalidInputError,
     MeshRegenerationError,
     NotFoundError,
@@ -167,6 +168,13 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
     @app.exception_handler(MeshRegenerationError)
     async def _regen(_: Request, e: MeshRegenerationError):
         return JSONResponse(status_code=409, content={"detail": {"code": "mesh_unavailable", "message_ko": e.message_ko}})
+
+    @app.exception_handler(GeometryChangedError)
+    async def _geometry_changed(_: Request, e: GeometryChangedError):
+        # 배포 사이 형상이 바뀌었고 다시 검증해도 통과하지 못한 옛 버전 (MeshRegenerationError 보다 먼저 잡힌다)
+        return JSONResponse(status_code=409, content={"detail": {
+            "code": "geometry_changed", "message_ko": e.message_ko, "errors": e.errors,
+        }})
 
     @app.exception_handler(DataError)
     async def _data_error(_: Request, e: DataError):

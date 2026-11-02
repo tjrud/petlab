@@ -85,6 +85,7 @@ MIGRATION_COLUMNS: list[tuple[str, str, str]] = [
     ("designs", "owner_id", "VARCHAR(32)"),
     ("designs", "title", "VARCHAR(80)"),
     ("design_versions", "created_by", "VARCHAR(32)"),
+    ("design_versions", "geometry", "JSON"),
 ]
 MIGRATION_INDEXES: list[tuple[str, str, str]] = [
     ("ix_habitats_owner_id", "habitats", "owner_id"),

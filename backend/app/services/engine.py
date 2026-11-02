@@ -17,7 +17,7 @@ from app.layout.placer import place_all
 from app.rules.loader import PrintingRules, RuleBook, SizeRules
 from app.templates.base import ParamConstraint, RuleContext, Template, TemplateParams
 from app.templates.registry import get_template
-from app.validation.autofix import clamp_params, shrink_params
+from app.validation.autofix import clamp_params, constraint_violations, shrink_params
 from app.validation.checks import validate_all
 from app.validation.report import Issue, Severity, ValidationReport
 
@@ -168,3 +168,19 @@ def run_engine(specs: list[ItemSpec], ctx: EngineContext, measure_thickness: boo
     ))
     items.sort(key=lambda it: it.index)
     return EngineResult(items=items, report=report)
+
+
+def revalidate(items: list[BuiltItem], ctx: EngineContext) -> ValidationReport:
+    """저장된 파라미터·배치 그대로 다시 만든 형상을 검증한다.
+
+    처음 설계할 때(run_engine)와 같은 기준이지만 보정·축소·재배치는 하지 않는다. 고치면 저장된 버전과 다른
+    설계가 되므로, 지금 템플릿 제약을 벗어난 파라미터도 자동 보정 대신 오류로 남긴다."""
+    report = ValidationReport()
+    for it in items:
+        if it.template is not None and it.params is not None:
+            report.extend(constraint_violations(it.template, it.params, ctx.rule_ctx,
+                                                _height_constraint(it.template, ctx), it.index, it.label_ko))
+    report.extend(validate_all(
+        items, ctx.cage, ctx.size_rules, ctx.rules.printing, ctx.min_wall_mm, count=ctx.count,
+    ))
+    return report
