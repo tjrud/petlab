@@ -21,14 +21,14 @@ import { getAsset, type CageAsset } from "@/lib/cageAssets";
 import {
   checkLayout,
   findFreeSpot,
-  footprint,
+  isOutsideCage,
   newItemId,
   normDeg,
   pullInside,
+  round1,
   snapPosition,
-  wallGaps,
 } from "@/lib/cageLayout";
-import type { Cage, CageLayout, CageLayoutInput, CageLayoutSummary, LayoutItem, Pet, SpeciesResponse } from "@/lib/types";
+import type { Cage, CageLayout, CageLayoutInput, CageLayoutSummary, LayoutItem, LayoutRules, Pet, SpeciesResponse } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
 const PlannerScene = dynamic(() => import("@/components/cage/PlannerScene"), {
@@ -82,10 +82,17 @@ function histReducer(h: Hist, a: HistAction): Hist {
   }
 }
 
-const round1 = (v: number) => Math.round(v * 10) / 10;
-
 type Meta = { name: string; species: string; size: string; petId: string | null; layoutId: string | null };
 type Draft = Meta & Doc;
+
+/** 서버가 돌려준 배치안에서 화면 정보(이름·종·크기·반려동물·배치안 ID)만 꺼내요 */
+const metaOf = (l: CageLayout): Meta => ({ name: l.name, species: l.species, size: l.size, petId: l.pet_id, layoutId: l.id });
+
+/** 새 항목: 빈 자리(벽·모서리부터)에 회전 0으로 놓아요. 키 순서는 저장 비교(snapshotOf)와 맞춰 둬요 */
+function newItemAt(cage: Cage, items: LayoutItem[], asset: CageAsset, rules: LayoutRules | null): LayoutItem {
+  const p = findFreeSpot(cage, items, asset, 0, rules);
+  return { id: newItemId(), asset: asset.key, x_mm: round1(p.x), y_mm: round1(p.y), rotation_deg: 0 };
+}
 
 function readDraft(): Draft | null {
   try {
@@ -190,7 +197,7 @@ export default function CagePlanner() {
   // ── 배치안 불러오기 (주소의 ?layout=) / 임시 저장 되살리기 ──
 
   const applyLayout = useCallback((l: CageLayout) => {
-    const m: Meta = { name: l.name, species: l.species, size: l.size, petId: l.pet_id, layoutId: l.id };
+    const m = metaOf(l);
     const d: Doc = { cage: l.cage, items: l.items };
     setMeta(m);
     dispatch({ type: "reset", doc: d });
@@ -267,8 +274,7 @@ export default function CagePlanner() {
         setNotice({ kind: "error", text: `구조물은 ${MAX_ITEMS}개까지 놓을 수 있어요.` });
         return;
       }
-      const p = findFreeSpot(cage, items, asset, 0, rules);
-      const item: LayoutItem = { id: newItemId(), asset: asset.key, x_mm: round1(p.x), y_mm: round1(p.y), rotation_deg: 0 };
+      const item = newItemAt(cage, items, asset, rules);
       commit((d) => ({ ...d, items: [...d.items, item] }));
       setSelectedId(item.id);
     },
@@ -283,8 +289,7 @@ export default function CagePlanner() {
           slot === "wheel" ? (WHEELS.find((k) => (getAsset(k)?.size[2] ?? Infinity) <= d.cage.height_mm) ?? null) : slot;
         const a = key ? getAsset(key) : undefined;
         if (!a || list.length >= MAX_ITEMS) continue;
-        const p = findFreeSpot(d.cage, list, a, 0, rules);
-        list = [...list, { id: newItemId(), asset: a.key, x_mm: round1(p.x), y_mm: round1(p.y), rotation_deg: 0 }];
+        list = [...list, newItemAt(d.cage, list, a, rules)];
       }
       return { ...d, items: list };
     });
@@ -320,7 +325,7 @@ export default function CagePlanner() {
           const next = { ...it, rotation_deg: normDeg(absolute ? deg : it.rotation_deg + deg) };
           // 벽 가까이에서 돌려도 케이지 밖으로 나가지 않게 안쪽으로 밀어 줘요 (원래 안에 있던 경우)
           const a = getAsset(it.asset);
-          const wasInside = a && Object.values(wallGaps(footprint(it, a), d.cage)).every((v) => v >= -0.5);
+          const wasInside = a && !isOutsideCage(it, a, d.cage);
           return wasInside ? pullInside(d.cage, next) : next;
         }),
       })),
@@ -368,7 +373,7 @@ export default function CagePlanner() {
     () =>
       items.filter((it) => {
         const a = getAsset(it.asset);
-        return a && Object.values(wallGaps(footprint(it, a), cage)).some((v) => v < -0.5);
+        return a && isOutsideCage(it, a, cage);
       }).length,
     [items, cage],
   );
@@ -474,7 +479,7 @@ export default function CagePlanner() {
         saved = await api.createLayout(b);
       }
       // 화면의 배치·되돌리기 기록은 그대로 두고 저장된 상태만 기억해요
-      const m: Meta = { name: saved.name, species: saved.species, size: saved.size, petId: saved.pet_id, layoutId: saved.id };
+      const m = metaOf(saved);
       setMeta(m);
       setSavedSnap(snapshotOf(m, { cage: saved.cage, items: saved.items }));
       handledParam.current = saved.id;

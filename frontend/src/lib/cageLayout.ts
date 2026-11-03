@@ -10,7 +10,10 @@ export type Pt = { x: number; y: number };
 export type Box = { x0: number; y0: number; x1: number; y1: number };
 
 /** 이만큼(mm) 이하로 겹치거나 벽을 넘는 건 계산 오차로 보고 넘어가요 */
-const TOL = 0.5;
+export const TOL = 0.5;
+
+/** 0.1mm 단위로 반올림해요 (화면 표시·저장 좌표를 같은 자릿수로 맞춰요) */
+export const round1 = (v: number) => Math.round(v * 10) / 10;
 
 const rad = (deg: number) => (deg * Math.PI) / 180;
 
@@ -112,6 +115,16 @@ export function wallGaps(poly: Pt[], cage: Cage): Record<"left" | "right" | "fro
   return { left: b.x0, right: cage.width_mm - b.x1, front: b.y0, back: cage.depth_mm - b.y1 };
 }
 
+/** 바깥 상자가 케이지 바닥 밖으로 TOL 넘게 나갔는지 */
+function outsideBox(b: Box, cage: Cage): boolean {
+  return b.x0 < -TOL || b.y0 < -TOL || b.x1 > cage.width_mm + TOL || b.y1 > cage.depth_mm + TOL;
+}
+
+/** 항목이 케이지 벽 밖으로 TOL 넘게 나갔는지 (배치 검토의 '케이지 밖' 오류와 같은 기준) */
+export function isOutsideCage(item: LayoutItem, asset: CageAsset, cage: Cage): boolean {
+  return Object.values(wallGaps(footprint(item, asset), cage)).some((v) => v < -TOL);
+}
+
 /** 출입하는 면 바로 앞, 동물이 지나갈 자리 (폭 = 출입구 폭, 깊이 = 통과 가능한 최소 폭) */
 export function accessStrip(item: LayoutItem, asset: CageAsset, side: Side, depth: number): Pt[] {
   const [w, d] = asset.size;
@@ -165,6 +178,21 @@ export function josa(word: string, pair: "이가" | "와과" | "을를" | "은�
 }
 
 /**
+ * 종별 규칙에서 나오는 판정 함수들 (배치 검토와 빈 자리 찾기가 같은 기준을 써요).
+ *  - low: 넘어갈 수 있는 낮은 물건인지
+ *  - isTrap: 몸이 끼일 수 있는 틈인지
+ *  - blocks: 출입구 앞 통로(strip)를 그 구조물이 막는지
+ */
+function ruleTests(rules: LayoutRules | null) {
+  // 바닥에서 넘어갈 수 있는 낮은 물건(밥그릇·판 등)은 틈·통로를 막지 않는 것으로 봐요
+  const low = (a: CageAsset) => rules !== null && a.size[2] <= rules.max_step_height_mm;
+  const isTrap = (gap: number) =>
+    rules !== null && gap > rules.gap_safe_max_mm + TOL && gap < rules.gap_passable_min_mm - TOL;
+  const blocks = (strip: Pt[], o: { asset: CageAsset; poly: Pt[] }) => !low(o.asset) && overlapDepth(strip, o.poly) > TOL;
+  return { low, isTrap, blocks };
+}
+
+/**
  * 배치 검토.
  *  - 오류: 케이지 밖으로 나감, 케이지보다 높음, 다른 구조물과 겹침
  *  - 경고(규칙이 있을 때): 끼임 틈, 출입구 앞이 막힘, 출입구·터널이 좁음, 오르는 높이·턱이 높음, 위쪽 끼임 틈
@@ -184,10 +212,7 @@ export function checkLayout(cage: Cage, items: LayoutItem[], rules: LayoutRules 
   const add = (severity: CheckSeverity, key: string, message: string, ...itemIds: string[]) =>
     issues.push({ severity, key, message, itemIds });
 
-  // 바닥에서 넘어갈 수 있는 낮은 물건(밥그릇·판 등)은 틈·통로를 막지 않는 것으로 봐요
-  const low = (a: CageAsset) => rules !== null && a.size[2] <= rules.max_step_height_mm;
-  const isTrap = (gap: number) =>
-    rules !== null && gap > rules.gap_safe_max_mm + TOL && gap < rules.gap_passable_min_mm - TOL;
+  const { low, isTrap, blocks } = ruleTests(rules);
 
   // 케이지 자체가 최소 바닥 기준보다 작으면 (긴 변·짧은 변끼리 비교)
   if (rules) {
@@ -312,11 +337,8 @@ export function checkLayout(cage: Cage, items: LayoutItem[], rules: LayoutRules 
     for (const { item, asset } of placed) {
       for (const side of asset.accessSides ?? []) {
         const strip = accessStrip(item, asset, side, rules.gap_passable_min_mm);
-        const sb = bounds(strip);
-        const blockedByWall = sb.x0 < -TOL || sb.y0 < -TOL || sb.x1 > W + TOL || sb.y1 > D + TOL;
-        const blocker = placed.find(
-          (o) => o.item.id !== item.id && !low(o.asset) && overlapDepth(strip, o.poly) > TOL,
-        );
+        const blockedByWall = outsideBox(bounds(strip), cage);
+        const blocker = placed.find((o) => o.item.id !== item.id && blocks(strip, o));
         if (blockedByWall || blocker) {
           add(
             "warning",
@@ -343,8 +365,7 @@ export function checkLayout(cage: Cage, items: LayoutItem[], rules: LayoutRules 
 
 /** 케이지 안이고 다른 구조물과 겹치지 않는지 */
 function fits(cage: Cage, poly: Pt[], others: Pt[][]): boolean {
-  const b = bounds(poly);
-  if (b.x0 < -TOL || b.y0 < -TOL || b.x1 > cage.width_mm + TOL || b.y1 > cage.depth_mm + TOL) return false;
+  if (outsideBox(bounds(poly), cage)) return false;
   return others.every((o) => overlapDepth(poly, o) <= TOL);
 }
 
@@ -369,9 +390,7 @@ export function findFreeSpot(
     const strips = rules ? (a.accessSides ?? []).map((sd) => accessStrip(it, a, sd, rules.gap_passable_min_mm)) : [];
     others.push({ asset: a, poly: footprint(it, a), strips });
   }
-  const low = (a: CageAsset) => rules !== null && a.size[2] <= rules.max_step_height_mm;
-  const isTrap = (gap: number) =>
-    rules !== null && gap > rules.gap_safe_max_mm + TOL && gap < rules.gap_passable_min_mm - TOL;
+  const { low, isTrap, blocks } = ruleTests(rules);
 
   const { w, d } = rotatedExtent(asset, rotation);
   const xs = new Set<number>([w / 2, W - w / 2, W / 2]);
@@ -408,9 +427,8 @@ export function findFreeSpot(
         }
         for (const sd of asset.accessSides ?? []) {
           const st = accessStrip(cand, asset, sd, rules.gap_passable_min_mm);
-          const sb = bounds(st);
-          const wall = sb.x0 < -TOL || sb.y0 < -TOL || sb.x1 > W + TOL || sb.y1 > D + TOL;
-          if (wall || others.some((o) => !low(o.asset) && overlapDepth(st, o.poly) > TOL)) problems++;
+          const wall = outsideBox(bounds(st), cage);
+          if (wall || others.some((o) => blocks(st, o))) problems++;
         }
       }
       // 벽·모서리에 붙을수록, 뒤쪽일수록 좋아요 (앞은 관찰 면이라 비워 두는 편이 보기 좋아요)
@@ -426,6 +444,20 @@ export function findFreeSpot(
 
 /** 이 거리(mm) 안으로 다가가면 벽·구조물 모서리에 착 붙어요 */
 export const SNAP_MM = 15;
+
+/** 붙을 곳들 중 SNAP_MM 안에서 가장 가까운 곳까지 옮길 거리. 없으면 0 (거리가 같으면 먼저 나온 곳) */
+function nearestDelta(targets: { edge: keyof Box; at: number }[], b: Box): number {
+  let d = 0;
+  let best = SNAP_MM;
+  for (const t of targets) {
+    const delta = t.at - b[t.edge];
+    if (Math.abs(delta) < best) {
+      best = Math.abs(delta);
+      d = delta;
+    }
+  }
+  return d;
+}
 
 /**
  * 움직인 위치를 다듬어요: 격자에 맞추고, 벽이나 옆 구조물 모서리에 가까우면 붙여요.
@@ -464,25 +496,7 @@ export function snapPosition(
     if (o.y0 < b.y1 && o.y1 > b.y0) xTargets.push({ edge: "x0", at: o.x1 }, { edge: "x1", at: o.x0 });
     if (o.x0 < b.x1 && o.x1 > b.x0) yTargets.push({ edge: "y0", at: o.y1 }, { edge: "y1", at: o.y0 });
   }
-  let dx = 0;
-  let best = SNAP_MM;
-  for (const t of xTargets) {
-    const delta = t.at - b[t.edge];
-    if (Math.abs(delta) < best) {
-      best = Math.abs(delta);
-      dx = delta;
-    }
-  }
-  let dy = 0;
-  best = SNAP_MM;
-  for (const t of yTargets) {
-    const delta = t.at - b[t.edge];
-    if (Math.abs(delta) < best) {
-      best = Math.abs(delta);
-      dy = delta;
-    }
-  }
-  return { x: x + dx, y: y + dy };
+  return { x: x + nearestDelta(xTargets, b), y: y + nearestDelta(yTargets, b) };
 }
 
 /** 케이지 밖으로 나간 항목을 벽 안쪽으로 밀어 넣어요 (케이지를 줄였을 때) */
@@ -493,8 +507,8 @@ export function pullInside(cage: Cage, item: LayoutItem): LayoutItem {
   const clamp = (v: number, half: number, max: number) => (half * 2 > max ? max / 2 : Math.min(Math.max(v, half), max - half));
   return {
     ...item,
-    x_mm: Math.round(clamp(item.x_mm, w / 2, cage.width_mm) * 10) / 10,
-    y_mm: Math.round(clamp(item.y_mm, d / 2, cage.depth_mm) * 10) / 10,
+    x_mm: round1(clamp(item.x_mm, w / 2, cage.width_mm)),
+    y_mm: round1(clamp(item.y_mm, d / 2, cage.depth_mm)),
   };
 }
 
