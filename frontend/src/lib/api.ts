@@ -53,7 +53,8 @@ export function isEmailUnverified(e: unknown): boolean {
  */
 export const AUTH_ERROR_EVENT = "nestforge:auth-error";
 
-async function errorFrom(res: Response): Promise<ApiError> {
+/** 실패한 응답에서 사용자에게 보여 줄 오류를 만든다 (fetch 를 직접 쓰는 곳에서도 같은 문구를 쓰도록 내보낸다) */
+export async function errorFrom(res: Response): Promise<ApiError> {
   let body: unknown = null;
   try {
     body = await res.json();

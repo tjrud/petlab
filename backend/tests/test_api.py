@@ -158,29 +158,71 @@ def test_export_rebuilds_missing_mesh_cache(client, tmp_path):
     assert client.get(d["current"]["items"][0]["mesh_url"]).status_code == 200
 
 
-def test_legacy_hideout_rebuilds_with_single_entrance(client, tmp_path):
-    """entrance_count 가 없던 시절 저장된 은신처는 캐시를 다시 만들어도 출입구 1개 형상 그대로여야 한다."""
+def _make_legacy(client, design_id: str) -> dict:
+    """설계를 entrance_count·형상 해시가 없던 시절에 저장된 것처럼 바꾼다. 남긴 파라미터를 돌려준다."""
     from app.models import DesignVersion
-    from app.templates.hideout import HideoutParams, HideoutTemplate
 
-    d = design(client, count=2)  # 여러 마리 → 출입구 2개로 저장된다
-    it = d["current"]["items"][0]
     with client.app.state.session_factory() as db:
-        v = db.query(DesignVersion).filter_by(design_id=d["id"]).one()
+        v = db.query(DesignVersion).filter_by(design_id=design_id).one()
         items = [dict(x) for x in v.items]
-        stored = dict(items[0]["params"])
-        assert stored.pop("entrance_count") == 2
+        stored = {k: val for k, val in items[0]["params"].items() if k != "entrance_count"}
         items[0] = {**items[0], "params": stored}
         v.items = items
+        v.geometry = None
         db.commit()
+    return stored
+
+
+def test_legacy_hideout_rebuilds_with_single_entrance(client, tmp_path):
+    """entrance_count 가 없던 시절 저장된 은신처(1마리)는 캐시를 다시 만들어도 출입구 1개 형상 그대로이고,
+    해시가 없어 다시 검증해도 통과한다."""
+    from app.templates.hideout import HideoutParams, HideoutTemplate
+
+    d = design(client)
+    it = d["current"]["items"][0]
+    stored = _make_legacy(client, d["id"])
     shutil.rmtree(tmp_path / "meshes")
     r = client.get(it["mesh_url"])
-    assert r.status_code == 200
+    assert r.status_code == 200, r.text
     mesh = trimesh.load(io.BytesIO(r.content), file_type="stl")
     single = HideoutTemplate().build(HideoutParams(**stored, entrance_count=1)).volume
     double = HideoutTemplate().build(HideoutParams(**stored, entrance_count=2)).volume
     assert abs(mesh.volume - single) < abs(mesh.volume - double)
     assert mesh.volume == pytest.approx(single, rel=5e-3)
+    assert client.get(f"/designs/{d['id']}/export?format=stl").status_code == 200
+
+
+def test_legacy_single_door_hideout_for_two_animals_is_blocked(client, tmp_path):
+    """여러 마리용인데 출입구 1개로 저장된 옛 은신처는 지금 규칙(출입구 2개)으로 다시 검증해 내려받기를 막는다."""
+    d = design(client, count=2)
+    _make_legacy(client, d["id"])
+    shutil.rmtree(tmp_path / "meshes")
+    r = client.get(f"/designs/{d['id']}/export?format=stl")
+    assert r.status_code == 409
+    body = r.json()["detail"]
+    assert body["code"] == "geometry_changed"
+    assert "too_few_entrances" in {e["code"] for e in body["errors"]}
+
+
+def test_failed_legacy_version_keeps_viewer_after_cold_start(client, tmp_path):
+    """처음부터 검증에 실패한 옛 버전은 다시 검증하지 않는다: 뷰어 메시는 그대로 보이고, 내려받기는 원래대로 막힌다."""
+    from app.models import DesignVersion
+
+    d = design(client, prompt="은신처 터널 계단 모래목욕통 크게",
+               cage={"width_mm": 420, "depth_mm": 300, "height_mm": 300})
+    cur = d["current"]
+    assert not cur["validation"]["passed"]
+    placed = [it for it in cur["items"] if it["mesh_url"]]
+    assert placed
+    with client.app.state.session_factory() as db:
+        v = db.query(DesignVersion).filter_by(design_id=d["id"]).one()
+        v.geometry = None  # 형상 해시가 없던 시절에 저장된 버전
+        db.commit()
+    shutil.rmtree(tmp_path / "meshes")
+    for it in placed:
+        assert client.get(it["mesh_url"]).status_code == 200
+    r = client.get(f"/designs/{d['id']}/export?format=stl")
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "validation_failed"
 
 
 def test_revising_legacy_hideout_reports_added_door(client):

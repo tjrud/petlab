@@ -110,6 +110,32 @@ def clamp_params(
     return final, issues
 
 
+def constraint_violations(
+    template: Template,
+    params: TemplateParams,
+    ctx: RuleContext,
+    extra: list[ParamConstraint] | None = None,
+    item_index: int | None = None,
+    label_ko: str | None = None,
+) -> list[Issue]:
+    """값을 고치지 않고 제약 위반만 error 로 알린다 (저장된 버전을 다시 검증할 때: 고치면 다른 설계가 된다)."""
+    cls = template.Params
+    label = label_ko or template.display_name_ko
+    out = []
+    for c in template.constraints(params, ctx) + list(extra or []):
+        v = getattr(params, c.field)
+        if c.violates(v):
+            out.append(Issue(
+                code="param_out_of_range",
+                severity=Severity.error,
+                item_index=item_index,
+                message_ko=(f"{label}: {_desc(cls, c.field)} {_fmt(v)} 이(가) 지금 기준 허용 범위를 벗어납니다. "
+                            f"{c.reason_ko}").strip(),
+                details={"field": c.field, "value": v, "min": c.min, "max": c.max},
+            ))
+    return out
+
+
 def _desc(cls: type[TemplateParams], name: str) -> str:
     d = cls.model_fields[name].description or name
     return d.split(".")[0].replace(" mm", "")
