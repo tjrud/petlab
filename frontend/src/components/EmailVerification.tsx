@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, errorText } from "@/lib/api";
 
 // 이메일 인증: 인증 메일 다시 보내기, 헤더 아래 안내 띠, 설계·글쓰기·댓글 폼 안의 안내
 
@@ -34,7 +34,7 @@ export function useResendVerification() {
       answered = e instanceof ApiError && e.status > 0; // 0: 서버에 닿지 못함
       setResult({
         ok: false,
-        message: e instanceof ApiError ? e.messageKo : "인증 메일을 보내지 못했어요. 잠시 뒤 다시 시도해 주세요.",
+        message: errorText(e, "인증 메일을 보내지 못했어요. 잠시 뒤 다시 시도해 주세요."),
       });
     } finally {
       setBusy(false);

@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useState } from "react";
 
-import { api, ApiError, isAuthError } from "@/lib/api";
+import { api, ApiError, errorText, isAuthError } from "@/lib/api";
 import type { Pet, PetInput, PetSex, SpeciesOption } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
@@ -11,6 +11,7 @@ import {
   CAGE_DIMS,
   CAGE_LIMITS,
   CAGE_PRESETS,
+  cageDimError,
   charCount,
   describedBy,
   FieldError,
@@ -82,9 +83,8 @@ function validate(v: Values, species: SpeciesOption[], today: string): Errors {
     for (const [k] of CAGE_DIMS) if (!v.cage[k].trim()) errors[k] = "입력해 주세요.";
   } else if (filled.length === 3) {
     for (const [k, label] of CAGE_DIMS) {
-      const n = Number(v.cage[k]);
-      const [lo, hi] = CAGE_LIMITS[k];
-      if (!Number.isFinite(n) || n < lo || n > hi) errors[k] = `${label}는 ${lo}~${hi}mm 사이로 입력해 주세요.`;
+      const e = cageDimError(k, Number(v.cage[k]), label);
+      if (e) errors[k] = e; // 문제없는 칸은 키를 만들지 않는다
     }
   }
   return errors;
@@ -172,12 +172,12 @@ export default function PetForm({
       onSaved(saved);
     } catch (err) {
       setSubmitting(false);
-      if (isAuthError(err)) return onAuthError(err as ApiError);
+      if (isAuthError(err)) return onAuthError(err);
       if (err instanceof ApiError && isBirthDateError(err)) {
         setError("생일은 1990년 1월 1일부터 오늘 사이로 입력해 주세요.");
         focus("birth");
       } else {
-        setError(err instanceof ApiError ? err.messageKo : "저장하지 못했어요. 잠시 뒤 다시 시도해 주세요.");
+        setError(errorText(err, "저장하지 못했어요. 잠시 뒤 다시 시도해 주세요."));
       }
     }
   }

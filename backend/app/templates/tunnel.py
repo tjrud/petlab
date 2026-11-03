@@ -103,18 +103,14 @@ class TunnelTemplate(Template):
             length_mm=200,
             inner_diameter_mm=float(math.ceil(ctx.size.tunnel_min_inner_diameter_mm + 5)),
             bend_angle_deg=0,
-            wall_thickness_mm=max(3.0, ctx.min_wall_mm),
+            wall_thickness_mm=ctx.default_wall_mm,
         )
 
     def constraints(self, p: TunnelParams, ctx: RuleContext) -> list[ParamConstraint]:
         s = ctx.size
         d = max(p.inner_diameter_mm, s.tunnel_min_inner_diameter_mm)
         return [
-            ParamConstraint(
-                "wall_thickness_mm", min=ctx.min_wall_mm,
-                source="species" if s.min_wall_thickness_mm >= ctx.min_wall_mm else "printing",
-                reason_ko=f"벽 두께는 최소 {ctx.min_wall_mm:g}mm 이상이어야 합니다 (갉음 내구성·출력 기준)",
-            ),
+            ctx.wall_thickness_constraint(),
             ParamConstraint(
                 "inner_diameter_mm", min=s.tunnel_min_inner_diameter_mm, source="species",
                 reason_ko=f"{s.display_name} 터널 내경은 최소 {s.tunnel_min_inner_diameter_mm:g}mm 이상이어야 합니다",

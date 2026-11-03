@@ -7,23 +7,25 @@
 from __future__ import annotations
 
 import copy
+import json
 import logging
 import os
 import re
 import threading
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
 import trimesh
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.domain import BuiltItem, Cage, Placement, PlacementHint
 from app.geometry.export import ExportFile, ExportPart, export_parts
 from app.geometry.fingerprint import file_digest, geometry_fingerprint
-from app.llm.base import HabitatInfo, Interpreter, InterpretRequest
+from app.llm.base import HabitatInfo, Interpreter, InterpretRequest, InterpretResult
 from app.llm.spec import parse_spec, to_item_specs
 from app.models import Design, DesignVersion, Habitat, Pet, Post, User
 from app.rules.loader import RuleBook
@@ -40,7 +42,13 @@ from app.schemas import (
     VersionSummary,
 )
 from app.services import usage
-from app.services.engine import EngineContext, build_item, revalidate, run_engine
+from app.services.engine import (
+    EngineContext,
+    EngineResult,
+    build_item,
+    revalidate,
+    run_engine,
+)
 from app.templates.registry import get_template
 
 log = logging.getLogger(__name__)
@@ -99,12 +107,86 @@ def _atomic_write(path: Path, data: bytes) -> None:
         tmp.unlink(missing_ok=True)
 
 
+def _print_name(index: int) -> str:
+    """출력 자세 메시 캐시 파일 이름 (내려받기용)."""
+    return f"print_{index}.stl"
+
+
+def _world_name(index: int) -> str:
+    """케이지 좌표계 뷰어 메시 캐시 파일 이름 (배치된 구조물만)."""
+    return f"world_{index}.stl"
+
+
+def _cache_names(it: dict) -> list[str]:
+    """저장된 구조물 하나(DesignVersion.items 의 항목)가 캐시에 가져야 할 파일 이름."""
+    names = [_print_name(it["index"])]
+    if it["placement"]:
+        names.append(_world_name(it["index"]))
+    return names
+
+
 def _mesh_files(item: BuiltItem) -> dict[str, bytes]:
     """구조물 하나의 메시 캐시 파일: 출력 자세(print_i), 배치된 경우 케이지 좌표계 뷰어 메시(world_i)."""
-    files = {f"print_{item.index}.stl": item.print_mesh.export(file_type="stl")}
+    files = {_print_name(item.index): item.print_mesh.export(file_type="stl")}
     if item.placement is not None:
-        files[f"world_{item.index}.stl"] = item.world_mesh().export(file_type="stl")
+        files[_world_name(item.index)] = item.world_mesh().export(file_type="stl")
     return files
+
+
+def _cache_files(items: Iterable[BuiltItem]) -> dict[str, bytes]:
+    """여러 구조물의 메시 캐시 파일을 구조물 순서대로 합친다."""
+    files: dict[str, bytes] = {}
+    for item in items:
+        files.update(_mesh_files(item))
+    return files
+
+
+def _write_cache(d: Path, files: dict[str, bytes]) -> None:
+    """버전 캐시 디렉터리에 파일을 하나씩 원자적으로 쓴다."""
+    d.mkdir(parents=True, exist_ok=True)
+    for name, data in files.items():
+        _atomic_write(d / name, data)
+
+
+def _version_records(llm_spec: dict, engine: EngineResult) -> tuple[list[dict], dict]:
+    """엔진 결과를 저장할 기록으로 바꾼다: (DesignVersion.items, 보정 반영 명세 effective_spec).
+
+    llm_spec 은 바꾸지 않는다. 만들어진 구조물만 effective_spec 의 items 가 되고, 하나도 만들어지지 않았으면
+    effective_spec 은 llm_spec 과 같다. 저장되는 JSON 의 키 순서가 바뀌지 않도록 항목 dict 를 이 순서로 만든다."""
+    effective = copy.deepcopy(llm_spec)
+    built_items = []
+    effective_items = []
+    for it in engine.items:
+        src = llm_spec["items"][it.index]
+        params = it.params.model_dump(mode="json") if it.params is not None else src["params"]
+        effective_items.append({**copy.deepcopy(src), "params": params})
+        lo, hi = it.mesh.bounds
+        built_items.append({
+            "index": it.index,
+            "template": it.key,
+            "label_ko": it.label_ko,
+            "params": params,
+            "reason_ko": src.get("reason_ko", ""),
+            "hint": src["placement"],
+            "placement": (
+                {"x_mm": it.placement.x_mm, "y_mm": it.placement.y_mm, "rotation_deg": it.placement.rotation_deg}
+                if it.placement else None
+            ),
+            "size_mm": [float(v) for v in (hi - lo)],
+            "print_size_mm": [float(v) for v in it.print_mesh.extents],
+        })
+    if effective_items:
+        effective["items"] = effective_items
+    return built_items, effective
+
+
+@dataclass(frozen=True)
+class _Generated:
+    """LLM 해석과 엔진 실행 결과 (아직 저장하지 않음)."""
+
+    prompt: str
+    interpret: InterpretResult
+    engine: EngineResult
 
 
 @dataclass(frozen=True)
@@ -137,6 +219,18 @@ def _can_edit(design: Design, user: User) -> bool:
 def _can_view_all(design: Design, user: User | None) -> bool:
     """모든 버전을 볼 수 있는지: 소유자, 또는 관리자(운영·신고 처리)."""
     return user is not None and (user.is_admin or _can_edit(design, user))
+
+
+def _unresolved_errors(issues: list[dict]) -> list[dict]:
+    """자동 보정되지 않은 오류만 고른다.
+
+    저장된 보고서용. ValidationReport.errors 와 같은 기준이고, 옛 보고서를 pydantic 으로 다시 읽지 않는다."""
+    return [i for i in issues if i["severity"] == "error" and not i.get("auto_fixed")]
+
+
+def _exportable(v: DesignVersion) -> bool:
+    """내려받을 수 있는 버전인지: 검증을 통과했고 구조물이 하나 이상 있다."""
+    return v.passed and bool(v.items)
 
 
 class DesignService:
@@ -234,13 +328,13 @@ class DesignService:
         h = self.get_habitat(db, habitat_id, user)
         # 사용량을 먼저 기록하고 커밋한다 (LLM 호출 수십 초 동안 DB 연결을 '트랜잭션 중' 상태로 잡아 두지 않는다)
         self.reserve_quota(db, user, ip_key)
-        version = self._generate(h, prompt, previous=None)  # LLM 실패 시 예외 → 아무것도 저장하지 않음
+        generated = self._generate(h, prompt, previous=None)  # LLM 실패 시 예외 → 아무것도 저장하지 않음
         design = Design(habitat_id=h.id, owner_id=user.id, title=make_title(prompt))
         db.add(design)
         db.flush()
-        self._save_version(db, design, version, 1, user)
+        row = self._save_version(db, design, generated, 1, user)
         db.commit()
-        return design, version["row"]
+        return design, row
 
     def revise_design(
         self, db: Session, design_id: str, prompt: str, user: User, base_version: int | None = None,
@@ -253,10 +347,10 @@ class DesignService:
         self.reserve_quota(db, user, ip_key)  # 기록 후 커밋 (create_design 과 같은 이유)
         generated = self._generate(habitat, prompt, previous=previous)
         next_no = (db.scalar(select(func.max(DesignVersion.version)).where(DesignVersion.design_id == design.id)) or 0) + 1
-        self._save_version(db, design, generated, next_no, user)
+        row = self._save_version(db, design, generated, next_no, user)
         db.commit()
         db.refresh(design)
-        return design, generated["row"]
+        return design, row
 
     @staticmethod
     def _with_legacy_defaults(spec: dict) -> dict:
@@ -276,82 +370,56 @@ class DesignService:
         return {**spec, "items": items}
 
     @classmethod
-    def _previous_spec(cls, base: DesignVersion):
+    def _previous_spec(cls, base: DesignVersion) -> BaseModel | None:
         for candidate in (base.effective_spec, base.llm_spec):
             try:
-                import json
-
                 return parse_spec(json.dumps(cls._with_legacy_defaults(candidate), ensure_ascii=False))
             except Exception:  # 검증 실패 시 다음 후보
                 continue
         return None
 
-    def _generate(self, h: Habitat, prompt: str, previous) -> dict:
-        size_rules = self.rules.size_rules(h.species, h.size)
+    def _generate(self, h: Habitat, prompt: str, previous: BaseModel | None) -> _Generated:
+        # 엔진 맥락을 한 번 만들어 LLM 요청과 엔진 실행에 함께 쓴다. 규칙 조회(KeyError)는 예전과 같은 순서로 일어난다:
+        # 크기 규칙 → 종 이름 → 최소 벽 두께
+        ctx = self._engine_ctx(h)
+        size_rules = ctx.size_rules
         species_name = self.rules.species_file.species[h.species].display_name
         req = InterpretRequest(
             prompt=prompt,
-            habitat=HabitatInfo(h.species, species_name, h.size, h.count, self._cage(h)),
+            habitat=HabitatInfo(h.species, species_name, h.size, h.count, ctx.cage),
             size_rules=size_rules,
-            min_wall_mm=self.rules.min_wall_for(h.species, h.size),
+            min_wall_mm=ctx.min_wall_mm,
             previous=previous,
         )
         result = self._interpreter().interpret(req)
-        engine_result = run_engine(to_item_specs(result.spec), self._engine_ctx(h))
-        return {"prompt": prompt, "interpret": result, "engine": engine_result}
+        engine_result = run_engine(to_item_specs(result.spec), ctx)
+        return _Generated(prompt=prompt, interpret=result, engine=engine_result)
 
-    def _save_version(self, db: Session, design: Design, g: dict, version_no: int, user: User) -> None:
-        spec = g["interpret"].spec
-        llm_spec = spec.model_dump(mode="json")
-        engine = g["engine"]
-        effective = copy.deepcopy(llm_spec)
-        built_items = []
-        effective_items = []
-        for it in engine.items:
-            src = llm_spec["items"][it.index]
-            params = it.params.model_dump(mode="json") if it.params is not None else src["params"]
-            effective_items.append({**copy.deepcopy(src), "params": params})
-            lo, hi = it.mesh.bounds
-            built_items.append({
-                "index": it.index,
-                "template": it.key,
-                "label_ko": it.label_ko,
-                "params": params,
-                "reason_ko": src.get("reason_ko", ""),
-                "hint": src["placement"],
-                "placement": (
-                    {"x_mm": it.placement.x_mm, "y_mm": it.placement.y_mm, "rotation_deg": it.placement.rotation_deg}
-                    if it.placement else None
-                ),
-                "size_mm": [float(v) for v in (hi - lo)],
-                "print_size_mm": [float(v) for v in it.print_mesh.extents],
-            })
-        if effective_items:
-            effective["items"] = effective_items
+    def _save_version(self, db: Session, design: Design, g: _Generated, version_no: int, user: User) -> DesignVersion:
+        """생성 결과를 새 버전 행으로 저장하고 메시 캐시를 쓴다. g 는 바꾸지 않는다.
+        flush 가 실패하면(버전 번호 경쟁 등) 캐시 파일을 쓰지 않도록 파일은 마지막에 쓴다."""
+        llm_spec = g.interpret.spec.model_dump(mode="json")
+        engine = g.engine
+        built_items, effective = _version_records(llm_spec, engine)
 
         # 검증한 형상 그대로의 메시 파일. 해시를 함께 저장해 두고, 캐시를 다시 만들 때 같은 형상인지 확인한다
-        files: dict[str, bytes] = {}
-        for it in engine.items:
-            files.update(_mesh_files(it))
+        files = _cache_files(engine.items)
         geometry = {
             "fingerprint": geometry_fingerprint((it.key for it in engine.items), self.rules.printing),
             "files": {name: file_digest(data) for name, data in files.items()},
         }
         row = DesignVersion(
-            design_id=design.id, version=version_no, prompt=g["prompt"],
-            provider=g["interpret"].provider, llm_attempts=g["interpret"].attempts,
+            design_id=design.id, version=version_no, prompt=g.prompt,
+            provider=g.interpret.provider, llm_attempts=g.interpret.attempts,
             llm_spec=llm_spec, effective_spec=effective, items=built_items,
             report=engine.report.model_dump(mode="json"), passed=engine.report.passed, geometry=geometry,
             created_by=user.id,
         )
         db.add(row)
         db.flush()
-        g["row"] = row
         # 메시 캐시 저장 (뷰어용 배치 메시 + 출력 자세 메시)
-        d = self._version_dir(design.id, version_no)
-        d.mkdir(parents=True, exist_ok=True)
-        for name, data in files.items():
-            _atomic_write(d / name, data)
+        _write_cache(self._version_dir(design.id, version_no), files)
+        return row
 
     # ── 조회 ────────────────────────────────────────────────
 
@@ -465,7 +533,7 @@ class DesignService:
         ]
         report = dict(v.report)
         issues = report.get("issues", [])
-        errors = [i for i in issues if i["severity"] == "error" and not i.get("auto_fixed")]
+        errors = _unresolved_errors(issues)
         validation = {
             "passed": v.passed,
             "summary": {
@@ -493,7 +561,7 @@ class DesignService:
             current=VersionOut(
                 version=v.version, prompt=v.prompt, provider=v.provider,
                 summary_ko=v.llm_spec.get("summary_ko", ""), notes_ko=v.llm_spec.get("notes_ko", []),
-                items=items, validation=validation, export_allowed=v.passed and bool(items),
+                items=items, validation=validation, export_allowed=_exportable(v),
                 created_at=v.created_at,
             ),
         )
@@ -518,10 +586,8 @@ class DesignService:
             built.placement = Placement(**it["placement"])
         return built
 
-    def _revalidate(self, design: Design, v: DesignVersion, rebuilt: dict[int, BuiltItem], changed: list[str]) -> None:
-        """다시 만든 형상이 저장할 때 검증한 형상과 다를 때(또는 확인할 해시가 없는 옛 버전일 때),
-        구조물 전체를 저장된 배치 그대로 지금 기준으로 다시 검증한다. 통과하지 못하면 GeometryChangedError.
-        rebuilt 에 아직 다시 만들지 않은 구조물을 채운다 (겹침·틈새는 구조물끼리 함께 봐야 한다)."""
+    def _log_drift(self, design: Design, v: DesignVersion, changed: list[str]) -> None:
+        """다시 검증하게 된 까닭을 경고로 남긴다: 저장된 해시와 다른 파일(과 형상 지문 변화), 또는 해시가 없는 옛 버전."""
         stored = v.geometry or {}
         current = geometry_fingerprint((it["template"] for it in v.items), self.rules.printing)
         if stored.get("files"):
@@ -533,11 +599,13 @@ class DesignService:
         else:
             log.warning("no stored geometry digests (version predates them): design=%s v=%s; re-validating",
                         design.id, v.version)
-        for it in v.items:
-            if it["index"] not in rebuilt:
-                rebuilt[it["index"]] = self._rebuild(design, v, it)
+
+    def _revalidate(self, design: Design, v: DesignVersion, items: list[BuiltItem]) -> None:
+        """다시 만든 구조물 전체(items, index 순)를 저장된 배치 그대로 지금 기준으로 다시 검증한다.
+        겹침·틈새는 구조물끼리 함께 봐야 하므로 items 에는 버전의 모든 구조물이 들어 있어야 한다.
+        검증을 실행하지 못하면 MeshRegenerationError, 통과하지 못하면 결과를 기억해 두고 GeometryChangedError."""
         try:
-            report = revalidate([rebuilt[i] for i in sorted(rebuilt)], self._engine_ctx(design.habitat))
+            report = revalidate(items, self._engine_ctx(design.habitat))
         except Exception as e:  # 규칙 파일에서 종/크기가 빠짐, 검증 중 형상 오류 등 → 확인할 수 없으면 막는다
             log.exception("re-validation failed to run: design=%s v=%s", design.id, v.version)
             raise MeshRegenerationError(
@@ -554,18 +622,18 @@ class DesignService:
     def _ensure_meshes(self, design: Design, v: DesignVersion) -> Path:
         """메시 캐시가 없으면(새 인스턴스·삭제 등) 저장된 최종 파라미터로 다시 만든다.
 
-        캐시에는 검증을 거친 형상만 둔다 (파일이 있으면 그대로 응답하므로):
+        먼저 파일이 빠진 구조물만 다시 만들고, 캐시에는 검증을 거친 형상만 둔다 (파일이 있으면 그대로 응답하므로):
           - 다시 만든 파일이 저장할 때 기록한 해시와 바이트 단위로 같으면 그대로 쓴다 (형상 생성은 결정적).
           - 다르거나 (배포 사이 템플릿 build()·테셀레이션 설정·형상 라이브러리 변경) 해시가 없는 옛 버전이면,
-            구조물 전체를 다시 검증한다. 통과하면 다시 만든 형상으로 캐시 전체를 맞추고(남아 있던 파일과
-            섞이지 않게), 통과하지 못하면 아무 파일도 쓰지 않고 뷰어·내려받기 모두 409 로 막는다.
+            까닭을 경고로 남기고(_log_drift) 파일이 남아 있던 구조물까지 다시 만들어 구조물 전체를 함께 다시
+            검증한다(_revalidate). 통과하면 다시 만든 형상으로 캐시 전체를 맞추고(남아 있던 파일과 섞이지 않게),
+            다시 만들거나 검증하지 못하면 아무 파일도 쓰지 않고 뷰어·내려받기 모두 409 로 막는다.
           - 처음부터 검증을 통과하지 못한 버전은 다시 검증하지 않는다. 내려받기는 이미 막혀 있고(export 의
-            v.passed 확인), 메시는 어디가 문제인지 보여 주는 뷰어에만 쓰인다."""
+            _exportable 확인), 메시는 어디가 문제인지 보여 주는 뷰어에만 쓰인다."""
         d = self._version_dir(design.id, v.version)
 
         def missing() -> list[dict]:
-            return [it for it in v.items if not (d / f"print_{it['index']}.stl").is_file()
-                    or (it["placement"] and not (d / f"world_{it['index']}.stl").is_file())]
+            return [it for it in v.items if not all((d / n).is_file() for n in _cache_names(it))]
 
         if not missing():
             return d
@@ -579,18 +647,18 @@ class DesignService:
             if not todo:
                 return d
             rebuilt = {it["index"]: self._rebuild(design, v, it) for it in todo}
-            files = {name: data for b in rebuilt.values() for name, data in _mesh_files(b).items()}
+            files = _cache_files(rebuilt.values())
             expected = (v.geometry or {}).get("files") or {}
             changed = sorted(name for name, data in files.items() if expected.get(name) != file_digest(data))
             if changed and v.passed:
-                done = set(rebuilt)
-                self._revalidate(design, v, rebuilt, changed)
-                for i, b in rebuilt.items():
-                    if i not in done:
-                        files.update(_mesh_files(b))
-            d.mkdir(parents=True, exist_ok=True)
-            for name, data in files.items():
-                _atomic_write(d / name, data)
+                self._log_drift(design, v, changed)
+                # 남아 있던 파일의 구조물도 다시 만들어 전체를 함께 검증하고, 그 형상으로 캐시 전체를 맞춘다
+                rest = [it for it in v.items if it["index"] not in rebuilt]
+                for it in rest:
+                    rebuilt[it["index"]] = self._rebuild(design, v, it)
+                self._revalidate(design, v, [rebuilt[i] for i in sorted(rebuilt)])
+                files.update(_cache_files(rebuilt[it["index"]] for it in rest))
+            _write_cache(d, files)
         return d
 
     def part_mesh_path(self, db: Session, design_id: str, version: int, index: int, user: User | None) -> Path:
@@ -598,13 +666,13 @@ class DesignService:
         v = self.get_version(db, design, version, allowed)
         if not any(it["index"] == index and it["placement"] for it in v.items):
             raise NotFoundError("해당 구조물 메시가 없습니다.")
-        return self._ensure_meshes(design, v) / f"world_{index}.stl"
+        return self._ensure_meshes(design, v) / _world_name(index)
 
     def export(self, db: Session, design_id: str, version: int | None, fmt: str, user: User | None) -> ExportFile:
         design, allowed = self.get_visible(db, design_id, user)
         v = self.get_version(db, design, version, allowed)
-        if not v.passed or not v.items:
-            errors = [i for i in v.report.get("issues", []) if i["severity"] == "error" and not i.get("auto_fixed")]
+        if not _exportable(v):
+            errors = _unresolved_errors(v.report.get("issues", []))
             raise ExportBlockedError(
                 "검증을 통과하지 못한 설계는 내려받을 수 없습니다. 아래 문제를 해결하도록 설계를 수정해 주세요.",
                 errors,
@@ -612,7 +680,7 @@ class DesignService:
         d = self._ensure_meshes(design, v)
         parts = [
             ExportPart(f"part{it['index'] + 1}_{it['template']}",
-                       trimesh.load(d / f"print_{it['index']}.stl", file_type="stl"))
+                       trimesh.load(d / _print_name(it["index"]), file_type="stl"))
             for it in v.items
         ]
         return export_parts(parts, fmt, f"nestforge_{design.id[:8]}_v{v.version}", self.rules.printing.plate_spacing_mm)

@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import io
 import shutil
@@ -21,7 +22,8 @@ import app.services.design_service as design_service
 from app.config import Settings
 from app.geometry.fingerprint import geometry_fingerprint
 from app.main import create_app
-from app.models import DesignVersion
+from app.models import DesignVersion, Habitat
+from app.services.engine import EngineResult
 from app.templates.base import ParamConstraint
 from app.templates.hideout import HideoutTemplate
 from app.templates.tunnel import TunnelTemplate
@@ -127,6 +129,36 @@ def test_version_records_digest_of_every_cached_file(tmp_path):
         for it in d["current"]["items"]:
             assert it["mesh_url"].endswith(f".stl?g={geometry['fingerprint'][:16]}")
             assert c.get(it["mesh_url"]).status_code == 200
+
+
+def test_version_records_leave_unbuilt_items_out_of_effective_spec(tmp_path):
+    """엔진이 만들지 못한 구조물은 저장 기록(items)과 보정 반영 명세(effective_spec)에서 빠지고,
+    LLM 명세(llm_spec)는 바뀌지 않는다. 하나도 만들지 못하면 보정 반영 명세는 LLM 명세 그대로다."""
+    with TestClient(create_app(settings(tmp_path))) as c:
+        hid = c.post("/habitats", json={"species": "hamster", "size": "syrian", "count": 1, "cage": CAGE}).json()["id"]
+        svc = c.app.state.design_service
+        with c.app.state.session_factory() as db:
+            h = db.get(Habitat, hid)
+            g = svc._generate(h, "은신처와 터널을 한쪽에 몰아서 넣고 싶어요", None)
+        assert len(g.engine.items) >= 2
+
+        llm_spec = g.interpret.spec.model_dump(mode="json")
+        original = copy.deepcopy(llm_spec)
+        # 첫 구조물을 엔진이 만들지 못한 상황
+        kept = EngineResult(items=g.engine.items[1:], report=g.engine.report)
+        items, effective = design_service._version_records(llm_spec, kept)
+
+        assert [it["index"] for it in items] == [it.index for it in kept.items]
+        assert len(effective["items"]) == len(kept.items)
+        for k, built in enumerate(kept.items):
+            assert items[k]["hint"] == llm_spec["items"][built.index]["placement"]
+            assert items[k]["params"] == effective["items"][k]["params"]
+        assert {k: v for k, v in effective.items() if k != "items"} == \
+            {k: v for k, v in llm_spec.items() if k != "items"}
+        assert llm_spec == original  # 입력 명세는 바꾸지 않는다
+
+        _, effective_empty = design_service._version_records(llm_spec, EngineResult(items=[], report=g.engine.report))
+        assert effective_empty == llm_spec
 
 
 # ── 경로 1: 똑같이 다시 만들어짐 → 다시 검증하지 않음 ──────────

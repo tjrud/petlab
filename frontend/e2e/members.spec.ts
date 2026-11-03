@@ -49,6 +49,75 @@ test("회원가입: 입력 확인과 중복 아이디", async ({ page }) => {
   await expect(page.getByRole("button", { name: "가입하기" })).toBeDisabled();
 });
 
+test("회원가입 화면: 비밀번호 규칙 (8자 이상, 아이디와 다르게)", async ({ page }) => {
+  const username = `pwrule_${RUN}`;
+  await page.goto("/signup");
+  await page.getByLabel("아이디").fill(username);
+  const password = page.getByLabel("비밀번호", { exact: true });
+  // 칸을 떠나면 규칙 안내가 나타난다
+  await password.fill("short");
+  await password.blur();
+  await expect(page.getByText("비밀번호는 8자 이상이어야 해요.")).toBeVisible();
+  await expect(password).toHaveAttribute("aria-invalid", "true");
+  await expect(password).toHaveAccessibleDescription(/비밀번호는 8자 이상이어야 해요\./);
+  // 아이디와 같은 비밀번호
+  await password.fill(username);
+  await password.blur();
+  await expect(page.getByText("비밀번호를 아이디와 다르게 정해 주세요.")).toBeVisible();
+  await expect(page.getByText("비밀번호는 8자 이상이어야 해요.")).toHaveCount(0);
+});
+
+test("내 정보: 비밀번호·닉네임 바꾸기와 반려동물 케이지 치수 입력 확인", async ({ page }) => {
+  const m = { username: `myinfo_${RUN}`, nickname: `내정보${RUN}`, password: "my-info-pass-123" };
+  await signup(page, m, { next: "/me", verify: false });
+  await expect(page.getByRole("heading", { level: 1, name: "내 정보" })).toBeVisible();
+
+  // 비밀번호 바꾸기: 새 비밀번호 규칙과 확인 칸
+  const pwForm = page.getByRole("form", { name: "비밀번호 바꾸기" });
+  const nextPw = pwForm.getByLabel("새 비밀번호", { exact: true });
+  await pwForm.getByLabel("현재 비밀번호").fill(m.password);
+  await nextPw.fill("short");
+  await pwForm.getByLabel("새 비밀번호 확인").fill("short");
+  await pwForm.getByRole("button", { name: "비밀번호 변경" }).click();
+  await expect(pwForm.getByText("비밀번호는 8자 이상이어야 해요.")).toBeVisible();
+  await expect(nextPw).toHaveAttribute("aria-invalid", "true");
+  await expect(nextPw).toHaveAccessibleDescription(/비밀번호는 8자 이상이어야 해요\./);
+  await nextPw.fill("changed-pass-123");
+  await pwForm.getByLabel("새 비밀번호 확인").fill("changed-pass-999");
+  await pwForm.getByRole("button", { name: "비밀번호 변경" }).click();
+  await expect(pwForm.getByText("새 비밀번호가 서로 달라요. 다시 확인해 주세요.")).toBeVisible();
+  await expect(pwForm.getByText("비밀번호는 8자 이상이어야 해요.")).toHaveCount(0);
+
+  // 닉네임 바꾸기: 지금과 같으면 안내, 다른 닉네임이면 헤더도 바로 바뀐다
+  const nickForm = page.getByRole("form", { name: "닉네임 바꾸기" });
+  const nickInput = nickForm.getByLabel("닉네임");
+  await expect(nickInput).toHaveValue(m.nickname);
+  await nickForm.getByRole("button", { name: "닉네임 변경" }).click();
+  await expect(nickForm.getByText("지금 쓰고 있는 닉네임과 같아요.")).toBeVisible();
+  await expect(nickInput).toHaveAttribute("aria-invalid", "true");
+  await expect(nickInput).toHaveAccessibleDescription(/지금 쓰고 있는 닉네임과 같아요\./);
+  const renamed = `바뀐닉${RUN}`;
+  await nickInput.fill(renamed);
+  await nickForm.getByRole("button", { name: "닉네임 변경" }).click();
+  await expect(nickForm.getByRole("status")).toHaveText("닉네임을 바꿨어요.");
+  await expect(page.getByRole("banner").getByText(renamed)).toBeVisible();
+  await expect(page.getByRole("banner").getByText(m.nickname)).toHaveCount(0);
+
+  // 반려동물 등록 폼: 케이지 치수 범위
+  await page.getByRole("button", { name: "반려동물 등록" }).first().click();
+  const petForm = page.getByRole("form", { name: "반려동물 등록" });
+  await petForm.getByLabel("이름").fill("치수검사");
+  await petForm.getByLabel("크기").selectOption("syrian");
+  await petForm.getByRole("button", { name: "중형 60×40×30cm" }).click();
+  await petForm.getByLabel("가로 (mm)").fill("150");
+  await petForm.getByRole("button", { name: "저장" }).click();
+  await expect(petForm.getByText("가로는 200~2000mm 사이로 입력해 주세요.")).toBeVisible();
+  await expect(petForm.getByText("세로는", { exact: false })).toHaveCount(0);
+  await expect(petForm.getByText("높이는", { exact: false })).toHaveCount(0);
+  await petForm.getByRole("button", { name: "취소" }).click();
+  await expect(petForm).toHaveCount(0);
+});
+
 test("회원가입 → 반려동물 등록 → 반려동물로 설계 → 내 설계 → 커뮤니티 공유 → 다른 회원의 댓글·읽기 전용 보기", async ({
   page,
 }) => {

@@ -4,12 +4,12 @@ import { useId, useLayoutEffect, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
 import { ResendVerification } from "@/components/EmailVerification";
-import { api, ApiError, isAuthError } from "@/lib/api";
+import { api, ApiError, errorText, isAuthError } from "@/lib/api";
 import { isPlausibleEmail } from "@/lib/email";
 import type { User } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
-import { describedBy, FieldError, inputClass } from "./common";
+import { Field } from "./common";
 
 type Key = "email" | "password";
 type Errors = Partial<Record<Key, string>>;
@@ -86,12 +86,12 @@ export default function EmailForm({ user, onAuthError }: { user: User; onAuthErr
       setOpen(false);
     } catch (err) {
       if (isAuthError(err)) {
-        onAuthError(err as ApiError);
+        onAuthError(err);
         return;
       }
       const code = err instanceof ApiError ? err.code : undefined;
       if (code === "validation_error") setError("이메일 주소를 확인해 주세요.");
-      else setError(err instanceof ApiError ? err.messageKo : "이메일을 바꾸지 못했어요. 잠시 뒤 다시 시도해 주세요.");
+      else setError(errorText(err, "이메일을 바꾸지 못했어요. 잠시 뒤 다시 시도해 주세요."));
       if (code === "invalid_credentials") {
         setPassword("");
         document.getElementById(fieldId("password"))?.focus();
@@ -139,55 +139,37 @@ export default function EmailForm({ user, onAuthError }: { user: User; onAuthErr
         <form onSubmit={submit} noValidate aria-label={user.email ? "이메일 바꾸기" : "이메일 등록"} className="space-y-3">
           {/* 비밀번호 관리 프로그램이 어느 계정의 비밀번호인지 알 수 있게 아이디를 함께 둔다 */}
           <input type="text" name="username" autoComplete="username" value={user.username} readOnly hidden />
-          <div>
-            <label htmlFor={fieldId("email")} className={ui.label}>
-              {user.email ? "새 이메일" : "이메일"}
-            </label>
-            <input
-              id={fieldId("email")}
-              type="email"
-              inputMode="email"
-              autoComplete="email"
-              autoCapitalize="none"
-              spellCheck={false}
-              required
-              value={email}
-              onChange={(e) => {
-                setEmail(e.target.value);
-                setError(null);
-                setDone(null);
-              }}
-              aria-invalid={errors.email ? true : undefined}
-              aria-describedby={describedBy(errors.email && `${fieldId("email")}-error`, `${fieldId("email")}-hint`)}
-              className={inputClass(!!errors.email)}
-            />
-            <FieldError id={`${fieldId("email")}-error`} message={errors.email} />
-            {verificationOn && (
-              <p id={`${fieldId("email")}-hint`} className="mt-1 text-xs text-stone-500">
-                새 주소로 인증 메일을 보내요. 인증을 마칠 때까지는 인증 전 상태가 돼요.
-              </p>
-            )}
-          </div>
-          <div>
-            <label htmlFor={fieldId("password")} className={ui.label}>
-              비밀번호 (본인 확인)
-            </label>
-            <input
-              id={fieldId("password")}
-              type="password"
-              autoComplete="current-password"
-              required
-              value={password}
-              onChange={(e) => {
-                setPassword(e.target.value);
-                setError(null);
-              }}
-              aria-invalid={errors.password ? true : undefined}
-              aria-describedby={describedBy(errors.password && `${fieldId("password")}-error`)}
-              className={inputClass(!!errors.password)}
-            />
-            <FieldError id={`${fieldId("password")}-error`} message={errors.password} />
-          </div>
+          <Field
+            id={fieldId("email")}
+            label={user.email ? "새 이메일" : "이메일"}
+            hint={verificationOn ? "새 주소로 인증 메일을 보내요. 인증을 마칠 때까지는 인증 전 상태가 돼요." : undefined}
+            error={errors.email}
+            type="email"
+            inputMode="email"
+            autoComplete="email"
+            autoCapitalize="none"
+            spellCheck={false}
+            required
+            value={email}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              setError(null);
+              setDone(null);
+            }}
+          />
+          <Field
+            id={fieldId("password")}
+            label="비밀번호 (본인 확인)"
+            error={errors.password}
+            type="password"
+            autoComplete="current-password"
+            required
+            value={password}
+            onChange={(e) => {
+              setPassword(e.target.value);
+              setError(null);
+            }}
+          />
           {error && (
             <p role="alert" className={ui.error}>
               {error}

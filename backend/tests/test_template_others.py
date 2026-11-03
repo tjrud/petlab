@@ -1,4 +1,4 @@
-"""터널·램프/계단·모래목욕통 템플릿 테스트 (은신처와 같은 기준 + 무서포트 출력)."""
+"""터널·램프/계단·모래목욕통 템플릿 테스트 (은신처와 같은 기준 + 무서포트 출력, 은신처를 포함한 공통 벽 두께 제약)."""
 
 from __future__ import annotations
 
@@ -11,12 +11,14 @@ from pydantic import ValidationError
 
 from app.geometry.mesh import mesh_health, part_to_mesh, to_print_orientation
 from app.templates.base import RuleContext
+from app.templates.hideout import HideoutTemplate
 from app.templates.ramp import TOE_MM, TOP_LANDING_MM, RampParams, RampTemplate, run_length
 from app.templates.sand_bath import SandBathParams, SandBathTemplate, entry_width
 from app.templates.tunnel import TunnelParams, TunnelTemplate, end_side, outer_height
 from app.validation.checks import measure_thickness, overhang_area
 
 TUNNEL, RAMP, SAND = TunnelTemplate(), RampTemplate(), SandBathTemplate()
+HIDEOUT = HideoutTemplate()
 
 
 def ctx(rules, size="syrian") -> RuleContext:
@@ -177,6 +179,43 @@ def test_species_defaults_satisfy_rules(rules, template, size):
     c = ctx(rules, size)
     p = template.default_params(c)
     assert violated(template, p, c) == set()
+
+
+# ── 공통: 벽 두께 제약 ─────────────────────────────────────
+
+
+def _wall_rule(t, c):
+    """기본 파라미터의 제약 목록에서 벽 두께 제약(하나뿐)과 그 위치를 돌려준다."""
+    cons = t.constraints(t.default_params(c), c)
+    idx = [i for i, k in enumerate(cons) if k.field == "wall_thickness_mm"]
+    assert len(idx) == 1
+    return cons[idx[0]], idx[0]
+
+
+@pytest.mark.parametrize("count", [1, 2])
+@pytest.mark.parametrize("size", ["dwarf", "syrian"])
+@pytest.mark.parametrize("template", [HIDEOUT, SAND, TUNNEL], ids=lambda t: t.key)
+def test_wall_thickness_rule_is_shared(rules, template, size, count):
+    """은신처·모래목욕통·터널의 벽 두께 제약과 기본 벽 두께는 같은 문구·기준을 쓴다."""
+    base = ctx(rules, size)
+    c = RuleContext(base.size, base.min_wall_mm, count)
+    w, pos = _wall_rule(template, c)
+    assert w.reason_ko == f"벽 두께는 최소 {c.min_wall_mm:g}mm 이상이어야 합니다 (갉음 내구성·출력 기준)"
+    assert w.min == c.min_wall_mm
+    assert w.max is None
+    # 저장소 규칙에서는 종 갉음 기준이 출력 최소 벽보다 두껍다
+    assert w.source == "species"
+    # 은신처는 여러 마리 규칙(출입구 개수) 바로 뒤, 나머지는 첫 원소
+    assert pos == (1 if template is HIDEOUT and c.hideout_min_entrances > 1 else 0)
+    assert template.default_params(c).wall_thickness_mm == max(3.0, c.min_wall_mm)
+
+    # 출력 기준이 종 기준보다 두꺼우면 출처는 printing
+    cp = RuleContext(c.size, c.size.min_wall_thickness_mm + 1)
+    wp, _ = _wall_rule(template, cp)
+    assert wp.source == "printing"
+    assert wp.min == cp.min_wall_mm
+    assert wp.reason_ko == f"벽 두께는 최소 {cp.min_wall_mm:g}mm 이상이어야 합니다 (갉음 내구성·출력 기준)"
+    assert template.default_params(cp).wall_thickness_mm == max(3.0, cp.min_wall_mm)
 
 
 def test_out_of_range_rejected():

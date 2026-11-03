@@ -54,7 +54,7 @@ class SandBathTemplate(Template):
         if ctx is None:
             return SandBathParams()
         s = ctx.size
-        t = max(3.0, ctx.min_wall_mm)
+        t = ctx.default_wall_mm
         iw, il = s.sand_bath_min_inner_mm
         return SandBathParams(
             width_mm=float(math.ceil(iw + 10 + 2 * t)),
@@ -70,11 +70,7 @@ class SandBathTemplate(Template):
         iw, il = s.sand_bath_min_inner_mm
         P = s.gap_trap.passable_min_mm
         return [
-            ParamConstraint(
-                "wall_thickness_mm", min=ctx.min_wall_mm,
-                source="species" if s.min_wall_thickness_mm >= ctx.min_wall_mm else "printing",
-                reason_ko=f"벽 두께는 최소 {ctx.min_wall_mm:g}mm 이상이어야 합니다 (갉음 내구성·출력 기준)",
-            ),
+            ctx.wall_thickness_constraint(),
             ParamConstraint(
                 "width_mm", min=max(iw, P / ENTRY_RATIO) + 2 * t, source="species",
                 reason_ko=f"{s.display_name}이(가) 뒹굴 수 있도록 안쪽 가로를 {iw:g}mm 이상, 출입 홈을 {P:g}mm 이상으로 맞췄습니다",

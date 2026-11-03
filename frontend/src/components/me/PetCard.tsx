@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useId, useState } from "react";
 
-import { api, ApiError, isAuthError } from "@/lib/api";
+import { api, ApiError, errorText, isAuthError } from "@/lib/api";
 import type { Pet } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
@@ -39,9 +39,9 @@ export default function PetCard({
       onDeleted(pet.id);
     } catch (err) {
       setDeleting(false);
-      if (isAuthError(err)) onAuthError(err as ApiError);
+      if (isAuthError(err)) onAuthError(err);
       else if (err instanceof ApiError && err.status === 404) onDeleted(pet.id); // 이미 지워진 경우
-      else setError(err instanceof ApiError ? err.messageKo : "삭제하지 못했어요. 잠시 뒤 다시 시도해 주세요.");
+      else setError(errorText(err, "삭제하지 못했어요. 잠시 뒤 다시 시도해 주세요."));
     }
   }
 

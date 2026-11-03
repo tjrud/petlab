@@ -38,13 +38,18 @@ export class ApiError extends Error {
 const FALLBACK_MESSAGE = "서버와 통신하지 못했어요. 잠시 후 다시 시도해 주세요.";
 
 /** 로그인이 필요해서(또는 로그인 설정 문제로) 실패한 요청인지 */
-export function isAuthError(e: unknown): boolean {
+export function isAuthError(e: unknown): e is ApiError {
   return e instanceof ApiError && (e.code === "auth_required" || e.code === "auth_unavailable");
 }
 
 /** 이메일 인증을 마치지 않아 막힌 요청인지 (설계·글쓰기·댓글·제작 신청) */
-export function isEmailUnverified(e: unknown): boolean {
+export function isEmailUnverified(e: unknown): e is ApiError {
   return e instanceof ApiError && e.code === "email_unverified";
+}
+
+/** 사용자에게 보여 줄 오류 문구 (서버 문구가 있으면 그대로) */
+export function errorText(e: unknown, fallback: string): string {
+  return e instanceof ApiError ? e.messageKo : fallback;
 }
 
 /**

@@ -38,6 +38,15 @@ test("가상 케이지: 에셋 놓기·끌어 옮기기·되돌리기·회전·�
   await expect(page.getByRole("heading", { level: 3, name: "땅굴 상자" })).toBeVisible();
   await expect(xPos(page)).toHaveValue("150");
   await expect(page.getByLabel("세로 위치 (mm)")).toHaveValue("400");
+  // 뒤 벽에 붙은 채로 돌려도 케이지 안에 있던 것은 안쪽으로 밀려 들어와요 (밖으로 나가지 않음)
+  await page.locator("body").press("r");
+  await expect(page.getByLabel("회전 (°)")).toHaveValue("90");
+  await expect(page.getByLabel("세로 위치 (mm)")).toHaveValue("350");
+  await expect(page.getByText("땅굴 상자가 케이지 밖으로 나가 있어요.")).toHaveCount(0);
+  // 돌리기 전으로 되돌려 다음 단계를 이어가요
+  await page.getByRole("button", { name: "↶ 되돌리기" }).click();
+  await expect(page.getByLabel("회전 (°)")).toHaveValue("0");
+  await expect(xPos(page)).toHaveValue("150");
   // 위치를 직접 입력해 가운데로
   await xPos(page).fill("500");
   await xPos(page).press("Enter");

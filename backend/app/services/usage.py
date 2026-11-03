@@ -65,15 +65,20 @@ def reserve(db: Session, kind: str, user: User, *, per_user: Cap | None = None, 
     db.commit()
     try:
         with _serialized(db, kind):
-            checks = (
+            # 처음 걸린 상한이 오류 문구를 정하므로 순서가 중요하다: cooldown → 회원별 → IP 별 → 서비스 전체
+            checks: list[tuple[Cap, dict]] = []
+            if cooldown:
                 # cooldown: 같은 회원이 짧은 시간(window) 안에 limit 번 넘게 하지 못하게 (예: 메일 60초에 1통)
-                (cooldown[1] if cooldown else None, {"user_id": user.id, "window": cooldown[0]} if cooldown else None),
-                (per_user, {"user_id": user.id}),
-                (per_ip, {"ip_key": ip_key} if ip_key else None),
-                (global_, {}),
-            )
+                window, cap = cooldown
+                checks.append((cap, {"user_id": user.id, "window": window}))
+            if per_user is not None:
+                checks.append((per_user, {"user_id": user.id}))
+            if per_ip is not None and ip_key:  # IP 키가 없으면(헤더 미설정 등) IP 별 상한은 건너뛴다
+                checks.append((per_ip, {"ip_key": ip_key}))
+            if global_ is not None:
+                checks.append((global_, {}))
             for cap, where in checks:
-                if cap is not None and where is not None and count(db, kind, **where) >= cap.limit:
+                if count(db, kind, **where) >= cap.limit:
                     raise QuotaExceededError(cap.message_ko, code=cap.code)
             event = UsageEvent(user_id=user.id, kind=kind, ip_key=ip_key)
             db.add(event)

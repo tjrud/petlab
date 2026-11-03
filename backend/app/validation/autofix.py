@@ -8,6 +8,8 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Iterator
+from typing import Any
 
 from annotated_types import Ge, Gt, Le, Lt
 from pydantic import ValidationError
@@ -26,6 +28,37 @@ def field_bounds(params_cls: type[TemplateParams], name: str) -> tuple[float | N
         elif isinstance(m, (Le, Lt)):
             hi = float(m.le if isinstance(m, Le) else m.lt)
     return lo, hi
+
+
+def clip_to_field_bounds(params_cls: type[TemplateParams], name: str, value: float) -> float:
+    """값을 필드의 기하적 허용 범위(Field ge/le) 안으로 자른다.
+
+    하한 → 상한 순서로 자르고, 원래 값을 max/min 의 첫 인자로 둔다.
+    그래서 경계 안쪽(또는 경계와 같은) 값은 원래 타입(int/float) 그대로 남는다.
+    """
+    lo, hi = field_bounds(params_cls, name)
+    if lo is not None:
+        value = max(value, lo)
+    if hi is not None:
+        value = min(value, hi)
+    return value
+
+
+def _all_constraints(
+    template: Template, params: TemplateParams, ctx: RuleContext, extra: list[ParamConstraint] | None
+) -> list[ParamConstraint]:
+    """템플릿 제약 뒤에 호출자가 준 추가 제약(케이지 높이 등)을 붙인 전체 제약 목록."""
+    return template.constraints(params, ctx) + list(extra or [])
+
+
+def _violations(
+    template: Template, params: TemplateParams, ctx: RuleContext, extra: list[ParamConstraint] | None
+) -> Iterator[tuple[ParamConstraint, Any]]:
+    """params 가 어기는 제약과 그 필드의 현재 값을 제약 목록 순서대로 내준다."""
+    for c in _all_constraints(template, params, ctx, extra):
+        v = getattr(params, c.field)
+        if c.violates(v):
+            yield c, v
 
 
 def _is_int_field(params_cls: type[TemplateParams], name: str) -> bool:
@@ -50,29 +83,24 @@ def clamp_params(
     values = params.model_dump()
     original = dict(values)
     reasons: dict[str, str] = {}
-    unresolved: dict[str, ParamConstraint] = {}
 
     for _ in range(MAX_PASSES):
         current = cls.model_validate(values)
-        cons = template.constraints(current, ctx) + list(extra or [])
+        cons = _all_constraints(template, current, ctx, extra)
         changed = False
-        unresolved = {}
         for c in cons:
+            # 패스 시작 시점(current)이 아니라 values 에서 읽는다: 같은 필드의 뒤 제약이 앞 제약이 바꾼 값을 본다
             v = values[c.field]
             if not c.violates(v):
                 continue
-            target = c.min if (c.min is not None and v < c.min) else c.max
+            below = c.min is not None and v < c.min
+            target = c.min if below else c.max
             assert target is not None
             if _is_int_field(cls, c.field):
-                target = math.ceil(target - 1e-9) if c.min is not None and v < c.min else math.floor(target + 1e-9)
-            lo, hi = field_bounds(cls, c.field)
-            clipped = target
-            if lo is not None:
-                clipped = max(clipped, lo)
-            if hi is not None:
-                clipped = min(clipped, hi)
-            if clipped != target:
-                unresolved[c.field] = c  # 템플릿 허용 범위를 벗어나야만 만족 가능
+                # 정수 필드는 허용 범위 안쪽으로 반올림한다 (하한은 올림, 상한은 내림)
+                target = math.ceil(target - 1e-9) if below else math.floor(target + 1e-9)
+            # 템플릿 허용 범위를 벗어나야만 만족할 수 있으면 경계에서 멈추고, 아래 param_conflict 로 남는다
+            clipped = clip_to_field_bounds(cls, c.field, target)
             if clipped != v:
                 values[c.field] = clipped
                 reasons[c.field] = c.reason_ko
@@ -98,15 +126,14 @@ def clamp_params(
         final = cls.model_validate(values)
     except ValidationError as e:  # pragma: no cover - 위 클리핑으로 범위 안이 보장됨
         raise RuntimeError(f"보정 후 파라미터가 유효하지 않습니다: {e}") from e
-    for c in template.constraints(final, ctx) + list(extra or []):
-        if c.violates(getattr(final, c.field)):
-            issues.append(Issue(
-                code="param_conflict",
-                severity=Severity.error,
-                item_index=item_index,
-                message_ko=f"{label}: {_desc(cls, c.field)} 조건을 만족시킬 수 없습니다. {c.reason_ko}",
-                details={"field": c.field, "value": getattr(final, c.field), "min": c.min, "max": c.max},
-            ))
+    for c, v in _violations(template, final, ctx, extra):
+        issues.append(Issue(
+            code="param_conflict",
+            severity=Severity.error,
+            item_index=item_index,
+            message_ko=f"{label}: {_desc(cls, c.field)} 조건을 만족시킬 수 없습니다. {c.reason_ko}",
+            details={"field": c.field, "value": v, "min": c.min, "max": c.max},
+        ))
     return final, issues
 
 
@@ -122,17 +149,15 @@ def constraint_violations(
     cls = template.Params
     label = label_ko or template.display_name_ko
     out = []
-    for c in template.constraints(params, ctx) + list(extra or []):
-        v = getattr(params, c.field)
-        if c.violates(v):
-            out.append(Issue(
-                code="param_out_of_range",
-                severity=Severity.error,
-                item_index=item_index,
-                message_ko=(f"{label}: {_desc(cls, c.field)} {_fmt(v)} 이(가) 지금 기준 허용 범위를 벗어납니다. "
-                            f"{c.reason_ko}").strip(),
-                details={"field": c.field, "value": v, "min": c.min, "max": c.max},
-            ))
+    for c, v in _violations(template, params, ctx, extra):
+        out.append(Issue(
+            code="param_out_of_range",
+            severity=Severity.error,
+            item_index=item_index,
+            message_ko=(f"{label}: {_desc(cls, c.field)} {_fmt(v)} 이(가) 지금 기준 허용 범위를 벗어납니다. "
+                        f"{c.reason_ko}").strip(),
+            details={"field": c.field, "value": v, "min": c.min, "max": c.max},
+        ))
     return out
 
 

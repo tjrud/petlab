@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 
 import { useAuth, useAuthRecheck, useLogout } from "@/components/AuthProvider";
-import { api, ApiError } from "@/lib/api";
+import { api, errorText } from "@/lib/api";
 import { safeNext, withNext } from "@/lib/safeNext";
 import { ui } from "@/lib/ui";
 
@@ -98,7 +98,7 @@ export default function LoginForm() {
       // 전체 새로고침으로 이동해 헤더 등 모든 화면이 로그인 상태를 다시 읽게 한다
       window.location.assign(safeNext(next, window.location.origin));
     } catch (err) {
-      setError(err instanceof ApiError ? err.messageKo : "로그인하지 못했어요.");
+      setError(errorText(err, "로그인하지 못했어요."));
       setSubmitting(false);
     }
   }
