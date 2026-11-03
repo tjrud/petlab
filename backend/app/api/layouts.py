@@ -49,7 +49,8 @@ def _apply(db: Session, svc: DesignService, lay: CageLayout, data: CageLayoutIn,
     if data.pet_id is not None:
         pet = db.get(Pet, data.pet_id)
         if pet is None or pet.owner_id != user.id:
-            raise NotFoundError("반려동물 정보를 찾을 수 없습니다.")
+            # 배치안이 없는 404 와 구분해서, 화면이 반려동물 연결만 빼고 다시 저장할 수 있게 한다
+            raise NotFoundError("반려동물 정보를 찾을 수 없습니다.", code="pet_not_found")
     lay.name, lay.species, lay.size, lay.pet_id = data.name, data.species, data.size, data.pet_id
     c = data.cage
     lay.cage_width_mm, lay.cage_depth_mm, lay.cage_height_mm = c.width_mm, c.depth_mm, c.height_mm

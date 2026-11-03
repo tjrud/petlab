@@ -55,9 +55,10 @@ log = logging.getLogger(__name__)
 
 
 class NotFoundError(LookupError):
-    def __init__(self, message_ko: str):
+    def __init__(self, message_ko: str, code: str = "not_found"):
         super().__init__(message_ko)
         self.message_ko = message_ko
+        self.code = code
 
 
 class InvalidInputError(ValueError):
