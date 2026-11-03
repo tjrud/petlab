@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 import { CATEGORIES, type CageAsset } from "@/lib/cageAssets";
-import { footprint, rotatedExtent, wallGaps, type LayoutIssue } from "@/lib/cageLayout";
+import { footprint, rotatedExtent, round1, TOL, wallGaps, type LayoutIssue } from "@/lib/cageLayout";
 import type { Cage, LayoutItem } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
@@ -19,16 +19,16 @@ function NumField({
   unit: string;
   onCommit: (v: number) => void;
 }) {
-  const [text, setText] = useState(String(Math.round(value * 10) / 10));
+  const [text, setText] = useState(String(round1(value)));
   const [shown, setShown] = useState(value);
   if (shown !== value) {
     setShown(value);
-    setText(String(Math.round(value * 10) / 10));
+    setText(String(round1(value)));
   }
   const commit = () => {
     const v = Number(text);
     if (text.trim() !== "" && Number.isFinite(v)) onCommit(v);
-    else setText(String(Math.round(value * 10) / 10));
+    else setText(String(round1(value)));
   };
   return (
     <label className="block">
@@ -78,7 +78,7 @@ export default function InspectorPanel({
   const gaps = wallGaps(footprint(item, asset), cage);
   const ext = rotatedExtent(asset, item.rotation_deg);
   const category = CATEGORIES.find((c) => c.key === asset.category)?.label;
-  const gap = (v: number) => (v < -0.5 ? <span className="text-red-600">밖으로 {Math.round(-v)}</span> : Math.round(Math.max(0, v)));
+  const gap = (v: number) => (v < -TOL ? <span className="text-red-600">밖으로 {Math.round(-v)}</span> : Math.round(Math.max(0, v)));
   return (
     <section aria-label="선택한 구조물" className="space-y-3">
       <div className="flex items-start justify-between gap-2">
