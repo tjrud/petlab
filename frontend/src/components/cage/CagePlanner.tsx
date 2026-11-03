@@ -221,6 +221,12 @@ export default function CagePlanner() {
   /** 진행 중인 배치안 불러오기의 번호. 그사이 주소가 바뀌면 늦게 온 응답은 버려요 */
   const loadSeq = useRef(0);
   const loading = useRef<number | null>(null);
+  /** 진행 중인 불러오기가 끝나거나(성공·실패) 버려지면 풀리는 약속. 저장·삭제가 결과를 붙이기 전에 기다려요 */
+  const loadSettled = useRef<{ done: Promise<void>; resolve: () => void } | null>(null);
+  const settleLoad = useCallback(() => {
+    loadSettled.current?.resolve();
+    loadSettled.current = null;
+  }, []);
   /** 저장·삭제가 끝났을 때 다른 화면에 가 있어서 미뤄 둔 주소 맞추기 (from 주소로 돌아오면 to 로 바꿔요) */
   const pendingParam = useRef<{ from: string | null | undefined; to: string | null } | null>(null);
 
@@ -243,6 +249,10 @@ export default function CagePlanner() {
   const loadLayout = useCallback(
     (id: string) => {
       const seq = ++loadSeq.current;
+      settleLoad(); // 앞선 불러오기는 이것으로 대신해요
+      let resolve!: () => void;
+      const done = new Promise<void>((r) => (resolve = r));
+      loadSettled.current = { done, resolve };
       loading.current = seq;
       setLoadingLayout(true);
       api
@@ -258,9 +268,10 @@ export default function CagePlanner() {
           loading.current = null;
           setLoadingLayout(false);
           setReady(true);
+          settleLoad();
         });
     },
-    [applyLayout],
+    [applyLayout, settleLoad],
   );
 
   // 브라우저 저장소와 로그인 상태는 서버 렌더 때 알 수 없으므로, 화면이 붙은 뒤 효과에서 한 번 상태를 채워요
@@ -285,6 +296,7 @@ export default function CagePlanner() {
     if (loading.current !== null) {
       loading.current = null;
       setLoadingLayout(false);
+      settleLoad();
     }
     const mine = selfNav.current !== undefined && selfNav.current === wantedLayout;
     selfNav.current = undefined;
@@ -316,7 +328,7 @@ export default function CagePlanner() {
       return;
     }
     loadLayout(wantedLayout);
-  }, [status, wantedLayout, userId, meta.layoutId, ready, loadLayout, replaceLayoutParam]);
+  }, [status, wantedLayout, userId, meta.layoutId, ready, loadLayout, replaceLayoutParam, settleLoad]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   // 작업 중인 배치를 이 브라우저에 남겨요 (불러오기를 마친 뒤부터)
@@ -529,12 +541,15 @@ export default function CagePlanner() {
       })),
   });
 
-  /** 저장·삭제를 시작한 때의 화면 배치 번호와 불러오기 번호 */
+  /** 저장·삭제를 시작한 때의 화면 배치 번호 */
   const placeNow = () => ({ gen: docGen.current, seq: loadSeq.current });
-  /** 그사이 화면의 배치가 다른 것으로 바뀌었거나 바뀌는 중인지 (뒤로·앞으로 가기로 다른 배치안을 불러옴 등).
-   *  주소만 바뀌고 같은 배치가 그대로면(메뉴의 '가상 케이지', 다른 화면에 다녀옴) 옮겨 간 것이 아니에요 */
-  const movedSince = (p: { gen: number; seq: number }) =>
-    docGen.current !== p.gen || (loading.current !== null && loadSeq.current !== p.seq);
+  /** 그사이 화면의 배치가 다른 것으로 바뀌었는지 (뒤로·앞으로 가기로 다른 배치안을 불러옴 등).
+   *  그사이 시작된 불러오기가 아직 진행 중이면 끝날 때까지(성공·실패·버려짐) 기다린 뒤에 판단해요.
+   *  주소만 바뀌고 같은 배치가 그대로면(메뉴의 '가상 케이지', 다른 화면에 다녀옴, 불러오기 실패) 옮겨 간 것이 아니에요 */
+  const movedSince = async (p: { gen: number; seq: number }) => {
+    while (docGen.current === p.gen && loadSeq.current !== p.seq && loadSettled.current) await loadSettled.current.done;
+    return docGen.current !== p.gen;
+  };
 
   const save = async (saveAsNew: boolean) => {
     let asNew = saveAsNew;
@@ -571,7 +586,7 @@ export default function CagePlanner() {
         saved = await write(api.createLayout);
       }
       const petNote = petDropped ? " 연결된 반려동물을 찾을 수 없어 반려동물 연결은 빼고 저장했어요." : "";
-      if (movedSince(start)) {
+      if (await movedSince(start)) {
         // 저장을 기다리는 사이 다른 배치안으로 옮겨 갔으면 지금 화면에는 반영하지 않고 알리기만 해요
         setNotice({ kind: "ok", text: `"${saved.name}" 배치안으로 저장했어요. 내 배치안에서 열 수 있어요.${petNote}` });
         refreshLayouts();
@@ -621,7 +636,7 @@ export default function CagePlanner() {
     const start = placeNow();
     try {
       await api.deleteLayout(l.id);
-      if (l.id === meta.layoutId && !movedSince(start)) {
+      if (l.id === meta.layoutId && !(await movedSince(start))) {
         // 지금 열린 배치안을 지웠으면 화면의 배치는 저장 전 새 배치안으로 남겨요
         setMeta((m) => ({ ...m, layoutId: null }));
         setSavedSnap(null);

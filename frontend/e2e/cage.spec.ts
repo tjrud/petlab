@@ -458,3 +458,103 @@ test("임시 저장이 이 계정에 없는 반려동물을 가리켜도 저장�
   await expect(page).toHaveURL(/\/cage\?layout=[0-9a-f]{32}$/);
   await page.unroute("**/me/pets");
 });
+
+test("저장 응답이 뒤로 가기의 불러오기 중에 와도, 그 불러오기가 버려지거나 실패하면 저장 결과를 이어 붙인다", async ({ page }) => {
+  const layoutOf = () => /[?&]layout=([0-9a-f]{32})/.exec(page.url())?.[1] ?? null;
+  const row = (name: string) => page.getByRole("listitem").filter({ has: page.getByText(name, { exact: true }) });
+  const holdNextCreate = async () => {
+    const g = gate();
+    await page.route(
+      (u) => new URL(u).pathname.endsWith("/layouts"),
+      async (route) => {
+        if (route.request().method() !== "POST") return route.continue();
+        await g.opened;
+        await route.continue();
+      },
+      { times: 1 },
+    );
+    const response = page.waitForResponse((r) => r.request().method() === "POST" && new URL(r.url()).pathname.endsWith("/layouts"));
+    return { release: g.release, response };
+  };
+  /** GET /layouts/{id} 를 붙잡아 두었다가 release(실패 여부) 하면 보내요 */
+  const holdGet = async (id: string) => {
+    let release!: (fail: boolean) => void;
+    const opened = new Promise<boolean>((r) => (release = r));
+    await page.route(`**/layouts/${id}`, async (route) => {
+      if (route.request().method() !== "GET") return route.continue();
+      const fail = await opened;
+      if (fail) await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: { code: "not_found", message_ko: "배치안을 찾을 수 없습니다." } }) });
+      else await route.continue();
+    });
+    return release;
+  };
+
+  await signup(page, { username: `cagewait_${RUN}`, nickname: `케대기${RUN}`, password: "password-123" }, { next: "/cage" });
+  await page.goto("/cage");
+  await page.getByRole("button", { name: "땅굴 상자 추가" }).click();
+  await page.getByLabel("배치안 이름").fill("배치 A");
+  await page.getByRole("button", { name: "저장", exact: true }).click();
+  await expect(page).toHaveURL(/\/cage\?layout=[0-9a-f]{32}$/);
+  const a = layoutOf()!;
+  await page.getByRole("button", { name: "밥그릇 추가" }).click();
+  await page.getByLabel("배치안 이름").fill("배치 B");
+  await page.getByRole("button", { name: "새 배치안으로 저장" }).click();
+  await expect.poll(layoutOf).not.toBe(a);
+  const b = layoutOf()!;
+  await page.getByRole("tab", { name: "내 배치안" }).click();
+
+  // 1) A 를 열고 '새 배치안으로 저장'(G) → 뒤로(B, 불러오는 중) → 저장 응답 도착 → 앞으로(A, 불러오기 버려짐)
+  //    → 같은 배치가 그대로이므로 G 로 이어지고, A 는 그대로예요
+  await row("배치 A").getByRole("button", { name: "열기" }).click();
+  await expect(page).toHaveURL(new RegExp(`layout=${a}$`));
+  await expect(page.getByLabel("배치안 이름")).toHaveValue("배치 A");
+  const releaseB = await holdGet(b);
+  await page.getByLabel("배치안 이름").fill("배치 G");
+  let hold = await holdNextCreate();
+  await page.getByRole("button", { name: "새 배치안으로 저장" }).click();
+  await page.goBack();
+  await expect(page).toHaveURL(new RegExp(`layout=${b}$`));
+  hold.release();
+  expect((await hold.response).status()).toBe(201);
+  await page.waitForTimeout(300);
+  await page.goForward();
+  await expect.poll(layoutOf).not.toBe(a);
+  const g = layoutOf()!;
+  expect([a, b]).not.toContain(g);
+  releaseB(false);
+  await page.waitForTimeout(300);
+  await expect(page).toHaveURL(new RegExp(`layout=${g}$`));
+  await expect(page.getByLabel("배치안 이름")).toHaveValue("배치 G");
+  await expect(row("배치 G").getByRole("button", { name: "열려 있음" })).toBeDisabled();
+  await expect(row("배치 A")).toContainText("구조물 1개");
+  await page.unroute(`**/layouts/${b}`);
+
+  // 2) A 를 열고 '새 배치안으로 저장'(H) → 뒤로(G, 불러오는 중) → 저장 응답 도착 → G 불러오기 실패
+  //    → 같은 배치가 그대로이므로 H 로 이어지고, 이어서 저장해도 A 는 그대로예요
+  await row("배치 A").getByRole("button", { name: "열기" }).click();
+  await expect(page).toHaveURL(new RegExp(`layout=${a}$`));
+  await expect(page.getByLabel("배치안 이름")).toHaveValue("배치 A");
+  const releaseG = await holdGet(g);
+  await page.getByLabel("배치안 이름").fill("배치 H");
+  hold = await holdNextCreate();
+  await page.getByRole("button", { name: "새 배치안으로 저장" }).click();
+  await page.goBack();
+  await expect(page).toHaveURL(new RegExp(`layout=${g}$`));
+  hold.release();
+  expect((await hold.response).status()).toBe(201);
+  await page.waitForTimeout(300);
+  releaseG(true);
+  await expect.poll(layoutOf).not.toBe(g);
+  const h = layoutOf()!;
+  expect([a, b, g]).not.toContain(h);
+  await expect(page.getByLabel("배치안 이름")).toHaveValue("배치 H");
+  await expect(row("배치 H").getByRole("button", { name: "열려 있음" })).toBeDisabled();
+  await page.unroute(`**/layouts/${g}`);
+  await page.getByRole("tab", { name: "카탈로그" }).click();
+  await page.getByRole("button", { name: "밥그릇 추가" }).click();
+  await page.getByRole("tab", { name: "내 배치안" }).click();
+  await page.getByRole("button", { name: "저장", exact: true }).click();
+  await expect(page.getByText("저장했어요.", { exact: true })).toBeVisible();
+  await expect(row("배치 H")).toContainText("구조물 2개");
+  await expect(row("배치 A")).toContainText("구조물 1개");
+});
