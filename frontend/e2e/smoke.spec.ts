@@ -117,6 +117,11 @@ test("사육 환경 등록 → 요구사항 → 3D 뷰어 → 다운로드 → �
   expect((await stl.body()).length).toBeGreaterThan(1000);
   const tmf = await page.request.get(threeMfHref!);
   expect(tmf.headers()["content-type"]).toContain("model/3mf");
+  // 버튼을 누르면 (먼저 받아 본 뒤) 서버가 정한 이름의 파일로 저장된다
+  const dl = page.waitForEvent("download");
+  await page.getByRole("link", { name: /STL/ }).click();
+  const file = await dl;
+  expect(file.suggestedFilename()).toMatch(/^nestforge_[0-9a-f]{8}_v1\.stl$/);
 
   // 제작·배송 신청 → 대기 화면
   await page.getByRole("link", { name: "제작·배송 신청하기" }).click();
@@ -139,6 +144,33 @@ test("검증 실패 설계는 내려받기 대신 안내를 보여준다", async
   await expect(page.getByText("해결이 필요한 문제", { exact: false })).toBeVisible();
   await expect(page.getByText("검증 문제를 해결해야 파일을 내려받을 수 있어요", { exact: false })).toBeVisible();
   await expect(page.getByRole("link", { name: /STL/ })).toHaveCount(0);
+});
+
+test("서버가 형상을 막으면(409) 화면이 멈추지 않고 이유를 보여 준다", async ({ page }) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (e) => pageErrors.push(e.message));
+  const blocked = {
+    detail: {
+      code: "geometry_changed",
+      message_ko: "이 설계 버전을 만든 뒤 서비스가 업데이트되어 내려받을 수 없어요. 같은 요청으로 새 버전을 만들어 주세요.",
+      errors: [],
+    },
+  };
+  // 배포 사이 형상이 바뀌어 다시 검증에 실패한 옛 버전처럼: 뷰어 메시와 내려받기 모두 409
+  await page.route("**/parts/*.stl*", (route) => route.fulfill({ status: 409, json: blocked }));
+  await page.route("**/export?*", (route) => route.fulfill({ status: 409, json: blocked }));
+  await login(page);
+  await page.getByText("골든 (시리안)").click();
+  await page.getByRole("button", { name: "다음" }).click();
+  await page.getByLabel("요구사항").fill("은신처 하나 넣어 주세요");
+  await page.getByRole("button", { name: "맞춤 설계 받기" }).click();
+  await page.waitForURL(/\/designs\/[0-9a-f]+$/);
+  await expect(page.getByTestId("viewer").getByText("일부 구조물의 3D 형상을 불러오지 못했어요", { exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: /은신처 #1/ })).toBeVisible(); // 나머지 화면은 그대로
+  await page.getByRole("link", { name: /STL/ }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "서비스가 업데이트되어 내려받을 수 없어요" })).toBeVisible();
+  // 오류 경계가 잡은 메시 로드 실패(409)는 3D 라이브러리가 보고만 한다. 그 밖의 오류는 없어야 한다
+  expect(pageErrors.filter((m) => !/Could not load .*\/parts\/\d+\.stl.*409/.test(m))).toEqual([]);
 });
 
 test("수정 루프: 추가 프롬프트로 v2 생성, 이전 버전 유지·전환", async ({ page }) => {

@@ -2,7 +2,7 @@
 
 import { Edges, Html, OrbitControls } from "@react-three/drei";
 import { Canvas, useLoader, type ThreeEvent } from "@react-three/fiber";
-import { Suspense, useMemo } from "react";
+import { Component, Suspense, useMemo, useState, type ReactNode } from "react";
 import * as THREE from "three";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 
@@ -67,6 +67,26 @@ function Part({
   );
 }
 
+/**
+ * 구조물 메시를 받지 못하면(서버가 409 로 막음·네트워크 오류) 그 구조물만 빼고 그린다.
+ * 없으면 useLoader 가 던진 오류가 화면 전체를 멈춘다.
+ */
+class MeshErrorBoundary extends Component<{ onError: () => void; children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch() {
+    this.props.onError();
+  }
+
+  render() {
+    return this.state.failed ? null : this.props.children;
+  }
+}
+
 function CageBox({ cage }: { cage: Cage }) {
   const { width_mm: W, depth_mm: D, height_mm: H } = cage;
   const strip = Math.max(4, Math.min(W, D) * 0.012);
@@ -99,6 +119,10 @@ export default function CageViewer({ cage, items, selected, errorItems, onSelect
   const target: [number, number, number] = [W / 2, H * 0.2, -D / 2];
   const camera = { position: [W / 2 + S * 0.4, S * 1.0, S * 1.35] as [number, number, number], fov: 40, near: 1, far: S * 20 };
   const placed = items.filter((it) => it.mesh_url && it.placement);
+  // 메시를 받지 못한 구성(버전·구조물 목록)을 기억한다. 다른 버전으로 바꾸면 안내가 사라진다
+  const meshesKey = placed.map((it) => it.mesh_url).join("|");
+  const [failedKey, setFailedKey] = useState<string | null>(null);
+  const meshFailed = failedKey === meshesKey;
 
   return (
     <div className="relative h-full w-full">
@@ -110,6 +134,15 @@ export default function CageViewer({ cage, items, selected, errorItems, onSelect
           <span className="mr-1 inline-block h-2 w-3 rounded-sm bg-amber-500 align-middle" />앞(관찰 면)
         </p>
       </div>
+      {meshFailed && (
+        <p
+          role="status"
+          className="absolute inset-x-3 bottom-3 z-10 rounded-lg bg-red-50/95 px-3 py-2 text-xs text-red-700 shadow-sm"
+        >
+          일부 구조물의 3D 형상을 불러오지 못했어요. 이 버전을 만든 뒤 서비스가 바뀌어 형상을 다시 확인하지 못했을 수
+          있어요. 같은 요청으로 새 버전을 만들어 주세요.
+        </p>
+      )}
       <Canvas
         shadows="percentage"
         camera={camera}
@@ -131,17 +164,13 @@ export default function CageViewer({ cage, items, selected, errorItems, onSelect
         />
         <group rotation={Z_UP_TO_Y_UP}>
           <CageBox cage={cage} />
-          <Suspense fallback={null}>
-            {placed.map((it) => (
-              <Part
-                key={`${it.mesh_url}`}
-                item={it}
-                selected={selected === it.index}
-                hasError={errorItems.has(it.index)}
-                onSelect={onSelect}
-              />
-            ))}
-          </Suspense>
+          {placed.map((it) => (
+            <MeshErrorBoundary key={`${it.mesh_url}`} onError={() => setFailedKey(meshesKey)}>
+              <Suspense fallback={null}>
+                <Part item={it} selected={selected === it.index} hasError={errorItems.has(it.index)} onSelect={onSelect} />
+              </Suspense>
+            </MeshErrorBoundary>
+          ))}
         </group>
         <OrbitControls
           makeDefault

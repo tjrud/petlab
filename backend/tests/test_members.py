@@ -446,7 +446,7 @@ def test_migration_from_previous_schema(tmp_path):
         cols = {t: {col["name"] for col in inspect(create_engine(url)).get_columns(t)}
                 for t in ("habitats", "designs", "design_versions")}
         assert {"owner_id", "pet_id"} <= cols["habitats"] and {"owner_id", "title"} <= cols["designs"]
-        assert "created_by" in cols["design_versions"]
+        assert {"created_by", "geometry"} <= cols["design_versions"]
         assert {"users", "pets", "posts", "comments"} <= set(inspect(create_engine(url)).get_table_names())
         signup(c, "user_a")
         d = make_design(c)

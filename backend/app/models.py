@@ -132,6 +132,10 @@ class DesignVersion(Base):
     items: Mapped[list] = mapped_column(JSON)           # 항목별 최종 파라미터·배치·치수
     report: Mapped[dict] = mapped_column(JSON)          # 검증 보고서
     passed: Mapped[bool]
+    # 검증한 형상의 지문: {"fingerprint": 형상 코드·설정 지문, "files": {"print_0.stl": SHA-256, ...}}.
+    # 메시 캐시를 다시 만들 때 바이트 단위로 같은지 확인하고, 다르면 내보내기 전에 다시 검증한다.
+    # 기존 DB 에는 마이그레이션으로 추가된다 (db.py MIGRATION_COLUMNS). 옛 행은 비어 있어 항상 다시 검증한다.
+    geometry: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)  # 사용량 집계
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
 
