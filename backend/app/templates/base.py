@@ -92,6 +92,23 @@ class RuleContext:
     def hideout_min_entrances(self) -> int:
         return self.size.hideout_min_entrances.for_count(self.count)
 
+    @property
+    def default_wall_mm(self) -> float:
+        """기본 파라미터의 벽 두께: 3mm 와 적용 최소 벽 중 큰 값."""
+        return max(3.0, self.min_wall_mm)
+
+    def wall_thickness_constraint(self) -> ParamConstraint:
+        """벽 두께 최소 제약 (은신처·모래목욕통·터널 공통).
+
+        종 갉음 기준이 적용 최소 벽을 정하면 출처는 species, 출력 최소 벽이 더 두꺼우면 printing.
+        """
+        return ParamConstraint(
+            "wall_thickness_mm",
+            min=self.min_wall_mm,
+            source="species" if self.size.min_wall_thickness_mm >= self.min_wall_mm else "printing",
+            reason_ko=f"벽 두께는 최소 {self.min_wall_mm:g}mm 이상이어야 합니다 (갉음 내구성·출력 기준)",
+        )
+
 
 class Template(ABC):
     key: ClassVar[str]

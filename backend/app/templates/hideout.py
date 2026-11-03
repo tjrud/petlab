@@ -107,7 +107,7 @@ class HideoutTemplate(Template):
         if ctx is None:
             return HideoutParams()
         s = ctx.size
-        t = max(3.0, ctx.min_wall_mm)
+        t = ctx.default_wall_mm
         d = float(math.ceil(s.entrance_min_diameter_mm + 5))
         return HideoutParams(
             width_mm=max(140.0, d + 4 * t + 50),
@@ -137,12 +137,7 @@ class HideoutTemplate(Template):
             if n_min > 1 else []
         )
         return group_rule + [
-            ParamConstraint(
-                "wall_thickness_mm",
-                min=ctx.min_wall_mm,
-                source="species" if s.min_wall_thickness_mm >= ctx.min_wall_mm else "printing",
-                reason_ko=f"벽 두께는 최소 {ctx.min_wall_mm:g}mm 이상이어야 합니다 (갉음 내구성·출력 기준)",
-            ),
+            ctx.wall_thickness_constraint(),
             ParamConstraint(
                 "entrance_diameter_mm",
                 min=s.entrance_min_diameter_mm,

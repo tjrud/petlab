@@ -13,7 +13,7 @@ from app.llm.base import InterpretRequest, InterpretResult
 from app.llm.spec import MAX_ITEMS, parse_spec
 from app.templates.base import RuleContext
 from app.templates.registry import all_templates
-from app.validation.autofix import field_bounds
+from app.validation.autofix import clip_to_field_bounds
 
 # 템플릿 키 → 한국어 키워드 (모의 해석 전용)
 TEMPLATE_KEYWORDS: dict[str, tuple[str, ...]] = {
@@ -70,13 +70,7 @@ def _scale_factor(text: str) -> float:
 def _scaled(template, params: dict, factor: float) -> dict:
     out = dict(params)
     for f in template.size_fields:
-        lo, hi = field_bounds(template.Params, f)
-        v = out[f] * factor
-        if lo is not None:
-            v = max(v, lo)
-        if hi is not None:
-            v = min(v, hi)
-        out[f] = round(v, 1)
+        out[f] = round(clip_to_field_bounds(template.Params, f, out[f] * factor), 1)
     return out
 
 

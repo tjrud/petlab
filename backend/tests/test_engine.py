@@ -6,6 +6,9 @@ import pytest
 
 from app.domain import Cage, PlacementHint
 from app.services.engine import EngineContext, ItemSpec, run_engine
+from app.templates.base import ParamConstraint
+from app.templates.registry import get_template
+from app.validation.autofix import clamp_params, constraint_violations
 
 
 def ctx(rules, cage=Cage(600, 400, 300), size="syrian", count=1):
@@ -132,3 +135,68 @@ def test_mixed_grouped_design_from_mock(rules):
     a, b = res.items
     assert a.world_footprint.distance(b.world_footprint) == pytest.approx(0, abs=0.5)
     assert max(a.world_rect.cx, b.world_rect.cx) < cage.width_mm / 2  # 한쪽(왼쪽)에 모임
+
+
+# ── 자동 보정 이슈 문구·세부값 고정 ─────────────────────────
+# message_ko 와 details(키 순서, int/float 구분 포함)를 그대로 고정한다. repr 로 비교해 90 과 90.0 을 구별한다.
+
+
+def test_wall_adjusted_issue_is_stable(rules):
+    res = run_engine([ItemSpec("hideout", {"entrance_diameter_mm": 75, "wall_thickness_mm": 1.2})], ctx(rules))
+    [i] = by_code(res.report, "param_adjusted")
+    assert i.message_ko == ("은신처 #1: 벽·지붕 두께 1.2 → 3 로 보정했습니다. "
+                            "벽 두께는 최소 3mm 이상이어야 합니다 (갉음 내구성·출력 기준)")
+    assert repr(i.details) == "{'field': 'wall_thickness_mm', 'from': 1.2, 'to': 3.0}"
+    assert i.auto_fixed and i.item_index == 0
+
+
+def test_cage_height_conflict_issue_is_stable(rules):
+    """높이 130 케이지: 천장 기준으로 낮춘 높이가 출입구 기준 최소 높이와 충돌한다."""
+    res = run_engine([ItemSpec("hideout", {"entrance_diameter_mm": 75})], ctx(rules, Cage(600, 400, 130)))
+    [adj] = by_code(res.report, "param_adjusted")
+    assert adj.message_ko == ("은신처 #1: 외형 높이(Z) 90 → 60 로 보정했습니다. "
+                              "케이지 천장과의 틈에 끼이지 않도록 높이를 60mm(천장 높이 − 70mm) 이하로 맞췄습니다.")
+    assert repr(adj.details) == "{'field': 'height_mm', 'from': 90, 'to': 60.0}"
+    [conf] = by_code(res.report, "param_conflict")
+    assert conf.message_ko == ("은신처 #1: 외형 높이(Z) 조건을 만족시킬 수 없습니다. "
+                               "출입구 아치 위로 벽이 남도록 높이가 출입구보다 커야 합니다")
+    assert repr(conf.details) == "{'field': 'height_mm', 'value': 60.0, 'min': 81.0, 'max': None}"
+    assert not conf.auto_fixed and conf.item_index == 0
+
+
+def test_contradictory_extra_constraints_issue_is_stable(rules):
+    """같은 필드에 서로 모순되는 제약: 한 패스 안에서 뒤 제약이 앞 제약이 바꾼 값을 보고 다시 옮긴다."""
+    ramp = get_template("ramp")
+    extra = [ParamConstraint("width_mm", min=100, reason_ko="A"), ParamConstraint("width_mm", max=90, reason_ko="B")]
+    p, issues = clamp_params(ramp, ramp.Params(), ctx(rules).rule_ctx, extra)
+    assert p.width_mm == 90
+    assert [i.code for i in issues] == ["param_adjusted", "param_conflict"]
+    adj, conf = issues
+    assert adj.message_ko == "램프/계단: 폭 80 → 90 로 보정했습니다. B"
+    assert repr(adj.details) == "{'field': 'width_mm', 'from': 80, 'to': 90}"
+    assert conf.message_ko == "램프/계단: 폭 조건을 만족시킬 수 없습니다. A"
+    assert repr(conf.details) == "{'field': 'width_mm', 'value': 90.0, 'min': 100, 'max': None}"
+
+
+def test_out_of_range_issue_is_stable(rules):
+    hideout = get_template("hideout")
+    p = hideout.Params(entrance_diameter_mm=60, wall_thickness_mm=3)
+    [i] = constraint_violations(hideout, p, ctx(rules).rule_ctx, item_index=0, label_ko="은신처 #1")
+    assert i.code == "param_out_of_range"
+    assert i.message_ko == ("은신처 #1: 아치형 출입구 폭(=높이) 60 이(가) 지금 기준 허용 범위를 벗어납니다. "
+                            "골든 (시리안) 출입구는 최소 70mm 이상이어야 합니다")
+    assert repr(i.details) == "{'field': 'entrance_diameter_mm', 'value': 60.0, 'min': 70.0, 'max': None}"
+    assert not i.auto_fixed and i.item_index == 0
+
+
+@pytest.mark.parametrize("start,rule,expected", [
+    (0, ParamConstraint("steps", min=2.3, reason_ko="x"), 3),  # 하한은 올림
+    (5, ParamConstraint("steps", max=2.7, reason_ko="y"), 2),  # 상한은 내림
+])
+def test_int_field_rounds_toward_allowed_range(rules, start, rule, expected):
+    ramp = get_template("ramp")
+    p, issues = clamp_params(ramp, ramp.Params(steps=start), ctx(rules).rule_ctx, [rule])
+    assert p.steps == expected and type(p.steps) is int
+    [i] = issues
+    assert i.message_ko == f"램프/계단: 계단 단 수 {start} → {expected} 로 보정했습니다. {rule.reason_ko}"
+    assert repr(i.details) == f"{{'field': 'steps', 'from': {start}, 'to': {expected}}}"
