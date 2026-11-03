@@ -132,6 +132,23 @@ test("사육 환경 등록 → 요구사항 → 3D 뷰어 → 다운로드 → �
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/waitlist.png` });
 });
 
+test("사육 환경 입력 확인: 케이지 치수·마릿수 범위를 벗어나면 안내하고 다음으로 넘어가지 않는다", async ({ page }) => {
+  await login(page);
+  const wizard = page.getByRole("region", { name: "사육 환경을 알려 주세요" });
+  const next = wizard.getByRole("button", { name: "다음" });
+  await expect(next).toBeEnabled();
+  const width = wizard.getByLabel("케이지 가로 (mm)");
+  await width.fill("150");
+  await expect(wizard.getByText("가로는 200~2000mm 사이로 입력해 주세요.")).toBeVisible();
+  await expect(next).toBeDisabled();
+  await width.fill("600");
+  await expect(wizard.getByText("가로는 200~2000mm 사이로 입력해 주세요.")).toHaveCount(0);
+  await expect(next).toBeEnabled();
+  await wizard.getByLabel("마릿수").fill("11");
+  await expect(wizard.getByText("마릿수는 1~10 사이로 입력해 주세요.")).toBeVisible();
+  await expect(next).toBeDisabled();
+});
+
 test("검증 실패 설계는 내려받기 대신 안내를 보여준다", async ({ page }) => {
   await login(page);
   await page.getByText("골든 (시리안)").click();

@@ -3,11 +3,11 @@
 import { useId, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
-import { api, ApiError, isAuthError } from "@/lib/api";
+import { api, ApiError, errorText, isAuthError } from "@/lib/api";
 import type { User } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
-import { charCount, describedBy, FieldError, inputClass } from "./common";
+import { Field, passwordRuleError } from "./common";
 
 type Key = "current" | "next" | "confirm";
 type Values = Record<Key, string>;
@@ -20,10 +20,12 @@ function validate(v: Values, username: string): Errors {
   const errors: Errors = {};
   if (!v.current) errors.current = "지금 쓰는 비밀번호를 입력해 주세요.";
   if (!v.next) errors.next = "새 비밀번호를 입력해 주세요.";
-  else if (charCount(v.next) < 8) errors.next = "비밀번호는 8자 이상이어야 해요.";
-  else if (charCount(v.next) > 128) errors.next = "비밀번호는 128자 이하로 정해 주세요.";
-  else if (v.next.toLowerCase() === username) errors.next = "비밀번호를 아이디와 다르게 정해 주세요.";
-  else if (v.next === v.current) errors.next = "지금 쓰는 비밀번호와 다르게 정해 주세요.";
+  else {
+    // 공통 규칙(길이·아이디)에 걸리지 않을 때만 지금 비밀번호와 같은지 본다
+    const p = passwordRuleError(v.next, username);
+    if (p) errors.next = p;
+    else if (v.next === v.current) errors.next = "지금 쓰는 비밀번호와 다르게 정해 주세요.";
+  }
   if (!v.confirm) errors.confirm = "새 비밀번호를 한 번 더 입력해 주세요.";
   else if (v.confirm !== v.next) errors.confirm = "새 비밀번호가 서로 달라요. 다시 확인해 주세요.";
   return errors;
@@ -77,9 +79,9 @@ export default function PasswordForm({ user, onAuthError }: { user: User; onAuth
       setSubmitted(false);
       setDone(true);
     } catch (err) {
-      if (isAuthError(err)) onAuthError(err as ApiError);
+      if (isAuthError(err)) onAuthError(err);
       else {
-        setError(err instanceof ApiError ? err.messageKo : "비밀번호를 바꾸지 못했어요. 잠시 뒤 다시 시도해 주세요.");
+        setError(errorText(err, "비밀번호를 바꾸지 못했어요. 잠시 뒤 다시 시도해 주세요."));
         if (err instanceof ApiError && err.code === "invalid_credentials") document.getElementById(fieldId("current"))?.focus();
         if (err instanceof ApiError && err.code === "weak_password") document.getElementById(fieldId("next"))?.focus();
       }
@@ -99,32 +101,22 @@ export default function PasswordForm({ user, onAuthError }: { user: User; onAuth
         const err = errors[f.key];
         const id = fieldId(f.key);
         return (
-          <div key={f.key}>
-            <label htmlFor={id} className={ui.label}>
-              {f.label}
-            </label>
-            <input
-              id={id}
-              type="password"
-              autoComplete={f.autoComplete}
-              required
-              value={values[f.key]}
-              onChange={(e) => {
-                setValues((prev) => ({ ...prev, [f.key]: e.target.value }));
-                setError(null);
-                setDone(false);
-              }}
-              aria-invalid={err ? true : undefined}
-              aria-describedby={describedBy(err && `${id}-error`, f.hint && `${id}-hint`)}
-              className={inputClass(!!err)}
-            />
-            <FieldError id={`${id}-error`} message={err} />
-            {f.hint && (
-              <p id={`${id}-hint`} className="mt-1 text-xs text-stone-500">
-                {f.hint}
-              </p>
-            )}
-          </div>
+          <Field
+            key={f.key}
+            id={id}
+            label={f.label}
+            hint={f.hint}
+            error={err}
+            type="password"
+            autoComplete={f.autoComplete}
+            required
+            value={values[f.key]}
+            onChange={(e) => {
+              setValues((prev) => ({ ...prev, [f.key]: e.target.value }));
+              setError(null);
+              setDone(false);
+            }}
+          />
         );
       })}
       {error && (

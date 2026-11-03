@@ -8,8 +8,8 @@ import { useAuth } from "@/components/AuthProvider";
 import { clearDraft, ReloginNotice, useDraftBackup } from "@/components/DraftRelogin";
 import { EmailUnverifiedNotice, useEmailBlocked } from "@/components/EmailVerification";
 import LoginRequired from "@/components/LoginRequired";
-import { CAGE_LIMITS, CAGE_PRESETS } from "@/components/me/common";
-import { api, ApiError, isAuthError, isEmailUnverified } from "@/lib/api";
+import { CAGE_DIMS, CAGE_LIMITS, CAGE_PRESETS, cageDimError } from "@/components/me/common";
+import { api, ApiError, errorText, isAuthError, isEmailUnverified } from "@/lib/api";
 import type { Me, Pet, SpeciesResponse } from "@/lib/types";
 
 const EXAMPLE_PROMPTS = [
@@ -135,8 +135,8 @@ export default function NewDesignWizard() {
       .then((m) => alive && setMeta(m))
       .catch((e: unknown) => {
         if (!alive) return;
-        if (isAuthError(e)) setAuthError(e as ApiError);
-        else setMetaError(e instanceof ApiError ? e.messageKo : "정보를 불러오지 못했어요.");
+        if (isAuthError(e)) setAuthError(e);
+        else setMetaError(errorText(e, "정보를 불러오지 못했어요."));
       });
     return () => {
       alive = false;
@@ -181,7 +181,7 @@ export default function NewDesignWizard() {
         }
       })
       .catch((e: unknown) => {
-        if (alive && isAuthError(e)) setAuthError(e as ApiError); // 세션이 만료된 경우
+        if (alive && isAuthError(e)) setAuthError(e); // 세션이 만료된 경우
         // 그 밖의 오류는 미리 채우기만 건너뛴다 (직접 입력은 그대로 할 수 있다)
       });
     api
@@ -202,14 +202,13 @@ export default function NewDesignWizard() {
 
   const habitatErrors = useMemo(() => {
     const errs: string[] = [];
-    const check = (v: number, [lo, hi]: readonly [number, number], name: string) => {
-      if (!Number.isFinite(v) || v < lo || v > hi) errs.push(`${name}는 ${lo}~${hi}mm 사이로 입력해 주세요.`);
-    };
-    check(cage.w, LIMITS.w, "가로");
-    check(cage.d, LIMITS.d, "세로");
-    check(cage.h, LIMITS.h, "높이");
+    // 가로·세로·높이 순서로 확인한 뒤 마릿수를 본다 (안내 순서도 같다)
+    for (const [k, label] of CAGE_DIMS) {
+      const e = cageDimError(k, cage[k], label);
+      if (e) errs.push(e);
+    }
     if (!Number.isInteger(count) || count < LIMITS.count[0] || count > LIMITS.count[1])
-      errs.push("마릿수는 1~10 사이로 입력해 주세요.");
+      errs.push(`마릿수는 ${LIMITS.count[0]}~${LIMITS.count[1]} 사이로 입력해 주세요.`);
     return errs;
   }, [cage, count]);
 
@@ -250,12 +249,12 @@ export default function NewDesignWizard() {
         router.push(`/designs/${design.id}`);
       });
     } catch (e) {
-      if (isAuthError(e)) setAuthError(e as ApiError); // 사용 중 세션이 만료된 경우
+      if (isAuthError(e)) setAuthError(e); // 사용 중 세션이 만료된 경우
       else if (isEmailUnverified(e)) setEmailBlocked(true); // 위쪽 안내로 알려 준다 (로그인 상태도 다시 확인한다)
       else if (e instanceof ApiError && e.code === "design_quota_exceeded" && quota && quota.limit !== null)
         setQuota({ ...quota, used: Math.max(quota.used, quota.limit), remaining: 0 }); // 아래 안내로 알려 준다
       else {
-        setError(e instanceof ApiError ? e.messageKo : "설계 중 문제가 생겼어요. 다시 시도해 주세요.");
+        setError(errorText(e, "설계 중 문제가 생겼어요. 다시 시도해 주세요."));
         // 실패한 요청도 횟수에 들어가므로 남은 횟수를 다시 불러온다
         api
           .me()
@@ -401,8 +400,8 @@ export default function NewDesignWizard() {
               <span className="mb-1 block text-sm font-medium">마릿수</span>
               <input
                 type="number"
-                min={1}
-                max={10}
+                min={LIMITS.count[0]}
+                max={LIMITS.count[1]}
                 className="w-full rounded-lg border border-stone-300 px-3 py-2"
                 value={count}
                 onChange={(e) => {
@@ -465,13 +464,7 @@ export default function NewDesignWizard() {
               ))}
             </div>
             <div className="grid grid-cols-3 gap-3">
-              {(
-                [
-                  ["w", "가로"],
-                  ["d", "세로"],
-                  ["h", "높이"],
-                ] as const
-              ).map(([k, label]) => (
+              {CAGE_DIMS.map(([k, label]) => (
                 <label key={k} className="block">
                   <span className="mb-1 block text-xs text-stone-500">{label}</span>
                   <input

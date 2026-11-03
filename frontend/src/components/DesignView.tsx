@@ -12,7 +12,7 @@ import LoginRequired from "@/components/LoginRequired";
 import RevisePanel from "@/components/RevisePanel";
 import ValidationPanel from "@/components/ValidationPanel";
 import VersionList from "@/components/VersionList";
-import { api, ApiError, isAuthError, isEmailUnverified } from "@/lib/api";
+import { api, ApiError, errorText, isAuthError, isEmailUnverified } from "@/lib/api";
 import type { Design } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
@@ -46,7 +46,7 @@ export default function DesignView({ id, initialVersion }: { id: string; initial
       })
       .catch((e: unknown) => {
         if (!alive) return;
-        if (isAuthError(e)) setAuthError(e as ApiError);
+        if (isAuthError(e)) setAuthError(e);
         else
           setLoadError(
             e instanceof ApiError
@@ -66,8 +66,8 @@ export default function DesignView({ id, initialVersion }: { id: string; initial
       setDesign(await api.getDesign(id, v));
       setSelected(null);
     } catch (e) {
-      if (isAuthError(e)) setAuthError(e as ApiError);
-      else setActionError(e instanceof ApiError ? e.messageKo : "버전을 불러오지 못했어요.");
+      if (isAuthError(e)) setAuthError(e);
+      else setActionError(errorText(e, "버전을 불러오지 못했어요."));
     } finally {
       setBusy(false);
     }
@@ -87,7 +87,7 @@ export default function DesignView({ id, initialVersion }: { id: string; initial
       // 화면 전체를 로그인 안내로 바꾸지 않는다: 쓰던 수정 요청이 사라지지 않게
       if (isAuthError(e)) setReviseNeedsLogin(true);
       else if (isEmailUnverified(e)) setReviseEmailBlocked(true);
-      else setActionError(e instanceof ApiError ? e.messageKo : "수정 중 문제가 생겼어요. 다시 시도해 주세요.");
+      else setActionError(errorText(e, "수정 중 문제가 생겼어요. 다시 시도해 주세요."));
       return false;
     } finally {
       setBusy(false);

@@ -1,10 +1,19 @@
-// 내 정보 화면에서 함께 쓰는 작은 도우미 (글자 수·날짜·성별 표시·입력 칸 오류 표시)
+// 내 정보 화면에서 함께 쓰는 작은 도우미 (글자 수·날짜·성별 표시·입력 칸 오류 표시·입력 칸 묶음)
 
 import type { Cage, PetSex } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
 /** 서버(Python)와 같은 기준으로 글자 수를 센다 (이모지 같은 문자도 한 글자) */
 export const charCount = (s: string) => Array.from(s).length;
+
+/** 서버 NewPassword(schemas.py)와 같은 규칙. 빈 값은 부르는 쪽이 따로 알린다 */
+export function passwordRuleError(pw: string, username: string): string | undefined {
+  const n = charCount(pw);
+  if (n < 8) return "비밀번호는 8자 이상이어야 해요.";
+  if (n > 128) return "비밀번호는 128자 이하로 정해 주세요.";
+  if (username && pw.toLowerCase() === username) return "비밀번호를 아이디와 다르게 정해 주세요.";
+  return undefined;
+}
 
 /** 서버가 거부하는 제어 문자 (줄바꿈·탭은 여러 줄 입력에서만 허용) */
 export function hasControlChars(s: string, multiline = false): boolean {
@@ -36,6 +45,13 @@ export const CAGE_DIMS = [
   ["d", "세로"],
   ["h", "높이"],
 ] as const;
+
+/** 케이지 치수 한 칸 확인: 숫자가 아니거나 허용 범위(CAGE_LIMITS)를 벗어나면 안내 문구, 괜찮으면 undefined */
+export function cageDimError(k: keyof typeof CAGE_LIMITS, v: number, label: string): string | undefined {
+  const [lo, hi] = CAGE_LIMITS[k];
+  if (!Number.isFinite(v) || v < lo || v > hi) return `${label}는 ${lo}~${hi}mm 사이로 입력해 주세요.`;
+  return undefined;
+}
 
 export const BIRTH_MIN = "1990-01-01";
 
@@ -88,3 +104,43 @@ export function FieldError({ id, message }: { id: string; message?: string }) {
 
 /** aria-describedby 값 (있는 것만 이어 붙인다) */
 export const describedBy = (...ids: (string | false | null | undefined)[]) => ids.filter(Boolean).join(" ") || undefined;
+
+/**
+ * 입력 칸 묶음: 라벨 → 입력 → 오류 문구(`${id}-error`) → 안내 문구(`${id}-hint`).
+ * 오류·안내는 있는 것만 aria-describedby 로 잇고, 오류가 있으면 빨간 테두리. 나머지 속성은 input 에 그대로 넘긴다.
+ */
+export function Field({
+  id,
+  label,
+  hint,
+  error,
+  ...input
+}: {
+  id: string;
+  label: string;
+  hint?: string;
+  error?: string;
+} & Omit<React.InputHTMLAttributes<HTMLInputElement>, "id">) {
+  const errorId = `${id}-error`;
+  const hintId = `${id}-hint`;
+  return (
+    <div>
+      <label htmlFor={id} className={ui.label}>
+        {label}
+      </label>
+      <input
+        {...input}
+        id={id}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={describedBy(error && errorId, hint && hintId)}
+        className={inputClass(!!error)}
+      />
+      <FieldError id={errorId} message={error} />
+      {hint && (
+        <p id={hintId} className="mt-1 text-xs text-stone-500">
+          {hint}
+        </p>
+      )}
+    </div>
+  );
+}

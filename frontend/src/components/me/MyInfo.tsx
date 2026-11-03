@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
 import LoginRequired from "@/components/LoginRequired";
-import { api, ApiError, isAuthError } from "@/lib/api";
+import { api, ApiError, errorText, isAuthError } from "@/lib/api";
 import type { Me, Pet, SpeciesOption } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
@@ -13,8 +13,6 @@ import NicknameForm from "./NicknameForm";
 import PasswordForm from "./PasswordForm";
 import PetSection from "./PetSection";
 import ProfileCard from "./ProfileCard";
-
-const message = (e: unknown, fallback: string) => (e instanceof ApiError ? e.messageKo : fallback);
 
 /** 내 정보: 프로필·활동 요약·설계 사용량, 내 반려동물, 계정 설정 (회원 전용) */
 export default function MyInfo() {
@@ -33,8 +31,8 @@ export default function MyInfo() {
     let alive = true;
     const fail = (setErr: (m: string) => void, fallback: string) => (e: unknown) => {
       if (!alive) return;
-      if (isAuthError(e)) setAuthError(e as ApiError); // 사용 중 세션이 만료된 경우
-      else setErr(message(e, fallback));
+      if (isAuthError(e)) setAuthError(e); // 사용 중 세션이 만료된 경우
+      else setErr(errorText(e, fallback));
     };
     api
       .me()
@@ -59,7 +57,7 @@ export default function MyInfo() {
         setSpecies(s.species);
         setSpeciesError(null);
       })
-      .catch((e: unknown) => alive && setSpeciesError(message(e, "잠시 뒤 다시 시도해 주세요.")));
+      .catch((e: unknown) => alive && setSpeciesError(errorText(e, "잠시 뒤 다시 시도해 주세요.")));
     return () => {
       alive = false;
     };

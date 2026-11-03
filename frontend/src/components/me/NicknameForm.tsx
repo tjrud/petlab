@@ -3,12 +3,12 @@
 import { useId, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
-import { api, ApiError, isAuthError } from "@/lib/api";
+import { api, ApiError, errorText, isAuthError } from "@/lib/api";
 import { NICKNAME_HINT, nicknameError, normalizeNickname } from "@/lib/nickname";
 import type { User } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
-import { describedBy, FieldError, inputClass } from "./common";
+import { Field } from "./common";
 
 /** 서버 검증(ProfileUpdateIn)과 같은 규칙. 최종 판단은 서버가 한다. */
 function validateNickname(value: string, current: string): string | undefined {
@@ -57,8 +57,8 @@ export default function NicknameForm({ user, onAuthError }: { user: User; onAuth
       setSubmitted(false);
       setDone("닉네임을 바꿨어요.");
     } catch (err) {
-      if (isAuthError(err)) onAuthError(err as ApiError);
-      else setError(err instanceof ApiError ? err.messageKo : "닉네임을 바꾸지 못했어요. 잠시 뒤 다시 시도해 주세요.");
+      if (isAuthError(err)) onAuthError(err);
+      else setError(errorText(err, "닉네임을 바꾸지 못했어요. 잠시 뒤 다시 시도해 주세요."));
     } finally {
       setSubmitting(false);
     }
@@ -69,30 +69,21 @@ export default function NicknameForm({ user, onAuthError }: { user: User; onAuth
       <h3 id={`${uid}-title`} className="font-semibold">
         닉네임 바꾸기
       </h3>
-      <div>
-        <label htmlFor={inputId} className={ui.label}>
-          닉네임
-        </label>
-        <input
-          id={inputId}
-          name="nickname"
-          autoComplete="nickname"
-          required
-          value={value}
-          onChange={(e) => {
-            setValue(e.target.value);
-            setError(null);
-            setDone(null);
-          }}
-          aria-invalid={fieldError ? true : undefined}
-          aria-describedby={describedBy(fieldError && `${uid}-error`, `${uid}-hint`)}
-          className={inputClass(!!fieldError)}
-        />
-        <FieldError id={`${uid}-error`} message={fieldError} />
-        <p id={`${uid}-hint`} className="mt-1 text-xs text-stone-500">
-          {NICKNAME_HINT}
-        </p>
-      </div>
+      <Field
+        id={inputId}
+        label="닉네임"
+        name="nickname"
+        autoComplete="nickname"
+        required
+        value={value}
+        onChange={(e) => {
+          setValue(e.target.value);
+          setError(null);
+          setDone(null);
+        }}
+        hint={NICKNAME_HINT}
+        error={fieldError}
+      />
       {error && (
         <p role="alert" className={ui.error}>
           {error}
