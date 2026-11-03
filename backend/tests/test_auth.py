@@ -282,6 +282,17 @@ def test_signup_closed_when_auth_disabled(tmp_path):
         assert r.json()["detail"] == {"code": "signup_closed", "message_ko": "지금은 회원가입을 받지 않아요."}
 
 
+def test_signup_block_reports_email_before_captcha(tmp_path):
+    """메일·CAPTCHA 설정이 둘 다 잘못됐으면 메일 쪽(email_unavailable)을 먼저 알린다."""
+    s = settings(tmp_path, email_provider="resend", email_from="", turnstile_site_key="site-only")
+    assert s.email_mode == "misconfigured" and s.captcha_mode == "misconfigured"
+    with TestClient(create_app(s)) as c:
+        assert c.get("/auth/me").json()["signup_enabled"] is False
+        r = c.post("/auth/signup", json={"username": "user1", "nickname": "닉네임", "password": "password123"})
+        assert r.status_code == 503
+        assert r.json()["detail"]["code"] == "email_unavailable"
+
+
 def test_auth_disabled_without_admin_password(tmp_path):
     with TestClient(create_app(settings(tmp_path, admin_password=None))) as c:
         assert c.get("/health").json()["auth_enabled"] is False
