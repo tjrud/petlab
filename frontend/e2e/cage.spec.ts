@@ -306,3 +306,102 @@ test("배치안을 불러오는 중에 뒤로 가면 늦게 온 응답이 화면
   await expect(page).toHaveURL(new RegExp(`layout=${b}$`));
   await page.unroute(`**/layouts/${b}`);
 });
+
+test("저장을 기다리는 사이 다른 화면에 다녀오거나 다른 배치안으로 돌아가도 화면·주소가 어긋나지 않는다", async ({ page }) => {
+  const layoutOf = () => /[?&]layout=([0-9a-f]{32})/.exec(page.url())?.[1] ?? null;
+  /** 다음 POST /layouts 하나를 붙잡아 두어요 */
+  const holdNextCreate = async () => {
+    const g = gate();
+    let served = false;
+    await page.route(
+      (u) => new URL(u).pathname.endsWith("/layouts"),
+      async (route) => {
+        if (route.request().method() !== "POST") return route.continue();
+        await g.opened;
+        await route.continue();
+        served = true;
+      },
+      { times: 1 },
+    );
+    return { release: g.release, served: () => served };
+  };
+
+  await signup(page, { username: `cagenav_${RUN}`, nickname: `케이동${RUN}`, password: "password-123" }, { next: "/cage" });
+  await page.goto("/cage");
+  await page.getByRole("button", { name: "땅굴 상자 추가" }).click();
+  await page.getByLabel("배치안 이름").fill("배치 A");
+  await page.getByRole("button", { name: "저장", exact: true }).click();
+  await expect(page).toHaveURL(/\/cage\?layout=[0-9a-f]{32}$/);
+  const a = layoutOf()!;
+
+  // 1) A 를 '새 배치안으로 저장'하는 동안 이어서 놓고 다른 화면(내 정보)에 갔다가 저장이 끝난 뒤 뒤로 가기
+  //    → 새 배치안(C) 주소로 맞춰지고, 저장 뒤에 놓은 것도 그대로 (A 를 다시 불러오지 않음)
+  await page.getByLabel("배치안 이름").fill("배치 C");
+  let hold = await holdNextCreate();
+  await page.getByRole("button", { name: "새 배치안으로 저장" }).click();
+  await expect(page.getByRole("button", { name: "저장 중…" })).toBeVisible();
+  await page.getByRole("button", { name: "밥그릇 추가" }).click();
+  await page.getByRole("navigation", { name: "주 메뉴" }).getByRole("link", { name: "내 정보" }).click();
+  await expect(page).toHaveURL(/\/me$/);
+  hold.release();
+  await expect.poll(hold.served).toBe(true);
+  await page.waitForTimeout(500);
+  await expect(page).toHaveURL(/\/me$/); // 저장이 끝나도 /cage 로 끌려가지 않아요
+  await page.goBack();
+  await expect.poll(layoutOf).not.toBe(a);
+  await expect(page).toHaveURL(/\/cage\?layout=[0-9a-f]{32}$/);
+  const c = layoutOf()!;
+  await expect(page.getByLabel("배치안 이름")).toHaveValue("배치 C");
+  await expect(status(page)).toHaveText("케이지 1000×500×500mm · 구조물 2개");
+  await expect(page.getByRole("button", { name: "저장", exact: true })).toBeEnabled(); // 저장 뒤에 놓은 밥그릇 → 저장할 변경 있음
+
+  // 2) A 를 연 채 '새 배치안으로 저장'하는 동안 뒤로 가기(C) → 저장이 끝나도 C 화면에 다른 이름·ID 가 붙지 않아요
+  await page.getByRole("button", { name: "저장", exact: true }).click();
+  await expect(page.getByText("저장했어요.", { exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "내 배치안" }).click();
+  await page.getByRole("button", { name: "열기" }).first().click(); // [C(열려 있음), A] → A
+  await expect(page).toHaveURL(new RegExp(`layout=${a}$`));
+  await expect(page.getByLabel("배치안 이름")).toHaveValue("배치 A");
+  await page.getByLabel("배치안 이름").fill("배치 D");
+  hold = await holdNextCreate();
+  await page.getByRole("button", { name: "새 배치안으로 저장" }).click();
+  await page.goBack();
+  await expect(page).toHaveURL(new RegExp(`layout=${c}$`));
+  await expect(page.getByLabel("배치안 이름")).toHaveValue("배치 C");
+  // C 를 다 불러와도 저장은 아직 진행 중이에요
+  await expect(page.getByRole("button", { name: "저장 중…" })).toBeVisible();
+  hold.release();
+  await expect(page.getByText('"배치 D" 배치안으로 저장했어요. 내 배치안에서 열 수 있어요.')).toBeVisible();
+  await page.waitForTimeout(500);
+  await expect(page).toHaveURL(new RegExp(`layout=${c}$`));
+  await expect(page.getByLabel("배치안 이름")).toHaveValue("배치 C");
+  await expect(status(page)).toHaveText("케이지 1000×500×500mm · 구조물 2개");
+  await expect(page.getByRole("button", { name: "저장", exact: true })).toBeDisabled(); // C 는 저장한 그대로
+  await expect(page.getByText("배치 D", { exact: true })).toBeVisible(); // 목록에는 새 배치안이 있어요
+});
+
+test("임시 저장이 이 계정에 없는 반려동물을 가리켜도 저장할 수 있다", async ({ page }) => {
+  await signup(page, { username: `cagepet_${RUN}`, nickname: `케반려${RUN}`, password: "password-123" }, { next: "/cage" });
+  // 가상 케이지 화면이 떠 있으면 빈 상태를 임시 저장에 쓰므로, 다른 화면에서 심어요
+  await page.goto("/me");
+  // 같은 브라우저를 쓰던 다른 계정의 임시 저장(반려동물 연결 포함)
+  await page.evaluate(() =>
+    window.localStorage.setItem(
+      "nestforge:cage-draft:v1",
+      JSON.stringify({
+        name: "남의 임시 저장", species: "hamster", size: "syrian", petId: "f".repeat(32), layoutId: null,
+        cage: { width_mm: 1000, depth_mm: 500, height_mm: 500 },
+        items: [{ id: "x1", asset: "bowl", x_mm: 200, y_mm: 200, rotation_deg: 0 }],
+      }),
+    ),
+  );
+  // 내 반려동물 목록을 받은 뒤에 저장해요 (목록에 없는 연결은 빼고 보내요)
+  const petsLoaded = page.waitForResponse((r) => /\/pets$/.test(new URL(r.url()).pathname) && r.request().method() === "GET");
+  await page.goto("/cage");
+  await petsLoaded;
+  await expect(page.getByLabel("배치안 이름")).toHaveValue("남의 임시 저장");
+  await expect(status(page)).toHaveText("케이지 1000×500×500mm · 구조물 1개");
+  await page.getByRole("button", { name: "저장", exact: true }).click();
+  await expect(page.getByText("새 배치안으로 저장했어요.")).toBeVisible();
+  await expect(page).toHaveURL(/\/cage\?layout=[0-9a-f]{32}$/);
+});

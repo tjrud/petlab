@@ -148,7 +148,11 @@ export default function CagePlanner() {
   const [pets, setPets] = useState<Pet[] | null>(null);
   const [layouts, setLayouts] = useState<CageLayoutSummary[] | null>(null);
   const [layoutsError, setLayoutsError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  /** 저장·삭제 중 (요청을 기다리는 동안) */
+  const [writing, setWriting] = useState(false);
+  /** 배치안 불러오는 중 */
+  const [loadingLayout, setLoadingLayout] = useState(false);
+  const busy = writing || loadingLayout;
   const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [ready, setReady] = useState(false);
 
@@ -213,12 +217,30 @@ export default function CagePlanner() {
   /** 진행 중인 배치안 불러오기의 번호. 그사이 주소가 바뀌면 늦게 온 응답은 버려요 */
   const loadSeq = useRef(0);
   const loading = useRef<number | null>(null);
+  /** 저장·삭제가 끝났을 때 다른 화면에 가 있어서 미뤄 둔 주소 맞추기 (from 주소로 돌아오면 to 로 바꿔요) */
+  const pendingParam = useRef<{ from: string | null | undefined; to: string | null } | null>(null);
+
+  /** 화면의 상태를 먼저 바꾼 뒤 주소만 맞춰요 (그 주소의 배치안을 다시 불러오지 않게) */
+  const replaceLayoutParam = useCallback((id: string | null) => {
+    if (window.location.pathname !== "/cage") {
+      // 저장·삭제를 기다리는 사이 다른 화면으로 떠났으면 지금 주소는 건드리지 않고, 돌아왔을 때 맞춰요
+      pendingParam.current = { from: seenParam.current, to: id };
+      selfNav.current = undefined;
+      return;
+    }
+    pendingParam.current = null;
+    // 비교 대상은 효과가 이미 처리한 주소예요 (로그인 상태를 기다리는 동안에는 아직 처리 전)
+    selfNav.current = id === seenParam.current ? undefined : id;
+    // router.replace 는 서버 왕복을 기다리는 전환이라 그사이 다른 이동이 끼면 버려질 수 있어요.
+    // history.replaceState 는 Next 가 서버 왕복 없이 반영해요 (useSearchParams 는 다음 렌더에 바뀜)
+    window.history.replaceState(null, "", id ? `/cage?layout=${id}` : "/cage");
+  }, []);
 
   const loadLayout = useCallback(
     (id: string) => {
       const seq = ++loadSeq.current;
       loading.current = seq;
-      setBusy(true);
+      setLoadingLayout(true);
       api
         .layout(id)
         .then((l) => {
@@ -230,7 +252,7 @@ export default function CagePlanner() {
         .finally(() => {
           if (loading.current !== seq) return;
           loading.current = null;
-          setBusy(false);
+          setLoadingLayout(false);
           setReady(true);
         });
     },
@@ -240,6 +262,15 @@ export default function CagePlanner() {
   // 브라우저 저장소와 로그인 상태는 서버 렌더 때 알 수 없으므로, 화면이 붙은 뒤 효과에서 한 번 상태를 채워요
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
+    // 다른 화면에 가 있는 동안 끝난 저장·삭제의 주소 맞추기: 떠날 때의 주소로 돌아왔으면(뒤로 가기 등) 이제 맞춰요
+    const pending = pendingParam.current;
+    if (pending) {
+      pendingParam.current = null;
+      if (wantedLayout === pending.from && seenParam.current === pending.from) {
+        replaceLayoutParam(pending.to);
+        return;
+      }
+    }
     // 주소가 그대로면 아무것도 하지 않아요. 메타만 바뀐 렌더나, 주소 변경이 아직 반영되기 전 렌더에서
     // 옛 주소를 보고 옛 배치안을 다시 불러오면 안 돼요
     if (seenParam.current === wantedLayout) return;
@@ -249,7 +280,7 @@ export default function CagePlanner() {
     // 주소가 바뀌었으니 진행 중인 불러오기는 버려요 (예: 불러오는 중에 뒤로 가기)
     if (loading.current !== null) {
       loading.current = null;
-      setBusy(false);
+      setLoadingLayout(false);
     }
     const mine = selfNav.current !== undefined && selfNav.current === wantedLayout;
     selfNav.current = undefined;
@@ -280,7 +311,7 @@ export default function CagePlanner() {
       return;
     }
     loadLayout(wantedLayout);
-  }, [status, wantedLayout, userId, meta.layoutId, ready, loadLayout]);
+  }, [status, wantedLayout, userId, meta.layoutId, ready, loadLayout, replaceLayoutParam]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   // 작업 중인 배치를 이 브라우저에 남겨요 (불러오기를 마친 뒤부터)
@@ -481,7 +512,8 @@ export default function CagePlanner() {
     species: meta.species,
     size: meta.size,
     cage,
-    pet_id: meta.petId,
+    // 다른 계정의(또는 지운) 반려동물을 가리키는 임시 저장이면 연결을 빼고 저장해요 (그대로 보내면 늘 404)
+    pet_id: meta.petId && pets && !pets.some((p) => p.id === meta.petId) ? null : meta.petId,
     // 카탈로그에 있는 것만, 서버 범위 안의 값으로
     items: items
       .filter((it) => getAsset(it.asset))
@@ -493,26 +525,19 @@ export default function CagePlanner() {
       })),
   });
 
-  /** 화면의 상태를 먼저 바꾼 뒤 주소만 맞춰요 (그 주소의 배치안을 다시 불러오지 않게) */
-  const replaceLayoutParam = (id: string | null) => {
-    if (window.location.pathname !== "/cage") {
-      // 저장·삭제를 기다리는 사이 다른 화면으로 떠났으면 주소를 건드리지 않아요. 돌아오면 그때의 주소를 따라요
-      seenParam.current = undefined;
-      selfNav.current = undefined;
-      return;
-    }
-    // 비교 대상은 효과가 이미 처리한 주소예요 (로그인 상태를 기다리는 동안에는 아직 처리 전)
-    selfNav.current = id === seenParam.current ? undefined : id;
-    // router.replace 는 서버 왕복을 기다리는 전환이라 그사이 다른 이동이 끼면 버려질 수 있어요.
-    // history.replaceState 는 Next 가 곧바로 반영해요 (useSearchParams 도 따라 바뀜)
-    window.history.replaceState(null, "", id ? `/cage?layout=${id}` : "/cage");
-  };
+  /** 저장·삭제를 시작한 때의 주소와 불러오기 번호 */
+  const placeNow = () => ({ url: window.location.pathname + window.location.search, seq: loadSeq.current });
+  /** 그사이 다른 배치안으로 옮겨 갔는지 (뒤로·앞으로 가기, 다른 배치안 불러오기). 다른 화면에 간 것은 아니에요 */
+  const movedSince = (p: { url: string; seq: number }) =>
+    loadSeq.current !== p.seq ||
+    (window.location.pathname === "/cage" && window.location.pathname + window.location.search !== p.url);
 
   const save = async (saveAsNew: boolean) => {
     let asNew = saveAsNew;
     if (busy) return;
-    setBusy(true);
+    setWriting(true);
     setNotice(null);
+    const start = placeNow();
     try {
       const b = body();
       let saved: CageLayout;
@@ -528,6 +553,12 @@ export default function CagePlanner() {
       } else {
         saved = await api.createLayout(b);
       }
+      if (movedSince(start)) {
+        // 저장을 기다리는 사이 다른 배치안으로 옮겨 갔으면 지금 화면에는 반영하지 않고 알리기만 해요
+        setNotice({ kind: "ok", text: `"${saved.name}" 배치안으로 저장했어요. 내 배치안에서 열 수 있어요.` });
+        refreshLayouts();
+        return;
+      }
       // 화면의 배치·되돌리기 기록은 그대로 두고 저장된 상태만 기억해요
       const m = metaOf(saved);
       setMeta(m);
@@ -541,7 +572,7 @@ export default function CagePlanner() {
         text: isAuthError(e) ? "로그인이 풀렸어요. 다시 로그인하면 이어서 저장할 수 있어요 (작업은 이 브라우저에 남아 있어요)." : e instanceof ApiError ? e.messageKo : "저장하지 못했어요.",
       });
     } finally {
-      setBusy(false);
+      setWriting(false);
     }
   };
 
@@ -567,10 +598,11 @@ export default function CagePlanner() {
 
   const deleteLayout = async (l: CageLayoutSummary) => {
     if (!window.confirm(`"${l.name}" 배치안을 지울까요? 되돌릴 수 없어요.`)) return;
-    setBusy(true);
+    setWriting(true);
+    const start = placeNow();
     try {
       await api.deleteLayout(l.id);
-      if (l.id === meta.layoutId) {
+      if (l.id === meta.layoutId && !movedSince(start)) {
         // 지금 열린 배치안을 지웠으면 화면의 배치는 저장 전 새 배치안으로 남겨요
         setMeta((m) => ({ ...m, layoutId: null }));
         setSavedSnap(null);
@@ -580,7 +612,7 @@ export default function CagePlanner() {
     } catch (e) {
       setNotice({ kind: "error", text: e instanceof ApiError ? e.messageKo : "지우지 못했어요." });
     } finally {
-      setBusy(false);
+      setWriting(false);
     }
   };
 
