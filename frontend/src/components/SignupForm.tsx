@@ -6,8 +6,9 @@ import { useId, useRef, useState } from "react";
 
 import { useAuth, useAuthRecheck } from "@/components/AuthProvider";
 import { AlreadyLoggedIn, AuthChecking, ServerUnreachable } from "@/components/LoginForm";
+import { Field, passwordRuleError } from "@/components/me/common";
 import Turnstile, { type TurnstileHandle } from "@/components/Turnstile";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, errorText } from "@/lib/api";
 import { isPlausibleEmail } from "@/lib/email";
 import { NICKNAME_HINT, nicknameError } from "@/lib/nickname";
 import { safeNext, withNext } from "@/lib/safeNext";
@@ -52,9 +53,6 @@ function fieldErrorsFrom422(details: unknown): Errors {
   return out;
 }
 
-/** 서버(Python)와 같은 기준으로 글자 수를 센다 (이모지 같은 문자도 한 글자) */
-const charCount = (s: string) => Array.from(s).length;
-
 /** 서버 검증(backend/app/schemas.py SignupIn)과 같은 규칙. 최종 판단은 서버가 한다. */
 function validate(v: Values, needEmail: boolean): Errors {
   const errors: Errors = {};
@@ -74,55 +72,15 @@ function validate(v: Values, needEmail: boolean): Errors {
   }
 
   if (!v.password) errors.password = "비밀번호를 입력해 주세요.";
-  else if (charCount(v.password) < 8) errors.password = "비밀번호는 8자 이상이어야 해요.";
-  else if (charCount(v.password) > 128) errors.password = "비밀번호는 128자 이하로 정해 주세요.";
-  else if (username && v.password.toLowerCase() === username) errors.password = "비밀번호를 아이디와 다르게 정해 주세요.";
+  else {
+    const p = passwordRuleError(v.password, username);
+    if (p) errors.password = p;
+  }
 
   if (!v.confirm) errors.confirm = "비밀번호를 한 번 더 입력해 주세요.";
   else if (v.confirm !== v.password) errors.confirm = "비밀번호가 서로 달라요. 다시 확인해 주세요.";
 
   return errors;
-}
-
-function Field({
-  id,
-  label,
-  hint,
-  error,
-  ...input
-}: {
-  id: string;
-  label: string;
-  hint?: string;
-  error?: string;
-} & Omit<React.InputHTMLAttributes<HTMLInputElement>, "id">) {
-  const hintId = `${id}-hint`;
-  const errorId = `${id}-error`;
-  const describedBy = [error ? errorId : null, hint ? hintId : null].filter(Boolean).join(" ") || undefined;
-  return (
-    <div>
-      <label htmlFor={id} className={ui.label}>
-        {label}
-      </label>
-      <input
-        {...input}
-        id={id}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={describedBy}
-        className={error ? ui.input.replace("border-stone-300", "border-red-400") : ui.input}
-      />
-      {error && (
-        <p id={errorId} className="mt-1 text-sm text-red-700">
-          {error}
-        </p>
-      )}
-      {hint && (
-        <p id={hintId} className="mt-1 text-xs text-stone-500">
-          {hint}
-        </p>
-      )}
-    </div>
-  );
 }
 
 /** 가입을 마친 뒤: 인증 메일을 보냈는지 알려 주고, 원래 가려던 화면으로 이어 간다 */
@@ -267,7 +225,7 @@ export default function SignupForm() {
       if (badField) {
         setServerErrors(fieldErrors); // 칸 아래에 보여 주고 그 칸으로 옮긴다
       } else {
-        setError(err instanceof ApiError ? err.messageKo : "회원가입하지 못했어요. 잠시 뒤 다시 시도해 주세요.");
+        setError(errorText(err, "회원가입하지 못했어요. 잠시 뒤 다시 시도해 주세요."));
       }
       // 그 밖의 거절은 토큰을 이미 썼을 수 있다 (한 번만 쓸 수 있으므로 새로 풀게 한다)
       if (captcha && !invalidInput) {

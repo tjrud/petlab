@@ -9,7 +9,7 @@ import DesignCard from "@/components/designs/DesignCard";
 import DesignGridSkeleton from "@/components/designs/DesignGridSkeleton";
 import Pagination from "@/components/designs/Pagination";
 import LoginRequired from "@/components/LoginRequired";
-import { api, ApiError, isAuthError } from "@/lib/api";
+import { api, errorText, isAuthError } from "@/lib/api";
 import type { DesignListItem, Paged } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
@@ -53,8 +53,8 @@ export default function DesignHistory() {
         setResult({
           key,
           kind: "error",
-          message: e instanceof ApiError ? e.messageKo : "설계 내역을 불러오지 못했어요.",
-          authCode: isAuthError(e) ? ((e as ApiError).code ?? null) : null,
+          message: errorText(e, "설계 내역을 불러오지 못했어요."),
+          authCode: isAuthError(e) ? (e.code ?? null) : null,
         });
       },
     );

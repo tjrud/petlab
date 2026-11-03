@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { ApiError } from "@/lib/api";
+import { ApiError, errorText } from "@/lib/api";
 import { ui } from "@/lib/ui";
 
 export type Loaded<T> =
@@ -29,7 +29,7 @@ export function useLoad<T>(load: () => Promise<T>, fallbackMessage: string) {
         if (!alive) return;
         setState({
           kind: "error",
-          message: e instanceof ApiError ? e.messageKo : fallbackMessage,
+          message: errorText(e, fallbackMessage),
           needsLogin: e instanceof ApiError && e.code === "auth_required",
         });
       },

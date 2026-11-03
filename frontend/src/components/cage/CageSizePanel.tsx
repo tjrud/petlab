@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { CAGE_LIMITS } from "@/components/me/common";
+import { CAGE_LIMITS, cageDimError } from "@/components/me/common";
 import type { Cage, Pet } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
@@ -30,9 +30,11 @@ function errorsOf(draft: Draft): string[] {
   const errs: string[] = [];
   for (const [k, label] of DIMS) {
     const v = Number(draft[k]);
-    const [lo, hi] = CAGE_LIMITS[k];
     if (draft[k].trim() === "" || !Number.isFinite(v)) errs.push(`${label}를 숫자로 입력해 주세요.`);
-    else if (v < lo || v > hi) errs.push(`${label}는 ${lo}~${hi}mm 사이로 입력해 주세요.`);
+    else {
+      const e = cageDimError(k, v, label);
+      if (e) errs.push(e);
+    }
   }
   return errs;
 }

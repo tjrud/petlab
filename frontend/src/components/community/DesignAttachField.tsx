@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { errorText } from "@/components/community/common";
-import { api, ApiError, isAuthError } from "@/lib/api";
+import { api, isAuthError } from "@/lib/api";
 import type { Design, DesignListItem, Habitat } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
@@ -83,7 +83,7 @@ export function useAttachOptions(userId: string | null, preId: string | null, pr
           state: {
             kind: "error",
             message: errorText(e, "내 설계 목록을 불러오지 못했어요."),
-            authCode: isAuthError(e) ? ((e as ApiError).code ?? null) : null,
+            authCode: isAuthError(e) ? (e.code ?? null) : null,
           },
         });
       },
