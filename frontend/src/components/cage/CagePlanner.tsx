@@ -208,16 +208,49 @@ export default function CagePlanner() {
 
   /** 효과가 마지막으로 처리한 주소의 배치안 ID. 주소가 실제로 바뀌었을 때만 처리해요 */
   const seenParam = useRef<string | null | undefined>(undefined);
-  /** 화면에서 직접 바꾼 주소의 배치안 ID (저장·새로 만들기·삭제 뒤). 그 주소에 닿으면 다시 불러오지 않아요 */
+  /** 화면에서 직접 바꾼 주소의 배치안 ID (저장·새로 만들기·삭제 뒤). 효과가 그 주소에 닿으면 다시 불러오지 않아요 */
   const selfNav = useRef<string | null | undefined>(undefined);
+  /** 진행 중인 배치안 불러오기의 번호. 그사이 주소가 바뀌면 늦게 온 응답은 버려요 */
+  const loadSeq = useRef(0);
+  const loading = useRef<number | null>(null);
+
+  const loadLayout = useCallback(
+    (id: string) => {
+      const seq = ++loadSeq.current;
+      loading.current = seq;
+      setBusy(true);
+      api
+        .layout(id)
+        .then((l) => {
+          if (loading.current === seq) applyLayout(l);
+        })
+        .catch((e: unknown) => {
+          if (loading.current === seq) setNotice({ kind: "error", text: e instanceof ApiError ? e.messageKo : "배치안을 불러오지 못했어요." });
+        })
+        .finally(() => {
+          if (loading.current !== seq) return;
+          loading.current = null;
+          setBusy(false);
+          setReady(true);
+        });
+    },
+    [applyLayout],
+  );
+
   // 브라우저 저장소와 로그인 상태는 서버 렌더 때 알 수 없으므로, 화면이 붙은 뒤 효과에서 한 번 상태를 채워요
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
-    if (status === null) return; // 로그인 상태를 아직 모름
-    // 주소가 그대로면 아무것도 하지 않아요. router.replace 는 전환(transition)으로 처리되어,
-    // 메타를 바꾼 렌더에서는 주소가 아직 옛 값이에요. 이때 옛 배치안을 다시 불러오면 안 돼요
+    // 주소가 그대로면 아무것도 하지 않아요. 메타만 바뀐 렌더나, 주소 변경이 아직 반영되기 전 렌더에서
+    // 옛 주소를 보고 옛 배치안을 다시 불러오면 안 돼요
     if (seenParam.current === wantedLayout) return;
+    // 저장한 배치안을 열려면 로그인 상태가 필요해요. 브라우저 임시 저장은 기다리지 않고 바로 되살려요
+    if (wantedLayout && status === null) return;
     seenParam.current = wantedLayout;
+    // 주소가 바뀌었으니 진행 중인 불러오기는 버려요 (예: 불러오는 중에 뒤로 가기)
+    if (loading.current !== null) {
+      loading.current = null;
+      setBusy(false);
+    }
     const mine = selfNav.current !== undefined && selfNav.current === wantedLayout;
     selfNav.current = undefined;
     if (mine) {
@@ -246,16 +279,8 @@ export default function CagePlanner() {
       setNotice({ kind: "error", text: "저장한 배치안은 로그인하면 열 수 있어요." });
       return;
     }
-    setBusy(true);
-    api
-      .layout(wantedLayout)
-      .then(applyLayout)
-      .catch((e: unknown) => setNotice({ kind: "error", text: e instanceof ApiError ? e.messageKo : "배치안을 불러오지 못했어요." }))
-      .finally(() => {
-        setBusy(false);
-        setReady(true);
-      });
-  }, [status, wantedLayout, userId, applyLayout, meta.layoutId, ready]);
+    loadLayout(wantedLayout);
+  }, [status, wantedLayout, userId, meta.layoutId, ready, loadLayout]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   // 작업 중인 배치를 이 브라우저에 남겨요 (불러오기를 마친 뒤부터)
@@ -470,8 +495,17 @@ export default function CagePlanner() {
 
   /** 화면의 상태를 먼저 바꾼 뒤 주소만 맞춰요 (그 주소의 배치안을 다시 불러오지 않게) */
   const replaceLayoutParam = (id: string | null) => {
-    selfNav.current = id === wantedLayout ? undefined : id;
-    router.replace(id ? `/cage?layout=${id}` : "/cage", { scroll: false });
+    if (window.location.pathname !== "/cage") {
+      // 저장·삭제를 기다리는 사이 다른 화면으로 떠났으면 주소를 건드리지 않아요. 돌아오면 그때의 주소를 따라요
+      seenParam.current = undefined;
+      selfNav.current = undefined;
+      return;
+    }
+    // 비교 대상은 효과가 이미 처리한 주소예요 (로그인 상태를 기다리는 동안에는 아직 처리 전)
+    selfNav.current = id === seenParam.current ? undefined : id;
+    // router.replace 는 서버 왕복을 기다리는 전환이라 그사이 다른 이동이 끼면 버려질 수 있어요.
+    // history.replaceState 는 Next 가 곧바로 반영해요 (useSearchParams 도 따라 바뀜)
+    window.history.replaceState(null, "", id ? `/cage?layout=${id}` : "/cage");
   };
 
   const save = async (saveAsNew: boolean) => {
@@ -515,7 +549,9 @@ export default function CagePlanner() {
 
   const openLayout = (id: string) => {
     if (!confirmDiscard()) return;
-    router.push(`/cage?layout=${id}`, { scroll: false });
+    // 주소가 이미 이 배치안이면(불러오기에 실패했을 때 등) 주소가 바뀌지 않으니 바로 불러와요
+    if (id === wantedLayout) loadLayout(id);
+    else router.push(`/cage?layout=${id}`, { scroll: false });
   };
 
   const newLayout = () => {
