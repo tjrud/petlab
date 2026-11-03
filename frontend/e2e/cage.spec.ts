@@ -17,7 +17,7 @@ test("가상 케이지: 에셋 놓기·끌어 옮기기·되돌리기·회전·�
   await expect(page.getByRole("heading", { level: 1, name: "가상 케이지 공간 설계" })).toBeVisible();
   await expect(status(page)).toHaveText("케이지 1000×500×500mm · 구조물 0개");
 
-  // 기본 구성: 높이 30cm 케이지에는 21cm 쳇바퀴가 들어가요 (28cm 는 높이 초과)
+  // 기본 구성: 쳇바퀴는 케이지 높이에 맞는 크기로 (기본 케이지는 높이 50cm 라 28cm 쳇바퀴가 들어가요, 높이 경고 없음)
   await page.getByRole("button", { name: /기본 구성 한 번에 넣기/ }).click();
   await expect(status(page)).toHaveText("케이지 1000×500×500mm · 구조물 5개");
   await expect(page.getByText(/쳇바퀴 높이 .*케이지 높이/)).toHaveCount(0);
@@ -117,4 +117,78 @@ test("가상 케이지: 에셋 놓기·끌어 옮기기·되돌리기·회전·�
   await expect(page.getByText("거실 케이지")).toBeVisible();
   await expect(page.getByRole("button", { name: "열려 있음" })).toBeDisabled();
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/cage-saved.png`, fullPage: true });
+});
+
+test("저장한 배치안을 연 채로 새로 만들기·새 배치안으로 저장·삭제해도 옛 배치안이 다시 열리지 않는다", async ({ page }) => {
+  // 주소(?layout=)가 바뀌는 사이의 렌더에서 옛 배치안을 다시 불러오던 문제를 막아요
+  const gets: string[] = [];
+  page.on("request", (r) => {
+    const m = r.method() === "GET" && /\/layouts\/([0-9a-f]{32})$/.exec(new URL(r.url()).pathname);
+    if (m) gets.push(m[1]);
+  });
+  const layoutId = () => /[?&]layout=([0-9a-f]{32})/.exec(page.url())?.[1] ?? null;
+  const settle = async () => {
+    await page.waitForLoadState("networkidle");
+    await page.waitForTimeout(300);
+  };
+
+  await signup(page, { username: `cagerace_${RUN}`, nickname: `케경합${RUN}`, password: "password-123" }, { next: "/cage" });
+  await page.goto("/cage");
+  await page.getByRole("button", { name: "땅굴 상자 추가" }).click();
+  await page.getByLabel("배치안 이름").fill("배치 A");
+  await page.getByRole("button", { name: "저장", exact: true }).click();
+  await expect(page.getByText("새 배치안으로 저장했어요.")).toBeVisible();
+  await expect(page).toHaveURL(/\/cage\?layout=[0-9a-f]{32}$/);
+  const a = layoutId()!;
+
+  // 1) A 를 연 채로 '새 배치안으로 저장' → 주소·화면 모두 새 배치안 B 이고 A 를 다시 불러오지 않아요
+  await page.getByRole("button", { name: "밥그릇 추가" }).click();
+  await page.getByLabel("배치안 이름").fill("배치 B");
+  gets.length = 0;
+  await page.getByRole("button", { name: "새 배치안으로 저장" }).click();
+  await expect(page.getByText("새 배치안으로 저장했어요.")).toBeVisible();
+  await expect.poll(layoutId).not.toBe(a);
+  const b = layoutId()!;
+  await settle();
+  expect(gets).toEqual([]);
+  expect(layoutId()).toBe(b);
+  await expect(page.getByLabel("배치안 이름")).toHaveValue("배치 B");
+  await expect(status(page)).toHaveText("케이지 1000×500×500mm · 구조물 2개");
+  await expect(page.getByRole("button", { name: "저장", exact: true })).toBeDisabled();
+  await page.getByRole("tab", { name: "내 배치안" }).click();
+  await expect(page.getByRole("button", { name: "열려 있음" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "열기" })).toHaveCount(1);
+
+  // 2) B 를 연 채로 '새로 만들기' → 빈 새 배치안이 그대로 남아요
+  gets.length = 0;
+  await page.getByRole("button", { name: "새로 만들기" }).click();
+  await expect(page).toHaveURL(/\/cage$/);
+  await settle();
+  expect(gets).toEqual([]);
+  await expect(status(page)).toHaveText("케이지 1000×500×500mm · 구조물 0개");
+  await expect(page.getByLabel("배치안 이름")).toHaveValue("새 배치안");
+  // 새로 고쳐도 빈 새 배치안 (임시 저장이 옛 배치안을 가리키지 않아요)
+  await page.reload();
+  await expect(status(page)).toHaveText("케이지 1000×500×500mm · 구조물 0개");
+  await expect(page).toHaveURL(/\/cage$/);
+
+  // 3) A 를 열고, 열린 A 를 목록에서 지우면 오류 없이 저장 전 새 배치안으로 남아요
+  await page.getByRole("tab", { name: "내 배치안" }).click();
+  await page.getByRole("button", { name: "열기" }).first().click();
+  await expect(page).toHaveURL(/\/cage\?layout=[0-9a-f]{32}$/);
+  const opened = layoutId()!;
+  await expect(page.getByRole("button", { name: "열려 있음" })).toBeDisabled();
+  const name = await page.getByLabel("배치안 이름").inputValue();
+  const shown = await status(page).textContent();
+  gets.length = 0;
+  page.once("dialog", (d) => void d.accept());
+  await page.getByRole("button", { name: `${name} 삭제` }).click();
+  await expect(page).toHaveURL(/\/cage$/);
+  await settle();
+  expect(gets).not.toContain(opened);
+  await expect(page.getByText("배치안을 찾을 수 없습니다.")).toHaveCount(0);
+  await expect(status(page)).toHaveText(shown!);
+  await expect(page.getByLabel("배치안 이름")).toHaveValue(name);
+  await expect(page.getByRole("button", { name: `${name} 삭제` })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "저장", exact: true })).toBeEnabled();
 });

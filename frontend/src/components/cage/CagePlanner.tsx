@@ -206,14 +206,24 @@ export default function CagePlanner() {
     setViewNonce((n) => n + 1);
   }, []);
 
-  /** 주소에서 마지막으로 처리한 배치안 ID (저장 후 주소를 바꿀 때 다시 불러오지 않게) */
-  const handledParam = useRef<string | null | undefined>(undefined);
+  /** 효과가 마지막으로 처리한 주소의 배치안 ID. 주소가 실제로 바뀌었을 때만 처리해요 */
+  const seenParam = useRef<string | null | undefined>(undefined);
+  /** 화면에서 직접 바꾼 주소의 배치안 ID (저장·새로 만들기·삭제 뒤). 그 주소에 닿으면 다시 불러오지 않아요 */
+  const selfNav = useRef<string | null | undefined>(undefined);
   // 브라우저 저장소와 로그인 상태는 서버 렌더 때 알 수 없으므로, 화면이 붙은 뒤 효과에서 한 번 상태를 채워요
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (status === null) return; // 로그인 상태를 아직 모름
-    if (handledParam.current === wantedLayout) return;
-    handledParam.current = wantedLayout;
+    // 주소가 그대로면 아무것도 하지 않아요. router.replace 는 전환(transition)으로 처리되어,
+    // 메타를 바꾼 렌더에서는 주소가 아직 옛 값이에요. 이때 옛 배치안을 다시 불러오면 안 돼요
+    if (seenParam.current === wantedLayout) return;
+    seenParam.current = wantedLayout;
+    const mine = selfNav.current !== undefined && selfNav.current === wantedLayout;
+    selfNav.current = undefined;
+    if (mine) {
+      setReady(true);
+      return;
+    }
     if (!wantedLayout) {
       const d = readDraft();
       if (d && !ready) {
@@ -458,6 +468,12 @@ export default function CagePlanner() {
       })),
   });
 
+  /** 화면의 상태를 먼저 바꾼 뒤 주소만 맞춰요 (그 주소의 배치안을 다시 불러오지 않게) */
+  const replaceLayoutParam = (id: string | null) => {
+    selfNav.current = id === wantedLayout ? undefined : id;
+    router.replace(id ? `/cage?layout=${id}` : "/cage", { scroll: false });
+  };
+
   const save = async (saveAsNew: boolean) => {
     let asNew = saveAsNew;
     if (busy) return;
@@ -482,8 +498,7 @@ export default function CagePlanner() {
       const m = metaOf(saved);
       setMeta(m);
       setSavedSnap(snapshotOf(m, { cage: saved.cage, items: saved.items }));
-      handledParam.current = saved.id;
-      router.replace(`/cage?layout=${saved.id}`, { scroll: false });
+      replaceLayoutParam(saved.id);
       setNotice({ kind: "ok", text: asNew || !meta.layoutId ? "새 배치안으로 저장했어요." : "저장했어요." });
       refreshLayouts();
     } catch (e) {
@@ -511,8 +526,7 @@ export default function CagePlanner() {
     setSavedSnap(null);
     setSelectedId(null);
     setNotice(null);
-    handledParam.current = null;
-    router.replace("/cage", { scroll: false });
+    replaceLayoutParam(null);
   };
 
   const deleteLayout = async (l: CageLayoutSummary) => {
@@ -524,8 +538,7 @@ export default function CagePlanner() {
         // 지금 열린 배치안을 지웠으면 화면의 배치는 저장 전 새 배치안으로 남겨요
         setMeta((m) => ({ ...m, layoutId: null }));
         setSavedSnap(null);
-        handledParam.current = null;
-        router.replace("/cage", { scroll: false });
+        replaceLayoutParam(null);
       }
       refreshLayouts();
     } catch (e) {
