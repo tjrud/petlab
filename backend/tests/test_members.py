@@ -197,6 +197,29 @@ def test_password_change_revokes_other_sessions(client):
     assert client.post("/auth/login", json={"username": "user_1", "password": "new-password-1"}).status_code == 200
 
 
+WRONG_CURRENT = {"code": "invalid_credentials", "message_ko": "현재 비밀번호가 올바르지 않아요."}
+
+
+def test_password_change_wrong_current_then_limited(client):
+    c = use(client, signup(client, "user_1"))
+    wrong = {"current_password": "wrong", "new_password": "new-password-1"}
+    limit = client.app.state.password_limiter.max_failures
+    for _ in range(limit):
+        r = c.post("/me/password", json=wrong)
+        assert r.status_code == 400 and r.json()["detail"] == WRONG_CURRENT
+    # 상한까지 틀린 뒤에는 맞는 비밀번호여도 잠시 막힌다
+    r = c.post("/me/password", json={"current_password": PW, "new_password": "new-password-1"})
+    assert r.status_code == 429
+    assert r.json()["detail"] == {"code": "too_many_attempts",
+                                  "message_ko": "비밀번호 확인 시도가 너무 많아요. 15분 뒤에 다시 시도해 주세요."}
+
+
+def test_email_change_wrong_password(client):
+    c = use(client, signup(client, "user_1"))
+    r = c.patch("/me/email", json={"email": "new@example.com", "current_password": "wrong"})
+    assert r.status_code == 400 and r.json()["detail"] == WRONG_CURRENT
+
+
 def test_admin_profile_and_password_are_env_managed(client):
     admin_login(client)
     assert client.post("/me/password", json={"current_password": "x", "new_password": "y" * 10}).status_code == 403

@@ -2,26 +2,28 @@
 
 from __future__ import annotations
 
-import asyncio
+from collections.abc import Callable
+from typing import Any, Literal, TypeVar
 
 from fastapi import Depends, Request, Response, status
-from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.auth import (
-    FAILED_LOGIN_DELAY_S,
     auth_status,
     is_reserved_nickname,
+    limited_attempt,
     nickname_taken,
     set_session_cookie,
     user_out,
 )
 from app.api.deps import get_db, get_service, make_router
 from app.auth import get_current_user, usage_ip_key
+from app.config import Settings
 from app.errors import AppError, ConflictError, ForbiddenError, QuotaExceededError
+from app.mailer import Mailer
 from app.models import CageLayout, Design, Habitat, Pet, Post, User
 from app.names import email_key, nickname_key
 from app.passwords import hash_password, verify_password
@@ -30,6 +32,8 @@ from app.services import email_verify, usage
 from app.services.design_service import _ID_RE, DesignService, NotFoundError
 
 router = make_router(prefix="/me", tags=["내 정보"])
+
+T = TypeVar("T")
 
 MAX_PETS = 20
 
@@ -65,11 +69,22 @@ def update_profile(data: ProfileUpdateIn, request: Request, db: Session = Depend
     return auth_status(settings, user)
 
 
-def _change_password(db: Session, user: User, current: str, new: str) -> bool:
-    """현재 비밀번호를 확인하고 바꾼다 (스레드 풀에서 실행). 현재 비밀번호가 틀리면 False."""
+async def _check_current_password(request: Request, user: User, fn: Callable[..., T | None], *args: Any) -> T:
+    """현재 비밀번호를 확인하는 작업 fn(*args) 를 시도 제한 안에서 실행한다 (비밀번호 변경·이메일 변경).
+    fn 이 None 을 돌려주면(현재 비밀번호가 틀림) 400 invalid_credentials, 막혔으면 429 too_many_attempts."""
+    # 로그인 세션을 손에 넣은 사람이 현재 비밀번호를 마구 맞혀 보지 못하게 회원별로 제한한다
+    result = await limited_attempt(request.app.state.password_limiter, f"user:{user.id}",
+                                   "비밀번호 확인 시도가 너무 많아요. 15분 뒤에 다시 시도해 주세요.", fn, *args)
+    if result is None:
+        raise AppError("현재 비밀번호가 올바르지 않아요.", code="invalid_credentials")
+    return result
+
+
+def _change_password(db: Session, user: User, current: str, new: str) -> Literal[True] | None:
+    """현재 비밀번호를 확인하고 바꾼다 (스레드 풀에서 실행). 현재 비밀번호가 틀리면 None, 바꾸면 True."""
     try:
         if not verify_password(current, user.password_hash):
-            return False
+            return None
         user.password_hash = hash_password(new)
         user.session_version += 1
         db.commit()
@@ -82,7 +97,7 @@ def _change_password(db: Session, user: User, current: str, new: str) -> bool:
 EMAIL_CHANGES_PER_DAY = 5  # 이메일 변경 시도 (이미 인증된 주소인지 마구 캐 보지 못하게: 결과와 관계없이 센다)
 
 
-def _change_email(db: Session, settings, mailer, user: User, current: str, new_email: str,
+def _change_email(db: Session, settings: Settings, mailer: Mailer | None, user: User, current: str, new_email: str,
                   ip_key: str | None) -> dict | None:
     """현재 비밀번호를 확인하고 이메일을 바꾼다 (스레드 풀에서 실행). 비밀번호가 틀리면 None, 맞으면 응답 본문.
     응답도 여기서 만든다: 상한 오류 뒤 롤백으로 만료된 회원 정보를 이벤트 루프에서 다시 읽지(DB 조회) 않게."""
@@ -119,21 +134,9 @@ async def change_email(data: EmailChangeIn, request: Request, db: Session = Depe
     settings = request.app.state.settings
     if user.is_admin:
         raise ForbiddenError("관리자 계정은 이메일을 등록하지 않아요.")
-    limiter = request.app.state.password_limiter  # 비밀번호 변경과 같은 제한 (세션을 훔친 사람이 비밀번호를 맞혀 보지 못하게)
-    key = f"user:{user.id}"
-    if not limiter.acquire(key):
-        raise QuotaExceededError("비밀번호 확인 시도가 너무 많아요. 15분 뒤에 다시 시도해 주세요.",
-                                 code="too_many_attempts")
-    try:
-        payload = await run_in_threadpool(_change_email, db, settings, request.app.state.mailer, user,
-                                          data.current_password, str(data.email), usage_ip_key(settings, request))
-    except BaseException:
-        limiter.release(key, failed=False)
-        raise
-    limiter.release(key, failed=payload is None)
-    if payload is None:
-        await asyncio.sleep(FAILED_LOGIN_DELAY_S)
-        raise AppError("현재 비밀번호가 올바르지 않아요.", code="invalid_credentials")
+    # 비밀번호 변경과 같은 제한 (세션을 훔친 사람이 비밀번호를 맞혀 보지 못하게)
+    payload = await _check_current_password(request, user, _change_email, db, settings, request.app.state.mailer, user,
+                                            data.current_password, str(data.email), usage_ip_key(settings, request))
     return JSONResponse(payload)
 
 
@@ -145,21 +148,7 @@ async def change_password(data: PasswordChangeIn, request: Request, db: Session 
         raise ForbiddenError("관리자 비밀번호는 서버 환경변수(ADMIN_PASSWORD)로만 바꿀 수 있어요.")
     if data.new_password.lower() == user.username:
         raise ConflictError("비밀번호를 아이디와 다르게 정해 주세요.", code="weak_password")
-    # 로그인 세션을 손에 넣은 사람이 현재 비밀번호를 마구 맞혀 보지 못하게 회원별로 제한한다
-    limiter = request.app.state.password_limiter
-    key = f"user:{user.id}"
-    if not limiter.acquire(key):  # 검사와 예약을 한 번에 (동시에 몰린 요청도 진행 중인 시도로 센다)
-        raise QuotaExceededError("비밀번호 확인 시도가 너무 많아요. 15분 뒤에 다시 시도해 주세요.",
-                                 code="too_many_attempts")
-    try:
-        changed = await run_in_threadpool(_change_password, db, user, data.current_password, data.new_password)
-    except BaseException:
-        limiter.release(key, failed=False)
-        raise
-    limiter.release(key, failed=not changed)
-    if not changed:
-        await asyncio.sleep(FAILED_LOGIN_DELAY_S)
-        raise AppError("현재 비밀번호가 올바르지 않아요.", code="invalid_credentials")
+    await _check_current_password(request, user, _change_password, db, user, data.current_password, data.new_password)
     response = JSONResponse(auth_status(settings, user))
     set_session_cookie(response, settings, request, user)  # 이 기기는 로그인 유지
     return response

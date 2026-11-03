@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -13,9 +14,11 @@ from app.auth import (
     COOKIE_NAME,
     AuthUnavailableError,
     LoginRateLimiter,
+    client_ip,
     client_key,
     issue_token,
     signing_key,
+    usage_ip_key,
     verify_token,
 )
 from app.config import Settings
@@ -141,6 +144,27 @@ def test_client_key(tmp_path):
     assert a == b == "2001:db8:1:2::/64"
 
 
+def test_client_ip_and_usage_ip_key(tmp_path):
+    from starlette.requests import Request
+
+    def req(headers: dict, host: str = "10.0.0.1"):
+        return Request({"type": "http", "headers": [(k.encode(), v.encode()) for k, v in headers.items()],
+                        "client": (host, 1234)})
+
+    s = settings(tmp_path, client_ip_header="x-vercel-forwarded-for")
+    # 형식이 IP 가 아닌 값: client_ip 는 None, client_key 는 원래 문자열을 그대로 키로 쓴다
+    bad = req({"x-vercel-forwarded-for": "not-an-ip"})
+    assert client_ip(s, bad) is None
+    assert client_key(s, bad) == "not-an-ip"
+    # 클라이언트 IP 헤더를 설정하지 않으면 IP 별 사용량 상한을 쓰지 않는다
+    assert usage_ip_key(settings(tmp_path), req({"x-vercel-forwarded-for": "1.2.3.4"})) is None
+    # IPv6 는 /56 단위로 묶는다
+    a = usage_ip_key(s, req({"x-vercel-forwarded-for": "2001:db8:1:200::1"}))
+    b = usage_ip_key(s, req({"x-vercel-forwarded-for": "2001:db8:1:2ff:ffff::9"}))
+    c = usage_ip_key(s, req({"x-vercel-forwarded-for": "2001:db8:1:300::1"}))
+    assert a == b and a != c
+
+
 # ── API 보호 ───────────────────────────────────────────────
 
 
@@ -195,6 +219,7 @@ def test_wrong_credentials(client):
     for creds in ({"username": "admin", "password": "wrong"}, {"username": "root", "password": ADMIN["password"]}):
         r = client.post("/auth/login", json=creds)
         assert r.status_code == 401 and r.json()["detail"]["code"] == "invalid_credentials"
+        assert r.json()["detail"] == {"code": "invalid_credentials", "message_ko": "아이디 또는 비밀번호가 올바르지 않아요."}
         assert COOKIE_NAME not in r.headers.get("set-cookie", "")
     assert client.get(PROTECTED).status_code == 401
 
@@ -221,6 +246,40 @@ def test_login_is_rate_limited(client):
         assert client.post("/auth/login", json={"username": "admin", "password": "nope"}).status_code == 401
     r = client.post("/auth/login", json=ADMIN)  # 맞는 비밀번호여도 잠시 막힘
     assert r.status_code == 429 and r.json()["detail"]["code"] == "too_many_attempts"
+    assert r.json()["detail"] == {"code": "too_many_attempts",
+                                  "message_ko": "로그인 시도가 너무 많아요. 15분 뒤에 다시 시도해 주세요."}
+    assert r.headers["cache-control"] == "no-store"
+
+
+def test_login_server_errors_are_not_counted_as_failures(tmp_path, monkeypatch):
+    import app.api.auth as auth_api
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("DB 장애")
+
+    monkeypatch.setattr(auth_api, "_authenticate", boom)
+    with TestClient(create_app(settings(tmp_path)), raise_server_exceptions=False) as c:
+        for _ in range(c.app.state.login_limiter.max_failures + 1):
+            assert c.post("/auth/login", json=ADMIN).status_code == 500
+        monkeypatch.undo()
+        assert c.post("/auth/login", json=ADMIN).status_code == 200  # 서버 오류는 틀린 시도로 세지 않았다
+
+
+def test_failed_login_is_delayed(client, monkeypatch):
+    import app.api.auth as auth_api
+
+    monkeypatch.setattr(auth_api, "FAILED_LOGIN_DELAY_S", 0.2)
+    start = time.monotonic()
+    r = client.post("/auth/login", json={"username": "admin", "password": "nope"})
+    assert r.status_code == 401
+    assert time.monotonic() - start >= 0.2
+
+
+def test_signup_closed_when_auth_disabled(tmp_path):
+    with TestClient(create_app(settings(tmp_path, admin_password=None))) as c:
+        r = c.post("/auth/signup", json={"username": "user1", "nickname": "닉네임", "password": "password123"})
+        assert r.status_code == 403
+        assert r.json()["detail"] == {"code": "signup_closed", "message_ko": "지금은 회원가입을 받지 않아요."}
 
 
 def test_auth_disabled_without_admin_password(tmp_path):
