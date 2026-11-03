@@ -72,9 +72,16 @@ def test_layout_pet_link(client):
     assert client.delete(f"/me/pets/{pet['id']}").status_code == 204
     assert client.get(f"/layouts/{lay['id']}").json()["pet_id"] is None
 
+    # 없는(지운) 반려동물로 저장하면 배치안 없음과 구분되는 코드로 알린다 (수정·새로 저장 모두)
+    r = client.put(f"/layouts/{lay['id']}", json=body(size="dwarf", pet_id=pet["id"]))
+    assert r.status_code == 404 and r.json()["detail"]["code"] == "pet_not_found"
+    missing = client.put("/layouts/" + "0" * 32, json=body())
+    assert missing.status_code == 404 and missing.json()["detail"]["code"] == "not_found"
+
     other = signup(client, "user_b")
     use(client, other)
-    assert client.post("/layouts", json=body(pet_id=pet["id"])).status_code == 404
+    r = client.post("/layouts", json=body(pet_id=pet["id"]))
+    assert r.status_code == 404 and r.json()["detail"]["code"] == "pet_not_found"
 
 
 @pytest.mark.parametrize("override", [

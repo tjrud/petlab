@@ -312,19 +312,25 @@ test("저장을 기다리는 사이 다른 화면에 다녀오거나 다른 배�
   /** 다음 POST /layouts 하나를 붙잡아 두어요 */
   const holdNextCreate = async () => {
     const g = gate();
-    let served = false;
     await page.route(
       (u) => new URL(u).pathname.endsWith("/layouts"),
       async (route) => {
         if (route.request().method() !== "POST") return route.continue();
         await g.opened;
         await route.continue();
-        served = true;
       },
       { times: 1 },
     );
-    return { release: g.release, served: () => served };
+    const response = page.waitForResponse((r) => r.request().method() === "POST" && new URL(r.url()).pathname.endsWith("/layouts"));
+    return { release: g.release, response };
   };
+  /** 붙잡아 둔 저장을 보내고, 응답을 받은 뒤 화면이 그 결과를 처리할 때까지 기다려요 */
+  const finish = async (hold: Awaited<ReturnType<typeof holdNextCreate>>) => {
+    hold.release();
+    expect((await hold.response).status()).toBe(201);
+    await page.waitForTimeout(300);
+  };
+  const row = (name: string) => page.getByRole("listitem").filter({ has: page.getByText(name, { exact: true }) });
 
   await signup(page, { username: `cagenav_${RUN}`, nickname: `케이동${RUN}`, password: "password-123" }, { next: "/cage" });
   await page.goto("/cage");
@@ -343,9 +349,7 @@ test("저장을 기다리는 사이 다른 화면에 다녀오거나 다른 배�
   await page.getByRole("button", { name: "밥그릇 추가" }).click();
   await page.getByRole("navigation", { name: "주 메뉴" }).getByRole("link", { name: "내 정보" }).click();
   await expect(page).toHaveURL(/\/me$/);
-  hold.release();
-  await expect.poll(hold.served).toBe(true);
-  await page.waitForTimeout(500);
+  await finish(hold);
   await expect(page).toHaveURL(/\/me$/); // 저장이 끝나도 /cage 로 끌려가지 않아요
   await page.goBack();
   await expect.poll(layoutOf).not.toBe(a);
@@ -370,14 +374,61 @@ test("저장을 기다리는 사이 다른 화면에 다녀오거나 다른 배�
   await expect(page.getByLabel("배치안 이름")).toHaveValue("배치 C");
   // C 를 다 불러와도 저장은 아직 진행 중이에요
   await expect(page.getByRole("button", { name: "저장 중…" })).toBeVisible();
-  hold.release();
+  await finish(hold);
   await expect(page.getByText('"배치 D" 배치안으로 저장했어요. 내 배치안에서 열 수 있어요.')).toBeVisible();
-  await page.waitForTimeout(500);
   await expect(page).toHaveURL(new RegExp(`layout=${c}$`));
   await expect(page.getByLabel("배치안 이름")).toHaveValue("배치 C");
   await expect(status(page)).toHaveText("케이지 1000×500×500mm · 구조물 2개");
   await expect(page.getByRole("button", { name: "저장", exact: true })).toBeDisabled(); // C 는 저장한 그대로
   await expect(page.getByText("배치 D", { exact: true })).toBeVisible(); // 목록에는 새 배치안이 있어요
+
+  // 3) C 를 '새 배치안으로 저장'하는 동안 메뉴의 '가상 케이지'를 눌러도(주소만 /cage, 화면은 그대로) 새 배치안(E)으로 이어져요.
+  //    이어서 저장하면 E 가 바뀌고 C 는 그대로예요
+  await page.getByLabel("배치안 이름").fill("배치 E");
+  hold = await holdNextCreate();
+  await page.getByRole("button", { name: "새 배치안으로 저장" }).click();
+  await page.getByRole("navigation", { name: "주 메뉴" }).getByRole("link", { name: "가상 케이지" }).click();
+  await expect(page).toHaveURL(/\/cage$/);
+  await finish(hold);
+  await expect(page.getByText("새 배치안으로 저장했어요.")).toBeVisible();
+  await expect(page).toHaveURL(/\/cage\?layout=[0-9a-f]{32}$/);
+  const e = layoutOf()!;
+  expect([a, c]).not.toContain(e);
+  await expect(page.getByLabel("배치안 이름")).toHaveValue("배치 E");
+  await expect(row("배치 E").getByRole("button", { name: "열려 있음" })).toBeDisabled();
+  await page.getByRole("tab", { name: "카탈로그" }).click();
+  await page.getByRole("button", { name: "땅굴 상자 추가" }).click();
+  await page.getByRole("tab", { name: "내 배치안" }).click();
+  await page.getByRole("button", { name: "저장", exact: true }).click();
+  await expect(page.getByText("저장했어요.", { exact: true })).toBeVisible();
+  await expect(row("배치 E")).toContainText("구조물 3개");
+  await expect(row("배치 C")).toContainText("구조물 2개");
+
+  // 4) A 를 '새 배치안으로 저장'하는 동안 뒤로(E, 불러오는 중) 갔다가 바로 앞으로(A) 오면 같은 배치가 그대로라 새 배치안(F)으로 이어져요
+  await row("배치 A").getByRole("button", { name: "열기" }).click();
+  await expect(page).toHaveURL(new RegExp(`layout=${a}$`));
+  await expect(page.getByLabel("배치안 이름")).toHaveValue("배치 A");
+  const ge = gate();
+  await page.route(`**/layouts/${e}`, async (route) => {
+    await ge.opened;
+    await route.continue();
+  });
+  await page.getByLabel("배치안 이름").fill("배치 F");
+  hold = await holdNextCreate();
+  await page.getByRole("button", { name: "새 배치안으로 저장" }).click();
+  await page.goBack();
+  await expect(page).toHaveURL(new RegExp(`layout=${e}$`));
+  await page.goForward();
+  await expect(page).toHaveURL(new RegExp(`layout=${a}$`));
+  await finish(hold);
+  ge.release();
+  await page.waitForTimeout(300);
+  await expect(page).toHaveURL(/\/cage\?layout=[0-9a-f]{32}$/);
+  expect([a, c, e]).not.toContain(layoutOf());
+  await expect(page.getByLabel("배치안 이름")).toHaveValue("배치 F");
+  await expect(row("배치 F").getByRole("button", { name: "열려 있음" })).toBeDisabled();
+  await expect(row("배치 A")).toContainText("구조물 1개");
+  await page.unroute(`**/layouts/${e}`);
 });
 
 test("임시 저장이 이 계정에 없는 반려동물을 가리켜도 저장할 수 있다", async ({ page }) => {
@@ -395,13 +446,15 @@ test("임시 저장이 이 계정에 없는 반려동물을 가리켜도 저장�
       }),
     ),
   );
-  // 내 반려동물 목록을 받은 뒤에 저장해요 (목록에 없는 연결은 빼고 보내요)
-  const petsLoaded = page.waitForResponse((r) => /\/pets$/.test(new URL(r.url()).pathname) && r.request().method() === "GET");
+  // 내 반려동물 목록을 받지 못해도(서버 오류) 저장할 수 있어야 해요: 서버가 알려 주면 연결만 빼고 다시 저장
+  await page.route("**/me/pets", (route) =>
+    route.request().method() === "GET" ? route.fulfill({ status: 503, contentType: "application/json", body: "{}" }) : route.continue(),
+  );
   await page.goto("/cage");
-  await petsLoaded;
   await expect(page.getByLabel("배치안 이름")).toHaveValue("남의 임시 저장");
   await expect(status(page)).toHaveText("케이지 1000×500×500mm · 구조물 1개");
   await page.getByRole("button", { name: "저장", exact: true }).click();
-  await expect(page.getByText("새 배치안으로 저장했어요.")).toBeVisible();
+  await expect(page.getByText("새 배치안으로 저장했어요. 연결된 반려동물을 찾을 수 없어 반려동물 연결은 빼고 저장했어요.")).toBeVisible();
   await expect(page).toHaveURL(/\/cage\?layout=[0-9a-f]{32}$/);
+  await page.unroute("**/me/pets");
 });

@@ -200,9 +200,13 @@ export default function CagePlanner() {
 
   // ── 배치안 불러오기 (주소의 ?layout=) / 임시 저장 되살리기 ──
 
+  /** 화면의 배치를 통째로 바꿀 때마다 올리는 번호 (불러오기·임시 저장 되살리기·새로 만들기) */
+  const docGen = useRef(0);
+
   const applyLayout = useCallback((l: CageLayout) => {
     const m = metaOf(l);
     const d: Doc = { cage: l.cage, items: l.items };
+    docGen.current += 1;
     setMeta(m);
     dispatch({ type: "reset", doc: d });
     setSavedSnap(snapshotOf(m, d));
@@ -296,6 +300,7 @@ export default function CagePlanner() {
         const valid = (i: LayoutItem) =>
           typeof i?.id === "string" && typeof i.asset === "string" &&
           [i.x_mm, i.y_mm, i.rotation_deg].every((v) => typeof v === "number" && Number.isFinite(v));
+        docGen.current += 1;
         dispatch({ type: "reset", doc: { cage: d.cage, items: d.items.filter(valid) } });
       }
       setReady(true);
@@ -512,8 +517,7 @@ export default function CagePlanner() {
     species: meta.species,
     size: meta.size,
     cage,
-    // 다른 계정의(또는 지운) 반려동물을 가리키는 임시 저장이면 연결을 빼고 저장해요 (그대로 보내면 늘 404)
-    pet_id: meta.petId && pets && !pets.some((p) => p.id === meta.petId) ? null : meta.petId,
+    pet_id: meta.petId,
     // 카탈로그에 있는 것만, 서버 범위 안의 값으로
     items: items
       .filter((it) => getAsset(it.asset))
@@ -525,12 +529,12 @@ export default function CagePlanner() {
       })),
   });
 
-  /** 저장·삭제를 시작한 때의 주소와 불러오기 번호 */
-  const placeNow = () => ({ url: window.location.pathname + window.location.search, seq: loadSeq.current });
-  /** 그사이 다른 배치안으로 옮겨 갔는지 (뒤로·앞으로 가기, 다른 배치안 불러오기). 다른 화면에 간 것은 아니에요 */
-  const movedSince = (p: { url: string; seq: number }) =>
-    loadSeq.current !== p.seq ||
-    (window.location.pathname === "/cage" && window.location.pathname + window.location.search !== p.url);
+  /** 저장·삭제를 시작한 때의 화면 배치 번호와 불러오기 번호 */
+  const placeNow = () => ({ gen: docGen.current, seq: loadSeq.current });
+  /** 그사이 화면의 배치가 다른 것으로 바뀌었거나 바뀌는 중인지 (뒤로·앞으로 가기로 다른 배치안을 불러옴 등).
+   *  주소만 바뀌고 같은 배치가 그대로면(메뉴의 '가상 케이지', 다른 화면에 다녀옴) 옮겨 간 것이 아니에요 */
+  const movedSince = (p: { gen: number; seq: number }) =>
+    docGen.current !== p.gen || (loading.current !== null && loadSeq.current !== p.seq);
 
   const save = async (saveAsNew: boolean) => {
     let asNew = saveAsNew;
@@ -539,23 +543,37 @@ export default function CagePlanner() {
     setNotice(null);
     const start = placeNow();
     try {
-      const b = body();
-      let saved: CageLayout;
-      if (meta.layoutId && !asNew) {
+      let b = body();
+      let petDropped = false;
+      // 연결한 반려동물이 이 계정에 없으면(지웠거나, 임시 저장이 다른 계정의 것) 연결만 빼고 다시 저장해요
+      const write = async (send: (x: CageLayoutInput) => Promise<CageLayout>) => {
         try {
-          saved = await api.updateLayout(meta.layoutId, b);
+          return await send(b);
+        } catch (e) {
+          if (!(e instanceof ApiError && e.code === "pet_not_found" && b.pet_id)) throw e;
+          b = { ...b, pet_id: null };
+          petDropped = true;
+          return await send(b);
+        }
+      };
+      let saved: CageLayout;
+      const openId = meta.layoutId;
+      if (openId && !asNew) {
+        try {
+          saved = await write((x) => api.updateLayout(openId, x));
         } catch (e) {
           // 다른 곳에서 지웠거나, 이 브라우저의 임시 저장이 다른 계정의 배치안을 가리키면 새 배치안으로 저장해요
           if (!(e instanceof ApiError && e.status === 404)) throw e;
-          saved = await api.createLayout(b);
+          saved = await write(api.createLayout);
           asNew = true;
         }
       } else {
-        saved = await api.createLayout(b);
+        saved = await write(api.createLayout);
       }
+      const petNote = petDropped ? " 연결된 반려동물을 찾을 수 없어 반려동물 연결은 빼고 저장했어요." : "";
       if (movedSince(start)) {
         // 저장을 기다리는 사이 다른 배치안으로 옮겨 갔으면 지금 화면에는 반영하지 않고 알리기만 해요
-        setNotice({ kind: "ok", text: `"${saved.name}" 배치안으로 저장했어요. 내 배치안에서 열 수 있어요.` });
+        setNotice({ kind: "ok", text: `"${saved.name}" 배치안으로 저장했어요. 내 배치안에서 열 수 있어요.${petNote}` });
         refreshLayouts();
         return;
       }
@@ -564,7 +582,7 @@ export default function CagePlanner() {
       setMeta(m);
       setSavedSnap(snapshotOf(m, { cage: saved.cage, items: saved.items }));
       replaceLayoutParam(saved.id);
-      setNotice({ kind: "ok", text: asNew || !meta.layoutId ? "새 배치안으로 저장했어요." : "저장했어요." });
+      setNotice({ kind: "ok", text: (asNew || !openId ? "새 배치안으로 저장했어요." : "저장했어요.") + petNote });
       refreshLayouts();
     } catch (e) {
       setNotice({
@@ -588,6 +606,7 @@ export default function CagePlanner() {
   const newLayout = () => {
     if (!confirmDiscard()) return;
     const m: Meta = { name: DEFAULT_NAME, species: meta.species, size: meta.size, petId: null, layoutId: null };
+    docGen.current += 1;
     setMeta(m);
     dispatch({ type: "reset", doc: { cage: hist.present.cage, items: [] } });
     setSavedSnap(null);

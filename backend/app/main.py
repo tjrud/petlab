@@ -174,7 +174,7 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
 
     @app.exception_handler(NotFoundError)
     async def _not_found(_: Request, e: NotFoundError):
-        return JSONResponse(status_code=404, content={"detail": {"code": "not_found", "message_ko": e.message_ko}})
+        return JSONResponse(status_code=404, content={"detail": {"code": e.code, "message_ko": e.message_ko}})
 
     @app.exception_handler(InvalidInputError)
     async def _invalid(_: Request, e: InvalidInputError):
