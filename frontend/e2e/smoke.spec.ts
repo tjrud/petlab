@@ -156,9 +156,9 @@ test("서버가 형상을 막으면(409) 화면이 멈추지 않고 이유를 �
       errors: [],
     },
   };
-  // 배포 사이 형상이 바뀌어 다시 검증에 실패한 옛 버전처럼: 뷰어 메시와 내려받기 모두 409
-  await page.route("**/parts/*.stl*", (route) => route.fulfill({ status: 409, json: blocked }));
-  await page.route("**/export?*", (route) => route.fulfill({ status: 409, json: blocked }));
+  // 배포 사이 형상이 바뀌어 다시 검증에 실패한 옛 버전(v1)처럼: 뷰어 메시와 내려받기 모두 409
+  await page.route("**/versions/1/parts/*.stl*", (route) => route.fulfill({ status: 409, json: blocked }));
+  await page.route("**/export?*version=1*", (route) => route.fulfill({ status: 409, json: blocked }));
   await login(page);
   await page.getByText("골든 (시리안)").click();
   await page.getByRole("button", { name: "다음" }).click();
@@ -169,6 +169,12 @@ test("서버가 형상을 막으면(409) 화면이 멈추지 않고 이유를 �
   await expect(page.getByRole("button", { name: /은신처 #1/ })).toBeVisible(); // 나머지 화면은 그대로
   await page.getByRole("link", { name: /STL/ }).click();
   await expect(page.getByRole("alert").filter({ hasText: "서비스가 업데이트되어 내려받을 수 없어요" })).toBeVisible();
+  // 안내대로 새 버전을 만들면 이전 버전의 오류 안내는 사라지고 새 버전은 정상
+  await page.getByLabel("수정할 내용").fill("조금 더 크게 해 주세요");
+  await page.getByRole("button", { name: "v1 기준으로 다시 설계" }).click();
+  await expect(version(page)).toHaveText("v2");
+  await expect(page.getByRole("alert").filter({ hasText: "서비스가 업데이트되어" })).toHaveCount(0);
+  await expect(page.getByTestId("viewer").getByText("일부 구조물의 3D 형상을 불러오지 못했어요", { exact: false })).toHaveCount(0);
   // 오류 경계가 잡은 메시 로드 실패(409)는 3D 라이브러리가 보고만 한다. 그 밖의 오류는 없어야 한다
   expect(pageErrors.filter((m) => !/Could not load .*\/parts\/\d+\.stl.*409/.test(m))).toEqual([]);
 });

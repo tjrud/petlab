@@ -558,7 +558,9 @@ class DesignService:
           - 다시 만든 파일이 저장할 때 기록한 해시와 바이트 단위로 같으면 그대로 쓴다 (형상 생성은 결정적).
           - 다르거나 (배포 사이 템플릿 build()·테셀레이션 설정·형상 라이브러리 변경) 해시가 없는 옛 버전이면,
             구조물 전체를 다시 검증한다. 통과하면 다시 만든 형상으로 캐시 전체를 맞추고(남아 있던 파일과
-            섞이지 않게), 통과하지 못하면 아무 파일도 쓰지 않고 뷰어·내려받기 모두 409 로 막는다."""
+            섞이지 않게), 통과하지 못하면 아무 파일도 쓰지 않고 뷰어·내려받기 모두 409 로 막는다.
+          - 처음부터 검증을 통과하지 못한 버전은 다시 검증하지 않는다. 내려받기는 이미 막혀 있고(export 의
+            v.passed 확인), 메시는 어디가 문제인지 보여 주는 뷰어에만 쓰인다."""
         d = self._version_dir(design.id, v.version)
 
         def missing() -> list[dict]:
@@ -580,7 +582,7 @@ class DesignService:
             files = {name: data for b in rebuilt.values() for name, data in _mesh_files(b).items()}
             expected = (v.geometry or {}).get("files") or {}
             changed = sorted(name for name, data in files.items() if expected.get(name) != file_digest(data))
-            if changed:
+            if changed and v.passed:
                 done = set(rebuilt)
                 self._revalidate(design, v, rebuilt, changed)
                 for i, b in rebuilt.items():

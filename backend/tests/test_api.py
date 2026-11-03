@@ -204,6 +204,27 @@ def test_legacy_single_door_hideout_for_two_animals_is_blocked(client, tmp_path)
     assert "too_few_entrances" in {e["code"] for e in body["errors"]}
 
 
+def test_failed_legacy_version_keeps_viewer_after_cold_start(client, tmp_path):
+    """처음부터 검증에 실패한 옛 버전은 다시 검증하지 않는다: 뷰어 메시는 그대로 보이고, 내려받기는 원래대로 막힌다."""
+    from app.models import DesignVersion
+
+    d = design(client, prompt="은신처 터널 계단 모래목욕통 크게",
+               cage={"width_mm": 420, "depth_mm": 300, "height_mm": 300})
+    cur = d["current"]
+    assert not cur["validation"]["passed"]
+    placed = [it for it in cur["items"] if it["mesh_url"]]
+    assert placed
+    with client.app.state.session_factory() as db:
+        v = db.query(DesignVersion).filter_by(design_id=d["id"]).one()
+        v.geometry = None  # 형상 해시가 없던 시절에 저장된 버전
+        db.commit()
+    shutil.rmtree(tmp_path / "meshes")
+    for it in placed:
+        assert client.get(it["mesh_url"]).status_code == 200
+    r = client.get(f"/designs/{d['id']}/export?format=stl")
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "validation_failed"
+
+
 def test_revising_legacy_hideout_reports_added_door(client):
     """예전(출입구 개수 없던 시절) 설계를 고치면 직전 설계를 출입구 1개로 읽고, 2개로 바뀌면 보정 안내를 남긴다."""
     from app.models import DesignVersion
