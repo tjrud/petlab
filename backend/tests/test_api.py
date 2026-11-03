@@ -148,6 +148,9 @@ def test_export_blocked_when_validation_fails(client):
     assert r.status_code == 409
     body = r.json()["detail"]
     assert body["code"] == "validation_failed" and body["errors"]
+    expected = [i for i in cur["validation"]["issues"] if i["severity"] == "error" and not i.get("auto_fixed")]
+    assert body["errors"] == expected
+    assert len(body["errors"]) == cur["validation"]["summary"]["errors"]
 
 
 def test_export_rebuilds_missing_mesh_cache(client, tmp_path):
