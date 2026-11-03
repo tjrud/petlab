@@ -558,3 +558,49 @@ test("저장 응답이 뒤로 가기의 불러오기 중에 와도, 그 불러�
   await expect(row("배치 H")).toContainText("구조물 2개");
   await expect(row("배치 A")).toContainText("구조물 1개");
 });
+
+test("저장을 기다리는 사이 여러 화면을 다녀와 가상 케이지가 새로 열렸으면, 늦게 온 저장 결과가 새 화면의 작업을 덮지 않는다", async ({ page }) => {
+  await signup(page, { username: `cageevict_${RUN}`, nickname: `케새화면${RUN}`, password: "password-123" }, { next: "/cage" });
+  await page.goto("/cage");
+  await page.getByRole("button", { name: "땅굴 상자 추가" }).click();
+  await page.getByLabel("배치안 이름").fill("배치 A");
+  await page.getByRole("button", { name: "저장", exact: true }).click();
+  await expect(page).toHaveURL(/\/cage\?layout=[0-9a-f]{32}$/);
+
+  const g = gate();
+  await page.route(
+    (u) => new URL(u).pathname.endsWith("/layouts"),
+    async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      await g.opened;
+      await route.continue();
+    },
+    { times: 1 },
+  );
+  const created = page.waitForResponse((r) => r.request().method() === "POST" && new URL(r.url()).pathname.endsWith("/layouts"));
+  await page.getByLabel("배치안 이름").fill("배치 C");
+  await page.getByRole("button", { name: "새 배치안으로 저장" }).click();
+  // 다른 화면을 셋 다녀오면 예전 가상 케이지 화면은 내려가고, 돌아오면 새로 만들어져요
+  const nav = page.getByRole("navigation", { name: "주 메뉴" });
+  for (const [name, path] of [["커뮤니티", "/community"], ["내 설계", "/designs"], ["내 정보", "/me"]] as const) {
+    await nav.getByRole("link", { name }).click();
+    await expect(page).toHaveURL(new RegExp(`${path}$`));
+  }
+  await nav.getByRole("link", { name: "가상 케이지" }).click();
+  await expect(page).toHaveURL(/\/cage$/);
+  page.once("dialog", (d) => void d.accept());
+  await page.getByRole("button", { name: "새로 만들기" }).click();
+  await page.getByRole("button", { name: "밥그릇 추가" }).click();
+  await page.getByRole("button", { name: "스탠드 급수기 추가" }).click();
+  await page.getByLabel("배치안 이름").fill("새 작업");
+
+  g.release();
+  expect((await created).status()).toBe(201);
+  await page.waitForTimeout(800);
+  await expect(page).toHaveURL(/\/cage$/);
+  await expect(page.getByLabel("배치안 이름")).toHaveValue("새 작업");
+  await expect(status(page)).toHaveText("케이지 1000×500×500mm · 구조물 2개");
+  // 저장 자체는 됐어요
+  await page.getByRole("tab", { name: "내 배치안" }).click();
+  await expect(page.getByText("배치 C", { exact: true })).toBeVisible();
+});

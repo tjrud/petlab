@@ -40,6 +40,13 @@ const PlannerScene = dynamic(() => import("@/components/cage/PlannerScene"), {
 const DEFAULT_CAGE: Cage = { width_mm: 1000, depth_mm: 500, height_mm: 500 };
 const DEFAULT_NAME = "새 배치안";
 const DRAFT_KEY = "nestforge:cage-draft:v1";
+
+/** 지금 화면에 붙어 있는 플래너의 번호. 가려졌다 다시 보일 때(Activity)는 그대로이고,
+ *  다른 화면을 여럿 다녀와 플래너가 새로 만들어지면 바뀌어요. 옛 플래너에 늦게 온 저장 결과가 새 플래너를 건드리지 않게 해요 */
+let livePlanner = 0;
+let plannerSeq = 0;
+/** 내려간 플래너의 저장·삭제가 끝났을 때 지금 플래너에 목록을 다시 받으라고 알리는 이벤트 */
+const LAYOUTS_CHANGED = "nestforge:cage-layouts-changed";
 const MAX_ITEMS = 80; // 서버 MAX_LAYOUT_ITEMS 와 같다
 /** "기본 구성 한 번에 넣기": 쳇바퀴는 케이지 높이에 들어가는 것 중 큰 것으로 */
 const STARTER = ["hideout_multi", "wheel", "sand_bath", "bowl", "water_stand"];
@@ -189,8 +196,10 @@ export default function CagePlanner() {
       .then((p) => alive && setPets(p))
       .catch(() => alive && setPets(null));
     refreshLayouts();
+    window.addEventListener(LAYOUTS_CHANGED, refreshLayouts);
     return () => {
       alive = false;
+      window.removeEventListener(LAYOUTS_CHANGED, refreshLayouts);
     };
   }, [userId, refreshLayouts]);
 
@@ -202,6 +211,14 @@ export default function CagePlanner() {
 
   /** 화면의 배치를 통째로 바꿀 때마다 올리는 번호 (불러오기·임시 저장 되살리기·새로 만들기) */
   const docGen = useRef(0);
+  /** 이 플래너의 번호 (처음 화면에 붙을 때 정해요) */
+  const plannerId = useRef(0);
+  useEffect(() => {
+    // 의존성 없이: 처음 붙을 때와 가려졌다 다시 보일 때마다 이 플래너가 지금 것이라고 표시해요
+    if (!plannerId.current) plannerId.current = ++plannerSeq;
+    livePlanner = plannerId.current;
+  });
+  const isLive = useCallback(() => plannerId.current !== 0 && livePlanner === plannerId.current, []);
 
   const applyLayout = useCallback((l: CageLayout) => {
     const m = metaOf(l);
@@ -232,6 +249,7 @@ export default function CagePlanner() {
 
   /** 화면의 상태를 먼저 바꾼 뒤 주소만 맞춰요 (그 주소의 배치안을 다시 불러오지 않게) */
   const replaceLayoutParam = useCallback((id: string | null) => {
+    if (!isLive()) return; // 이 플래너는 이미 화면에서 내려갔어요 (새 플래너의 주소는 건드리지 않아요)
     if (window.location.pathname !== "/cage") {
       // 저장·삭제를 기다리는 사이 다른 화면으로 떠났으면 지금 주소는 건드리지 않고, 돌아왔을 때 맞춰요
       pendingParam.current = { from: seenParam.current, to: id };
@@ -244,7 +262,7 @@ export default function CagePlanner() {
     // router.replace 는 서버 왕복을 기다리는 전환이라 그사이 다른 이동이 끼면 버려질 수 있어요.
     // history.replaceState 는 Next 가 서버 왕복 없이 반영해요 (useSearchParams 는 다음 렌더에 바뀜)
     window.history.replaceState(null, "", id ? `/cage?layout=${id}` : "/cage");
-  }, []);
+  }, [isLive]);
 
   const loadLayout = useCallback(
     (id: string) => {
@@ -586,7 +604,13 @@ export default function CagePlanner() {
         saved = await write(api.createLayout);
       }
       const petNote = petDropped ? " 연결된 반려동물을 찾을 수 없어 반려동물 연결은 빼고 저장했어요." : "";
-      if (await movedSince(start)) {
+      const moved = await movedSince(start);
+      if (!isLive()) {
+        // 기다리는 사이 이 플래너가 내려갔으면 새 화면에는 붙이지 않고, 새 화면의 목록만 다시 받게 해요
+        window.dispatchEvent(new Event(LAYOUTS_CHANGED));
+        return;
+      }
+      if (moved) {
         // 저장을 기다리는 사이 다른 배치안으로 옮겨 갔으면 지금 화면에는 반영하지 않고 알리기만 해요
         setNotice({ kind: "ok", text: `"${saved.name}" 배치안으로 저장했어요. 내 배치안에서 열 수 있어요.${petNote}` });
         refreshLayouts();
@@ -636,7 +660,12 @@ export default function CagePlanner() {
     const start = placeNow();
     try {
       await api.deleteLayout(l.id);
-      if (l.id === meta.layoutId && !(await movedSince(start))) {
+      const moved = await movedSince(start);
+      if (!isLive()) {
+        window.dispatchEvent(new Event(LAYOUTS_CHANGED));
+        return;
+      }
+      if (l.id === meta.layoutId && !moved) {
         // 지금 열린 배치안을 지웠으면 화면의 배치는 저장 전 새 배치안으로 남겨요
         setMeta((m) => ({ ...m, layoutId: null }));
         setSavedSnap(null);
