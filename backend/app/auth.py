@@ -129,16 +129,26 @@ def cookie_secure(settings: Settings, request: Request) -> bool:
 
 # ── 로그인 시도 제한 ────────────────────────────────────────
 
+# 계정을 여러 개 만드는 일(회원가입·설계 등 사용량 상한)은 IPv6 를 /56 단위로 묶는다
+# (가정·사무실 하나가 보통 /56~/48 을 받으므로 /64 로는 주소를 바꿔 가며 우회할 수 있다)
+ACCOUNT_V6_PREFIX = 56
 
-def client_ip(settings: Settings, request: Request) -> str | None:
-    """클라이언트 IP (CAPTCHA 확인에 함께 보낸다). 형식이 IP 가 아니면 None."""
+
+def _raw_client_ip(settings: Settings, request: Request) -> str:
+    """검사하기 전의 클라이언트 IP 문자열. CLIENT_IP_HEADER 를 설정했으면 그 헤더의 첫 값,
+    비어 있으면 연결 주소(request.client.host). 둘 다 없으면 빈 문자열."""
     raw = ""
     if settings.client_ip_header:
         raw = request.headers.get(settings.client_ip_header, "").split(",")[0].strip()
     if not raw and request.client:
         raw = request.client.host
+    return raw
+
+
+def client_ip(settings: Settings, request: Request) -> str | None:
+    """클라이언트 IP (CAPTCHA 확인에 함께 보낸다). 형식이 IP 가 아니면 None."""
     try:
-        return str(ipaddress.ip_address(raw))
+        return str(ipaddress.ip_address(_raw_client_ip(settings, request)))
     except ValueError:
         return None
 
@@ -146,17 +156,14 @@ def client_ip(settings: Settings, request: Request) -> str | None:
 def usage_ip_key(settings: Settings, request: Request) -> str | None:
     """IP 별 사용량 상한의 키 (IPv6 는 /56). 플랫폼이 넣는 클라이언트 IP 헤더(CLIENT_IP_HEADER)가 없으면 None
     (프록시 주소로 모든 사람이 하나로 묶이지 않게)."""
-    return client_key(settings, request, v6_prefix=56) if settings.client_ip_header else None
+    return client_key(settings, request, v6_prefix=ACCOUNT_V6_PREFIX) if settings.client_ip_header else None
 
 
 def client_key(settings: Settings, request: Request, v6_prefix: int = 64) -> str:
     """시도 제한용 클라이언트 식별자. IPv6 는 v6_prefix 단위로 묶는다 (주소를 바꿔 가며 우회하지 못하게).
-    계정을 여러 개 만드는 일(회원가입·설계 사용량)은 더 넓게(/56) 묶는다."""
-    raw = ""
-    if settings.client_ip_header:
-        raw = request.headers.get(settings.client_ip_header, "").split(",")[0].strip()
-    if not raw and request.client:
-        raw = request.client.host
+    계정을 여러 개 만드는 일(회원가입·설계 사용량)은 더 넓게(ACCOUNT_V6_PREFIX, /56) 묶는다.
+    형식이 IP 가 아니면 client_ip 와 달리 None 이 아니라 그 문자열(앞 64자, 비었으면 'unknown')을 키로 쓴다."""
+    raw = _raw_client_ip(settings, request)
     try:
         ip = ipaddress.ip_address(raw)
     except ValueError:
