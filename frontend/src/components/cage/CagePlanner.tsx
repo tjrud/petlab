@@ -15,6 +15,7 @@ import CatalogPanel from "@/components/cage/CatalogPanel";
 import InspectorPanel from "@/components/cage/InspectorPanel";
 import LayoutsPanel from "@/components/cage/LayoutsPanel";
 import ReviewPanel from "@/components/cage/ReviewPanel";
+import { usePlannerShortcuts } from "@/components/cage/usePlannerShortcuts";
 import type { CameraView } from "@/components/cage/PlannerScene";
 import { api, ApiError, isAuthError } from "@/lib/api";
 import { getAsset, type CageAsset } from "@/lib/cageAssets";
@@ -56,12 +57,6 @@ const WHEELS = ["wheel_280", "wheel_210"];
 function newItemAt(cage: Cage, items: LayoutItem[], asset: CageAsset, rules: LayoutRules | null): LayoutItem {
   const p = findFreeSpot(cage, items, asset, 0, rules);
   return { id: newItemId(), asset: asset.key, x_mm: round1(p.x), y_mm: round1(p.y), rotation_deg: 0 };
-}
-
-function isTyping(t: EventTarget | null): boolean {
-  const el = t as HTMLElement | null;
-  if (!el) return false;
-  return el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName);
 }
 
 type Tab = "catalog" | "cage" | "saved";
@@ -424,54 +419,7 @@ export default function CagePlanner() {
 
   // ── 키보드 ──
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (isTyping(e.target)) return;
-      const mod = e.ctrlKey || e.metaKey;
-      if (mod && e.key.toLowerCase() === "z") {
-        e.preventDefault();
-        dispatch({ type: e.shiftKey ? "redo" : "undo" });
-        return;
-      }
-      if (mod && e.key.toLowerCase() === "y") {
-        e.preventDefault();
-        dispatch({ type: "redo" });
-        return;
-      }
-      if (!selectedId) return;
-      if (mod && e.key.toLowerCase() === "d") {
-        e.preventDefault();
-        duplicateItem(selectedId);
-        return;
-      }
-      if (mod || e.altKey) return;
-      const step = e.shiftKey ? 1 : 10;
-      const moves: Record<string, [number, number]> = {
-        ArrowLeft: [-step, 0],
-        ArrowRight: [step, 0],
-        ArrowUp: [0, step], // 화면 위쪽 = 케이지 안쪽(뒤)
-        ArrowDown: [0, -step],
-      };
-      if (e.key in moves) {
-        e.preventDefault();
-        const [dx, dy] = moves[e.key];
-        updateItem(selectedId, (it) => ({ ...it, x_mm: round1(it.x_mm + dx), y_mm: round1(it.y_mm + dy) }));
-      } else if (e.key === "Delete" || e.key === "Backspace") {
-        e.preventDefault();
-        removeItem(selectedId);
-      } else if (e.key === "r" || e.key === "R") {
-        rotateItem(selectedId, e.shiftKey ? -90 : 90);
-      } else if (e.key === "q" || e.key === "Q") {
-        rotateItem(selectedId, 15);
-      } else if (e.key === "e" || e.key === "E") {
-        rotateItem(selectedId, -15);
-      } else if (e.key === "Escape") {
-        setSelectedId(null);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [selectedId, duplicateItem, removeItem, rotateItem, updateItem]);
+  usePlannerShortcuts({ selectedId, dispatch, setSelectedId, duplicateItem, removeItem, rotateItem, updateItem });
 
   // ── 저장·불러오기·새로 만들기 ──
 
