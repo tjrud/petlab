@@ -13,15 +13,10 @@ from fastapi.testclient import TestClient
 from app.config import Settings
 from app.db import make_engine, normalize_database_url
 from app.main import create_app
+from tests.api_helpers import create_habitat
+from tests.api_helpers import make_settings as settings
 
 CAGE = {"width_mm": 900, "depth_mm": 500, "height_mm": 300}
-
-
-def settings(tmp_path, **kw) -> Settings:
-    base = dict(llm_provider="mock", database_url=f"sqlite:///{tmp_path / 'test.db'}",
-                mesh_cache_dir=tmp_path / "meshes", _env_file=None)
-    base.update(kw)
-    return Settings(**base)
 
 
 # ── API 경로 접두사 (/api) ──────────────────────────────────
@@ -79,7 +74,7 @@ def test_postgres_engine_uses_psycopg_with_pre_ping():
 def test_concurrent_mesh_requests_after_cache_wipe(tmp_path):
     """캐시가 빈 상태(새 인스턴스)에서 같은 버전 메시를 동시에 요청해도 잘리거나 빈 파일을 응답하지 않는다."""
     with TestClient(create_app(settings(tmp_path))) as c:
-        hid = c.post("/habitats", json={"species": "hamster", "size": "syrian", "count": 1, "cage": CAGE}).json()["id"]
+        hid = create_habitat(c, CAGE)
         d = c.post("/designs", json={"habitat_id": hid, "prompt": "은신처와 터널, 모래목욕통을 넣어 주세요"}).json()
         items = [i for i in d["current"]["items"] if i["mesh_url"]]
         assert len(items) >= 2
@@ -174,7 +169,7 @@ def test_llm_deadline_already_spent_is_unavailable(rules):
 
 def test_invalid_inputs_rejected_before_db(tmp_path):
     with TestClient(create_app(settings(tmp_path))) as c:
-        hid = c.post("/habitats", json={"species": "hamster", "size": "syrian", "count": 1, "cage": CAGE}).json()["id"]
+        hid = create_habitat(c, CAGE)
         assert c.post("/designs", json={"habitat_id": hid, "prompt": "은신처\x00"}).status_code == 422
         assert c.post("/designs", json={"habitat_id": "not-an-id", "prompt": "은신처"}).status_code == 422
         d = c.post("/designs", json={"habitat_id": hid, "prompt": "은신처"}).json()
@@ -220,7 +215,7 @@ def test_mesh_regeneration_failure_is_409(tmp_path):
     from app.models import DesignVersion
 
     with TestClient(create_app(settings(tmp_path))) as c:
-        hid = c.post("/habitats", json={"species": "hamster", "size": "syrian", "count": 1, "cage": CAGE}).json()["id"]
+        hid = create_habitat(c, CAGE)
         d = c.post("/designs", json={"habitat_id": hid, "prompt": "은신처"}).json()
         # 템플릿이 바뀌어 저장된 파라미터가 더 이상 유효하지 않은 상황을 만든다
         with c.app.state.session_factory() as db:

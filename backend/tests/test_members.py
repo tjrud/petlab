@@ -2,101 +2,33 @@
 
 from __future__ import annotations
 
-import atexit
-import os
 from datetime import date, timedelta
-from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, inspect, text
 
 from app.auth import COOKIE_NAME
-from app.config import Settings
 from app.db import init_db
 from app.main import create_app
-
-CAGE = {"width_mm": 600, "depth_mm": 400, "height_mm": 300}
-ADMIN = {"username": "admin", "password": "correct horse battery staple"}
-PW = "hamster-love-123"
-
-
-# TEST_PG_URL=postgresql+psycopg://user@host:port 를 주면 테스트마다 새 Postgres DB 로 실행한다 (방언 차이 확인용)
-PG_URL = os.environ.get("TEST_PG_URL")
-_pg_dbs: dict[str, str] = {}
-
-
-def _drop_pg_dbs() -> None:
-    """테스트가 만든 Postgres DB 를 끝날 때 지운다 (쌓이면 디스크를 다 쓴다)."""
-    if not _pg_dbs:
-        return
-    with create_engine(f"{PG_URL}/postgres", isolation_level="AUTOCOMMIT").connect() as conn:
-        for url in _pg_dbs.values():
-            conn.execute(text(f'DROP DATABASE IF EXISTS "{url.rsplit("/", 1)[1]}" WITH (FORCE)'))
-    _pg_dbs.clear()
-
-
-if PG_URL:
-    atexit.register(_drop_pg_dbs)
-
-
-def _db_url(tmp_path) -> str:
-    if not PG_URL:
-        return f"sqlite:///{tmp_path / 'm.db'}"
-    key = str(tmp_path)
-    if key not in _pg_dbs:
-        name = "t_" + uuid4().hex[:12]
-        with create_engine(f"{PG_URL}/postgres", isolation_level="AUTOCOMMIT").connect() as conn:
-            conn.execute(text(f"CREATE DATABASE {name}"))
-        _pg_dbs[key] = f"{PG_URL}/{name}"
-    return _pg_dbs[key]
-
-
-def settings(tmp_path, **kw) -> Settings:
-    base = dict(llm_provider="mock", database_url=_db_url(tmp_path),
-                mesh_cache_dir=tmp_path / "meshes", admin_username=ADMIN["username"],
-                admin_password=ADMIN["password"], session_secret="s" * 40, signup_per_ip_per_hour=1000,
-                _env_file=None)
-    base.update(kw)
-    return Settings(**base)
+from tests.api_helpers import (
+    PG_URL,
+    PW,
+    admin_login,
+    create_habitat,
+    habitat_body,
+    make_design,
+    signup,
+    use,
+)
+from tests.api_helpers import SYRIAN_CAGE as CAGE
+from tests.api_helpers import member_settings as settings
 
 
 @pytest.fixture
 def client(tmp_path):
     with TestClient(create_app(settings(tmp_path))) as c:
         yield c
-
-
-def signup(c: TestClient, username: str, nickname: str | None = None, password: str = PW) -> str:
-    c.cookies.clear()
-    r = c.post("/auth/signup", json={"username": username, "nickname": nickname or f"{username}님", "password": password})
-    assert r.status_code == 201, r.text
-    return r.cookies[COOKIE_NAME]
-
-
-def admin_login(c: TestClient) -> str:
-    c.cookies.clear()
-    r = c.post("/auth/login", json=ADMIN)
-    assert r.status_code == 200, r.text
-    return r.cookies[COOKIE_NAME]
-
-
-def use(c: TestClient, token: str | None) -> TestClient:
-    c.cookies.clear()
-    if token:
-        c.cookies.set(COOKIE_NAME, token)
-    return c
-
-
-def make_design(c: TestClient, prompt: str = "은신처를 왼쪽에", pet_id: str | None = None) -> dict:
-    hab = {"species": "hamster", "size": "syrian", "count": 1, "cage": CAGE}
-    if pet_id:
-        hab["pet_id"] = pet_id
-    r = c.post("/habitats", json=hab)
-    assert r.status_code == 201, r.text
-    r = c.post("/designs", json={"habitat_id": r.json()["id"], "prompt": prompt})
-    assert r.status_code == 201, r.text
-    return r.json()
 
 
 # ── 회원가입·로그인 ─────────────────────────────────────────
@@ -301,8 +233,7 @@ def test_design_ownership_and_history(client):
     assert client.post(f"/designs/{d['id']}/revise", json={"prompt": "더 크게"}).status_code == 404
     assert client.post("/designs", json={"habitat_id": d["habitat"]["id"], "prompt": "남의 환경"}).status_code == 404
     assert client.post("/waitlist", json={"email": "b@example.com", "design_id": d["id"]}).status_code == 404
-    hab = {"species": "hamster", "size": "syrian", "count": 1, "cage": CAGE, "pet_id": pet["id"]}
-    assert client.post("/habitats", json=hab).status_code == 404  # 남의 반려동물로 등록 불가
+    assert client.post("/habitats", json=habitat_body(pet_id=pet["id"])).status_code == 404  # 남의 반려동물로 등록 불가
     assert use(client, None).get(f"/designs/{d['id']}").status_code == 404
 
     # 관리자는 모든 설계를 볼 수 있지만(운영) 소유자는 아니다: 대신 수정·공유하지 못하고, 내역 목록에는 자기 것만
@@ -361,8 +292,7 @@ def test_design_quota(tmp_path):
 
         signup(c, "user_b")
         make_design(c)  # 전체 3번째
-        hab = c.post("/habitats", json={"species": "hamster", "size": "syrian", "count": 1, "cage": CAGE}).json()
-        r = c.post("/designs", json={"habitat_id": hab["id"], "prompt": "넷째"})
+        r = c.post("/designs", json={"habitat_id": create_habitat(c), "prompt": "넷째"})
         assert r.status_code == 429 and r.json()["detail"]["code"] == "design_capacity_exceeded"
 
         admin_login(c)  # 관리자는 상한 없음

@@ -24,9 +24,10 @@ from app.mailer import FileMailer, Mail, MailError, MemoryMailer, ResendMailer, 
 from app.main import create_app
 from app.models import EmailToken, UsageEvent, User
 from app.names import email_key
-from tests.test_members import CAGE, PG_URL, PW, _db_url, admin_login, settings, use
+from tests.api_helpers import PG_URL, PW, admin_login, create_habitat, db_url, habitat_body, use
+from tests.api_helpers import member_settings as settings
 
-HAB = {"species": "hamster", "size": "syrian", "count": 1, "cage": CAGE}
+HAB = habitat_body()
 EMAIL_ON = {"email_provider": "file", "email_from": "NestForge <no-reply@nestforge.test>",
             "app_base_url": "https://nestforge.test"}
 TOKEN_RE = re.compile(r"https://nestforge\.test/verify-email\?token=([A-Za-z0-9_\-]+)")
@@ -240,7 +241,7 @@ def test_admin_and_members_without_email(client, mailer):
     admin_login(client)
     me = client.get("/auth/me").json()["user"]
     assert me["email_verified"] is True and me["email"] is None
-    hid = client.post("/habitats", json=HAB).json()["id"]
+    hid = create_habitat(client)
     assert client.post("/designs", json={"habitat_id": hid, "prompt": "은신처"}).status_code == 201
     assert client.post("/auth/verify-email/resend").status_code == 403
     assert client.patch("/me/email", json={"email": "a@example.com", "current_password": "x"}).status_code == 403
@@ -267,7 +268,7 @@ def test_email_disabled_keeps_previous_behavior(tmp_path):
         assert st["email_verification"] is False
         out = signup(c, "user_a", None)
         assert out["verification_email_sent"] is None and out["user"]["email_verified"] is False
-        hid = c.post("/habitats", json=HAB).json()["id"]
+        hid = create_habitat(c)
         assert c.post("/designs", json={"habitat_id": hid, "prompt": "은신처"}).status_code == 201
         assert c.post("/auth/verify-email/resend").status_code == 403
 
@@ -282,7 +283,7 @@ def test_misconfigured_email_closes_signup_but_not_existing_members(tmp_path):
                                          "email": "b@example.com"})
         assert r.status_code == 503 and r.json()["detail"]["code"] == "email_unavailable"
         use(c, token)
-        hid = c.post("/habitats", json=HAB).json()["id"]
+        hid = create_habitat(c)
         assert c.post("/designs", json={"habitat_id": hid, "prompt": "은신처"}).status_code == 201
 
 
@@ -485,7 +486,7 @@ def test_email_key(a, b, same):
 
 
 def test_migration_adds_email_columns_and_indexes(tmp_path):
-    url = _db_url(tmp_path)
+    url = db_url(tmp_path)
     eng = make_engine(url)
     ts = "TIMESTAMP WITH TIME ZONE"
     with eng.begin() as conn:  # 직전 배포(회원 기능)의 users 테이블

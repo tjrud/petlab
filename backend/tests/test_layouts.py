@@ -3,13 +3,22 @@
 from __future__ import annotations
 
 import pytest
+from fastapi.testclient import TestClient
 
-from tests.test_members import CAGE, client, signup, use  # noqa: F401 - client 픽스처
+from app.main import create_app
+from tests.api_helpers import SYRIAN_CAGE as CAGE
+from tests.api_helpers import member_settings, signup, use
 
 ITEMS = [
     {"id": "a1", "asset": "wheel_280", "x_mm": 150, "y_mm": 200, "rotation_deg": 0},
     {"id": "a2", "asset": "hideout_house", "x_mm": 450, "y_mm": 120, "rotation_deg": 90},
 ]
+
+
+@pytest.fixture
+def client(tmp_path):
+    with TestClient(create_app(member_settings(tmp_path))) as c:
+        yield c
 
 
 def body(**kw) -> dict:

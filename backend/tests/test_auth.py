@@ -23,19 +23,20 @@ from app.auth import (
 )
 from app.config import Settings
 from app.main import create_app
+from tests.api_helpers import (
+    ADMIN,
+    AUTH_ON,
+    create_habitat,
+    habitat_body,
+    make_settings,
+)
 
-CAGE = {"width_mm": 600, "depth_mm": 400, "height_mm": 300}
-HABITAT = {"species": "hamster", "size": "syrian", "count": 1, "cage": CAGE}
-ADMIN = {"username": "admin", "password": "correct horse battery staple"}
-SECRET = "s" * 40
+HABITAT = habitat_body()
+SECRET = AUTH_ON["session_secret"]
 
 
 def settings(tmp_path, **kw) -> Settings:
-    base = dict(llm_provider="mock", database_url=f"sqlite:///{tmp_path / 'test.db'}",
-                mesh_cache_dir=tmp_path / "meshes", admin_username=ADMIN["username"],
-                admin_password=ADMIN["password"], session_secret=SECRET, _env_file=None)
-    base.update(kw)
-    return Settings(**base)
+    return make_settings(tmp_path, **(AUTH_ON | kw))
 
 
 @pytest.fixture
@@ -204,7 +205,7 @@ def test_login_then_full_flow_then_logout(client):
     assert COOKIE_NAME in cookie and "HttpOnly" in cookie and "samesite=lax" in cookie.lower()
     assert client.get("/auth/me").json()["authenticated"] is True
 
-    hid = client.post("/habitats", json=HABITAT).json()["id"]
+    hid = create_habitat(client)
     d = client.post("/designs", json={"habitat_id": hid, "prompt": "은신처를 왼쪽에"}).json()
     assert client.get(d["current"]["items"][0]["mesh_url"]).status_code == 200
     assert client.get(f"/designs/{d['id']}/export?format=3mf").status_code == 200
@@ -351,7 +352,7 @@ def test_protected_responses_are_not_shared_cached(client):
     # CORS 등이 이미 Vary 를 넣은 응답에도 Cookie 가 덧붙는다
     vary = client.get("/species", headers={"Origin": "http://localhost:3000"}).headers["vary"].lower()
     assert "cookie" in vary and "origin" in vary
-    hid = client.post("/habitats", json=HABITAT).json()["id"]
+    hid = create_habitat(client)
     d = client.post("/designs", json={"habitat_id": hid, "prompt": "은신처"}).json()
     mesh = client.get(d["current"]["items"][0]["mesh_url"])
     assert mesh.headers["cache-control"].startswith("private") and "cookie" in mesh.headers["vary"].lower()

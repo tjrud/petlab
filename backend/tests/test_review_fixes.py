@@ -24,21 +24,14 @@ from app.llm.base import LLMSchemaError
 from app.llm.mock import MockInterpreter
 from app.main import create_app
 from app.models import User, WaitlistEntry
-from tests.test_members import CAGE, PG_URL, PW, admin_login, make_design, settings, signup, use
-
-HAB = {"species": "hamster", "size": "syrian", "count": 1, "cage": CAGE}
+from tests.api_helpers import PG_URL, PW, admin_login, create_habitat, habitat_body, make_design, signup, use
+from tests.api_helpers import member_settings as settings
 
 
 @pytest.fixture
 def client(tmp_path):
     with TestClient(create_app(settings(tmp_path))) as c:
         yield c
-
-
-def _habitat(c: TestClient) -> str:
-    r = c.post("/habitats", json=HAB)
-    assert r.status_code == 201, r.text
-    return r.json()["id"]
 
 
 # ── 공유 범위: 첨부한 버전만 공개 ───────────────────────────
@@ -113,7 +106,7 @@ def test_parallel_design_requests_cannot_exceed_quota(tmp_path):
     app = create_app(settings(tmp_path, design_daily_limit=3, design_global_daily_limit=100), interpreter=llm)
     with TestClient(app) as c:
         signup(c, "user_a")
-        hid = _habitat(c)
+        hid = create_habitat(c)
         with ThreadPoolExecutor(10) as pool:
             codes = list(pool.map(lambda _: c.post("/designs", json={"habitat_id": hid, "prompt": "은신처"}).status_code,
                                   range(10)))
@@ -129,7 +122,7 @@ def test_failed_interpretations_count_toward_quota(tmp_path):
 
     with TestClient(create_app(settings(tmp_path, design_daily_limit=2), interpreter=Failing())) as c:
         signup(c, "user_a")
-        hid = _habitat(c)
+        hid = create_habitat(c)
         assert [c.post("/designs", json={"habitat_id": hid, "prompt": "x"}).status_code for _ in range(3)] == [422, 422, 429]
         assert c.get("/me").json()["design_quota"]["used"] == 2
 
@@ -138,7 +131,7 @@ def test_design_quota_per_ip_when_client_ip_header_is_set(tmp_path):
     s = settings(tmp_path, design_daily_limit=10, design_ip_daily_limit=2, client_ip_header="x-test-ip")
     with TestClient(create_app(s)) as c:
         def design(ip: str) -> int:
-            hid = c.post("/habitats", json=HAB).json()["id"]
+            hid = create_habitat(c)
             return c.post("/designs", json={"habitat_id": hid, "prompt": "은신처"},
                           headers={"x-test-ip": ip}).status_code
         signup(c, "user_a")
@@ -208,7 +201,7 @@ def test_habitat_creation_is_limited(client, monkeypatch):
     from app.api import habitats
     monkeypatch.setattr(habitats, "HABITAT_DAILY_LIMIT", 2)
     signup(client, "user_a")
-    assert [client.post("/habitats", json=HAB).status_code for _ in range(3)] == [201, 201, 429]
+    assert [client.post("/habitats", json=habitat_body()).status_code for _ in range(3)] == [201, 201, 429]
 
 
 # ── 닉네임 위장 ────────────────────────────────────────────
