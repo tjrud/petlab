@@ -140,11 +140,6 @@ def _to_placement(item: BuiltItem, cand: tuple[float, int, float, float]) -> Pla
     return Placement(x_mm=x0 + w / 2, y_mm=y0 + d / 2, rotation_deg=rot)  # type: ignore[arg-type]
 
 
-def place_item(item: BuiltItem, placed: list[_Placed], cage: Cage, gap: GapTrapRule) -> Placement | None:
-    best = candidates(item, placed, cage, gap, limit=1)
-    return _to_placement(item, best[0]) if best else None
-
-
 def placement_order(items: list[BuiltItem]) -> list[BuiltItem]:
     """zone 지정 항목 → group 항목 → 나머지 순, 같은 순위에서는 큰 것부터."""
 
@@ -156,10 +151,12 @@ def placement_order(items: list[BuiltItem]) -> list[BuiltItem]:
     return sorted(items, key=key)
 
 
-def to_placed(item: BuiltItem, P: float) -> _Placed:
-    rect = item.world_rect
-    rot = item.placement.rotation_deg  # type: ignore[union-attr]
-    return _Placed(rect, tuple(access_strip(rect, dv, P) for dv in item.access_directions(rot)), item.hint.group)
+def _placed_at(item: BuiltItem, placement: Placement, P: float) -> _Placed:
+    """placement 에 놓인 item 의 사각형·출입 공간. item.placement 는 읽지도 바꾸지도 않는다."""
+    # world_rect 와 같은 계산(rect_at). 후보의 Rect(x0, y0, x0+w, y0+d) 를 재사용하면 1 ulp 달라질 수 있다.
+    rect = item.rect_at(placement.x_mm, placement.y_mm, placement.rotation_deg)
+    strips = tuple(access_strip(rect, dv, P) for dv in item.access_directions(placement.rotation_deg))
+    return _Placed(rect, strips, item.hint.group)
 
 
 BEAM_WIDTH = 6
@@ -185,11 +182,9 @@ def place_all(items: list[BuiltItem], cage: Cage, gap: GapTrapRule, beam: int = 
                 continue
             for cand in cands:
                 placement = _to_placement(item, cand)
-                item.placement = placement
-                expanded.append((total + cand[0], placed + [to_placed(item, P)], {**plc, item.index: placement}))
+                expanded.append((total + cand[0], placed + [_placed_at(item, placement, P)], {**plc, item.index: placement}))
         expanded.sort(key=lambda s: (round(s[0], 6), _state_key(s[2])))
         states = expanded[:beam]
-        item.placement = None
 
     _, _, best = states[0]
     failed = []
