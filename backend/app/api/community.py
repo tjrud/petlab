@@ -11,6 +11,7 @@ from app.auth import get_current_user, get_optional_user, get_verified_user
 from app.errors import ForbiddenError
 from app.models import Comment, DesignVersion, Post, User
 from app.schemas import (
+    ID_RE,
     AuthorOut,
     CommentIn,
     CommentOut,
@@ -22,7 +23,7 @@ from app.schemas import (
     SharedDesignOut,
 )
 from app.services import usage
-from app.services.design_service import _ID_RE, DesignService, NotFoundError
+from app.services.design_service import DesignService, NotFoundError
 
 router = make_router(prefix="/community", tags=["커뮤니티"])
 
@@ -41,7 +42,7 @@ def _can_manage(user: User | None, author_id: str) -> bool:
 
 def _get_post(db: Session, post_id: str) -> Post:
     post = None
-    if _ID_RE.fullmatch(post_id):
+    if ID_RE.fullmatch(post_id):
         post = db.scalar(select(Post).where(Post.id == post_id).options(selectinload(Post.author)))
     if post is None:
         raise NotFoundError("글을 찾을 수 없습니다.")
@@ -182,7 +183,7 @@ def create_comment(post_id: str, data: CommentIn, request: Request, db: Session 
 
 @router.delete("/comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT, summary="댓글 삭제 (작성자·관리자)")
 def delete_comment(comment_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    c = db.get(Comment, comment_id) if _ID_RE.fullmatch(comment_id) else None
+    c = db.get(Comment, comment_id) if ID_RE.fullmatch(comment_id) else None
     if c is None:
         raise NotFoundError("댓글을 찾을 수 없습니다.")
     if not _can_manage(user, c.author_id):

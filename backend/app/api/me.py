@@ -27,9 +27,9 @@ from app.mailer import Mailer
 from app.models import CageLayout, Design, Habitat, Pet, Post, User
 from app.names import email_key, nickname_key
 from app.passwords import hash_password, verify_password
-from app.schemas import CageIn, EmailChangeIn, MeOut, PasswordChangeIn, PetIn, PetOut, ProfileUpdateIn
+from app.schemas import ID_RE, CageIn, EmailChangeIn, MeOut, PasswordChangeIn, PetIn, PetOut, ProfileUpdateIn
 from app.services import email_verify, usage
-from app.services.design_service import _ID_RE, DesignService, NotFoundError
+from app.services.design_service import DesignService, NotFoundError
 
 router = make_router(prefix="/me", tags=["내 정보"])
 
@@ -171,7 +171,7 @@ def pet_out(svc: DesignService, p: Pet) -> PetOut:
 
 
 def _my_pet(db: Session, pet_id: str, user: User) -> Pet:
-    pet = db.get(Pet, pet_id) if _ID_RE.fullmatch(pet_id) else None
+    pet = db.get(Pet, pet_id) if ID_RE.fullmatch(pet_id) else None
     if pet is None or pet.owner_id != user.id:
         raise NotFoundError("반려동물 정보를 찾을 수 없습니다.")
     return pet

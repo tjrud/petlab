@@ -31,6 +31,7 @@ from app.api.deps import get_db
 from app.config import Settings
 from app.models import User
 from app.names import nickname_key
+from app.schemas import ID_RE
 
 log = logging.getLogger(__name__)
 
@@ -41,7 +42,6 @@ MAX_TOKEN_LIFETIME_S = 720 * 3600 + 60  # SESSION_TTL_HOURS 상한(30일) + 시�
 
 LOCAL_USERNAME = "local"  # 인증이 꺼진 로컬 개발 환경의 가상 관리자
 ADMIN_NICKNAME = "NestForge 운영팀"  # 화면에는 "관리자" 배지와 함께 보인다
-_ID_RE = __import__("re").compile(r"[0-9a-f]{32}")
 
 
 class AuthRequiredError(RuntimeError):
@@ -338,7 +338,7 @@ def get_optional_user(request: Request, db: Session = Depends(get_db)) -> User |
     if mode == "misconfigured":
         return None
     claims = verify_token(request.cookies.get(COOKIE_NAME), signing_key(settings))
-    if claims is None or not _ID_RE.fullmatch(claims["sub"]):
+    if claims is None or not ID_RE.fullmatch(claims["sub"]):
         return None
     user = db.get(User, claims["sub"])
     # 읽기 트랜잭션을 끝내 DB 연결을 풀에 돌려준다. 이 의존성과 API 함수는 서로 다른 스레드 작업으로 실행되므로,

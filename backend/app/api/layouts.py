@@ -14,8 +14,8 @@ from app.api.deps import get_db, get_service, make_router
 from app.auth import get_current_user
 from app.errors import ConflictError
 from app.models import CageLayout, Pet, User
-from app.schemas import CageIn, CageLayoutIn, CageLayoutOut, CageLayoutSummary, LayoutItemIn
-from app.services.design_service import _ID_RE, DesignService, NotFoundError
+from app.schemas import ID_RE, CageIn, CageLayoutIn, CageLayoutOut, CageLayoutSummary, LayoutItemIn
+from app.services.design_service import DesignService, NotFoundError
 
 router = make_router(prefix="/layouts", tags=["가상 케이지"])
 
@@ -38,7 +38,7 @@ def layout_out(svc: DesignService, lay: CageLayout) -> CageLayoutOut:
 
 
 def _my_layout(db: Session, layout_id: str, user: User) -> CageLayout:
-    lay = db.get(CageLayout, layout_id) if _ID_RE.fullmatch(layout_id) else None
+    lay = db.get(CageLayout, layout_id) if ID_RE.fullmatch(layout_id) else None
     if lay is None or lay.owner_id != user.id:
         raise NotFoundError("배치안을 찾을 수 없습니다.")
     return lay
