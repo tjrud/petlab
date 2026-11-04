@@ -4,6 +4,7 @@
 // 검토 기준 수치(끼임 틈·출입구 폭·오르는 높이)는 서버의 종별 규칙(/species 의 layout_rules)에서 받아요.
 
 import { getAsset, type CageAsset, type Side } from "@/lib/cageAssets";
+import { josa } from "@/lib/josa";
 import type { Cage, LayoutItem, LayoutRules } from "@/lib/types";
 
 export type Pt = { x: number; y: number };
@@ -167,15 +168,6 @@ export type LayoutReport = {
 };
 
 const fmt = (mm: number) => `${Math.round(mm)}mm`;
-
-/** 받침에 맞춰 조사를 붙여요: josa("은신처", "와과") → "은신처와", josa("밥그릇", "이가") → "밥그릇이" */
-export function josa(word: string, pair: "이가" | "와과" | "을를" | "은는"): string {
-  const code = word.charCodeAt(word.length - 1);
-  if (code < 0xac00 || code > 0xd7a3) return `${word}${pair[0]}(${pair[1]})`;
-  const batchim = (code - 0xac00) % 28 !== 0;
-  const [withB, withoutB] = pair === "이가" ? ["이", "가"] : pair === "와과" ? ["과", "와"] : pair === "을를" ? ["을", "를"] : ["은", "는"];
-  return word + (batchim ? withB : withoutB);
-}
 
 /**
  * 종별 규칙에서 나오는 판정 함수들 (배치 검토와 빈 자리 찾기가 같은 기준을 써요).

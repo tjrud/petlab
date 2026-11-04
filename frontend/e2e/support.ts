@@ -97,6 +97,25 @@ export type NewMember = { username: string; nickname: string; password: string }
 
 export const emailOf = (username: string) => `${username}@example.com`;
 
+/** 회원가입 폼의 다섯 칸만 채운다. confirm 을 주지 않으면 password 와 같게 넣는다 (보안 확인·가입하기는 부르는 쪽에서) */
+export async function fillSignupForm(
+  page: Page,
+  f: { username: string; nickname: string; email: string; password: string; confirm?: string },
+) {
+  await page.getByLabel("아이디").fill(f.username);
+  await page.getByLabel("닉네임").fill(f.nickname);
+  await page.getByLabel("이메일").fill(f.email);
+  await page.getByLabel("비밀번호", { exact: true }).fill(f.password);
+  await page.getByLabel("비밀번호 확인").fill(f.confirm ?? f.password);
+}
+
+/** 새로 연 /login 화면에서 아이디·비밀번호를 넣고 '로그인'을 누르기만 한다 (이동·오류 확인은 부르는 쪽에서) */
+export async function submitLogin(page: Page, username: string, password: string) {
+  await page.getByLabel("아이디").fill(username);
+  await page.getByLabel("비밀번호").fill(password);
+  await page.getByRole("button", { name: "로그인", exact: true }).click();
+}
+
 /**
  * 회원가입 (이메일 입력 → 가짜 CAPTCHA → 가입 → "인증 메일을 보냈어요" → 계속하기).
  * verify 가 true(기본)이면 메일의 링크로 인증까지 마치고 next 화면으로 돌아온다. 가입한 이메일을 돌려준다.
@@ -105,11 +124,7 @@ export async function signup(page: Page, m: NewMember, { next = "/", verify = tr
   const email = emailOf(m.username);
   await stubTurnstile(page);
   await page.goto(`/signup?next=${encodeURIComponent(next)}`);
-  await page.getByLabel("아이디").fill(m.username);
-  await page.getByLabel("닉네임").fill(m.nickname);
-  await page.getByLabel("이메일").fill(email);
-  await page.getByLabel("비밀번호", { exact: true }).fill(m.password);
-  await page.getByLabel("비밀번호 확인").fill(m.password);
+  await fillSignupForm(page, { ...m, email });
   await page.getByLabel("로봇이 아니에요").check();
   await page.getByRole("button", { name: "가입하기" }).click();
   await expect(page.getByRole("heading", { name: "인증 메일을 보냈어요" })).toBeVisible();

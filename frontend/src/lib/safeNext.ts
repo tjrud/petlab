@@ -17,7 +17,8 @@ export function safeNext(raw: string | null, origin: string): string {
   return out;
 }
 
-/** 로그인 ↔ 회원가입 화면을 오갈 때 ?next 를 그대로 넘긴다 (실제 이동 전에는 safeNext 로 다시 검사한다). */
+/** 로그인·회원가입 화면으로 가는 링크(?next=)는 모두 이것으로 만든다. next 는 인코딩해 붙이고, 비었으면 붙이지 않는다
+ *  (실제 이동 전에는 safeNext 로 다시 검사한다). */
 export function withNext(path: "/login" | "/signup", next: string | null): string {
   return next ? `${path}?next=${encodeURIComponent(next)}` : path;
 }

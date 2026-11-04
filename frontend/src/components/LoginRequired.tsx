@@ -4,6 +4,19 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
+import { withNext } from "@/lib/safeNext";
+import { ui } from "@/lib/ui";
+
+/** 로그인 상태를 서버에 다시 확인하는 동안 (로그인·회원가입·내 정보 화면) */
+export function AuthChecking() {
+  return (
+    <div className={ui.card}>
+      <p role="status" className={ui.muted}>
+        잠시만 기다려 주세요…
+      </p>
+    </div>
+  );
+}
 
 /** 로그인이 필요한 기능 대신 보여주는 안내 (로그인 후 지금 화면으로 돌아온다) */
 export default function LoginRequired({
@@ -33,17 +46,16 @@ export default function LoginRequired({
       </div>
     );
   }
-  const q = `?next=${encodeURIComponent(next)}`;
   return (
     <div role="status" className="rounded-2xl border border-amber-200 bg-white p-6 text-center shadow-sm sm:p-8">
       <p className="text-lg font-semibold">{message}</p>
       <p className="mt-2 text-sm text-stone-600">{text}</p>
       <div className="mt-5 flex justify-center gap-2">
-        <Link href={`/login${q}`} className="rounded-xl bg-amber-500 px-6 py-3 font-semibold text-white hover:bg-amber-600">
+        <Link href={withNext("/login", next)} className="rounded-xl bg-amber-500 px-6 py-3 font-semibold text-white hover:bg-amber-600">
           로그인
         </Link>
         {status?.signup_enabled !== false && (
-          <Link href={`/signup${q}`} className="rounded-xl border border-stone-300 bg-white px-6 py-3 font-semibold hover:bg-stone-50">
+          <Link href={withNext("/signup", next)} className="rounded-xl border border-stone-300 bg-white px-6 py-3 font-semibold hover:bg-stone-50">
             회원가입
           </Link>
         )}

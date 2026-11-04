@@ -87,3 +87,10 @@ def reserve(db: Session, kind: str, user: User, *, per_user: Cap | None = None, 
     except BaseException:
         db.rollback()
         raise
+
+
+def reserve_per_member(db: Session, kind: str, user: User, limit: int, message_ko: str, code: str) -> None:
+    """회원별 24시간 상한 하나만 확인하고 기록한다 (reserve 와 같이 커밋한다).
+    관리자는 세지도 기록하지도 않는다: 커밋도 하지 않으므로 열린 읽기 트랜잭션은 그대로다."""
+    if not user.is_admin:
+        reserve(db, kind, user, per_user=Cap(limit, message_ko, code))

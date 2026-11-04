@@ -20,13 +20,6 @@ export function hasControlChars(s: string, multiline = false): boolean {
   return multiline ? /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/.test(s) : /[\u0000-\u001f\u007f-\u009f]/.test(s);
 }
 
-/** 받침에 맞춰 목적격 조사를 붙인다 ("콩이" → "콩이를", "보리밥" → "보리밥을"). 한글로 끝나지 않으면 "을(를)" */
-export function withObjectParticle(word: string): string {
-  const last = word.charCodeAt(word.length - 1);
-  if (last >= 0xac00 && last <= 0xd7a3) return word + ((last - 0xac00) % 28 ? "을" : "를");
-  return `${word}을(를)`;
-}
-
 export const SEX_LABEL: Record<PetSex, string> = { male: "수컷", female: "암컷", unknown: "모름" };
 
 /** 케이지 치수 프리셋 (설계하기 화면과 반려동물 등록이 함께 쓴다) */

@@ -6,7 +6,9 @@ import { useEffect, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
 import { ResendVerification } from "@/components/EmailVerification";
+import RetryAlert from "@/components/RetryAlert";
 import { api, ApiError } from "@/lib/api";
+import { withNext } from "@/lib/safeNext";
 import type { VerifyEmailResult } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
@@ -162,7 +164,7 @@ export default function VerifyEmail() {
         {loggedOut && (
           <p className="mt-3 text-sm text-stone-600">
             이미 이 링크로 인증했다면 인증은 끝났어요. 로그인하면 확인할 수 있어요.{" "}
-            <Link href={`/login?next=${encodeURIComponent("/me#email")}`} className={`${ui.link} font-semibold`}>
+            <Link href={withNext("/login", "/me#email")} className={`${ui.link} font-semibold`}>
               로그인하기
             </Link>
           </p>
@@ -185,18 +187,12 @@ export default function VerifyEmail() {
   }
 
   return (
-    <div role="alert" className={`${ui.error} flex flex-wrap items-center justify-between gap-3`}>
-      <span>{state.message}</span>
-      <button
-        type="button"
-        className={ui.btnSecondary}
-        onClick={() => {
-          attempts.delete(token);
-          setAttempt((n) => n + 1);
-        }}
-      >
-        다시 시도
-      </button>
-    </div>
+    <RetryAlert
+      message={state.message}
+      onRetry={() => {
+        attempts.delete(token);
+        setAttempt((n) => n + 1);
+      }}
+    />
   );
 }

@@ -3,9 +3,9 @@
 import { useEffect, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
-import LoginRequired from "@/components/LoginRequired";
+import LoginRequired, { AuthChecking } from "@/components/LoginRequired";
 import { api, ApiError, errorText, isAuthError } from "@/lib/api";
-import type { Me, Pet, SpeciesOption } from "@/lib/types";
+import type { Me, Pet, SpeciesOption, SpeciesResponse } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
 import EmailForm from "./EmailForm";
@@ -34,29 +34,20 @@ export default function MyInfo() {
       if (isAuthError(e)) setAuthError(e); // 사용 중 세션이 만료된 경우
       else setErr(errorText(e, fallback));
     };
-    api
-      .me()
-      .then((m) => {
+    // 받은 값을 넣고 그 칸의 오류 문구를 지운다 (화면을 떠났으면 아무것도 하지 않는다)
+    const ok =
+      <T,>(set: (v: T) => void, setErr: (m: string | null) => void) =>
+      (v: T) => {
         if (!alive) return;
-        setMe(m);
-        setMeError(null);
-      })
-      .catch(fail(setMeError, "내 정보를 불러오지 못했어요."));
-    api
-      .pets()
-      .then((p) => {
-        if (!alive) return;
-        setPets(p);
-        setPetsError(null);
-      })
-      .catch(fail(setPetsError, "반려동물 정보를 불러오지 못했어요."));
+        set(v);
+        setErr(null);
+      };
+    api.me().then(ok(setMe, setMeError)).catch(fail(setMeError, "내 정보를 불러오지 못했어요."));
+    api.pets().then(ok(setPets, setPetsError)).catch(fail(setPetsError, "반려동물 정보를 불러오지 못했어요."));
+    // 종 목록은 로그인 문제로 실패해도 내 정보 화면 전체를 로그인 안내로 바꾸지 않는다 (fail 대신 그 자리 안내만)
     api
       .species()
-      .then((s) => {
-        if (!alive) return;
-        setSpecies(s.species);
-        setSpeciesError(null);
-      })
+      .then(ok((s: SpeciesResponse) => setSpecies(s.species), setSpeciesError))
       .catch((e: unknown) => alive && setSpeciesError(errorText(e, "잠시 뒤 다시 시도해 주세요.")));
     return () => {
       alive = false;
@@ -77,15 +68,7 @@ export default function MyInfo() {
       <LoginRequired unavailable={authError.code === "auth_unavailable"} message="로그인하고 내 정보를 관리해 보세요" />
     );
   }
-  if (!status) {
-    return (
-      <div className={ui.card}>
-        <p role="status" className={ui.muted}>
-          잠시만 기다려 주세요…
-        </p>
-      </div>
-    );
-  }
+  if (!status) return <AuthChecking />;
   if (!user) return <LoginRequired message="로그인하고 내 정보를 관리해 보세요" />;
 
   return (

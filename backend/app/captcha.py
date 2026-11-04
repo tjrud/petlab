@@ -7,7 +7,7 @@ from collections.abc import Callable
 
 import httpx
 
-from app.config import Settings
+from app.config import Settings, secret_value
 from app.errors import AppError
 
 log = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ class CaptchaUnavailableError(AppError):
 
 
 def turnstile_verifier(settings: Settings) -> CaptchaVerifier:
-    secret = settings.turnstile_secret_key.get_secret_value() if settings.turnstile_secret_key else ""
+    secret = secret_value(settings.turnstile_secret_key)
     url = settings.turnstile_verify_url
 
     def verify(token: str, remote_ip: str | None) -> bool:

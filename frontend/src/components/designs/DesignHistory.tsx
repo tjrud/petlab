@@ -9,6 +9,7 @@ import DesignCard from "@/components/designs/DesignCard";
 import DesignGridSkeleton from "@/components/designs/DesignGridSkeleton";
 import Pagination from "@/components/designs/Pagination";
 import LoginRequired from "@/components/LoginRequired";
+import RetryAlert from "@/components/RetryAlert";
 import { api, errorText, isAuthError } from "@/lib/api";
 import type { DesignListItem, Paged } from "@/lib/types";
 import { ui } from "@/lib/ui";
@@ -75,14 +76,7 @@ export default function DesignHistory() {
         <LoginRequired message="로그인하면 내 설계 내역을 볼 수 있어요" unavailable={r.authCode === "auth_unavailable"} />
       );
     }
-    return (
-      <div role="alert" className={`${ui.error} flex flex-wrap items-center justify-between gap-3`}>
-        <span>{r.message}</span>
-        <button type="button" className={ui.btnSecondary} onClick={() => setAttempt((n) => n + 1)}>
-          다시 시도
-        </button>
-      </div>
-    );
+    return <RetryAlert message={r.message} onRetry={() => setAttempt((n) => n + 1)} />;
   }
 
   const { items, total, page_size } = r.data;

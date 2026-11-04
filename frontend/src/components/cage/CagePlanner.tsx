@@ -14,7 +14,10 @@ import CageSizePanel from "@/components/cage/CageSizePanel";
 import CatalogPanel from "@/components/cage/CatalogPanel";
 import InspectorPanel from "@/components/cage/InspectorPanel";
 import LayoutsPanel from "@/components/cage/LayoutsPanel";
+import PlannerHeader from "@/components/cage/PlannerHeader";
 import ReviewPanel from "@/components/cage/ReviewPanel";
+import SceneOverlay from "@/components/cage/SceneOverlay";
+import { usePlannerShortcuts } from "@/components/cage/usePlannerShortcuts";
 import type { CameraView } from "@/components/cage/PlannerScene";
 import { api, ApiError, isAuthError } from "@/lib/api";
 import { getAsset, type CageAsset } from "@/lib/cageAssets";
@@ -28,6 +31,8 @@ import {
   round1,
   snapPosition,
 } from "@/lib/cageLayout";
+import { histReducer, metaOf, readDraft, snapshotOf, writeDraft, type Doc, type Meta } from "@/lib/cagePlannerDoc";
+import { withNext } from "@/lib/safeNext";
 import type { Cage, CageLayout, CageLayoutInput, CageLayoutSummary, LayoutItem, LayoutRules, Pet, SpeciesResponse } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
@@ -39,7 +44,6 @@ const PlannerScene = dynamic(() => import("@/components/cage/PlannerScene"), {
 // 처음 크기는 종 규칙의 사육장 최소 기준(100×50×50cm, species.yaml enclosure_min_floor_mm)에 맞춰요
 const DEFAULT_CAGE: Cage = { width_mm: 1000, depth_mm: 500, height_mm: 500 };
 const DEFAULT_NAME = "새 배치안";
-const DRAFT_KEY = "nestforge:cage-draft:v1";
 
 /** 지금 화면에 붙어 있는 플래너의 번호. 가려졌다 다시 보일 때(Activity)는 그대로이고,
  *  다른 화면을 여럿 다녀와 플래너가 새로 만들어지면 바뀌어요. 옛 플래너에 늦게 온 저장 결과가 새 플래너를 건드리지 않게 해요 */
@@ -52,83 +56,10 @@ const MAX_ITEMS = 80; // 서버 MAX_LAYOUT_ITEMS 와 같다
 const STARTER = ["hideout_multi", "wheel", "sand_bath", "bowl", "water_stand"];
 const WHEELS = ["wheel_280", "wheel_210"];
 
-// ── 되돌리기 기록 ──
-
-type Doc = { cage: Cage; items: LayoutItem[] };
-type Hist = { past: Doc[]; present: Doc; future: Doc[] };
-type HistAction =
-  | { type: "commit"; fn: (d: Doc) => Doc }
-  | { type: "preview"; fn: (d: Doc) => Doc } // 끄는 중: 기록 없이 바꾼다
-  | { type: "settle"; base: Doc } // 끌기를 마치면 시작 전 상태를 기록에 넣는다
-  | { type: "undo" }
-  | { type: "redo" }
-  | { type: "reset"; doc: Doc };
-
-const HISTORY_LIMIT = 100;
-
-function histReducer(h: Hist, a: HistAction): Hist {
-  switch (a.type) {
-    case "commit": {
-      const next = a.fn(h.present);
-      if (next === h.present) return h;
-      return { past: [...h.past, h.present].slice(-HISTORY_LIMIT), present: next, future: [] };
-    }
-    case "preview":
-      return { ...h, present: a.fn(h.present) };
-    case "settle":
-      if (a.base === h.present) return h;
-      return { past: [...h.past, a.base].slice(-HISTORY_LIMIT), present: h.present, future: [] };
-    case "undo":
-      if (!h.past.length) return h;
-      return { past: h.past.slice(0, -1), present: h.past[h.past.length - 1], future: [h.present, ...h.future] };
-    case "redo":
-      if (!h.future.length) return h;
-      return { past: [...h.past, h.present], present: h.future[0], future: h.future.slice(1) };
-    case "reset":
-      return { past: [], present: a.doc, future: [] };
-  }
-}
-
-type Meta = { name: string; species: string; size: string; petId: string | null; layoutId: string | null };
-type Draft = Meta & Doc;
-
-/** 서버가 돌려준 배치안에서 화면 정보(이름·종·크기·반려동물·배치안 ID)만 꺼내요 */
-const metaOf = (l: CageLayout): Meta => ({ name: l.name, species: l.species, size: l.size, petId: l.pet_id, layoutId: l.id });
-
 /** 새 항목: 빈 자리(벽·모서리부터)에 회전 0으로 놓아요. 키 순서는 저장 비교(snapshotOf)와 맞춰 둬요 */
 function newItemAt(cage: Cage, items: LayoutItem[], asset: CageAsset, rules: LayoutRules | null): LayoutItem {
   const p = findFreeSpot(cage, items, asset, 0, rules);
   return { id: newItemId(), asset: asset.key, x_mm: round1(p.x), y_mm: round1(p.y), rotation_deg: 0 };
-}
-
-function readDraft(): Draft | null {
-  try {
-    const raw = window.localStorage.getItem(DRAFT_KEY);
-    if (!raw) return null;
-    const d = JSON.parse(raw) as Draft;
-    if (!d || typeof d !== "object" || !Array.isArray(d.items) || !d.cage) return null;
-    return d;
-  } catch {
-    return null;
-  }
-}
-
-function writeDraft(d: Draft | null) {
-  try {
-    if (d) window.localStorage.setItem(DRAFT_KEY, JSON.stringify(d));
-    else window.localStorage.removeItem(DRAFT_KEY);
-  } catch {
-    /* 저장소를 쓸 수 없는 브라우저(사생활 보호 모드 등): 임시 저장 없이 계속 */
-  }
-}
-
-const snapshotOf = (m: Meta, d: Doc) =>
-  JSON.stringify({ n: m.name, s: m.species, z: m.size, p: m.petId, c: d.cage, i: d.items });
-
-function isTyping(t: EventTarget | null): boolean {
-  const el = t as HTMLElement | null;
-  if (!el) return false;
-  return el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName);
 }
 
 type Tab = "catalog" | "cage" | "saved";
@@ -491,54 +422,7 @@ export default function CagePlanner() {
 
   // ── 키보드 ──
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (isTyping(e.target)) return;
-      const mod = e.ctrlKey || e.metaKey;
-      if (mod && e.key.toLowerCase() === "z") {
-        e.preventDefault();
-        dispatch({ type: e.shiftKey ? "redo" : "undo" });
-        return;
-      }
-      if (mod && e.key.toLowerCase() === "y") {
-        e.preventDefault();
-        dispatch({ type: "redo" });
-        return;
-      }
-      if (!selectedId) return;
-      if (mod && e.key.toLowerCase() === "d") {
-        e.preventDefault();
-        duplicateItem(selectedId);
-        return;
-      }
-      if (mod || e.altKey) return;
-      const step = e.shiftKey ? 1 : 10;
-      const moves: Record<string, [number, number]> = {
-        ArrowLeft: [-step, 0],
-        ArrowRight: [step, 0],
-        ArrowUp: [0, step], // 화면 위쪽 = 케이지 안쪽(뒤)
-        ArrowDown: [0, -step],
-      };
-      if (e.key in moves) {
-        e.preventDefault();
-        const [dx, dy] = moves[e.key];
-        updateItem(selectedId, (it) => ({ ...it, x_mm: round1(it.x_mm + dx), y_mm: round1(it.y_mm + dy) }));
-      } else if (e.key === "Delete" || e.key === "Backspace") {
-        e.preventDefault();
-        removeItem(selectedId);
-      } else if (e.key === "r" || e.key === "R") {
-        rotateItem(selectedId, e.shiftKey ? -90 : 90);
-      } else if (e.key === "q" || e.key === "Q") {
-        rotateItem(selectedId, 15);
-      } else if (e.key === "e" || e.key === "E") {
-        rotateItem(selectedId, -15);
-      } else if (e.key === "Escape") {
-        setSelectedId(null);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [selectedId, duplicateItem, removeItem, rotateItem, updateItem]);
+  usePlannerShortcuts({ selectedId, dispatch, setSelectedId, duplicateItem, removeItem, rotateItem, updateItem });
 
   // ── 저장·불러오기·새로 만들기 ──
 
@@ -688,66 +572,17 @@ export default function CagePlanner() {
 
   return (
     <div className="space-y-4">
-      {/* 상단: 이름·종·저장 */}
-      <div className={`${ui.card} flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between`}>
-        <div className="grid flex-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-          <label className="block">
-            <span className={ui.label}>배치안 이름</span>
-            <input
-              className={ui.input}
-              value={meta.name}
-              maxLength={40}
-              onChange={(e) => setMeta((m) => ({ ...m, name: e.target.value }))}
-            />
-          </label>
-          <label className="block">
-            <span className={ui.label}>반려동물 종·크기 (검토 기준)</span>
-            <select
-              className={ui.input}
-              value={`${meta.species}/${meta.size}`}
-              disabled={!species}
-              onChange={(e) => {
-                const [s, z] = e.target.value.split("/");
-                setMeta((m) => ({ ...m, species: s, size: z }));
-              }}
-            >
-              {species ? (
-                species.species.flatMap((sp) =>
-                  sp.sizes.map((z) => (
-                    <option key={`${sp.key}/${z.key}`} value={`${sp.key}/${z.key}`}>
-                      {sp.display_name} · {z.display_name}
-                    </option>
-                  )),
-                )
-              ) : (
-                <option value={`${meta.species}/${meta.size}`}>불러오는 중…</option>
-              )}
-            </select>
-          </label>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {dirty && <span className="text-xs text-amber-700">저장하지 않은 변경</span>}
-          <button type="button" className={ui.btnSecondary} onClick={newLayout} disabled={busy}>
-            새로 만들기
-          </button>
-          {user ? (
-            <>
-              {meta.layoutId && (
-                <button type="button" className={ui.btnSecondary} onClick={() => void save(true)} disabled={busy}>
-                  새 배치안으로 저장
-                </button>
-              )}
-              <button type="button" className={ui.btnPrimary} onClick={() => void save(false)} disabled={busy || (!dirty && !!meta.layoutId)}>
-                {busy ? "저장 중…" : "저장"}
-              </button>
-            </>
-          ) : needsLogin ? (
-            <Link href="/login?next=%2Fcage" className={ui.btnPrimary}>
-              로그인하고 저장
-            </Link>
-          ) : null}
-        </div>
-      </div>
+      <PlannerHeader
+        meta={meta}
+        onMetaChange={(patch) => setMeta((m) => ({ ...m, ...patch }))}
+        species={species}
+        dirty={dirty}
+        busy={busy}
+        loggedIn={!!user}
+        needsLogin={needsLogin}
+        onNew={newLayout}
+        onSave={(asNew) => void save(asNew)}
+      />
 
       {notice && (
         <p role={notice.kind === "error" ? "alert" : "status"} className={notice.kind === "error" ? ui.error : ui.success}>
@@ -772,65 +607,23 @@ export default function CagePlanner() {
               onDrag={onDrag}
               onDragEnd={onDragEnd}
             />
-            <div className="absolute left-3 top-3 flex flex-wrap gap-1.5">
-              <div className="flex overflow-hidden rounded-lg border border-stone-200 bg-white/90 text-xs shadow-sm" role="group" aria-label="시점">
-                {(
-                  [
-                    ["3d", "3D"],
-                    ["top", "위에서"],
-                    ["front", "정면"],
-                  ] as const
-                ).map(([v, label]) => (
-                  <button
-                    key={v}
-                    type="button"
-                    aria-pressed={view === v}
-                    onClick={() => {
-                      setView(v);
-                      setViewNonce((n) => n + 1);
-                    }}
-                    className={`px-2.5 py-1.5 ${view === v ? "bg-amber-100 font-semibold text-amber-900" : "text-stone-600 hover:bg-stone-50"}`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <label className="flex items-center gap-1 rounded-lg border border-stone-200 bg-white/90 px-2 py-1.5 text-xs text-stone-600 shadow-sm">
-                <input type="checkbox" checked={grid} onChange={(e) => setGrid(e.target.checked)} />
-                1cm 격자
-              </label>
-              <label className="flex items-center gap-1 rounded-lg border border-stone-200 bg-white/90 px-2 py-1.5 text-xs text-stone-600 shadow-sm">
-                <input type="checkbox" checked={magnet} onChange={(e) => setMagnet(e.target.checked)} />
-                벽·구조물에 붙이기
-              </label>
-            </div>
-            <div className="absolute right-3 top-3 flex gap-1.5">
-              <button
-                type="button"
-                className="rounded-lg border border-stone-200 bg-white/90 px-2.5 py-1.5 text-xs shadow-sm disabled:opacity-40"
-                onClick={() => dispatch({ type: "undo" })}
-                disabled={!hist.past.length}
-                title="되돌리기 (Ctrl+Z)"
-              >
-                ↶ 되돌리기
-              </button>
-              <button
-                type="button"
-                className="rounded-lg border border-stone-200 bg-white/90 px-2.5 py-1.5 text-xs shadow-sm disabled:opacity-40"
-                onClick={() => dispatch({ type: "redo" })}
-                disabled={!hist.future.length}
-                title="다시 하기 (Ctrl+Shift+Z)"
-              >
-                ↷ 다시 하기
-              </button>
-            </div>
-            <div className="pointer-events-none absolute bottom-3 right-3 max-w-[calc(100%-1.5rem)] rounded-lg bg-white/85 px-3 py-2 text-right text-[11px] leading-relaxed text-stone-600 shadow-sm">
-              <p className="font-semibold text-stone-800">
-                케이지 {cage.width_mm}×{cage.depth_mm}×{cage.height_mm}mm · 구조물 {items.length}개
-              </p>
-              <p className="hidden sm:block">끌어서 옮기기 · R 90° 회전 · Q/E 15° · 방향키 1cm(Shift 1mm) · Del 삭제</p>
-              <p className="sm:hidden">구조물을 끌어서 옮기고, 아래 패널에서 돌려요</p>
-            </div>
+            <SceneOverlay
+              view={view}
+              onView={(v) => {
+                setView(v);
+                setViewNonce((n) => n + 1);
+              }}
+              grid={grid}
+              onGrid={setGrid}
+              magnet={magnet}
+              onMagnet={setMagnet}
+              canUndo={hist.past.length > 0}
+              canRedo={hist.future.length > 0}
+              onUndo={() => dispatch({ type: "undo" })}
+              onRedo={() => dispatch({ type: "redo" })}
+              cage={cage}
+              itemCount={items.length}
+            />
           </div>
 
           <div className={ui.card}>
@@ -905,7 +698,7 @@ export default function CagePlanner() {
                 />
               ) : (
                 <p className="text-sm text-stone-600">
-                  <Link href="/login?next=%2Fcage" className={ui.link}>
+                  <Link href={withNext("/login", "/cage")} className={ui.link}>
                     로그인
                   </Link>
                   하면 배치안을 계정에 저장하고 다른 기기에서도 열 수 있어요. 지금 작업은 이 브라우저에 임시로 남아 있어요.

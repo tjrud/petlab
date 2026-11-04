@@ -87,6 +87,17 @@ def test_api_schema_states_ranges_in_descriptions():
     assert hideout["vent_count"]["type"] == "integer"
 
 
+def test_api_schema_returns_independent_copies():
+    """호출 측이 받은 스키마를 바꿔도 다음 호출 결과(캐시)는 그대로다."""
+    a = api_schema()
+    snapshot = json.dumps(a, sort_keys=True)
+    a["$defs"].clear()
+    a["properties"]["items"]["maxItems"] = -1
+    b = api_schema()
+    assert b is not a
+    assert json.dumps(b, sort_keys=True) == snapshot
+
+
 def test_parse_valid_spec():
     spec = parse_spec(json.dumps(VALID))
     items = to_item_specs(spec)

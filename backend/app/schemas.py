@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import unicodedata
 from datetime import date, datetime
 from typing import Annotated, Literal
@@ -18,7 +19,8 @@ from pydantic import (
 from app.names import normalize_nickname
 
 # DB 에 저장되는 값의 형식 (Postgres 는 NUL 문자·int4 범위를 넘는 정수를 거부하므로 입력 단계에서 막는다)
-ID_PATTERN = r"^[0-9a-f]{32}$"
+ID_RE = re.compile(r"[0-9a-f]{32}")  # 서버 코드에서는 항상 fullmatch 로 쓴다 (파이썬 re 의 $ 는 끝 줄바꿈 앞에서도 맞으므로 ^…$ 로 검사하지 않는다)
+ID_PATTERN = rf"^{ID_RE.pattern}$"  # pydantic(rust regex)의 $ 는 문자열 끝에서만 맞는다 → fullmatch 와 같은 집합
 MAX_INT4 = 2**31 - 1
 EntityId = Annotated[str, Field(pattern=ID_PATTERN)]
 VersionNo = Annotated[int, Field(ge=1, le=MAX_INT4)]

@@ -10,6 +10,9 @@ from app.rules.loader import RuleBook, load_rules
 
 RULES_DIR = BACKEND_DIR / "rules"
 
+# 공용 API 도우미(tests/api_helpers.py)의 assert 도 실패 시 값(예: 422 == 201)을 보여 주게 한다
+pytest.register_assert_rewrite("tests.api_helpers")
+
 
 @pytest.fixture(autouse=True)
 def _no_failed_login_delay(monkeypatch):

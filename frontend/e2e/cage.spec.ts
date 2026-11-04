@@ -60,7 +60,7 @@ test("가상 케이지: 에셋 놓기·끌어 옮기기·되돌리기·회전·�
   const box = (await canvas.boundingBox())!;
   const cx = box.x + box.width / 2;
   const cy = box.y + box.height / 2;
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(500); // '위에서' 카메라는 effect 에서 바뀌므로(PlannerScene) 첫 프레임이 그려지기 전에 끌지 않게
   await page.mouse.move(cx, cy);
   await page.mouse.down();
   for (let i = 1; i <= 10; i++) await page.mouse.move(cx + i * 8, cy, { steps: 2 });
@@ -99,6 +99,7 @@ test("가상 케이지: 에셋 놓기·끌어 옮기기·되돌리기·회전·�
 
   // 로그인 전에는 저장 대신 로그인 안내. 가입하고 돌아오면 작업이 그대로 있어요 (브라우저 임시 저장)
   await expect(page.getByRole("link", { name: "로그인하고 저장" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "로그인하고 저장" })).toHaveAttribute("href", "/login?next=%2Fcage");
   await signup(page, { username: `cage_${RUN}`, nickname: `케이지${RUN}`, password: "password-123" }, { next: "/cage" });
   await page.goto("/cage");
   await expect(status(page)).toHaveText("케이지 700×500×400mm · 구조물 1개");
@@ -603,4 +604,150 @@ test("저장을 기다리는 사이 여러 화면을 다녀와 가상 케이지�
   // 저장 자체는 됐어요
   await page.getByRole("tab", { name: "내 배치안" }).click();
   await expect(page.getByText("배치 C", { exact: true })).toBeVisible();
+});
+
+test("가상 케이지 단축키: 방향키(Shift 1mm)·R/Shift+R·Q/E·Ctrl+Z/Ctrl+Shift+Z/Ctrl+Y·Ctrl+D·Delete/Backspace·Esc, 입력 칸에서는 쓰지 않음", async ({ page }) => {
+  await page.goto("/cage");
+  await expect(status(page)).toHaveText("케이지 1000×500×500mm · 구조물 0개");
+  const yPos = page.getByLabel("세로 위치 (mm)");
+  const rot = page.getByLabel("회전 (°)");
+  const undo = page.getByRole("button", { name: "↶ 되돌리기" });
+  const redo = page.getByRole("button", { name: "↷ 다시 하기" });
+  const view3d = page.getByRole("group", { name: "시점" }).getByRole("button", { name: "3D" });
+  const inspected = (name: string) => page.getByRole("heading", { level: 3, name });
+  // 단축키는 입력 칸이 아닌 곳에 포커스가 있을 때만 먹어요. 키를 누르기 전에는 항상 버튼을 눌러 둬요 (page.keyboard 는 포커스를 옮기지 않아요)
+  const key = (k: string) => page.keyboard.press(k);
+  await expect(undo).toBeDisabled();
+  await expect(redo).toBeDisabled();
+
+  // 놓으면 뒤-왼쪽 모서리(150, 400)에 놓이고 선택돼요. 포커스는 카탈로그 버튼에 남아요
+  await page.getByRole("button", { name: "땅굴 상자 추가" }).click();
+  await expect(xPos(page)).toHaveValue("150");
+  await expect(yPos).toHaveValue("400");
+  await expect(undo).toBeEnabled();
+
+  // 방향키 1cm, Shift 와 함께면 1mm. 위쪽 = 케이지 안쪽(y+)
+  await key("ArrowRight");
+  await expect(xPos(page)).toHaveValue("160");
+  await key("Shift+ArrowRight");
+  await expect(xPos(page)).toHaveValue("161");
+  await key("ArrowLeft");
+  await expect(xPos(page)).toHaveValue("151");
+  await key("Shift+ArrowLeft");
+  await expect(xPos(page)).toHaveValue("150");
+  await key("ArrowDown");
+  await expect(yPos).toHaveValue("390");
+  await key("Shift+ArrowDown");
+  await expect(yPos).toHaveValue("389");
+  await key("Shift+ArrowUp");
+  await expect(yPos).toHaveValue("390");
+  await key("ArrowUp");
+  await expect(yPos).toHaveValue("400");
+  // Ctrl 과 함께 누른 방향키는 옮기지 않아요 (뒤이은 Shift+→ 가 151 이면 Ctrl+→ 는 무시된 것)
+  await key("Control+ArrowRight");
+  await key("Shift+ArrowRight");
+  await expect(xPos(page)).toHaveValue("151");
+  await key("Shift+ArrowLeft");
+  await expect(xPos(page)).toHaveValue("150");
+
+  // 입력 칸에서는 단축키를 쓰지 않아요: 글자는 이름에 들어가고, 방향키는 커서만 옮겨요
+  await page.getByLabel("배치안 이름").fill("단축키 확인");
+  await page.getByLabel("배치안 이름").press("r");
+  await page.getByLabel("배치안 이름").press("ArrowLeft");
+  await view3d.click();
+  await key("ArrowRight");
+  await expect(xPos(page)).toHaveValue("160");
+  await expect(rot).toHaveValue("0");
+  await expect(page.getByLabel("배치안 이름")).toHaveValue("단축키 확인r");
+
+  // R 90°, Shift+R 반대로 90°, Q 반시계 15°, E 시계 15°
+  await key("r");
+  await expect(rot).toHaveValue("90");
+  await key("Shift+R");
+  await expect(rot).toHaveValue("0");
+  await key("q");
+  await expect(rot).toHaveValue("15");
+  await key("q");
+  await expect(rot).toHaveValue("30");
+  await key("e");
+  await expect(rot).toHaveValue("15");
+
+  // 되돌리기 Ctrl+Z, 다시 하기 Ctrl+Shift+Z·Ctrl+Y·버튼
+  await expect(redo).toBeDisabled();
+  await key("Control+z");
+  await expect(rot).toHaveValue("30");
+  await expect(redo).toBeEnabled();
+  await key("Control+z");
+  await expect(rot).toHaveValue("15");
+  await key("Control+Shift+Z");
+  await expect(rot).toHaveValue("30");
+  await key("Control+y");
+  await expect(rot).toHaveValue("15");
+  await expect(redo).toBeDisabled();
+  await key("Control+z");
+  await expect(rot).toHaveValue("30");
+  await redo.click();
+  await expect(rot).toHaveValue("15");
+  await expect(redo).toBeDisabled();
+
+  // Ctrl+D 복제: 빈 자리에 같은 각도로 놓고 복제본을 선택해요
+  await view3d.click();
+  const before = `${await xPos(page).inputValue()},${await yPos.inputValue()}`;
+  await key("Control+d");
+  await expect(status(page)).toHaveText("케이지 1000×500×500mm · 구조물 2개");
+  await expect.poll(async () => `${await xPos(page).inputValue()},${await yPos.inputValue()}`).not.toBe(before);
+  await expect(rot).toHaveValue("15");
+  // Delete 는 선택한 것을 지우고 선택을 풀어요. 되돌리기는 선택이 없어도 돼요
+  await key("Delete");
+  await expect(status(page)).toHaveText("케이지 1000×500×500mm · 구조물 1개");
+  await expect(inspected("땅굴 상자")).toHaveCount(0);
+  await key("Control+z");
+  await expect(status(page)).toHaveText("케이지 1000×500×500mm · 구조물 2개");
+  await expect(inspected("땅굴 상자")).toHaveCount(0);
+
+  // Esc 는 선택만 풀어요. Backspace 도 지워요
+  await page.getByRole("button", { name: "밥그릇 추가" }).click();
+  await expect(status(page)).toHaveText("케이지 1000×500×500mm · 구조물 3개");
+  await expect(inspected("밥그릇")).toBeVisible();
+  await key("Escape");
+  await expect(inspected("밥그릇")).toHaveCount(0);
+  await expect(status(page)).toHaveText("케이지 1000×500×500mm · 구조물 3개");
+  await page.getByRole("button", { name: "밥그릇 추가" }).click();
+  await expect(status(page)).toHaveText("케이지 1000×500×500mm · 구조물 4개");
+  await key("Backspace");
+  await expect(status(page)).toHaveText("케이지 1000×500×500mm · 구조물 3개");
+  await expect(inspected("밥그릇")).toHaveCount(0);
+});
+
+test("가상 케이지 상단 줄·3D 위 도구 모음: 종·크기 선택, 저장하지 않은 변경, 로그인 안내, 시점·격자·붙이기, 안내 문구", async ({ page }) => {
+  await page.goto("/cage");
+  const pick = page.getByLabel("반려동물 종·크기 (검토 기준)");
+  await expect(pick).toBeEnabled(); // 종 규칙을 받으면 고를 수 있어요
+  await expect(pick).toHaveValue("hamster/syrian");
+  await expect(pick.locator("option")).toHaveText(["햄스터 · 드워프 (정글리안·캠벨·로보로브스키)", "햄스터 · 골든 (시리안)"]);
+  await pick.selectOption("hamster/dwarf");
+  await expect(pick).toHaveValue("hamster/dwarf");
+  await expect(page.getByText("저장하지 않은 변경")).toHaveCount(0); // 아직 구조물이 없으면 변경 없음
+  await page.getByRole("button", { name: "땅굴 상자 추가" }).click();
+  await expect(page.getByText("저장하지 않은 변경")).toBeVisible();
+  await expect(page.getByRole("link", { name: "로그인하고 저장" })).toHaveAttribute("href", "/login?next=%2Fcage");
+  await expect(page.getByRole("button", { name: "저장", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "새 배치안으로 저장" })).toHaveCount(0);
+
+  const views = page.getByRole("group", { name: "시점" });
+  await expect(views.getByRole("button")).toHaveText(["3D", "위에서", "정면"]);
+  await expect(views.getByRole("button", { name: "3D" })).toHaveAttribute("aria-pressed", "true");
+  await views.getByRole("button", { name: "정면" }).click();
+  await expect(views.getByRole("button", { name: "정면" })).toHaveAttribute("aria-pressed", "true");
+  await expect(views.getByRole("button", { name: "3D" })).toHaveAttribute("aria-pressed", "false");
+  for (const name of ["1cm 격자", "벽·구조물에 붙이기"]) {
+    const box = page.getByRole("checkbox", { name });
+    await expect(box).toBeChecked();
+    await box.uncheck();
+    await expect(box).not.toBeChecked();
+  }
+  await expect(page.getByRole("button", { name: "↶ 되돌리기" })).toHaveAttribute("title", "되돌리기 (Ctrl+Z)");
+  await expect(page.getByRole("button", { name: "↷ 다시 하기" })).toHaveAttribute("title", "다시 하기 (Ctrl+Shift+Z)");
+  await expect(page.getByText("끌어서 옮기기 · R 90° 회전 · Q/E 15° · 방향키 1cm(Shift 1mm) · Del 삭제")).toBeVisible();
+  await expect(status(page)).toHaveText("케이지 1000×500×500mm · 구조물 1개");
 });
