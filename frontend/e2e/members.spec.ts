@@ -1,6 +1,6 @@
 import { expect, type Route, test } from "@playwright/test";
 
-import { emailOf, logout, signup, stubTurnstile, verifyEmail } from "./support";
+import { emailOf, fillSignupForm, logout, signup, stubTurnstile, verifyEmail } from "./support";
 
 const SHOTS = process.env.E2E_SCREENSHOT_DIR;
 const RUN = Date.now().toString(36).slice(-5); // 실행마다 다른 아이디 (같은 DB 를 재사용해도 겹치지 않게)
@@ -39,11 +39,13 @@ test("회원가입: 입력 확인과 중복 아이디", async ({ page }) => {
   await logout(page);
 
   await page.goto("/signup");
-  await page.getByLabel("아이디").fill(username);
-  await page.getByLabel("닉네임").fill(`다른닉${RUN}`);
-  await page.getByLabel("이메일").fill(emailOf(`dup2_${RUN}`));
-  await page.getByLabel("비밀번호", { exact: true }).fill("password-123");
-  await page.getByLabel("비밀번호 확인").fill("password-999");
+  await fillSignupForm(page, {
+    username,
+    nickname: `다른닉${RUN}`,
+    email: emailOf(`dup2_${RUN}`),
+    password: "password-123",
+    confirm: "password-999",
+  });
   // 칸을 벗어나면 불일치 안내가 나타나 아래 요소가 밀리므로, 먼저 벗어난 뒤 보안 확인을 누른다
   await page.getByLabel("비밀번호 확인").blur();
   await expect(page.getByText("비밀번호가 서로 달라요. 다시 확인해 주세요.")).toBeVisible();
@@ -317,11 +319,12 @@ test("이메일 인증 전: 안내 띠가 보이고 설계·글쓰기가 막혀 
 test("CAPTCHA 가 거절되면 오류를 보여 주고 보안 확인을 다시 하게 한다", async ({ page }) => {
   // 가짜 위젯은 아이디에 capfail 이 있으면 통과하지 못하는 토큰("e2e-fail")을 보낸다
   await page.goto("/signup");
-  await page.getByLabel("아이디").fill(`capfail_${RUN}`);
-  await page.getByLabel("닉네임").fill(`캡차실패${RUN}`);
-  await page.getByLabel("이메일").fill(emailOf(`capfail_${RUN}`));
-  await page.getByLabel("비밀번호", { exact: true }).fill("captcha-fail-123");
-  await page.getByLabel("비밀번호 확인").fill("captcha-fail-123");
+  await fillSignupForm(page, {
+    username: `capfail_${RUN}`,
+    nickname: `캡차실패${RUN}`,
+    email: emailOf(`capfail_${RUN}`),
+    password: "captcha-fail-123",
+  });
   await page.getByLabel("로봇이 아니에요").check();
 
   const response = page.waitForResponse((r) => r.url().endsWith("/auth/signup") && r.request().method() === "POST");
@@ -371,12 +374,13 @@ test("인증 링크가 잘못되면 안내를 보여 준다", async ({ page }) =
 test("서버가 이메일 주소를 거절하면 그 칸을 짚고, 보안 확인은 다시 하지 않아도 된다", async ({ page }) => {
   const username = `bademail_${RUN}`;
   await page.goto("/signup");
-  await page.getByLabel("아이디").fill(username);
-  await page.getByLabel("닉네임").fill(`주소확인${RUN}`);
-  // 화면의 형식 검사는 통과하지만 서버(EmailStr)는 거절하는 주소 (.test 는 예약된 도메인)
-  await page.getByLabel("이메일").fill(`${username}@nestforge.test`);
-  await page.getByLabel("비밀번호", { exact: true }).fill("bad-email-123");
-  await page.getByLabel("비밀번호 확인").fill("bad-email-123");
+  // 이메일은 화면의 형식 검사는 통과하지만 서버(EmailStr)는 거절하는 주소 (.test 는 예약된 도메인)
+  await fillSignupForm(page, {
+    username,
+    nickname: `주소확인${RUN}`,
+    email: `${username}@nestforge.test`,
+    password: "bad-email-123",
+  });
   await page.getByLabel("로봇이 아니에요").check();
 
   const response = page.waitForResponse((r) => r.url().endsWith("/auth/signup") && r.request().method() === "POST");

@@ -1,13 +1,13 @@
 import { expect, type Page, test } from "@playwright/test";
 
+import { submitLogin } from "./support";
+
 const SHOTS = process.env.E2E_SCREENSHOT_DIR;
 const ADMIN = { username: "admin", password: "e2e-admin-password" };
 
 async function login(page: Page) {
   await page.goto("/login?next=/design");
-  await page.getByLabel("아이디").fill(ADMIN.username);
-  await page.getByLabel("비밀번호").fill(ADMIN.password);
-  await page.getByRole("button", { name: "로그인", exact: true }).click();
+  await submitLogin(page, ADMIN.username, ADMIN.password);
   await page.waitForURL((url) => url.pathname === "/design");
 }
 
@@ -29,9 +29,7 @@ test("관리자 로그인: 사이트는 공개, 설계 기능은 로그인 후�
   await expect(page.getByRole("heading", { name: "로그인", exact: true })).toBeVisible();
   await expect(page.getByLabel("아이디")).toHaveValue(""); // 아이디를 미리 채워 두지 않는다
   // 틀린 비밀번호
-  await page.getByLabel("아이디").fill(ADMIN.username);
-  await page.getByLabel("비밀번호").fill("wrong-password");
-  await page.getByRole("button", { name: "로그인", exact: true }).click();
+  await submitLogin(page, ADMIN.username, "wrong-password");
   await expect(page.getByText("아이디 또는 비밀번호가 올바르지 않아요.")).toBeVisible();
   // 올바른 비밀번호 → 원래 화면으로
   await page.getByLabel("비밀번호").fill(ADMIN.password);
@@ -59,17 +57,13 @@ test("로그인 후 이동 경로는 같은 사이트 안으로만", async ({ pa
     "/a/..//evil.example",
   ]) {
     await page.goto(`/login?next=${encodeURIComponent(next)}`);
-    await page.getByLabel("아이디").fill(ADMIN.username);
-    await page.getByLabel("비밀번호").fill(ADMIN.password);
-    await page.getByRole("button", { name: "로그인", exact: true }).click();
+    await submitLogin(page, ADMIN.username, ADMIN.password);
     await page.waitForURL((url) => url.origin === "http://localhost:3000" && url.pathname === "/");
     await page.context().clearCookies();
   }
   // 같은 사이트 경로는 그대로 돌아간다
   await page.goto(`/login?next=${encodeURIComponent("/order?design=abc")}`);
-  await page.getByLabel("아이디").fill(ADMIN.username);
-  await page.getByLabel("비밀번호").fill(ADMIN.password);
-  await page.getByRole("button", { name: "로그인", exact: true }).click();
+  await submitLogin(page, ADMIN.username, ADMIN.password);
   await page.waitForURL((url) => url.pathname === "/order" && url.search === "?design=abc");
 });
 
