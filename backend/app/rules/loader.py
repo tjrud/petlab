@@ -116,6 +116,12 @@ class RuleBook(BaseModel):
         """적용 최소 벽 두께 = max(종 갉음 기준, 출력 최소 벽)."""
         return max(self.size_rules(species, size).min_wall_thickness_mm, self.printing.min_wall_mm)
 
+    def display_names(self, species: str, size: str) -> tuple[str, str]:
+        """화면에 보일 (종 이름, 크기 이름). 규칙 파일에서 빠진 종·크기(옛 행)는 키를 그대로 돌려준다 (500 이 나지 않게)."""
+        sp = self.species_file.species.get(species)
+        sz = sp.sizes.get(size) if sp is not None else None
+        return (sp.display_name if sp is not None else species, sz.display_name if sz is not None else size)
+
 
 def _read_yaml(path: Path) -> dict:
     if not path.is_file():

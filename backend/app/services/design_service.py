@@ -281,11 +281,10 @@ class DesignService:
         return h
 
     def habitat_out(self, h: Habitat) -> HabitatOut:
-        sp = self.rules.species_file.species.get(h.species)
-        size = sp.sizes.get(h.size) if sp else None
+        species_name, size_name = self.rules.display_names(h.species, h.size)
         return HabitatOut(
-            id=h.id, pet_id=h.pet_id, species=h.species, species_name_ko=sp.display_name if sp else h.species,
-            size=h.size, size_name_ko=size.display_name if size else h.size, count=h.count,
+            id=h.id, pet_id=h.pet_id, species=h.species, species_name_ko=species_name,
+            size=h.size, size_name_ko=size_name, count=h.count,
             cage=CageIn(width_mm=h.cage_width_mm, depth_mm=h.cage_depth_mm, height_mm=h.cage_height_mm),
             created_at=h.created_at,
         )

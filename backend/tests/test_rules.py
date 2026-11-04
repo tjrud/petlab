@@ -36,6 +36,13 @@ def test_unknown_species_raises(rules):
         rules.size_rules("rabbit", "small")
 
 
+def test_display_names_fall_back_to_keys(rules):
+    assert rules.display_names("hamster", "syrian") == ("햄스터", "골든 (시리안)")
+    assert rules.display_names("hamster", "ghost") == ("햄스터", "ghost")
+    # 종이 없으면 다른 종에 있는 크기 키라도 키 그대로
+    assert rules.display_names("ghost", "syrian") == ("ghost", "syrian")
+
+
 def _edit_species(rules_dir: Path, fn) -> None:
     p = rules_dir / "species.yaml"
     data = yaml.safe_load(p.read_text(encoding="utf-8"))

@@ -23,11 +23,10 @@ MAX_LAYOUTS = 30
 
 
 def _summary_fields(svc: DesignService, lay: CageLayout) -> dict:
-    sp = svc.rules.species_file.species.get(lay.species)
-    size = sp.sizes.get(lay.size) if sp else None
+    _, size_name = svc.rules.display_names(lay.species, lay.size)
     return dict(
         id=lay.id, name=lay.name, species=lay.species, size=lay.size,
-        size_name_ko=size.display_name if size else lay.size, pet_id=lay.pet_id,
+        size_name_ko=size_name, pet_id=lay.pet_id,
         cage=CageIn(width_mm=lay.cage_width_mm, depth_mm=lay.cage_depth_mm, height_mm=lay.cage_height_mm),
         item_count=len(lay.items or []), created_at=lay.created_at, updated_at=lay.updated_at,
     )

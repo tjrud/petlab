@@ -158,14 +158,13 @@ async def change_password(data: PasswordChangeIn, request: Request, db: Session 
 
 
 def pet_out(svc: DesignService, p: Pet) -> PetOut:
-    sp = svc.rules.species_file.species.get(p.species)
-    size = sp.sizes.get(p.size) if sp else None
+    species_name, size_name = svc.rules.display_names(p.species, p.size)
     cage = None
     if p.cage_width_mm and p.cage_depth_mm and p.cage_height_mm:
         cage = CageIn(width_mm=p.cage_width_mm, depth_mm=p.cage_depth_mm, height_mm=p.cage_height_mm)
     return PetOut(
-        id=p.id, name=p.name, species=p.species, species_name_ko=sp.display_name if sp else p.species,
-        size=p.size, size_name_ko=size.display_name if size else p.size, sex=p.sex, birth_date=p.birth_date,
+        id=p.id, name=p.name, species=p.species, species_name_ko=species_name,
+        size=p.size, size_name_ko=size_name, sex=p.sex, birth_date=p.birth_date,
         notes=p.notes or None, cage=cage, created_at=p.created_at, updated_at=p.updated_at,
     )
 
