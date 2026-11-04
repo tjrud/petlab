@@ -14,6 +14,7 @@ import CageSizePanel from "@/components/cage/CageSizePanel";
 import CatalogPanel from "@/components/cage/CatalogPanel";
 import InspectorPanel from "@/components/cage/InspectorPanel";
 import LayoutsPanel from "@/components/cage/LayoutsPanel";
+import PlannerHeader from "@/components/cage/PlannerHeader";
 import ReviewPanel from "@/components/cage/ReviewPanel";
 import SceneOverlay from "@/components/cage/SceneOverlay";
 import { usePlannerShortcuts } from "@/components/cage/usePlannerShortcuts";
@@ -570,66 +571,17 @@ export default function CagePlanner() {
 
   return (
     <div className="space-y-4">
-      {/* 상단: 이름·종·저장 */}
-      <div className={`${ui.card} flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between`}>
-        <div className="grid flex-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-          <label className="block">
-            <span className={ui.label}>배치안 이름</span>
-            <input
-              className={ui.input}
-              value={meta.name}
-              maxLength={40}
-              onChange={(e) => setMeta((m) => ({ ...m, name: e.target.value }))}
-            />
-          </label>
-          <label className="block">
-            <span className={ui.label}>반려동물 종·크기 (검토 기준)</span>
-            <select
-              className={ui.input}
-              value={`${meta.species}/${meta.size}`}
-              disabled={!species}
-              onChange={(e) => {
-                const [s, z] = e.target.value.split("/");
-                setMeta((m) => ({ ...m, species: s, size: z }));
-              }}
-            >
-              {species ? (
-                species.species.flatMap((sp) =>
-                  sp.sizes.map((z) => (
-                    <option key={`${sp.key}/${z.key}`} value={`${sp.key}/${z.key}`}>
-                      {sp.display_name} · {z.display_name}
-                    </option>
-                  )),
-                )
-              ) : (
-                <option value={`${meta.species}/${meta.size}`}>불러오는 중…</option>
-              )}
-            </select>
-          </label>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {dirty && <span className="text-xs text-amber-700">저장하지 않은 변경</span>}
-          <button type="button" className={ui.btnSecondary} onClick={newLayout} disabled={busy}>
-            새로 만들기
-          </button>
-          {user ? (
-            <>
-              {meta.layoutId && (
-                <button type="button" className={ui.btnSecondary} onClick={() => void save(true)} disabled={busy}>
-                  새 배치안으로 저장
-                </button>
-              )}
-              <button type="button" className={ui.btnPrimary} onClick={() => void save(false)} disabled={busy || (!dirty && !!meta.layoutId)}>
-                {busy ? "저장 중…" : "저장"}
-              </button>
-            </>
-          ) : needsLogin ? (
-            <Link href="/login?next=%2Fcage" className={ui.btnPrimary}>
-              로그인하고 저장
-            </Link>
-          ) : null}
-        </div>
-      </div>
+      <PlannerHeader
+        meta={meta}
+        onMetaChange={(patch) => setMeta((m) => ({ ...m, ...patch }))}
+        species={species}
+        dirty={dirty}
+        busy={busy}
+        loggedIn={!!user}
+        needsLogin={needsLogin}
+        onNew={newLayout}
+        onSave={(asNew) => void save(asNew)}
+      />
 
       {notice && (
         <p role={notice.kind === "error" ? "alert" : "status"} className={notice.kind === "error" ? ui.error : ui.success}>
