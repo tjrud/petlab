@@ -3,6 +3,7 @@
 import Link from "next/link";
 
 import type { Meta } from "@/lib/cagePlannerDoc";
+import { withNext } from "@/lib/safeNext";
 import type { SpeciesResponse } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
@@ -82,7 +83,7 @@ export default function PlannerHeader({
             </button>
           </>
         ) : needsLogin ? (
-          <Link href="/login?next=%2Fcage" className={ui.btnPrimary}>
+          <Link href={withNext("/login", "/cage")} className={ui.btnPrimary}>
             로그인하고 저장
           </Link>
         ) : null}

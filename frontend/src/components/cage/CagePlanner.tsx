@@ -32,6 +32,7 @@ import {
   snapPosition,
 } from "@/lib/cageLayout";
 import { histReducer, metaOf, readDraft, snapshotOf, writeDraft, type Doc, type Meta } from "@/lib/cagePlannerDoc";
+import { withNext } from "@/lib/safeNext";
 import type { Cage, CageLayout, CageLayoutInput, CageLayoutSummary, LayoutItem, LayoutRules, Pet, SpeciesResponse } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
@@ -697,7 +698,7 @@ export default function CagePlanner() {
                 />
               ) : (
                 <p className="text-sm text-stone-600">
-                  <Link href="/login?next=%2Fcage" className={ui.link}>
+                  <Link href={withNext("/login", "/cage")} className={ui.link}>
                     로그인
                   </Link>
                   하면 배치안을 계정에 저장하고 다른 기기에서도 열 수 있어요. 지금 작업은 이 브라우저에 임시로 남아 있어요.
