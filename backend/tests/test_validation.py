@@ -12,12 +12,16 @@ from build123d import Align, Box, Pos
 
 from app.domain import Cage, Placement
 from app.geometry.mesh import part_to_mesh
-from app.rules.loader import load_rules
+from app.rules.loader import SizeRules, load_rules
 from app.services.engine import build_item
 from app.domain import PlacementHint
 from app.templates.base import Features, Opening
 from app.templates.hideout import HideoutParams, HideoutTemplate
+from app.templates.registry import all_templates
+from app.templates.sand_bath import SandBathParams, SandBathTemplate, entry_width
+from app.templates.tunnel import TunnelParams, TunnelTemplate
 from app.validation import checks
+from app.validation.report import Issue, Severity, ValidationReport
 from tests.helpers import box_item, make_item
 
 CAGE = Cage(600, 400, 300)
@@ -169,6 +173,46 @@ def test_single_entrance_hideout_flagged_only_for_groups(rules, syrian):
     assert checks.check_openings([two], syrian, count=2) == []
 
 
+def test_passage_rule_keys_name_size_rules_fields():
+    """통로 개구부의 rule_key 는 SizeRules 필드 이름이어야 한다.
+
+    오타가 나면 validate_all 에서 AttributeError → 설계 생성은 500, 재검증은 MeshRegenerationError 가 된다.
+    템플릿이 새 rule_key 를 쓰면 아래 고정 집합도 함께 고친다.
+    """
+    variants = [t.features(t.default_params()) for t in all_templates()]
+    variants.append(HideoutTemplate().features(HideoutParams(entrance_count=2)))
+    keys = {op.rule_key for f in variants for op in f.openings if op.kind == "passage"}
+    assert keys - {None} <= set(SizeRules.model_fields)
+    assert keys == {None, "entrance_min_diameter_mm", "tunnel_min_inner_diameter_mm"}
+
+
+@pytest.mark.parametrize("features,labels,rule", [
+    (TunnelTemplate().features(TunnelParams(inner_diameter_mm=80)), ["터널 내경"], "tunnel_min_inner_diameter_mm"),
+    (HideoutTemplate().features(HideoutParams(entrance_diameter_mm=80, entrance_count=2)),
+     ["앞 출입구", "뒤 출입구"], "entrance_min_diameter_mm"),
+])
+def test_passage_minimum_comes_from_rule_key(syrian, features, labels, rule):
+    """시리안은 출입구·터널·통과 최소가 모두 70 이라, 규칙 값만 올려 rule_key 로 찾는지 확인한다."""
+    it = box_item(0, 100, 100, 50, features=features)
+    assert checks.check_openings([it], syrian) == []
+    strict = syrian.model_copy(update={rule: 90.0})
+    issues = checks.check_openings([it], strict)
+    assert [(i.code, i.message_ko, i.details) for i in issues] == [
+        ("opening_too_small", f"test #1: {label} 80mm 가 골든 (시리안) 기준 최소 90mm 보다 작습니다.",
+         {"size_mm": 80.0, "required_mm": 90.0}) for label in labels]
+
+
+def test_passage_without_rule_key_uses_passable_min(syrian):
+    """rule_key 가 없는 통로(모래목욕통 입구)는 passable_min 을 최소로 쓴다."""
+    p = SandBathParams()
+    it = box_item(0, 100, 100, 50, features=SandBathTemplate().features(p))
+    assert checks.check_openings([it], syrian) == []
+    strict = syrian.model_copy(update={"gap_trap": syrian.gap_trap.model_copy(update={"passable_min_mm": 115.0})})
+    assert entry_width(p) == 105.0
+    assert [(i.code, i.details) for i in checks.check_openings([it], strict)] == [
+        ("opening_too_small", {"size_mm": 105.0, "required_mm": 115.0})]
+
+
 def test_two_entrance_hideout_prints_without_support(rules):
     it = _hideout(rules, x=300, y=200, entrance_diameter_mm=75, entrance_count=2)
     assert checks.check_overhang([it], rules.printing) == []
@@ -264,3 +308,12 @@ def test_open_mesh_detected():
 
 def test_good_mesh_passes(rules):
     assert checks.check_mesh([_hideout(rules)]) == []
+
+
+# ── 보고서 모델 ─────────────────────────────────────────────
+
+
+def test_report_dump_has_only_issues():
+    """저장되는 보고서 JSON 은 issues 만 담는다 (errors·passed 같은 계산 값은 들어가지 않는다)."""
+    r = ValidationReport(issues=[Issue(code="x", severity=Severity.warning, message_ko="m")])
+    assert list(r.model_dump(mode="json")) == ["issues"]

@@ -4,9 +4,10 @@ import itertools
 
 import pytest
 
-from app.domain import Cage, PlacementHint
+from app.domain import Cage, Placement, PlacementHint
 from app.layout.placer import place_all
 from app.services.engine import build_item
+from app.templates.base import Features
 from app.templates.hideout import HideoutParams, HideoutTemplate
 from app.validation import checks
 from tests.helpers import box_item
@@ -21,6 +22,14 @@ def syrian(rules):
 
 def _hideout(rules, index, hint, **kw):
     return build_item(index, HideoutTemplate(), HideoutParams(**kw), hint, rules.printing)
+
+
+def _placements(items):
+    return {it.index: it.placement for it in items}
+
+
+def _features(*sides):
+    return Features(min_wall_thickness_mm=3, access_sides=sides)
 
 
 def _safety_issues(items, size, cage=CAGE):
@@ -97,3 +106,61 @@ def test_placement_is_deterministic(rules, syrian):
         return [it.placement for it in items]
 
     assert run() == run()
+
+
+# ── 배치 결과 고정 (골든) ──────────────────────────────────
+# 배치기 내부를 바꿔도 결과 좌표가 그대로인지 Placement 를 정확히(==) 비교한다.
+
+
+@pytest.mark.parametrize("size,cage,failed,expected", [
+    ("syrian", Cage(600, 400, 300), [4], {
+        0: Placement(85.0, 200.0, 0), 1: Placement(230.0, 110.0, 0), 2: Placement(460.0, 355.0, 90),
+        3: Placement(410.0, 50.0, 0), 4: None}),
+    ("dwarf", Cage(537.3, 401.7, 300), [], {
+        0: Placement(85.0, 200.85, 0), 1: Placement(60.0, 300.85, 0), 2: Placement(417.3, 356.7, 90),
+        3: Placement(220.0, 301.7, 0), 4: Placement(295.0, 125.0, 0)}),
+])
+def test_golden_box_placements(rules, size, cage, failed, expected):
+    """zone·group·회전 힌트, 출입 방향, 정수가 아닌 케이지 크기, 배치 실패를 한 번에 거친다."""
+    gap = rules.size_rules("hamster", size).gap_trap
+    items = [
+        box_item(0, 170, 120, 60, hint=PlacementHint(zone="left", group="g"), features=_features("front")),
+        box_item(1, 120, 80, 60, hint=PlacementHint(group="g"), features=_features("right")),
+        box_item(2, 90, 140, 40, hint=PlacementHint(zone="back_right", rotation=90),
+                 features=_features("front", "back")),
+        box_item(3, 100, 100, 60),
+        box_item(4, 250, 250, 60),
+    ]
+    assert [it.index for it in place_all(items, cage, gap)] == failed
+    assert _placements(items) == expected
+
+
+def test_golden_template_placements(rules, syrian):
+    """은신처 템플릿이 섞인 배치. 값은 uv.lock 의 OCP 테셀레이션에 따른 것이라
+    템플릿 build() 를 의도적으로 바꾸면 다시 뽑아야 한다."""
+    grouped = [
+        _hideout(rules, 0, PlacementHint(zone="left", group="g"), entrance_diameter_mm=75, width_mm=170),
+        box_item(1, 120, 80, 60, hint=PlacementHint(group="g")),
+        box_item(2, 100, 100, 60),
+    ]
+    assert place_all(grouped, CAGE, syrian.gap_trap) == []
+    assert _placements(grouped) == {
+        0: Placement(85.0, 200.0, 0), 1: Placement(230.0, 110.0, 0), 2: Placement(290.0, 350.0, 0)}
+    many = [
+        box_item(0, 150, 100, 60),
+        box_item(1, 90, 90, 60, hint=PlacementHint(zone="right")),
+        box_item(2, 120, 60, 40, hint=PlacementHint(zone="back")),
+        _hideout(rules, 3, PlacementHint(zone="front_left"), entrance_diameter_mm=75, width_mm=170),
+    ]
+    assert place_all(many, CAGE, syrian.gap_trap) == []
+    assert _placements(many) == {
+        0: Placement(75.0, 220.0, 0), 1: Placement(555.0, 200.0, 0),
+        2: Placement(300.0, 370.0, 0), 3: Placement(55.0, 85.0, 90)}
+
+
+def test_place_all_overwrites_prior_placements(syrian):
+    """이미 위치가 있는 항목도 새 결과로 덮어쓰고, 놓지 못한 항목은 None 이 된다."""
+    items = [box_item(0, 170, 120, 60, x=1, y=1, hint=PlacementHint(zone="left")),
+             box_item(1, 700, 100, 50, x=1, y=1)]
+    assert place_all(items, CAGE, syrian.gap_trap) == [items[1]]
+    assert _placements(items) == {0: Placement(85.0, 200.0, 0), 1: None}

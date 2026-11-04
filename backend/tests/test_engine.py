@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.domain import Cage, PlacementHint
+from app.domain import Cage, Placement, PlacementHint
 from app.services.engine import EngineContext, ItemSpec, run_engine
 from app.templates.base import ParamConstraint
 from app.templates.registry import get_template
@@ -135,6 +135,52 @@ def test_mixed_grouped_design_from_mock(rules):
     a, b = res.items
     assert a.world_footprint.distance(b.world_footprint) == pytest.approx(0, abs=0.5)
     assert max(a.world_rect.cx, b.world_rect.cx) < cage.width_mm / 2  # 한쪽(왼쪽)에 모임
+
+
+# ── 엔진 배치 결과 고정 (골든) ─────────────────────────────
+# 실제 템플릿 형상으로 배치한 좌표를 Placement 로 정확히(==) 비교한다. 값은 uv.lock 의 OCP 테셀레이션에
+# 따른 것이라, 템플릿 build() 를 의도적으로 바꾸면 이 값을 다시 뽑아야 한다.
+
+
+def _placements(items):
+    return {it.index: it.placement for it in items}
+
+
+def _defaults(key, c, **kw):
+    return {**get_template(key).default_params(c.rule_ctx).model_dump(), **kw}
+
+
+def test_golden_engine_placements(rules):
+    c = ctx(rules, Cage(1000, 500, 400))
+    four = [ItemSpec(k, _defaults(k, c), PlacementHint(zone=z))
+            for k, z in [("hideout", "left"), ("tunnel", "back"), ("ramp", "right"), ("sand_bath", "front")]]
+    assert _placements(run_engine(four, c, measure_thickness=False).items) == {
+        0: Placement(65.5, 250.0, 90), 1: Placement(500.0, 459.5, 90),
+        2: Placement(919.9538057742676, 250.0, 270), 3: Placement(500.0, 108.0, 180)}
+
+    c = ctx(rules, Cage(800, 500, 400))
+    grouped = [ItemSpec("hideout", _defaults("hideout", c), PlacementHint(group="g1")),
+               ItemSpec("tunnel", _defaults("tunnel", c, bend_angle_deg=90), PlacementHint(group="g1")),
+               ItemSpec("ramp", _defaults("ramp", c))]
+    assert _placements(run_engine(grouped, c, measure_thickness=False).items) == {
+        0: Placement(233.323954, 262.17604600000004, 90),
+        1: Placement(83.91197723675813, 416.0880232367581, 90),
+        2: Placement(719.9538057742676, 460.0, 270)}
+
+    c = ctx(rules, Cage(600, 400, 300), size="dwarf", count=2)
+    pair = [ItemSpec("hideout", _defaults("hideout", c), PlacementHint(zone="back_left")),
+            ItemSpec("tunnel", _defaults("tunnel", c, bend_angle_deg=180), PlacementHint(zone="front")),
+            ItemSpec("sand_bath", _defaults("sand_bath", c))]
+    assert _placements(run_engine(pair, c, measure_thickness=False).items) == {
+        0: Placement(70.0, 294.5, 0), 1: Placement(300.0000002367581, 47.08098861837907, 180),
+        2: Placement(492.0, 292.0, 270)}
+
+    # 공간 보정(_shrink_to_fit)이 같은 항목 객체로 place_all 을 여러 번 부르는 경로
+    c = ctx(rules, Cage(260, 230, 300))
+    spec = ItemSpec("hideout", {"width_mm": 300, "depth_mm": 250, "height_mm": 150, "entrance_diameter_mm": 75})
+    res = run_engine([spec], c, measure_thickness=False)
+    assert [i.code for i in by_code(res.report, "resized_to_fit")] == ["resized_to_fit"]
+    assert _placements(res.items) == {0: Placement(90.0, 155.0, 0)}
 
 
 # ── 자동 보정 이슈 문구·세부값 고정 ─────────────────────────
