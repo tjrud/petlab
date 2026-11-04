@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
 import { ResendVerification } from "@/components/EmailVerification";
+import RetryAlert from "@/components/RetryAlert";
 import { api, ApiError } from "@/lib/api";
 import type { VerifyEmailResult } from "@/lib/types";
 import { ui } from "@/lib/ui";
@@ -185,18 +186,12 @@ export default function VerifyEmail() {
   }
 
   return (
-    <div role="alert" className={`${ui.error} flex flex-wrap items-center justify-between gap-3`}>
-      <span>{state.message}</span>
-      <button
-        type="button"
-        className={ui.btnSecondary}
-        onClick={() => {
-          attempts.delete(token);
-          setAttempt((n) => n + 1);
-        }}
-      >
-        다시 시도
-      </button>
-    </div>
+    <RetryAlert
+      message={state.message}
+      onRetry={() => {
+        attempts.delete(token);
+        setAttempt((n) => n + 1);
+      }}
+    />
   );
 }

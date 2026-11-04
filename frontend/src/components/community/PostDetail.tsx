@@ -8,6 +8,7 @@ import CommentSection from "@/components/community/CommentSection";
 import { COMMUNITY_PATH, errorText, Placeholder } from "@/components/community/common";
 import PostArticle from "@/components/community/PostArticle";
 import SharedDesignCard from "@/components/community/SharedDesignCard";
+import RetryAlert from "@/components/RetryAlert";
 import { api, ApiError } from "@/lib/api";
 import type { Post } from "@/lib/types";
 import { ui } from "@/lib/ui";
@@ -85,12 +86,7 @@ export default function PostDetail({ id }: { id: string }) {
     return (
       <div className="mx-auto max-w-3xl space-y-4">
         <BackLink />
-        <div role="alert" className={`${ui.error} flex flex-wrap items-center justify-between gap-3`}>
-          <span>{r.message}</span>
-          <button type="button" className={ui.btnSecondary} onClick={() => setAttempt((n) => n + 1)}>
-            다시 시도
-          </button>
-        </div>
+        <RetryAlert message={r.message} onRetry={() => setAttempt((n) => n + 1)} />
       </div>
     );
   }
