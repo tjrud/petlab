@@ -59,12 +59,6 @@ def _recent_comments(db: Session, post_id: str) -> tuple[list[Comment], int]:
     return list(reversed(latest)), total
 
 
-def _reserve(db: Session, kind: str, user: User, limit: int, message_ko: str, code: str) -> None:
-    """24시간 글·댓글 수 상한 (관리자 제외). 지운 글·댓글도 센다 (지우고 다시 써서 피하지 못하게)."""
-    if not user.is_admin:
-        usage.reserve(db, kind, user, per_user=usage.Cap(limit, message_ko, code))
-
-
 def _post_out(db: Session, svc: DesignService, post: Post, user: User | None) -> PostOut:
     comments, total = _recent_comments(db, post.id)
     shared = None
@@ -127,7 +121,8 @@ def create_post(data: PostIn, request: Request, db: Session = Depends(get_db),
         design = svc.get_editable_design(db, data.design_id, user)  # 내 설계만 공유할 수 있다
         version = svc.get_version(db, design, data.design_version).version  # 이 버전만 공개된다
     limit = request.app.state.settings.post_daily_limit
-    _reserve(db, "post", user, limit, f"글은 24시간에 {limit}개까지 쓸 수 있어요.", "too_many_posts")
+    # 지운 글·댓글도 센다 (지우고 다시 써서 피하지 못하게)
+    usage.reserve_per_member(db, "post", user, limit, f"글은 24시간에 {limit}개까지 쓸 수 있어요.", "too_many_posts")
     post = Post(author_id=user.id, title=data.title, body=data.body, design_id=data.design_id,
                 design_version=version)
     db.add(post)
@@ -173,7 +168,8 @@ def create_comment(post_id: str, data: CommentIn, request: Request, db: Session 
                    user: User = Depends(get_verified_user)):
     post = _get_post(db, post_id)
     limit = request.app.state.settings.comment_daily_limit
-    _reserve(db, "comment", user, limit, f"댓글은 24시간에 {limit}개까지 쓸 수 있어요.", "too_many_comments")
+    usage.reserve_per_member(db, "comment", user, limit, f"댓글은 24시간에 {limit}개까지 쓸 수 있어요.",
+                             "too_many_comments")
     c = Comment(post_id=post.id, author_id=user.id, body=data.body)
     db.add(c)
     db.commit()
