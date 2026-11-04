@@ -12,7 +12,7 @@ export const NAV = [
 ] as const;
 
 function isActive(pathname: string, href: string): boolean {
-  if (href === "/designs") return pathname === "/designs" || pathname.startsWith("/designs/");
+  // 뒤에 "/" 를 붙여 비교하므로 "/design" 이 "/designs" 를 잡지 않는다
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 

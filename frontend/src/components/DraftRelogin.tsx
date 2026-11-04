@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useEffectEvent, useRef } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
+import { withNext } from "@/lib/safeNext";
 import { ui } from "@/lib/ui";
 
 // 로그인이 풀려 보내지 못한 입력 지키기.
@@ -71,7 +72,7 @@ export function ReloginNotice({ next, message }: { next: string; message?: strin
   return (
     <p role="alert" className={ui.error}>
       {message ?? "로그인이 풀렸어요."} 쓰던 내용은 그대로 두었어요. 다시 로그인하고 돌아오면 이어서 쓸 수 있어요.{" "}
-      <Link href={`/login?next=${encodeURIComponent(next)}`} className="font-semibold underline underline-offset-2">
+      <Link href={withNext("/login", next)} className="font-semibold underline underline-offset-2">
         다시 로그인하기
       </Link>
     </p>
