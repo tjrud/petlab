@@ -3,13 +3,22 @@
 from __future__ import annotations
 
 import pytest
+from fastapi.testclient import TestClient
 
-from tests.test_members import CAGE, client, signup, use  # noqa: F401 - client 픽스처
+from app.main import create_app
+from tests.api_helpers import SYRIAN_CAGE as CAGE
+from tests.api_helpers import habitat_body, member_settings, signup, use
 
 ITEMS = [
     {"id": "a1", "asset": "wheel_280", "x_mm": 150, "y_mm": 200, "rotation_deg": 0},
     {"id": "a2", "asset": "hideout_house", "x_mm": 450, "y_mm": 120, "rotation_deg": 90},
 ]
+
+
+@pytest.fixture
+def client(tmp_path):
+    with TestClient(create_app(member_settings(tmp_path))) as c:
+        yield c
 
 
 def body(**kw) -> dict:
@@ -82,6 +91,19 @@ def test_layout_pet_link(client):
     use(client, other)
     r = client.post("/layouts", json=body(pet_id=pet["id"]))
     assert r.status_code == 404 and r.json()["detail"]["code"] == "pet_not_found"
+
+
+def test_someone_elses_pet_codes_for_layouts_and_habitats(client):
+    """남의 반려동물: 배치안 저장은 pet_not_found(화면이 연결만 빼고 다시 저장), 사육 환경 등록은 not_found. 문구는 같다."""
+    signup(client, "user_a")
+    pet = client.post("/me/pets", json={"name": "콩이", "species": "hamster", "size": "syrian"}).json()
+    signup(client, "user_b")
+    r = client.post("/layouts", json=body(pet_id=pet["id"]))
+    assert r.status_code == 404
+    assert r.json()["detail"] == {"code": "pet_not_found", "message_ko": "반려동물 정보를 찾을 수 없습니다."}
+    r = client.post("/habitats", json=habitat_body(pet_id=pet["id"]))
+    assert r.status_code == 404
+    assert r.json()["detail"] == {"code": "not_found", "message_ko": "반려동물 정보를 찾을 수 없습니다."}
 
 
 @pytest.mark.parametrize("override", [

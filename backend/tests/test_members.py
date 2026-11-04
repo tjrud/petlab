@@ -2,101 +2,34 @@
 
 from __future__ import annotations
 
-import atexit
-import os
 from datetime import date, timedelta
-from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, inspect, select, text
 
 from app.auth import COOKIE_NAME
-from app.config import Settings
 from app.db import init_db
 from app.main import create_app
-
-CAGE = {"width_mm": 600, "depth_mm": 400, "height_mm": 300}
-ADMIN = {"username": "admin", "password": "correct horse battery staple"}
-PW = "hamster-love-123"
-
-
-# TEST_PG_URL=postgresql+psycopg://user@host:port 를 주면 테스트마다 새 Postgres DB 로 실행한다 (방언 차이 확인용)
-PG_URL = os.environ.get("TEST_PG_URL")
-_pg_dbs: dict[str, str] = {}
-
-
-def _drop_pg_dbs() -> None:
-    """테스트가 만든 Postgres DB 를 끝날 때 지운다 (쌓이면 디스크를 다 쓴다)."""
-    if not _pg_dbs:
-        return
-    with create_engine(f"{PG_URL}/postgres", isolation_level="AUTOCOMMIT").connect() as conn:
-        for url in _pg_dbs.values():
-            conn.execute(text(f'DROP DATABASE IF EXISTS "{url.rsplit("/", 1)[1]}" WITH (FORCE)'))
-    _pg_dbs.clear()
-
-
-if PG_URL:
-    atexit.register(_drop_pg_dbs)
-
-
-def _db_url(tmp_path) -> str:
-    if not PG_URL:
-        return f"sqlite:///{tmp_path / 'm.db'}"
-    key = str(tmp_path)
-    if key not in _pg_dbs:
-        name = "t_" + uuid4().hex[:12]
-        with create_engine(f"{PG_URL}/postgres", isolation_level="AUTOCOMMIT").connect() as conn:
-            conn.execute(text(f"CREATE DATABASE {name}"))
-        _pg_dbs[key] = f"{PG_URL}/{name}"
-    return _pg_dbs[key]
-
-
-def settings(tmp_path, **kw) -> Settings:
-    base = dict(llm_provider="mock", database_url=_db_url(tmp_path),
-                mesh_cache_dir=tmp_path / "meshes", admin_username=ADMIN["username"],
-                admin_password=ADMIN["password"], session_secret="s" * 40, signup_per_ip_per_hour=1000,
-                _env_file=None)
-    base.update(kw)
-    return Settings(**base)
+from app.models import CageLayout, Comment, Design, Habitat, Pet, Post, User
+from tests.api_helpers import (
+    PG_URL,
+    PW,
+    admin_login,
+    create_habitat,
+    habitat_body,
+    make_design,
+    signup,
+    use,
+)
+from tests.api_helpers import SYRIAN_CAGE as CAGE
+from tests.api_helpers import member_settings as settings
 
 
 @pytest.fixture
 def client(tmp_path):
     with TestClient(create_app(settings(tmp_path))) as c:
         yield c
-
-
-def signup(c: TestClient, username: str, nickname: str | None = None, password: str = PW) -> str:
-    c.cookies.clear()
-    r = c.post("/auth/signup", json={"username": username, "nickname": nickname or f"{username}님", "password": password})
-    assert r.status_code == 201, r.text
-    return r.cookies[COOKIE_NAME]
-
-
-def admin_login(c: TestClient) -> str:
-    c.cookies.clear()
-    r = c.post("/auth/login", json=ADMIN)
-    assert r.status_code == 200, r.text
-    return r.cookies[COOKIE_NAME]
-
-
-def use(c: TestClient, token: str | None) -> TestClient:
-    c.cookies.clear()
-    if token:
-        c.cookies.set(COOKIE_NAME, token)
-    return c
-
-
-def make_design(c: TestClient, prompt: str = "은신처를 왼쪽에", pet_id: str | None = None) -> dict:
-    hab = {"species": "hamster", "size": "syrian", "count": 1, "cage": CAGE}
-    if pet_id:
-        hab["pet_id"] = pet_id
-    r = c.post("/habitats", json=hab)
-    assert r.status_code == 201, r.text
-    r = c.post("/designs", json={"habitat_id": r.json()["id"], "prompt": prompt})
-    assert r.status_code == 201, r.text
-    return r.json()
 
 
 # ── 회원가입·로그인 ─────────────────────────────────────────
@@ -259,6 +192,30 @@ def test_pet_crud_and_isolation(client):
     assert client.get("/me/pets").json() == []
 
 
+def test_rows_whose_species_or_size_left_the_rules_show_raw_keys(client):
+    """규칙 파일(species.yaml)에서 빠진 종·크기로 저장된 옛 행도 500 없이 키를 이름 자리에 보여 준다."""
+    signup(client, "user_a")
+    with client.app.state.session_factory() as db:
+        uid = db.scalar(select(User.id).where(User.username == "user_a"))
+        pet = Pet(owner_id=uid, name="콩이", species="ghost", size="tiny")
+        hab = Habitat(owner_id=uid, species="hamster", size="ghost", count=1,
+                      cage_width_mm=600, cage_depth_mm=400, cage_height_mm=300)
+        lay = CageLayout(owner_id=uid, name="옛 배치", species="ghost", size="tiny",
+                         cage_width_mm=600, cage_depth_mm=400, cage_height_mm=300, items=[])
+        db.add_all([pet, hab, lay])
+        db.commit()
+        pid, hid, lid = pet.id, hab.id, lay.id
+    got = client.get(f"/me/pets/{pid}").json()
+    assert (got["species_name_ko"], got["size_name_ko"]) == ("ghost", "tiny")
+    got = client.get(f"/habitats/{hid}").json()
+    assert (got["species_name_ko"], got["size_name_ko"]) == ("햄스터", "ghost")
+    assert client.get(f"/layouts/{lid}").json()["size_name_ko"] == "tiny"
+    assert client.get("/layouts").json()[0]["size_name_ko"] == "tiny"
+    # 규칙에 있는 종·크기는 한국어 이름
+    p = client.post("/me/pets", json={"name": "두부", "species": "hamster", "size": "syrian"}).json()
+    assert (p["species_name_ko"], p["size_name_ko"]) == ("햄스터", "골든 (시리안)")
+
+
 @pytest.mark.parametrize("body", [
     {"name": "", "species": "hamster", "size": "dwarf"},
     {"name": "콩이", "species": "hamster", "size": "dwarf", "birth_date": (date.today() + timedelta(days=1)).isoformat()},
@@ -301,8 +258,7 @@ def test_design_ownership_and_history(client):
     assert client.post(f"/designs/{d['id']}/revise", json={"prompt": "더 크게"}).status_code == 404
     assert client.post("/designs", json={"habitat_id": d["habitat"]["id"], "prompt": "남의 환경"}).status_code == 404
     assert client.post("/waitlist", json={"email": "b@example.com", "design_id": d["id"]}).status_code == 404
-    hab = {"species": "hamster", "size": "syrian", "count": 1, "cage": CAGE, "pet_id": pet["id"]}
-    assert client.post("/habitats", json=hab).status_code == 404  # 남의 반려동물로 등록 불가
+    assert client.post("/habitats", json=habitat_body(pet_id=pet["id"])).status_code == 404  # 남의 반려동물로 등록 불가
     assert use(client, None).get(f"/designs/{d['id']}").status_code == 404
 
     # 관리자는 모든 설계를 볼 수 있지만(운영) 소유자는 아니다: 대신 수정·공유하지 못하고, 내역 목록에는 자기 것만
@@ -361,8 +317,7 @@ def test_design_quota(tmp_path):
 
         signup(c, "user_b")
         make_design(c)  # 전체 3번째
-        hab = c.post("/habitats", json={"species": "hamster", "size": "syrian", "count": 1, "cage": CAGE}).json()
-        r = c.post("/designs", json={"habitat_id": hab["id"], "prompt": "넷째"})
+        r = c.post("/designs", json={"habitat_id": create_habitat(c), "prompt": "넷째"})
         assert r.status_code == 429 and r.json()["detail"]["code"] == "design_capacity_exceeded"
 
         admin_login(c)  # 관리자는 상한 없음
@@ -437,6 +392,45 @@ def test_unknown_ids_are_404_not_500(client):
     for path in ("/community/posts/nope", "/community/posts/" + "0" * 32, "/me/pets/nope", "/designs/nope"):
         assert client.get(path).status_code == 404, path
     assert client.delete("/community/comments/" + "0" * 32).status_code == 404
+
+
+# 대문자·끝 줄바꿈 id: 경로의 id 는 소문자 16진수 32자리 전체가 맞아야(fullmatch) 찾는다.
+# Postgres 의 VARCHAR(32) 에는 33자(끝 줄바꿈) id 행을 넣을 수 없으므로 그 경우는 SQLite 에서만 넣는다.
+MALFORMED_IDS = ("A" * 32,) if PG_URL else ("A" * 32, "c" * 32 + "\n")
+
+
+def test_rows_under_malformed_ids_are_not_reachable(client):
+    """그런 id 로 저장된 행이 있어도(내 것이라도) 경로로는 닿지 않는다: 404."""
+    signup(client, "user_a")
+    with client.app.state.session_factory() as db:
+        uid = db.scalar(select(User.id).where(User.username == "user_a"))
+        for bad in MALFORMED_IDS:
+            hab = Habitat(id=bad, owner_id=uid, species="hamster", size="syrian", count=1,
+                          cage_width_mm=600, cage_depth_mm=400, cage_height_mm=300)
+            db.add_all([
+                Pet(id=bad, owner_id=uid, name="콩이", species="hamster", size="syrian"), hab,
+                CageLayout(id=bad, owner_id=uid, name="x", species="hamster", size="syrian",
+                           cage_width_mm=600, cage_depth_mm=400, cage_height_mm=300, items=[]),
+                Design(id=bad, habitat=hab, owner_id=uid),
+                Post(id=bad, author_id=uid, title="t", body="b"),
+            ])
+            db.flush()
+            db.add(Comment(id=bad, post_id=bad, author_id=uid, body="c"))
+        db.commit()
+    for bad in MALFORMED_IDS:
+        q = bad.replace("\n", "%0A")
+        for path in (f"/me/pets/{q}", f"/habitats/{q}", f"/layouts/{q}", f"/community/posts/{q}", f"/designs/{q}"):
+            assert client.get(path).status_code == 404, path
+        assert client.delete(f"/community/comments/{q}").status_code == 404, q
+
+
+def test_body_ids_reject_trailing_newline(client):
+    """요청 본문의 id 는 pydantic(rust regex) 이 검사해 끝 줄바꿈도 422. OpenAPI 의 pattern 은 그대로다."""
+    signup(client, "user_a")
+    pet = client.post("/me/pets", json={"name": "콩이", "species": "hamster", "size": "syrian"}).json()
+    assert client.post("/habitats", json=habitat_body(pet_id=pet["id"] + "\n")).status_code == 422
+    schemas = client.get("/openapi.json").json()["components"]["schemas"]
+    assert schemas["HabitatIn"]["properties"]["pet_id"]["anyOf"][0]["pattern"] == "^[0-9a-f]{32}$"
 
 
 # ── 마이그레이션 ───────────────────────────────────────────

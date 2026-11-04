@@ -10,30 +10,16 @@ import pytest
 import trimesh
 from fastapi.testclient import TestClient
 
-from app.config import Settings
 from app.llm.base import LLMSchemaError
 from app.main import create_app
-
-SYRIAN_CAGE = {"width_mm": 600, "depth_mm": 400, "height_mm": 300}
-
-
-def make_settings(tmp_path, **kw) -> Settings:
-    base = dict(llm_provider="mock", database_url=f"sqlite:///{tmp_path / 'test.db'}",
-                mesh_cache_dir=tmp_path / "meshes", _env_file=None)
-    base.update(kw)
-    return Settings(**base)
+from tests.api_helpers import SYRIAN_CAGE, make_settings
+from tests.api_helpers import create_habitat as habitat
 
 
 @pytest.fixture
 def client(tmp_path):
     with TestClient(create_app(make_settings(tmp_path))) as c:
         yield c
-
-
-def habitat(client, cage=SYRIAN_CAGE, size="syrian", count=1) -> str:
-    r = client.post("/habitats", json={"species": "hamster", "size": size, "count": count, "cage": cage})
-    assert r.status_code == 201, r.text
-    return r.json()["id"]
 
 
 def design(client, prompt="은신처를 왼쪽에 넣고 싶어요", **kw) -> dict:

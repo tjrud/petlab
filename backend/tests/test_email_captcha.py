@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import inspect, text, update
+from sqlalchemy import inspect, select, text, update
 from sqlalchemy.exc import IntegrityError
 
 from app import captcha as captcha_mod
@@ -24,9 +24,10 @@ from app.mailer import FileMailer, Mail, MailError, MemoryMailer, ResendMailer, 
 from app.main import create_app
 from app.models import EmailToken, UsageEvent, User
 from app.names import email_key
-from tests.test_members import CAGE, PG_URL, PW, _db_url, admin_login, settings, use
+from tests.api_helpers import PG_URL, PW, admin_login, create_habitat, db_url, habitat_body, use
+from tests.api_helpers import member_settings as settings
 
-HAB = {"species": "hamster", "size": "syrian", "count": 1, "cage": CAGE}
+HAB = habitat_body()
 EMAIL_ON = {"email_provider": "file", "email_from": "NestForge <no-reply@nestforge.test>",
             "app_base_url": "https://nestforge.test"}
 TOKEN_RE = re.compile(r"https://nestforge\.test/verify-email\?token=([A-Za-z0-9_\-]+)")
@@ -221,6 +222,24 @@ def test_only_one_account_can_verify_an_address(client, mailer):
     assert victim["user"]["email"] == "victim@gmail.com"
 
 
+TAKEN = {"code": "email_taken", "message_ko": "이 이메일은 이미 다른 계정에서 인증했어요. 다른 이메일로 바꿔 주세요."}
+
+
+@pytest.mark.parametrize("race", [False, True])
+def test_verifying_an_address_another_account_verified_is_409(tmp_path, mailer, monkeypatch, race):
+    from app.services import email_verify
+    with TestClient(app_with(tmp_path, mailer=mailer, **EMAIL_ON)) as c:
+        signup(c, "user_a", "a@example.com")
+        signup(c, "user_b", "a+b@example.com")
+        assert c.post("/auth/verify-email", json={"token": last_token(mailer, "a@example.com")}).status_code == 200
+        if race:  # 사전 확인을 지나친 것처럼: 부분 유일 인덱스(IntegrityError)가 막는다
+            monkeypatch.setattr(email_verify, "verified_email_taken", lambda *a, **k: False)
+        r = c.post("/auth/verify-email", json={"token": last_token(mailer, "a+b@example.com")})
+        assert r.status_code == 409 and r.json()["detail"] == TAKEN
+        with c.app.state.session_factory() as db:
+            assert db.scalar(select(User).where(User.username == "user_b")).email_verified_at is None
+
+
 def test_verified_email_unique_index(client):
     db = client.app.state.session_factory()
     now = datetime.now(timezone.utc)
@@ -240,7 +259,7 @@ def test_admin_and_members_without_email(client, mailer):
     admin_login(client)
     me = client.get("/auth/me").json()["user"]
     assert me["email_verified"] is True and me["email"] is None
-    hid = client.post("/habitats", json=HAB).json()["id"]
+    hid = create_habitat(client)
     assert client.post("/designs", json={"habitat_id": hid, "prompt": "은신처"}).status_code == 201
     assert client.post("/auth/verify-email/resend").status_code == 403
     assert client.patch("/me/email", json={"email": "a@example.com", "current_password": "x"}).status_code == 403
@@ -267,7 +286,7 @@ def test_email_disabled_keeps_previous_behavior(tmp_path):
         assert st["email_verification"] is False
         out = signup(c, "user_a", None)
         assert out["verification_email_sent"] is None and out["user"]["email_verified"] is False
-        hid = c.post("/habitats", json=HAB).json()["id"]
+        hid = create_habitat(c)
         assert c.post("/designs", json={"habitat_id": hid, "prompt": "은신처"}).status_code == 201
         assert c.post("/auth/verify-email/resend").status_code == 403
 
@@ -282,7 +301,7 @@ def test_misconfigured_email_closes_signup_but_not_existing_members(tmp_path):
                                          "email": "b@example.com"})
         assert r.status_code == 503 and r.json()["detail"]["code"] == "email_unavailable"
         use(c, token)
-        hid = c.post("/habitats", json=HAB).json()["id"]
+        hid = create_habitat(c)
         assert c.post("/designs", json={"habitat_id": hid, "prompt": "은신처"}).status_code == 201
 
 
@@ -471,6 +490,30 @@ def test_email_settings_problems(kw, problems):
     assert [p.split(" ")[0].split("(")[0] for p in s.email_problems] == problems
 
 
+@pytest.mark.parametrize("val", [None, "", "   "])
+def test_empty_secrets_count_as_missing(val):
+    """비어 있는 비밀값은 없는 것과 같다. 공백뿐인 값은 CAPTCHA·관리자 비밀번호에서만 없는 것으로 친다."""
+    kw = {} if val is None else {"turnstile_secret_key": val, "resend_api_key": val, "admin_password": val}
+    s = Settings(_env_file=None, email_provider="resend", email_from="a@b.c", **kw)
+    assert s.captcha_mode == "disabled" and s.auth_mode == "disabled"
+    assert ("RESEND_API_KEY" in [p.split(" ")[0] for p in s.email_problems]) == (val != "   ")
+
+
+@pytest.mark.parametrize("val,expected", [(None, ""), ("", ""), ("  pw ", "  pw ")])
+def test_mailers_read_optional_secrets(val, expected):
+    kw = {} if val is None else {"smtp_password": val, "resend_api_key": val}
+    s = Settings(_env_file=None, **kw)
+    assert SmtpMailer(s).password == expected and ResendMailer(s).api_key == expected
+
+
+def test_turnstile_verifier_sends_empty_secret_when_unset(monkeypatch):
+    sent = {}
+    monkeypatch.setattr(captcha_mod.httpx, "post",
+                        lambda url, data, timeout: sent.update(data) or _Resp(200, {"success": True}))
+    assert captcha_mod.turnstile_verifier(Settings(_env_file=None))("tok", None) is True
+    assert sent["secret"] == ""
+
+
 @pytest.mark.parametrize("a,b,same", [
     ("Kong@Example.com", "kong@example.com", True),
     ("kong+spam@example.com", "kong@example.com", True),
@@ -485,7 +528,7 @@ def test_email_key(a, b, same):
 
 
 def test_migration_adds_email_columns_and_indexes(tmp_path):
-    url = _db_url(tmp_path)
+    url = db_url(tmp_path)
     eng = make_engine(url)
     ts = "TIMESTAMP WITH TIME ZONE"
     with eng.begin() as conn:  # 직전 배포(회원 기능)의 users 테이블

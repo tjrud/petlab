@@ -19,7 +19,6 @@ from build123d import Align, Box
 from fastapi.testclient import TestClient
 
 import app.services.design_service as design_service
-from app.config import Settings
 from app.geometry.fingerprint import geometry_fingerprint
 from app.main import create_app
 from app.models import DesignVersion, Habitat
@@ -27,19 +26,14 @@ from app.services.engine import EngineResult
 from app.templates.base import ParamConstraint
 from app.templates.hideout import HideoutTemplate
 from app.templates.tunnel import TunnelTemplate
+from tests.api_helpers import create_habitat
+from tests.api_helpers import make_settings as settings
 
 CAGE = {"width_mm": 900, "depth_mm": 500, "height_mm": 300}
 
 
-def settings(tmp_path, **kw) -> Settings:
-    base = dict(llm_provider="mock", database_url=f"sqlite:///{tmp_path / 'test.db'}",
-                mesh_cache_dir=tmp_path / "meshes", _env_file=None)
-    base.update(kw)
-    return Settings(**base)
-
-
 def make_design(c: TestClient, prompt: str = "은신처") -> dict:
-    hid = c.post("/habitats", json={"species": "hamster", "size": "syrian", "count": 1, "cage": CAGE}).json()["id"]
+    hid = create_habitat(c, CAGE)
     r = c.post("/designs", json={"habitat_id": hid, "prompt": prompt})
     assert r.status_code == 201, r.text
     d = r.json()
@@ -135,7 +129,7 @@ def test_version_records_leave_unbuilt_items_out_of_effective_spec(tmp_path):
     """엔진이 만들지 못한 구조물은 저장 기록(items)과 보정 반영 명세(effective_spec)에서 빠지고,
     LLM 명세(llm_spec)는 바뀌지 않는다. 하나도 만들지 못하면 보정 반영 명세는 LLM 명세 그대로다."""
     with TestClient(create_app(settings(tmp_path))) as c:
-        hid = c.post("/habitats", json={"species": "hamster", "size": "syrian", "count": 1, "cage": CAGE}).json()["id"]
+        hid = create_habitat(c, CAGE)
         svc = c.app.state.design_service
         with c.app.state.session_factory() as db:
             h = db.get(Habitat, hid)
