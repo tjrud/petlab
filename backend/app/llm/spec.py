@@ -9,7 +9,7 @@ LLM 은 형상을 만들지 않는다. 이 스키마로
 
 from __future__ import annotations
 
-import copy
+import json
 from functools import lru_cache
 from typing import Annotated, Any, Literal, Union
 
@@ -125,12 +125,9 @@ def _sanitize(node: Any) -> Any:
 
 @lru_cache
 def _api_schema_cached() -> str:
-    import json
-
     return json.dumps(_sanitize(design_spec_model().model_json_schema()), ensure_ascii=False)
 
 
 def api_schema() -> dict:
-    import json
-
-    return copy.deepcopy(json.loads(_api_schema_cached()))
+    """호출할 때마다 새 dict 를 돌려준다 (호출 측이 바꿔도 캐시 문자열은 그대로)."""
+    return json.loads(_api_schema_cached())

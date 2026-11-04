@@ -36,11 +36,3 @@ class ValidationReport(BaseModel):
 
     def extend(self, issues: list[Issue]) -> None:
         self.issues.extend(issues)
-
-    def summary(self) -> dict:
-        return {
-            "passed": self.passed,
-            "errors": len(self.errors),
-            "warnings": sum(1 for i in self.issues if i.severity == Severity.warning),
-            "auto_fixed": sum(1 for i in self.issues if i.auto_fixed),
-        }
