@@ -175,7 +175,7 @@ def test_golden_engine_placements(rules):
         0: Placement(70.0, 294.5, 0), 1: Placement(300.0000002367581, 47.08098861837907, 180),
         2: Placement(492.0, 292.0, 270)}
 
-    # 공간 보정(_shrink_to_fit)이 같은 항목 객체로 place_all 을 여러 번 부르는 경로
+    # 공간 보정(_shrink_to_fit): 케이지에 들어가지 않는 항목을 줄여 가며 place_all 을 다시 부르는 경로
     c = ctx(rules, Cage(260, 230, 300))
     spec = ItemSpec("hideout", {"width_mm": 300, "depth_mm": 250, "height_mm": 150, "entrance_diameter_mm": 75})
     res = run_engine([spec], c, measure_thickness=False)

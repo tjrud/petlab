@@ -11,7 +11,7 @@ from sqlalchemy import create_engine, inspect, select, text
 from app.auth import COOKIE_NAME
 from app.db import init_db
 from app.main import create_app
-from app.models import CageLayout, Comment, Design, Habitat, Pet, Post, User
+from app.models import CageLayout, Comment, Design, DesignVersion, Habitat, Pet, Post, User
 from tests.api_helpers import (
     PG_URL,
     PW,
@@ -402,8 +402,12 @@ MALFORMED_IDS = ("A" * 32,) if PG_URL else ("A" * 32, "c" * 32 + "\n")
 def test_rows_under_malformed_ids_are_not_reachable(client):
     """그런 id 로 저장된 행이 있어도(내 것이라도) 경로로는 닿지 않는다: 404."""
     signup(client, "user_a")
+    real = make_design(client)
     with client.app.state.session_factory() as db:
         uid = db.scalar(select(User.id).where(User.username == "user_a"))
+        # 설계는 버전이 있어야 형식 검사 말고는 막는 것이 없다 (버전이 없으면 다른 이유로 404)
+        v = db.scalar(select(DesignVersion).where(DesignVersion.design_id == real["id"]))
+        version_cols = {k: getattr(v, k) for k in DesignVersion.__table__.columns.keys() if k not in ("id", "design_id")}
         for bad in MALFORMED_IDS:
             hab = Habitat(id=bad, owner_id=uid, species="hamster", size="syrian", count=1,
                           cage_width_mm=600, cage_depth_mm=400, cage_height_mm=300)
@@ -415,7 +419,8 @@ def test_rows_under_malformed_ids_are_not_reachable(client):
                 Post(id=bad, author_id=uid, title="t", body="b"),
             ])
             db.flush()
-            db.add(Comment(id=bad, post_id=bad, author_id=uid, body="c"))
+            db.add_all([Comment(id=bad, post_id=bad, author_id=uid, body="c"),
+                        DesignVersion(design_id=bad, **version_cols)])
         db.commit()
     for bad in MALFORMED_IDS:
         q = bad.replace("\n", "%0A")
