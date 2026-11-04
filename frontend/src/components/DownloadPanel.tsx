@@ -45,13 +45,7 @@ export default function DownloadPanel({
     setBusy(true);
     setError(null);
     try {
-      let res: Response;
-      try {
-        res = await fetch(url, { credentials: "include" });
-      } catch {
-        setError(NETWORK_ERROR);
-        return;
-      }
+      const res = await fetch(url, { credentials: "include" });
       if (!res.ok) {
         setError((await errorFrom(res)).messageKo);
         return;
@@ -66,6 +60,7 @@ export default function DownloadPanel({
       a.remove();
       setTimeout(() => URL.revokeObjectURL(href), 30_000);
     } catch {
+      // 요청 자체가 실패했거나(네트워크) 응답을 읽지 못한 경우
       setError(NETWORK_ERROR);
     } finally {
       setBusy(false);
