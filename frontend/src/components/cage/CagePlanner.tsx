@@ -28,6 +28,7 @@ import {
   round1,
   snapPosition,
 } from "@/lib/cageLayout";
+import { histReducer, metaOf, readDraft, snapshotOf, writeDraft, type Doc, type Meta } from "@/lib/cagePlannerDoc";
 import type { Cage, CageLayout, CageLayoutInput, CageLayoutSummary, LayoutItem, LayoutRules, Pet, SpeciesResponse } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
@@ -39,7 +40,6 @@ const PlannerScene = dynamic(() => import("@/components/cage/PlannerScene"), {
 // 처음 크기는 종 규칙의 사육장 최소 기준(100×50×50cm, species.yaml enclosure_min_floor_mm)에 맞춰요
 const DEFAULT_CAGE: Cage = { width_mm: 1000, depth_mm: 500, height_mm: 500 };
 const DEFAULT_NAME = "새 배치안";
-const DRAFT_KEY = "nestforge:cage-draft:v1";
 
 /** 지금 화면에 붙어 있는 플래너의 번호. 가려졌다 다시 보일 때(Activity)는 그대로이고,
  *  다른 화면을 여럿 다녀와 플래너가 새로 만들어지면 바뀌어요. 옛 플래너에 늦게 온 저장 결과가 새 플래너를 건드리지 않게 해요 */
@@ -52,78 +52,11 @@ const MAX_ITEMS = 80; // 서버 MAX_LAYOUT_ITEMS 와 같다
 const STARTER = ["hideout_multi", "wheel", "sand_bath", "bowl", "water_stand"];
 const WHEELS = ["wheel_280", "wheel_210"];
 
-// ── 되돌리기 기록 ──
-
-type Doc = { cage: Cage; items: LayoutItem[] };
-type Hist = { past: Doc[]; present: Doc; future: Doc[] };
-type HistAction =
-  | { type: "commit"; fn: (d: Doc) => Doc }
-  | { type: "preview"; fn: (d: Doc) => Doc } // 끄는 중: 기록 없이 바꾼다
-  | { type: "settle"; base: Doc } // 끌기를 마치면 시작 전 상태를 기록에 넣는다
-  | { type: "undo" }
-  | { type: "redo" }
-  | { type: "reset"; doc: Doc };
-
-const HISTORY_LIMIT = 100;
-
-function histReducer(h: Hist, a: HistAction): Hist {
-  switch (a.type) {
-    case "commit": {
-      const next = a.fn(h.present);
-      if (next === h.present) return h;
-      return { past: [...h.past, h.present].slice(-HISTORY_LIMIT), present: next, future: [] };
-    }
-    case "preview":
-      return { ...h, present: a.fn(h.present) };
-    case "settle":
-      if (a.base === h.present) return h;
-      return { past: [...h.past, a.base].slice(-HISTORY_LIMIT), present: h.present, future: [] };
-    case "undo":
-      if (!h.past.length) return h;
-      return { past: h.past.slice(0, -1), present: h.past[h.past.length - 1], future: [h.present, ...h.future] };
-    case "redo":
-      if (!h.future.length) return h;
-      return { past: [...h.past, h.present], present: h.future[0], future: h.future.slice(1) };
-    case "reset":
-      return { past: [], present: a.doc, future: [] };
-  }
-}
-
-type Meta = { name: string; species: string; size: string; petId: string | null; layoutId: string | null };
-type Draft = Meta & Doc;
-
-/** 서버가 돌려준 배치안에서 화면 정보(이름·종·크기·반려동물·배치안 ID)만 꺼내요 */
-const metaOf = (l: CageLayout): Meta => ({ name: l.name, species: l.species, size: l.size, petId: l.pet_id, layoutId: l.id });
-
 /** 새 항목: 빈 자리(벽·모서리부터)에 회전 0으로 놓아요. 키 순서는 저장 비교(snapshotOf)와 맞춰 둬요 */
 function newItemAt(cage: Cage, items: LayoutItem[], asset: CageAsset, rules: LayoutRules | null): LayoutItem {
   const p = findFreeSpot(cage, items, asset, 0, rules);
   return { id: newItemId(), asset: asset.key, x_mm: round1(p.x), y_mm: round1(p.y), rotation_deg: 0 };
 }
-
-function readDraft(): Draft | null {
-  try {
-    const raw = window.localStorage.getItem(DRAFT_KEY);
-    if (!raw) return null;
-    const d = JSON.parse(raw) as Draft;
-    if (!d || typeof d !== "object" || !Array.isArray(d.items) || !d.cage) return null;
-    return d;
-  } catch {
-    return null;
-  }
-}
-
-function writeDraft(d: Draft | null) {
-  try {
-    if (d) window.localStorage.setItem(DRAFT_KEY, JSON.stringify(d));
-    else window.localStorage.removeItem(DRAFT_KEY);
-  } catch {
-    /* 저장소를 쓸 수 없는 브라우저(사생활 보호 모드 등): 임시 저장 없이 계속 */
-  }
-}
-
-const snapshotOf = (m: Meta, d: Doc) =>
-  JSON.stringify({ n: m.name, s: m.species, z: m.size, p: m.petId, c: d.cage, i: d.items });
 
 function isTyping(t: EventTarget | null): boolean {
   const el = t as HTMLElement | null;
