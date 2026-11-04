@@ -3,10 +3,11 @@
 import { useState } from "react";
 
 import type { ApiError } from "@/lib/api";
+import { josa } from "@/lib/josa";
 import type { Pet, SpeciesOption } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
-import { btnPrimarySm, withObjectParticle } from "./common";
+import { btnPrimarySm } from "./common";
 import PetCard from "./PetCard";
 import PetForm from "./PetForm";
 
@@ -44,7 +45,7 @@ export default function PetSection({
     const list = pets ?? [];
     const exists = list.some((p) => p.id === pet.id);
     onPetsChange(exists ? list.map((p) => (p.id === pet.id ? pet : p)) : [...list, pet]);
-    setNotice(exists ? `${pet.name} 정보를 고쳤어요.` : `${withObjectParticle(pet.name)} 등록했어요.`);
+    setNotice(exists ? `${pet.name} 정보를 고쳤어요.` : `${josa(pet.name, "을를")} 등록했어요.`);
     setEditing(null);
   };
 
