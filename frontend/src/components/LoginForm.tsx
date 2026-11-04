@@ -5,20 +5,10 @@ import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 
 import { useAuth, useAuthRecheck, useLogout } from "@/components/AuthProvider";
+import { AuthChecking } from "@/components/LoginRequired";
 import { api, errorText } from "@/lib/api";
 import { safeNext, withNext } from "@/lib/safeNext";
 import { ui } from "@/lib/ui";
-
-/** 로그인 상태를 서버에 다시 확인하는 동안 (로그인·회원가입 화면) */
-export function AuthChecking() {
-  return (
-    <div className={ui.card}>
-      <p role="status" className={ui.muted}>
-        잠시만 기다려 주세요…
-      </p>
-    </div>
-  );
-}
 
 /** 서버에 닿지 못해 로그인 상태를 확인하지 못했을 때. 로그아웃·가입 마감으로 오해하지 않게 연결 문제라고 알린다 */
 export function ServerUnreachable() {

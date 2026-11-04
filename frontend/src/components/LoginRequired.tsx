@@ -5,6 +5,18 @@ import { useEffect, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
 import { withNext } from "@/lib/safeNext";
+import { ui } from "@/lib/ui";
+
+/** 로그인 상태를 서버에 다시 확인하는 동안 (로그인·회원가입·내 정보 화면) */
+export function AuthChecking() {
+  return (
+    <div className={ui.card}>
+      <p role="status" className={ui.muted}>
+        잠시만 기다려 주세요…
+      </p>
+    </div>
+  );
+}
 
 /** 로그인이 필요한 기능 대신 보여주는 안내 (로그인 후 지금 화면으로 돌아온다) */
 export default function LoginRequired({

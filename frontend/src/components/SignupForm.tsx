@@ -5,7 +5,8 @@ import { useSearchParams } from "next/navigation";
 import { useId, useRef, useState } from "react";
 
 import { useAuth, useAuthRecheck } from "@/components/AuthProvider";
-import { AlreadyLoggedIn, AuthChecking, ServerUnreachable } from "@/components/LoginForm";
+import { AlreadyLoggedIn, ServerUnreachable } from "@/components/LoginForm";
+import { AuthChecking } from "@/components/LoginRequired";
 import { Field, passwordRuleError } from "@/components/me/common";
 import Turnstile, { type TurnstileHandle } from "@/components/Turnstile";
 import { api, ApiError, errorText } from "@/lib/api";
