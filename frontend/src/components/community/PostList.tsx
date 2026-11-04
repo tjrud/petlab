@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { COMMUNITY_PATH, errorText, Placeholder } from "@/components/community/common";
 import Pagination from "@/components/community/Pagination";
 import PostListItem from "@/components/community/PostListItem";
+import RetryAlert from "@/components/RetryAlert";
 import { api } from "@/lib/api";
 import type { Paged, PostSummary } from "@/lib/types";
 import { ui } from "@/lib/ui";
@@ -57,16 +58,7 @@ export default function PostList() {
   const r = result?.key === key ? result : null;
   if (!r) return <PostListPlaceholder />;
 
-  if (r.kind === "error") {
-    return (
-      <div role="alert" className={`${ui.error} flex flex-wrap items-center justify-between gap-3`}>
-        <span>{r.message}</span>
-        <button type="button" className={ui.btnSecondary} onClick={() => setAttempt((n) => n + 1)}>
-          다시 시도
-        </button>
-      </div>
-    );
-  }
+  if (r.kind === "error") return <RetryAlert message={r.message} onRetry={() => setAttempt((n) => n + 1)} />;
 
   const { items, total, page_size } = r.data;
   const totalPages = Math.max(1, Math.ceil(total / page_size));

@@ -10,7 +10,6 @@ import copy
 import json
 import logging
 import os
-import re
 import threading
 import uuid
 from collections.abc import Callable, Iterable
@@ -30,6 +29,7 @@ from app.llm.spec import parse_spec, to_item_specs
 from app.models import Design, DesignVersion, Habitat, Pet, Post, User
 from app.rules.loader import RuleBook
 from app.schemas import (
+    ID_RE,
     CageIn,
     DesignListItem,
     DesignListOut,
@@ -72,9 +72,6 @@ class ExportBlockedError(RuntimeError):
         super().__init__(message_ko)
         self.message_ko = message_ko
         self.errors = errors
-
-
-_ID_RE = re.compile(r"[0-9a-f]{32}")
 
 
 class MeshRegenerationError(RuntimeError):
@@ -277,18 +274,17 @@ class DesignService:
         return h
 
     def get_habitat(self, db: Session, habitat_id: str, user: User) -> Habitat:
-        h = db.get(Habitat, habitat_id) if _ID_RE.fullmatch(habitat_id) else None
+        h = db.get(Habitat, habitat_id) if ID_RE.fullmatch(habitat_id) else None
         # 남의 사육 환경은 없는 것과 같이 다룬다 (존재 여부도 알리지 않음)
         if h is None or not (user.is_admin or (h.owner_id is not None and h.owner_id == user.id)):
             raise NotFoundError("사육 환경을 찾을 수 없습니다.")
         return h
 
     def habitat_out(self, h: Habitat) -> HabitatOut:
-        sp = self.rules.species_file.species.get(h.species)
-        size = sp.sizes.get(h.size) if sp else None
+        species_name, size_name = self.rules.display_names(h.species, h.size)
         return HabitatOut(
-            id=h.id, pet_id=h.pet_id, species=h.species, species_name_ko=sp.display_name if sp else h.species,
-            size=h.size, size_name_ko=size.display_name if size else h.size, count=h.count,
+            id=h.id, pet_id=h.pet_id, species=h.species, species_name_ko=species_name,
+            size=h.size, size_name_ko=size_name, count=h.count,
             cage=CageIn(width_mm=h.cage_width_mm, depth_mm=h.cage_depth_mm, height_mm=h.cage_height_mm),
             created_at=h.created_at,
         )
@@ -426,7 +422,7 @@ class DesignService:
 
     def get_design(self, db: Session, design_id: str) -> Design:
         """권한 확인 없이 찾는다. API 에서는 get_visible / get_editable_design 을 쓴다."""
-        d = db.get(Design, design_id) if _ID_RE.fullmatch(design_id) else None
+        d = db.get(Design, design_id) if ID_RE.fullmatch(design_id) else None
         if d is None:
             raise NotFoundError("설계를 찾을 수 없습니다.")
         return d

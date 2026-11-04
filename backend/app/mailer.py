@@ -22,7 +22,7 @@ from typing import Protocol
 
 import httpx
 
-from app.config import Settings
+from app.config import Settings, secret_value
 
 log = logging.getLogger(__name__)
 
@@ -50,7 +50,7 @@ class SmtpMailer:
         self.host = settings.smtp_host.strip()
         self.port = settings.smtp_port
         self.username = settings.smtp_username.strip()
-        self.password = settings.smtp_password.get_secret_value() if settings.smtp_password else ""
+        self.password = secret_value(settings.smtp_password)
         self.security = settings.smtp_security
         self.sender = settings.email_from.strip()
 
@@ -90,7 +90,7 @@ class ResendMailer:
     API_URL = "https://api.resend.com/emails"
 
     def __init__(self, settings: Settings):
-        self.api_key = settings.resend_api_key.get_secret_value() if settings.resend_api_key else ""
+        self.api_key = secret_value(settings.resend_api_key)
         self.sender = settings.email_from.strip()
 
     def send(self, mail: Mail) -> None:

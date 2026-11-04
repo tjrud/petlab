@@ -57,6 +57,11 @@ class EmailUnavailableError(AppError):
                          code="email_unavailable")
 
 
+class EmailTakenError(ConflictError):
+    def __init__(self) -> None:
+        super().__init__("이 이메일은 이미 다른 계정에서 인증했어요. 다른 이메일로 바꿔 주세요.", code="email_taken")
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -182,8 +187,7 @@ def verify(db: Session, token: str) -> None:
             raise InvalidTokenError()
         if current.email_verified_at is None:
             if verified_email_taken(db, current.email_key or "", exclude_user_id=user_id):
-                raise ConflictError("이 이메일은 이미 다른 계정에서 인증했어요. 다른 이메일로 바꿔 주세요.",
-                                    code="email_taken")
+                raise EmailTakenError()
             done = db.execute(update(User).where(User.id == user_id, User.email == address,
                                                  User.email_verified_at.is_(None)).values(email_verified_at=now))
             if done.rowcount != 1:  # 그 사이 주소가 바뀌었거나 이미 인증됐다: 다시 확인
@@ -193,8 +197,7 @@ def verify(db: Session, token: str) -> None:
         db.commit()
     except IntegrityError:  # 같은 주소를 두 계정이 동시에 인증 (ux_users_email_key_verified)
         db.rollback()
-        raise ConflictError("이 이메일은 이미 다른 계정에서 인증했어요. 다른 이메일로 바꿔 주세요.",
-                            code="email_taken") from None
+        raise EmailTakenError() from None
     except BaseException:
         db.rollback()
         raise

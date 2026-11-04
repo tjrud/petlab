@@ -18,6 +18,11 @@ MIN_ADMIN_PASSWORD_LEN = 16
 MAX_ADMIN_USERNAME_LEN = 32  # users.username 열 길이
 
 
+def secret_value(s: SecretStr | None) -> str:
+    """선택 비밀값의 내용 (없으면 빈 문자열)."""
+    return s.get_secret_value() if s is not None else ""
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=(REPO_DIR / ".env", BACKEND_DIR / ".env"),
@@ -109,7 +114,7 @@ class Settings(BaseSettings):
     @property
     def auth_problems(self) -> list[str]:
         """관리자 인증 설정 문제 (비밀값 자체는 담지 않는다). 비어 있으면 정상 또는 인증 꺼짐."""
-        password = self.admin_password.get_secret_value() if self.admin_password else ""
+        password = secret_value(self.admin_password)
         if not password.strip():
             return ["ADMIN_PASSWORD 가 없습니다"] if self.auth_required else []
         problems = []
@@ -121,7 +126,7 @@ class Settings(BaseSettings):
             problems.append("ADMIN_USERNAME 이 비어 있습니다")
         if len(self.admin_username) > MAX_ADMIN_USERNAME_LEN:
             problems.append(f"ADMIN_USERNAME 은 {MAX_ADMIN_USERNAME_LEN}자 이하여야 합니다")
-        secret = self.session_secret.get_secret_value() if self.session_secret else ""
+        secret = secret_value(self.session_secret)
         if len(secret.encode()) < MIN_SESSION_SECRET_BYTES:
             problems.append(f"SESSION_SECRET 이 없거나 {MIN_SESSION_SECRET_BYTES}바이트보다 짧습니다")
         return problems
@@ -136,7 +141,7 @@ class Settings(BaseSettings):
             problems.append("EMAIL_FROM 이 없습니다")
         if self.email_provider == "smtp" and not self.smtp_host.strip():
             problems.append("SMTP_HOST 가 없습니다")
-        if self.email_provider == "resend" and not (self.resend_api_key and self.resend_api_key.get_secret_value()):
+        if self.email_provider == "resend" and not secret_value(self.resend_api_key):
             problems.append("RESEND_API_KEY 가 없습니다")
         if not self.email_base_url.startswith(("https://", "http://")):
             problems.append("APP_BASE_URL(메일 속 링크 주소)이 없거나 http(s):// 로 시작하지 않습니다")
@@ -171,7 +176,7 @@ class Settings(BaseSettings):
     @property
     def captcha_mode(self) -> Literal["disabled", "enabled", "misconfigured"]:
         site = bool(self.turnstile_site_key.strip())
-        secret = bool(self.turnstile_secret_key and self.turnstile_secret_key.get_secret_value().strip())
+        secret = bool(secret_value(self.turnstile_secret_key).strip())
         if site and secret:
             return "enabled"
         return "misconfigured" if site or secret else "disabled"
@@ -181,7 +186,7 @@ class Settings(BaseSettings):
         """disabled: 인증 꺼짐(로컬 개발) · enabled: 관리자 로그인 필요 · misconfigured: 설정 오류로 API 차단"""
         if self.auth_problems:
             return "misconfigured"
-        if self.admin_password and self.admin_password.get_secret_value().strip():
+        if secret_value(self.admin_password).strip():
             return "enabled"
         return "disabled"
 

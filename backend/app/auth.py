@@ -29,9 +29,9 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.config import Settings
-from app.errors import ForbiddenError
 from app.models import User
 from app.names import nickname_key
+from app.schemas import ID_RE
 
 log = logging.getLogger(__name__)
 
@@ -42,7 +42,6 @@ MAX_TOKEN_LIFETIME_S = 720 * 3600 + 60  # SESSION_TTL_HOURS 상한(30일) + 시�
 
 LOCAL_USERNAME = "local"  # 인증이 꺼진 로컬 개발 환경의 가상 관리자
 ADMIN_NICKNAME = "NestForge 운영팀"  # 화면에는 "관리자" 배지와 함께 보인다
-_ID_RE = __import__("re").compile(r"[0-9a-f]{32}")
 
 
 class AuthRequiredError(RuntimeError):
@@ -280,10 +279,6 @@ class LoginRateLimiter:
         self._saturated_until = now + self.window_s
         log.error("로그인 실패 기록이 가득 찼습니다 (차단된 키 %d개). 새 접속의 로그인을 잠시 막습니다.", len(self._failures))
 
-    def reset(self, key: str) -> None:
-        with self._lock:
-            self._failures.pop(key, None)
-
     def __len__(self) -> int:
         return len(self._failures)
 
@@ -343,7 +338,7 @@ def get_optional_user(request: Request, db: Session = Depends(get_db)) -> User |
     if mode == "misconfigured":
         return None
     claims = verify_token(request.cookies.get(COOKIE_NAME), signing_key(settings))
-    if claims is None or not _ID_RE.fullmatch(claims["sub"]):
+    if claims is None or not ID_RE.fullmatch(claims["sub"]):
         return None
     user = db.get(User, claims["sub"])
     # 읽기 트랜잭션을 끝내 DB 연결을 풀에 돌려준다. 이 의존성과 API 함수는 서로 다른 스레드 작업으로 실행되므로,
@@ -373,13 +368,3 @@ def get_verified_user(request: Request, user: User = Depends(get_current_user)) 
     if needs_verification(request.app.state.settings, user):
         raise EmailUnverifiedError()
     return user
-
-
-def get_admin_user(user: User = Depends(get_current_user)) -> User:
-    if not user.is_admin:
-        raise ForbiddenError("관리자만 할 수 있어요.")
-    return user
-
-
-def require_user(user: User = Depends(get_current_user)) -> None:
-    """라우터 전체에 붙이는 로그인 필수 의존성."""

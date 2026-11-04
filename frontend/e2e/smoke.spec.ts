@@ -1,13 +1,13 @@
 import { expect, type Page, test } from "@playwright/test";
 
+import { submitLogin } from "./support";
+
 const SHOTS = process.env.E2E_SCREENSHOT_DIR;
 const ADMIN = { username: "admin", password: "e2e-admin-password" };
 
 async function login(page: Page) {
   await page.goto("/login?next=/design");
-  await page.getByLabel("아이디").fill(ADMIN.username);
-  await page.getByLabel("비밀번호").fill(ADMIN.password);
-  await page.getByRole("button", { name: "로그인", exact: true }).click();
+  await submitLogin(page, ADMIN.username, ADMIN.password);
   await page.waitForURL((url) => url.pathname === "/design");
 }
 
@@ -29,9 +29,7 @@ test("관리자 로그인: 사이트는 공개, 설계 기능은 로그인 후�
   await expect(page.getByRole("heading", { name: "로그인", exact: true })).toBeVisible();
   await expect(page.getByLabel("아이디")).toHaveValue(""); // 아이디를 미리 채워 두지 않는다
   // 틀린 비밀번호
-  await page.getByLabel("아이디").fill(ADMIN.username);
-  await page.getByLabel("비밀번호").fill("wrong-password");
-  await page.getByRole("button", { name: "로그인", exact: true }).click();
+  await submitLogin(page, ADMIN.username, "wrong-password");
   await expect(page.getByText("아이디 또는 비밀번호가 올바르지 않아요.")).toBeVisible();
   // 올바른 비밀번호 → 원래 화면으로
   await page.getByLabel("비밀번호").fill(ADMIN.password);
@@ -59,17 +57,13 @@ test("로그인 후 이동 경로는 같은 사이트 안으로만", async ({ pa
     "/a/..//evil.example",
   ]) {
     await page.goto(`/login?next=${encodeURIComponent(next)}`);
-    await page.getByLabel("아이디").fill(ADMIN.username);
-    await page.getByLabel("비밀번호").fill(ADMIN.password);
-    await page.getByRole("button", { name: "로그인", exact: true }).click();
+    await submitLogin(page, ADMIN.username, ADMIN.password);
     await page.waitForURL((url) => url.origin === "http://localhost:3000" && url.pathname === "/");
     await page.context().clearCookies();
   }
   // 같은 사이트 경로는 그대로 돌아간다
   await page.goto(`/login?next=${encodeURIComponent("/order?design=abc")}`);
-  await page.getByLabel("아이디").fill(ADMIN.username);
-  await page.getByLabel("비밀번호").fill(ADMIN.password);
-  await page.getByRole("button", { name: "로그인", exact: true }).click();
+  await submitLogin(page, ADMIN.username, ADMIN.password);
   await page.waitForURL((url) => url.pathname === "/order" && url.search === "?design=abc");
 });
 
@@ -98,7 +92,7 @@ test("사육 환경 등록 → 요구사항 → 3D 뷰어 → 다운로드 → �
   await expect(page.getByText("통과", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /은신처 #1/ })).toBeVisible();
   await meshLoaded;
-  await page.waitForTimeout(1500); // 렌더 완료 대기
+  await page.waitForTimeout(1500); // 렌더가 끝날 때까지 기다려 그 사이 난 pageerror 도 아래에서 잡는다
   expect(pageErrors).toEqual([]);
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/design-v1.png`, fullPage: true });
 
@@ -192,6 +186,12 @@ test("서버가 형상을 막으면(409) 화면이 멈추지 않고 이유를 �
   await expect(version(page)).toHaveText("v2");
   await expect(page.getByRole("alert").filter({ hasText: "서비스가 업데이트되어" })).toHaveCount(0);
   await expect(page.getByTestId("viewer").getByText("일부 구조물의 3D 형상을 불러오지 못했어요", { exact: false })).toHaveCount(0);
+  // 내려받기 요청 자체가 실패하면(네트워크) 안내를 보여 주고, 버튼은 다시 누를 수 있게 돌아온다
+  await page.route("**/export?*version=2*", (route) => route.abort());
+  await page.getByRole("link", { name: "3MF 받기" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "파일을 받지 못했어요. 잠시 후 다시 시도해 주세요." })).toBeVisible();
+  await expect(page.locator('[aria-busy="false"]').filter({ has: page.getByRole("link", { name: "3MF 받기" }) })).toBeVisible();
+  await page.unroute("**/export?*version=2*");
   // 오류 경계가 잡은 메시 로드 실패(409)는 3D 라이브러리가 보고만 한다. 그 밖의 오류는 없어야 한다
   expect(pageErrors.filter((m) => !/Could not load .*\/parts\/\d+\.stl.*409/.test(m))).toEqual([]);
 });
@@ -250,8 +250,10 @@ test("여러 구조물: 은신처와 터널을 한쪽에 몰아서", async ({ pa
   await expect.poll(() => meshes.length).toBe(2);
   await page.getByRole("button", { name: /^터널 #2 \d/ }).click();
   await expect(page.getByText("터널 내경", { exact: false }).or(page.getByText("내경"))).toBeVisible();
-  await page.waitForTimeout(1500);
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/design-mixed.png`, fullPage: true });
+  if (SHOTS) {
+    await page.waitForTimeout(1500); // 스크린샷에 3D 렌더가 다 그려지도록
+    await page.screenshot({ path: `${SHOTS}/design-mixed.png`, fullPage: true });
+  }
 
   const href = await page.getByRole("link", { name: /STL \(zip\)/ }).getAttribute("href");
   const zip = await page.request.get(href!);

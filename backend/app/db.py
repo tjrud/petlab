@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -133,11 +132,3 @@ def init_db(engine: Engine) -> list[str]:
     with engine.begin() as conn:
         Base.metadata.create_all(conn)
         return _migrate(conn)
-
-
-def session_scope(factory: sessionmaker[Session]) -> Iterator[Session]:
-    db = factory()
-    try:
-        yield db
-    finally:
-        db.close()

@@ -1,6 +1,7 @@
 // 커뮤니티 화면 공통: 입력 한도, 주소, 작성자 표시, 글자 수, 자리 표시.
 // 훅을 쓰지 않으므로 서버 컴포넌트(페이지)와 클라이언트 컴포넌트 양쪽에서 쓸 수 있다.
 
+import { withNext } from "@/lib/safeNext";
 import type { Author } from "@/lib/types";
 
 /** 백엔드(app/schemas.py)와 같은 한도. 최종 판단은 서버가 한다 */
@@ -10,7 +11,7 @@ export const COMMUNITY_PATH = "/community";
 export const NEW_POST_PATH = "/community/new";
 
 export const postHref = (id: string) => `${COMMUNITY_PATH}/${encodeURIComponent(id)}`;
-export const loginHref = (next: string) => `/login?next=${encodeURIComponent(next)}`;
+export const loginHref = (next: string) => withNext("/login", next);
 
 /** 사용자에게 보여 줄 오류 문구 (lib/api 로 옮겼다. 이 파일에서 가져다 쓰는 곳을 위해 다시 내보낸다) */
 export { errorText } from "@/lib/api";
