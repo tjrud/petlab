@@ -92,7 +92,7 @@ test("사육 환경 등록 → 요구사항 → 3D 뷰어 → 다운로드 → �
   await expect(page.getByText("통과", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /은신처 #1/ })).toBeVisible();
   await meshLoaded;
-  await page.waitForTimeout(1500); // 렌더 완료 대기
+  await page.waitForTimeout(1500); // 렌더가 끝날 때까지 기다려 그 사이 난 pageerror 도 아래에서 잡는다
   expect(pageErrors).toEqual([]);
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/design-v1.png`, fullPage: true });
 
@@ -250,8 +250,10 @@ test("여러 구조물: 은신처와 터널을 한쪽에 몰아서", async ({ pa
   await expect.poll(() => meshes.length).toBe(2);
   await page.getByRole("button", { name: /^터널 #2 \d/ }).click();
   await expect(page.getByText("터널 내경", { exact: false }).or(page.getByText("내경"))).toBeVisible();
-  await page.waitForTimeout(1500);
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/design-mixed.png`, fullPage: true });
+  if (SHOTS) {
+    await page.waitForTimeout(1500); // 스크린샷에 3D 렌더가 다 그려지도록
+    await page.screenshot({ path: `${SHOTS}/design-mixed.png`, fullPage: true });
+  }
 
   const href = await page.getByRole("link", { name: /STL \(zip\)/ }).getAttribute("href");
   const zip = await page.request.get(href!);
