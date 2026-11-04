@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import inspect, text, update
+from sqlalchemy import inspect, select, text, update
 from sqlalchemy.exc import IntegrityError
 
 from app import captcha as captcha_mod
@@ -220,6 +220,24 @@ def test_only_one_account_can_verify_an_address(client, mailer):
     r = client.patch("/me/email", json={"email": "victim+2@gmail.com", "current_password": PW})
     assert r.status_code == 409 and r.json()["detail"]["code"] == "email_taken"
     assert victim["user"]["email"] == "victim@gmail.com"
+
+
+TAKEN = {"code": "email_taken", "message_ko": "이 이메일은 이미 다른 계정에서 인증했어요. 다른 이메일로 바꿔 주세요."}
+
+
+@pytest.mark.parametrize("race", [False, True])
+def test_verifying_an_address_another_account_verified_is_409(tmp_path, mailer, monkeypatch, race):
+    from app.services import email_verify
+    with TestClient(app_with(tmp_path, mailer=mailer, **EMAIL_ON)) as c:
+        signup(c, "user_a", "a@example.com")
+        signup(c, "user_b", "a+b@example.com")
+        assert c.post("/auth/verify-email", json={"token": last_token(mailer, "a@example.com")}).status_code == 200
+        if race:  # 사전 확인을 지나친 것처럼: 부분 유일 인덱스(IntegrityError)가 막는다
+            monkeypatch.setattr(email_verify, "verified_email_taken", lambda *a, **k: False)
+        r = c.post("/auth/verify-email", json={"token": last_token(mailer, "a+b@example.com")})
+        assert r.status_code == 409 and r.json()["detail"] == TAKEN
+        with c.app.state.session_factory() as db:
+            assert db.scalar(select(User).where(User.username == "user_b")).email_verified_at is None
 
 
 def test_verified_email_unique_index(client):
@@ -470,6 +488,30 @@ def test_resend_mailer(monkeypatch):
 def test_email_settings_problems(kw, problems):
     s = Settings(_env_file=None, **kw)
     assert [p.split(" ")[0].split("(")[0] for p in s.email_problems] == problems
+
+
+@pytest.mark.parametrize("val", [None, "", "   "])
+def test_empty_secrets_count_as_missing(val):
+    """비어 있는 비밀값은 없는 것과 같다. 공백뿐인 값은 CAPTCHA·관리자 비밀번호에서만 없는 것으로 친다."""
+    kw = {} if val is None else {"turnstile_secret_key": val, "resend_api_key": val, "admin_password": val}
+    s = Settings(_env_file=None, email_provider="resend", email_from="a@b.c", **kw)
+    assert s.captcha_mode == "disabled" and s.auth_mode == "disabled"
+    assert ("RESEND_API_KEY" in [p.split(" ")[0] for p in s.email_problems]) == (val != "   ")
+
+
+@pytest.mark.parametrize("val,expected", [(None, ""), ("", ""), ("  pw ", "  pw ")])
+def test_mailers_read_optional_secrets(val, expected):
+    kw = {} if val is None else {"smtp_password": val, "resend_api_key": val}
+    s = Settings(_env_file=None, **kw)
+    assert SmtpMailer(s).password == expected and ResendMailer(s).api_key == expected
+
+
+def test_turnstile_verifier_sends_empty_secret_when_unset(monkeypatch):
+    sent = {}
+    monkeypatch.setattr(captcha_mod.httpx, "post",
+                        lambda url, data, timeout: sent.update(data) or _Resp(200, {"success": True}))
+    assert captcha_mod.turnstile_verifier(Settings(_env_file=None))("tok", None) is True
+    assert sent["secret"] == ""
 
 
 @pytest.mark.parametrize("a,b,same", [

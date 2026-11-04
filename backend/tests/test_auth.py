@@ -23,6 +23,7 @@ from app.auth import (
 )
 from app.config import Settings
 from app.main import create_app
+from app.models import User
 from tests.api_helpers import (
     ADMIN,
     AUTH_ON,
@@ -240,6 +241,21 @@ def test_forged_or_expired_cookie_rejected(tmp_path):
         assert c.get(PROTECTED).status_code == 401
         c.cookies.set(COOKIE_NAME, good)
         assert c.get(PROTECTED).status_code == 200
+
+
+def test_session_sub_must_be_a_lowercase_hex_id(client):
+    """서명이 맞아도 sub 가 소문자 16진수 32자리 전체가 아니면(대문자·끝 줄바꿈) 그 id 의 회원 행이 있어도 로그인이 아니다."""
+    bad_ids = ("A" * 32, "c" * 32 + "\n")
+    with client.app.state.session_factory() as db:
+        for bad in bad_ids:
+            db.add(User(id=bad, username=f"u{len(bad)}", nickname=f"n{len(bad)}", nickname_key=f"n{len(bad)}",
+                        role="member", password_hash=None))
+        db.commit()
+    key = signing_key(client.app.state.settings)
+    for bad in bad_ids:
+        client.cookies.clear()
+        client.cookies.set(COOKIE_NAME, issue_token(bad, key, 3600))
+        assert client.get("/auth/me").json()["authenticated"] is False, repr(bad)
 
 
 def test_login_is_rate_limited(client):

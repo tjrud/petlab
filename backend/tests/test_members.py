@@ -6,11 +6,12 @@ from datetime import date, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, inspect, select, text
 
 from app.auth import COOKIE_NAME
 from app.db import init_db
 from app.main import create_app
+from app.models import CageLayout, Comment, Design, Habitat, Pet, Post, User
 from tests.api_helpers import (
     PG_URL,
     PW,
@@ -191,6 +192,30 @@ def test_pet_crud_and_isolation(client):
     assert client.get("/me/pets").json() == []
 
 
+def test_rows_whose_species_or_size_left_the_rules_show_raw_keys(client):
+    """규칙 파일(species.yaml)에서 빠진 종·크기로 저장된 옛 행도 500 없이 키를 이름 자리에 보여 준다."""
+    signup(client, "user_a")
+    with client.app.state.session_factory() as db:
+        uid = db.scalar(select(User.id).where(User.username == "user_a"))
+        pet = Pet(owner_id=uid, name="콩이", species="ghost", size="tiny")
+        hab = Habitat(owner_id=uid, species="hamster", size="ghost", count=1,
+                      cage_width_mm=600, cage_depth_mm=400, cage_height_mm=300)
+        lay = CageLayout(owner_id=uid, name="옛 배치", species="ghost", size="tiny",
+                         cage_width_mm=600, cage_depth_mm=400, cage_height_mm=300, items=[])
+        db.add_all([pet, hab, lay])
+        db.commit()
+        pid, hid, lid = pet.id, hab.id, lay.id
+    got = client.get(f"/me/pets/{pid}").json()
+    assert (got["species_name_ko"], got["size_name_ko"]) == ("ghost", "tiny")
+    got = client.get(f"/habitats/{hid}").json()
+    assert (got["species_name_ko"], got["size_name_ko"]) == ("햄스터", "ghost")
+    assert client.get(f"/layouts/{lid}").json()["size_name_ko"] == "tiny"
+    assert client.get("/layouts").json()[0]["size_name_ko"] == "tiny"
+    # 규칙에 있는 종·크기는 한국어 이름
+    p = client.post("/me/pets", json={"name": "두부", "species": "hamster", "size": "syrian"}).json()
+    assert (p["species_name_ko"], p["size_name_ko"]) == ("햄스터", "골든 (시리안)")
+
+
 @pytest.mark.parametrize("body", [
     {"name": "", "species": "hamster", "size": "dwarf"},
     {"name": "콩이", "species": "hamster", "size": "dwarf", "birth_date": (date.today() + timedelta(days=1)).isoformat()},
@@ -367,6 +392,45 @@ def test_unknown_ids_are_404_not_500(client):
     for path in ("/community/posts/nope", "/community/posts/" + "0" * 32, "/me/pets/nope", "/designs/nope"):
         assert client.get(path).status_code == 404, path
     assert client.delete("/community/comments/" + "0" * 32).status_code == 404
+
+
+# 대문자·끝 줄바꿈 id: 경로의 id 는 소문자 16진수 32자리 전체가 맞아야(fullmatch) 찾는다.
+# Postgres 의 VARCHAR(32) 에는 33자(끝 줄바꿈) id 행을 넣을 수 없으므로 그 경우는 SQLite 에서만 넣는다.
+MALFORMED_IDS = ("A" * 32,) if PG_URL else ("A" * 32, "c" * 32 + "\n")
+
+
+def test_rows_under_malformed_ids_are_not_reachable(client):
+    """그런 id 로 저장된 행이 있어도(내 것이라도) 경로로는 닿지 않는다: 404."""
+    signup(client, "user_a")
+    with client.app.state.session_factory() as db:
+        uid = db.scalar(select(User.id).where(User.username == "user_a"))
+        for bad in MALFORMED_IDS:
+            hab = Habitat(id=bad, owner_id=uid, species="hamster", size="syrian", count=1,
+                          cage_width_mm=600, cage_depth_mm=400, cage_height_mm=300)
+            db.add_all([
+                Pet(id=bad, owner_id=uid, name="콩이", species="hamster", size="syrian"), hab,
+                CageLayout(id=bad, owner_id=uid, name="x", species="hamster", size="syrian",
+                           cage_width_mm=600, cage_depth_mm=400, cage_height_mm=300, items=[]),
+                Design(id=bad, habitat=hab, owner_id=uid),
+                Post(id=bad, author_id=uid, title="t", body="b"),
+            ])
+            db.flush()
+            db.add(Comment(id=bad, post_id=bad, author_id=uid, body="c"))
+        db.commit()
+    for bad in MALFORMED_IDS:
+        q = bad.replace("\n", "%0A")
+        for path in (f"/me/pets/{q}", f"/habitats/{q}", f"/layouts/{q}", f"/community/posts/{q}", f"/designs/{q}"):
+            assert client.get(path).status_code == 404, path
+        assert client.delete(f"/community/comments/{q}").status_code == 404, q
+
+
+def test_body_ids_reject_trailing_newline(client):
+    """요청 본문의 id 는 pydantic(rust regex) 이 검사해 끝 줄바꿈도 422. OpenAPI 의 pattern 은 그대로다."""
+    signup(client, "user_a")
+    pet = client.post("/me/pets", json={"name": "콩이", "species": "hamster", "size": "syrian"}).json()
+    assert client.post("/habitats", json=habitat_body(pet_id=pet["id"] + "\n")).status_code == 422
+    schemas = client.get("/openapi.json").json()["components"]["schemas"]
+    assert schemas["HabitatIn"]["properties"]["pet_id"]["anyOf"][0]["pattern"] == "^[0-9a-f]{32}$"
 
 
 # ── 마이그레이션 ───────────────────────────────────────────

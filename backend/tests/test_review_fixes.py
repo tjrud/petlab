@@ -23,7 +23,7 @@ from app.db import init_db, make_engine, make_session_factory
 from app.llm.base import LLMSchemaError
 from app.llm.mock import MockInterpreter
 from app.main import create_app
-from app.models import User, WaitlistEntry
+from app.models import UsageEvent, User, WaitlistEntry
 from tests.api_helpers import PG_URL, PW, admin_login, create_habitat, habitat_body, make_design, signup, use
 from tests.api_helpers import member_settings as settings
 
@@ -202,6 +202,29 @@ def test_habitat_creation_is_limited(client, monkeypatch):
     monkeypatch.setattr(habitats, "HABITAT_DAILY_LIMIT", 2)
     signup(client, "user_a")
     assert [client.post("/habitats", json=habitat_body()).status_code for _ in range(3)] == [201, 201, 429]
+
+
+def test_admin_is_exempt_from_member_caps_and_records_nothing(tmp_path, monkeypatch):
+    """회원별 24시간 상한(사육 환경·대기 신청·글·댓글)은 관리자를 세지도 기록하지도 않는다. 회원은 상한 0 이면 바로 막힌다."""
+    from app.api import habitats, waitlist
+    monkeypatch.setattr(habitats, "HABITAT_DAILY_LIMIT", 0)
+    monkeypatch.setattr(waitlist, "WAITLIST_DAILY_LIMIT", 0)
+    with TestClient(create_app(settings(tmp_path, post_daily_limit=0, comment_daily_limit=0))) as c:
+        admin_login(c)
+        for _ in range(2):
+            assert c.post("/habitats", json=habitat_body()).status_code == 201
+            assert c.post("/waitlist", json={"email": "me@example.com"}).status_code == 201
+            pid = c.post("/community/posts", json={"title": "공지", "body": "x"}).json()["id"]
+            assert c.post(f"/community/posts/{pid}/comments", json={"body": "댓글"}).status_code == 201
+        with c.app.state.session_factory() as db:
+            assert db.scalars(select(UsageEvent.kind)).all() == []
+        signup(c, "user_a")
+        for path, body, code in [("/habitats", habitat_body(), "too_many_habitats"),
+                                 ("/waitlist", {"email": "me@example.com"}, "too_many_waitlist"),
+                                 ("/community/posts", {"title": "t", "body": "x"}, "too_many_posts"),
+                                 (f"/community/posts/{pid}/comments", {"body": "댓글"}, "too_many_comments")]:
+            r = c.post(path, json=body)
+            assert r.status_code == 429 and r.json()["detail"]["code"] == code, path
 
 
 # ── 닉네임 위장 ────────────────────────────────────────────
