@@ -14,6 +14,7 @@ import type {
   Pet,
   PetInput,
   Post,
+  PostImage,
   PostSummary,
   ResendVerificationResult,
   SignupInput,
@@ -159,7 +160,7 @@ export const api = {
   post: (id: string) => request<Post>(`/community/posts/${encodeURIComponent(id)}`),
   createPost: (body: { title: string; body: string; design_id?: string | null; design_version?: number | null }) =>
     request<Post>("/community/posts", json("POST", body)),
-  updatePost: (id: string, body: { title?: string; body?: string }) =>
+  updatePost: (id: string, body: { title?: string; body?: string; images?: PostImage[] }) =>
     request<Post>(`/community/posts/${encodeURIComponent(id)}`, json("PATCH", body)),
   deletePost: (id: string) => request<void>(`/community/posts/${encodeURIComponent(id)}`, json("DELETE")),
   createComment: (postId: string, body: string) =>

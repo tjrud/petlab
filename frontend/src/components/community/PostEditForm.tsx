@@ -2,10 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { useAuth } from "@/components/AuthProvider";
 import { checkPost, errorText } from "@/components/community/common";
+import ImagePicker from "@/components/community/ImagePicker";
 import PostFields from "@/components/community/PostFields";
 import { api } from "@/lib/api";
-import type { Post } from "@/lib/types";
+import type { Post, PostImage } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
 /** 글 보기 화면 안에서 바로 고치는 폼 (작성자만) */
@@ -20,6 +22,9 @@ export default function PostEditForm({
 }) {
   const [title, setTitle] = useState(post.title);
   const [body, setBody] = useState(post.body);
+  const [images, setImages] = useState<PostImage[]>(post.images ?? []);
+  // 사진은 운영팀만 넣을 수 있다 (서버도 확인한다)
+  const isAdmin = useAuth().user?.role === "admin";
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tried, setTried] = useState(false);
@@ -39,10 +44,12 @@ export default function PostEditForm({
       setError(invalid);
       return;
     }
-    const patch: { title?: string; body?: string } = {};
+    const patch: { title?: string; body?: string; images?: PostImage[] } = {};
     if (title.trim() !== post.title) patch.title = title.trim();
     if (body.trim() !== post.body) patch.body = body.trim();
-    if (patch.title === undefined && patch.body === undefined) {
+    const srcs = (l: PostImage[]) => l.map((i) => i.src).join("|");
+    if (isAdmin && srcs(images) !== srcs(post.images ?? [])) patch.images = images;
+    if (patch.title === undefined && patch.body === undefined && patch.images === undefined) {
       onCancel(); // 바뀐 내용이 없으면 그냥 닫는다
       return;
     }
@@ -67,6 +74,7 @@ export default function PostEditForm({
         invalid={tried}
         titleRef={titleRef}
       />
+      {isAdmin && <ImagePicker value={images} onChange={setImages} disabled={saving} />}
       {error && (
         <p role="alert" className={ui.error}>
           {error}

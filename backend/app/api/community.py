@@ -14,6 +14,7 @@ from app.schemas import (
     AuthorOut,
     CommentIn,
     CommentOut,
+    PostImage,
     PostIn,
     PostListOut,
     PostOut,
@@ -64,6 +65,16 @@ def _reserve(db: Session, kind: str, user: User, limit: int, message_ko: str, co
         usage.reserve(db, kind, user, per_user=usage.Cap(limit, message_ko, code))
 
 
+def _images(post: Post) -> list[PostImage]:
+    return [PostImage(**i) for i in post.images or []]
+
+
+def _check_images(images: list[PostImage] | None, user: User) -> None:
+    # 회원 사진 올리기는 아직 없다: 사이트에 함께 배포한 사진(출처 표시 포함)을 운영팀 글에만 넣는다
+    if images and not user.is_admin:
+        raise ForbiddenError("사진은 운영팀 글에만 넣을 수 있어요.")
+
+
 def _post_out(db: Session, svc: DesignService, post: Post, user: User | None) -> PostOut:
     comments, total = _recent_comments(db, post.id)
     shared = None
@@ -81,7 +92,7 @@ def _post_out(db: Session, svc: DesignService, post: Post, user: User | None) ->
         )
     return PostOut(
         id=post.id, title=post.title, body=post.body, author=_author(post.author),
-        created_at=post.created_at, updated_at=post.updated_at, design=shared,
+        created_at=post.created_at, updated_at=post.updated_at, design=shared, images=_images(post),
         comments=[CommentOut(id=c.id, body=c.body, author=_author(c.author), created_at=c.created_at,
                              can_delete=_can_manage(user, c.author_id)) for c in comments],
         comment_total=total,
@@ -111,7 +122,7 @@ def list_posts(page: int = Query(default=1, ge=1, le=MAX_PAGE), page_size: int =
             id=p.id, title=p.title,
             excerpt=(p.body[:EXCERPT_LEN] + "…") if len(p.body) > EXCERPT_LEN else p.body,
             author=_author(p.author), created_at=p.created_at, comment_count=counts.get(p.id, 0),
-            has_design=p.design_id is not None,
+            has_design=p.design_id is not None, thumbnail=(_images(p) or [None])[0],
         )
         for p in posts
     ]
@@ -121,6 +132,7 @@ def list_posts(page: int = Query(default=1, ge=1, le=MAX_PAGE), page_size: int =
 @router.post("/posts", response_model=PostOut, status_code=status.HTTP_201_CREATED, summary="글쓰기 (설계 첨부 가능)")
 def create_post(data: PostIn, request: Request, db: Session = Depends(get_db),
                 svc: DesignService = Depends(get_service), user: User = Depends(get_verified_user)):
+    _check_images(data.images, user)
     version = None
     if data.design_id is not None:
         design = svc.get_editable_design(db, data.design_id, user)  # 내 설계만 공유할 수 있다
@@ -128,7 +140,7 @@ def create_post(data: PostIn, request: Request, db: Session = Depends(get_db),
     limit = request.app.state.settings.post_daily_limit
     _reserve(db, "post", user, limit, f"글은 24시간에 {limit}개까지 쓸 수 있어요.", "too_many_posts")
     post = Post(author_id=user.id, title=data.title, body=data.body, design_id=data.design_id,
-                design_version=version)
+                design_version=version, images=[i.model_dump() for i in data.images] or None)
     db.add(post)
     db.commit()
     db.refresh(post)
@@ -151,6 +163,9 @@ def update_post(post_id: str, data: PostUpdateIn, db: Session = Depends(get_db),
         post.title = data.title
     if data.body is not None:
         post.body = data.body
+    if data.images is not None:
+        _check_images(data.images, user)
+        post.images = [i.model_dump() for i in data.images] or None
     db.commit()
     db.refresh(post)
     return _post_out(db, svc, post, user)

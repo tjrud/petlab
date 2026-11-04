@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 
 import { AuthorName, postHref } from "@/components/community/common";
@@ -10,20 +11,32 @@ export default function PostListItem({ post: p }: { post: PostSummary }) {
     <li>
       <Link
         href={postHref(p.id)}
-        className="block px-4 py-4 transition hover:bg-amber-50/60 focus-visible:bg-amber-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-amber-400 sm:px-5"
+        className="flex gap-3 px-4 py-4 transition hover:bg-amber-50/60 focus-visible:bg-amber-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-amber-400 sm:px-5"
       >
-        <div className="flex min-w-0 items-start gap-2">
-          <h2 className="min-w-0 flex-1 break-words font-semibold leading-snug">{p.title}</h2>
-          {p.has_design && <span className={`${ui.badge} mt-0.5 shrink-0`}>설계 첨부</span>}
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-start gap-2">
+            <h2 className="min-w-0 flex-1 break-words font-semibold leading-snug">{p.title}</h2>
+            {p.has_design && <span className={`${ui.badge} mt-0.5 shrink-0`}>설계 첨부</span>}
+          </div>
+          {p.excerpt && <p className="mt-1 line-clamp-2 break-words text-sm text-stone-600">{p.excerpt}</p>}
+          <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-stone-500">
+            <AuthorName author={p.author} />
+            <span aria-hidden>·</span>
+            <time dateTime={p.created_at}>{formatDate(p.created_at)}</time>
+            <span aria-hidden>·</span>
+            <span>댓글 {p.comment_count}</span>
+          </p>
         </div>
-        {p.excerpt && <p className="mt-1 line-clamp-2 break-words text-sm text-stone-600">{p.excerpt}</p>}
-        <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-stone-500">
-          <AuthorName author={p.author} />
-          <span aria-hidden>·</span>
-          <time dateTime={p.created_at}>{formatDate(p.created_at)}</time>
-          <span aria-hidden>·</span>
-          <span>댓글 {p.comment_count}</span>
-        </p>
+        {p.thumbnail && (
+          <Image
+            src={p.thumbnail.src}
+            alt=""
+            width={p.thumbnail.width}
+            height={p.thumbnail.height}
+            unoptimized
+            className="h-16 w-20 shrink-0 rounded-lg bg-stone-100 object-cover sm:h-20 sm:w-28"
+          />
+        )}
       </Link>
     </li>
   );
