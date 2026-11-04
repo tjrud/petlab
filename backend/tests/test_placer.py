@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import dataclasses
 import itertools
 
 import pytest
 
-from app.domain import Cage, Placement, PlacementHint
-from app.layout.placer import place_all
+from app.domain import Cage, Placement, PlacementHint, access_strip
+from app.layout.placer import _placed_at, place_all
 from app.services.engine import build_item
 from app.templates.base import Features
 from app.templates.hideout import HideoutParams, HideoutTemplate
@@ -164,3 +165,21 @@ def test_place_all_overwrites_prior_placements(syrian):
              box_item(1, 700, 100, 50, x=1, y=1)]
     assert place_all(items, CAGE, syrian.gap_trap) == [items[1]]
     assert _placements(items) == {0: Placement(85.0, 200.0, 0), 1: None}
+
+
+@pytest.mark.parametrize("placement", [
+    Placement(85.0, 200.85, 0), Placement(417.3, 356.7, 90),
+    Placement(0.1, 0.2, 180), Placement(300.0000002367581, 47.08098861837907, 270),
+])
+def test_placed_at_matches_world_rect_exactly(syrian, placement):
+    """후보 탐색용 사각형·출입 공간이 실제로 그 위치에 둔 world_rect 와 비트 단위로 같고,
+    item.placement 는 건드리지 않는다 (골든 테스트의 허용 오차로는 1 ulp 차이를 볼 수 없다)."""
+    P = syrian.gap_trap.passable_min_mm
+    prior = Placement(1, 1, 0)
+    it = box_item(0, 90.3, 140.7, 40, x=prior.x_mm, y=prior.y_mm, features=_features("front", "left"))
+    got = _placed_at(it, placement, P)
+    rect = dataclasses.replace(it, placement=placement).world_rect
+    assert got.rect == rect
+    assert got.strips == tuple(access_strip(rect, dv, P) for dv in it.access_directions(placement.rotation_deg))
+    assert len(got.strips) == 2
+    assert it.placement == prior
