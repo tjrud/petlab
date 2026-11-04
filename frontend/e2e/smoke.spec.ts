@@ -192,6 +192,12 @@ test("서버가 형상을 막으면(409) 화면이 멈추지 않고 이유를 �
   await expect(version(page)).toHaveText("v2");
   await expect(page.getByRole("alert").filter({ hasText: "서비스가 업데이트되어" })).toHaveCount(0);
   await expect(page.getByTestId("viewer").getByText("일부 구조물의 3D 형상을 불러오지 못했어요", { exact: false })).toHaveCount(0);
+  // 내려받기 요청 자체가 실패하면(네트워크) 안내를 보여 주고, 버튼은 다시 누를 수 있게 돌아온다
+  await page.route("**/export?*version=2*", (route) => route.abort());
+  await page.getByRole("link", { name: "3MF 받기" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "파일을 받지 못했어요. 잠시 후 다시 시도해 주세요." })).toBeVisible();
+  await expect(page.locator('[aria-busy="false"]').filter({ has: page.getByRole("link", { name: "3MF 받기" }) })).toBeVisible();
+  await page.unroute("**/export?*version=2*");
   // 오류 경계가 잡은 메시 로드 실패(409)는 3D 라이브러리가 보고만 한다. 그 밖의 오류는 없어야 한다
   expect(pageErrors.filter((m) => !/Could not load .*\/parts\/\d+\.stl.*409/.test(m))).toEqual([]);
 });
