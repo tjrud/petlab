@@ -375,6 +375,28 @@ class AuthorOut(BaseModel):
     role: Literal["member", "admin"]
 
 
+MAX_POST_IMAGES = 4
+_Line = lambda n: Annotated[str, Text1, Field(min_length=1, max_length=n), AfterValidator(_single_line)]  # noqa: E731
+
+
+class PostImage(BaseModel):
+    """글에 넣는 사진. 사이트에 함께 배포한 파일(frontend/public/community-images/)만 쓰고,
+    촬영자·라이선스·원본 주소를 함께 보여 준다 (CC 라이선스의 출처 표시)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    src: str = Field(pattern=r"^/community-images/[a-z0-9][a-z0-9-]{0,60}\.(webp|jpg|png)$")
+    alt: _Line(120)
+    width: int = Field(ge=1, le=4000)
+    height: int = Field(ge=1, le=4000)
+    credit: _Line(200)
+    license: _Line(60)
+    source_url: str = Field(pattern=r"^https://[^\s]{1,490}$")
+
+
+PostImages = Annotated[list[PostImage], Field(max_length=MAX_POST_IMAGES)]
+
+
 class PostIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -382,6 +404,7 @@ class PostIn(BaseModel):
     body: Annotated[str, Text1, Field(min_length=1, max_length=5000)]
     design_id: EntityId | None = None
     design_version: VersionNo | None = None
+    images: PostImages = Field(default=[], description="사진 (운영팀만)")
 
 
 class PostUpdateIn(BaseModel):
@@ -389,6 +412,7 @@ class PostUpdateIn(BaseModel):
 
     title: Title | None = None
     body: Annotated[str, Text1, Field(min_length=1, max_length=5000)] | None = None
+    images: PostImages | None = Field(default=None, description="사진 전체를 바꾼다 (운영팀만, 빈 목록이면 모두 뺀다)")
 
 
 class CommentIn(BaseModel):
@@ -423,6 +447,7 @@ class PostSummary(BaseModel):
     created_at: datetime
     comment_count: int
     has_design: bool
+    thumbnail: PostImage | None = None  # 첫 사진 (목록에 작게 보여 준다)
 
 
 class PostListOut(BaseModel):
@@ -440,6 +465,7 @@ class PostOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     design: SharedDesignOut | None
+    images: list[PostImage] = []
     comments: list[CommentOut]  # 최근 댓글 최대 200개 (오래된 것부터)
     comment_total: int           # 전체 댓글 수
     can_edit: bool

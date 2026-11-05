@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { AuthorName, errorText, wasEdited } from "@/components/community/common";
 import PostEditForm from "@/components/community/PostEditForm";
+import PostImages from "@/components/community/PostImages";
 import { api } from "@/lib/api";
 import type { Post } from "@/lib/types";
 import { formatDateTime, ui } from "@/lib/ui";
@@ -93,6 +94,7 @@ export default function PostArticle({
               {error}
             </p>
           )}
+          <PostImages images={post.images ?? []} />
           <div className="mt-5 whitespace-pre-wrap break-words leading-relaxed text-stone-800">{post.body}</div>
         </>
       )}

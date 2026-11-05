@@ -213,6 +213,17 @@ export type PetInput = {
 
 export type Author = { nickname: string; role: Role };
 
+/** 글 사진 (사이트에 함께 배포한 파일, 촬영자·라이선스·원본 주소를 함께 보여 준다) */
+export type PostImage = {
+  src: string;
+  alt: string;
+  width: number;
+  height: number;
+  credit: string;
+  license: string;
+  source_url: string;
+};
+
 export type PostSummary = {
   id: string;
   title: string;
@@ -221,6 +232,8 @@ export type PostSummary = {
   created_at: string;
   comment_count: number;
   has_design: boolean;
+  /** 첫 사진 (없으면 null) */
+  thumbnail: PostImage | null;
 };
 
 export type Comment = { id: string; body: string; author: Author; created_at: string; can_delete: boolean };
@@ -243,6 +256,8 @@ export type Post = {
   created_at: string;
   updated_at: string;
   design: SharedDesign | null;
+  /** 운영팀 글의 사진 (없으면 빈 배열) */
+  images: PostImage[];
   /** 최근 댓글 최대 200개 (오래된 것부터). 전체 개수는 comment_total */
   comments: Comment[];
   comment_total: number;

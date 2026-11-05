@@ -163,6 +163,8 @@ class Post(Base):
     body: Mapped[str] = mapped_column(Text)
     design_id: Mapped[str | None] = mapped_column(ForeignKey("designs.id"), nullable=True, index=True)
     design_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # 운영팀 글의 사진 [{src, alt, width, height, credit, license, source_url}] (기존 DB 에는 마이그레이션으로 추가)
+    images: Mapped[list | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
 
