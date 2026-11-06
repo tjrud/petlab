@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import DataError
 
 from app.api import auth as auth_api
-from app.api import community, designs, habitats, layouts, me, meta, waitlist
+from app.api import community, designs, habitats, layouts, market, me, meta, waitlist
 from app.auth import (
     AuthRequiredError,
     AuthUnavailableError,
@@ -27,6 +27,7 @@ from app.llm.base import Interpreter, LLMConfigError, LLMError
 from app.llm.interpreter import make_interpreter
 from app.mailer import Mailer, make_mailer
 from app.rules.loader import load_rules
+from app.storage import make_storage
 from app.services.design_service import (
     DesignLimits,
     DesignService,
@@ -82,6 +83,7 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
             log.error("관리자 인증 설정 오류로 API 를 막습니다: %s", "; ".join(settings.auth_problems))
         elif settings.auth_mode == "disabled" and (settings.ephemeral_filesystem or settings.normalized_api_prefix):
             log.error("관리자 인증이 꺼져 있습니다 (ADMIN_PASSWORD 없음). 배포 환경이라면 API 가 공개 상태입니다.")
+        app.state.market_storage = make_storage(settings)  # 둥지마당 파일 (없으면 올리기를 막는다)
         app.state.db_dialect = engine.dialect.name
         app.state.db_ephemeral = is_ephemeral_database(settings.database_url, settings.ephemeral_filesystem)
         if app.state.db_ephemeral:
@@ -210,7 +212,7 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
     #  - 누구나: 상태 확인, 종 목록, 회원가입·로그인, 커뮤니티 읽기, 공유된 설계 보기
     #  - 회원: 설계 만들기·수정·내역, 내 정보·반려동물, 가상 케이지 배치안, 글·댓글 쓰기, 제작 신청
     for router in (meta.router, auth_api.router, me.router, habitats.router, designs.router, layouts.router,
-                   community.router, waitlist.router):
+                   community.router, market.router, waitlist.router):
         app.include_router(router, prefix=prefix)
     return app
 

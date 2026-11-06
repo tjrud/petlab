@@ -16,6 +16,7 @@ export default function PostListItem({ post: p }: { post: PostSummary }) {
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-start gap-2">
             <h2 className="min-w-0 flex-1 break-words font-semibold leading-snug">{p.title}</h2>
+            {p.market_item_id && <span className={`${ui.badge} mt-0.5 shrink-0 bg-lime-100 text-lime-900`}>둥지마당</span>}
             {p.has_design && <span className={`${ui.badge} mt-0.5 shrink-0`}>설계 첨부</span>}
           </div>
           {p.excerpt && <p className="mt-1 line-clamp-2 break-words text-sm text-stone-600">{p.excerpt}</p>}

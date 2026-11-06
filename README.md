@@ -163,7 +163,7 @@ npm run test:e2e
 
 ### DB 마이그레이션
 
-서버가 시작할 때 새 테이블(`users`, `pets`, `posts`, `comments`, `usage_events`, `cage_layouts`)을 만들고, 기존 테이블에 빠진 열(소유자, 형상 지문 `design_versions.geometry` 등)과 인덱스를 추가합니다.
+서버가 시작할 때 새 테이블(`users`, `pets`, `posts`, `comments`, `usage_events`, `cage_layouts`, `market_items`, `market_files`, `market_uploads`, `market_upload_chunks`)을 만들고, 기존 테이블에 빠진 열(소유자, 형상 지문 `design_versions.geometry` 등)과 인덱스를 추가합니다.
 추가만 하고 지우거나 바꾸지 않으므로 이전 버전 코드가 같은 DB 를 써도 동작합니다. Postgres 에서는 advisory lock 으로 여러 인스턴스의 동시 실행을 직렬화합니다.
 이미 반영된 DB 에서는 DDL 을 보내지 않아(테이블 잠금 없음) 새 인스턴스가 떠도 쓰기 요청을 막지 않습니다.
 
@@ -215,6 +215,15 @@ LLM은 아래 템플릿 중에서 고르고 파라미터 값만 정합니다. �
 - 재사용이 허락된 사진(CC BY·CC BY-SA·CC0·퍼블릭 도메인)만 넣고, `frontend/src/lib/communityImages.ts` 에 촬영자·라이선스·원본 주소를 적습니다. 글에는 이 정보가 함께 저장되어 사진 아래에 표시됩니다.
 - 지금 있는 사진은 위키미디어 공용(Wikimedia Commons)에서 고른 소동물 사진 14장입니다(긴 변 1280~1600px WebP).
 
+## 둥지마당 (`/market`)
+
+보호자들이 만든 구조물을 나누는 곳입니다. 작품 하나에 완성 파일(SKP·3MF·STL, 최대 5개·파일당 50MB)이나 NestForge 설계(또는 둘 다)와 미리보기 이미지를 붙입니다.
+
+- **커뮤니티 연계**: 올릴 때 커뮤니티에 `[둥지마당] 제목` 소개 글을 함께 올립니다(댓글은 그 글에서). NestForge 설계를 붙이면 소개 글에 그 버전을 첨부하므로, 커뮤니티 공유와 같은 규칙으로 누구나 보고 내려받습니다.
+- **나눠 올리기**: 배포 플랫폼의 요청 크기 한도(약 4.5MB) 때문에 3MB 조각으로 받아 DB(`market_upload_chunks`)에 잠시 모은 뒤, 다 모이면 내용이 확장자와 맞는지(SketchUp 머리, 3MF zip 구조, STL 형식, 이미지 머리) 확인하고 저장소에 올립니다.
+- **저장소**: `BLOB_READ_WRITE_TOKEN` 이 있으면 Vercel Blob(공개 주소, 내려받기는 그 주소로 넘김), 없으면 로컬 디스크(`MARKET_STORAGE_DIR`). 배포 환경에서 토큰이 없으면 파일 올리기를 막습니다(설계 공유는 됩니다).
+- 회원 1명의 24시간 상한: 파일 30개(`MARKET_UPLOAD_DAILY_LIMIT`), 작품 10개(`MARKET_ITEM_DAILY_LIMIT`). 이메일 인증을 마친 회원만 올립니다.
+
 ## API
 
 백엔드 실행 후 http://localhost:8000/docs 에서 전체 스키마를 볼 수 있습니다(인증이 꺼진 로컬 개발 환경). 인증이 켜져 있으면 `/openapi.json`만 제공합니다.
@@ -231,6 +240,11 @@ LLM은 아래 템플릿 중에서 고르고 파라미터 값만 정합니다. �
 | POST | `/me/password` | 비밀번호 변경 |
 | GET · POST | `/me/pets` | 내 반려동물 목록 · 등록 |
 | GET · PUT · DELETE | `/me/pets/{id}` | 반려동물 조회 · 수정 · 삭제 |
+| GET | `/market/config` | 둥지마당 올리기 설정 (저장소 준비 여부, 조각 크기, 형식) |
+| GET · POST | `/market/items` | 작품 목록(누구나, `?category=`) · 올리기 |
+| GET · PATCH · DELETE | `/market/items/{id}` | 작품 보기(누구나) · 고치기(올린 사람) · 지우기(올린 사람·관리자) |
+| POST | `/market/uploads` → PUT `/market/uploads/{id}/chunks/{n}` → POST `/market/uploads/{id}/complete` | 파일 나눠 올리기 |
+| GET | `/market/files/{id}/download` | 파일 내려받기 (Blob 이면 공개 주소로 넘김) |
 | GET · POST | `/layouts` | 가상 케이지 배치안 목록(최근 수정순) · 저장 (회원당 30개, 구조물 80개까지) |
 | GET · PUT · DELETE | `/layouts/{id}` | 배치안 불러오기 · 덮어쓰기 · 삭제 (내 것만) |
 | GET | `/designs?page=&page_size=` | 내 설계 내역 (최근 수정순) |

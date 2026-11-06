@@ -5,6 +5,7 @@ import { useState } from "react";
 import { AuthorName, errorText, wasEdited } from "@/components/community/common";
 import PostEditForm from "@/components/community/PostEditForm";
 import PostImages from "@/components/community/PostImages";
+import MarketItemBriefCard from "@/components/market/MarketItemBriefCard";
 import { api } from "@/lib/api";
 import type { Post } from "@/lib/types";
 import { formatDateTime, ui } from "@/lib/ui";
@@ -95,6 +96,7 @@ export default function PostArticle({
             </p>
           )}
           <PostImages images={post.images ?? []} />
+          {post.market_item && <MarketItemBriefCard item={post.market_item} />}
           <div className="mt-5 whitespace-pre-wrap break-words leading-relaxed text-stone-800">{post.body}</div>
         </>
       )}

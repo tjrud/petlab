@@ -234,6 +234,8 @@ export type PostSummary = {
   has_design: boolean;
   /** 첫 사진 (없으면 null) */
   thumbnail: PostImage | null;
+  /** 둥지마당 작품 소개 글이면 그 작품 ID */
+  market_item_id: string | null;
 };
 
 export type Comment = { id: string; body: string; author: Author; created_at: string; can_delete: boolean };
@@ -258,6 +260,8 @@ export type Post = {
   design: SharedDesign | null;
   /** 운영팀 글의 사진 (없으면 빈 배열) */
   images: PostImage[];
+  /** 둥지마당 작품 소개 글이면 그 작품 요약 */
+  market_item: MarketItemBrief | null;
   /** 최근 댓글 최대 200개 (오래된 것부터). 전체 개수는 comment_total */
   comments: Comment[];
   comment_total: number;
@@ -292,4 +296,67 @@ export type CageLayoutInput = {
   cage: Cage;
   pet_id: string | null;
   items: LayoutItem[];
+};
+
+// ── 둥지마당 ──
+
+export type MarketCategory = "hideout" | "tunnel" | "ramp" | "sand_bath" | "cage" | "etc";
+
+export type MarketConfig = {
+  uploads_enabled: boolean;
+  chunk_bytes: number;
+  max_model_bytes: number;
+  max_image_bytes: number;
+  model_formats: string[];
+  image_formats: string[];
+  categories: { key: MarketCategory; name_ko: string }[];
+};
+
+export type MarketFile = {
+  id: string;
+  kind: "model" | "image";
+  filename: string;
+  format: string;
+  size: number;
+  sha256: string;
+  /** "/" 로 시작하면 API 기준 경로, 아니면 공개 주소 */
+  download_url: string;
+  view_url: string | null;
+};
+
+export type MarketItemSummary = {
+  id: string;
+  title: string;
+  category: MarketCategory;
+  category_name_ko: string;
+  author: Author;
+  /** 파일 형식 (skp·3mf·stl) + NestForge 설계면 "nestforge" */
+  formats: string[];
+  image: MarketFile | null;
+  has_design: boolean;
+  download_count: number;
+  created_at: string;
+};
+
+export type MarketItem = MarketItemSummary & {
+  description: string;
+  files: MarketFile[];
+  design: SharedDesign | null;
+  post_id: string | null;
+  updated_at: string;
+  can_edit: boolean;
+  can_delete: boolean;
+};
+
+export type MarketItemBrief = { id: string; title: string; formats: string[]; image: MarketFile | null };
+
+export type MarketItemInput = {
+  title: string;
+  description: string;
+  category: MarketCategory;
+  file_ids: string[];
+  image_file_id: string | null;
+  design_id: string | null;
+  design_version: number | null;
+  post_to_community: boolean;
 };
