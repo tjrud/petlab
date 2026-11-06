@@ -12,7 +12,7 @@ const AREAS = [
   },
   {
     href: "/cage",
-    title: "가상 케이지 공간 설계",
+    title: "가상 케이지 시뮬레이션",
     body: "케이지 치수를 등록하고 은신처·쳇바퀴·모래목욕통을 게임처럼 놓아 보며 겹침과 끼임 틈을 미리 확인해요.",
     Icon: IconCage,
     tone: "bg-sky-50 text-sky-800",
