@@ -20,7 +20,7 @@ import SceneOverlay from "@/components/cage/SceneOverlay";
 import { usePlannerShortcuts } from "@/components/cage/usePlannerShortcuts";
 import type { CameraView } from "@/components/cage/PlannerScene";
 import { api, ApiError, isAuthError } from "@/lib/api";
-import { getAsset, type CageAsset } from "@/lib/cageAssets";
+import { getAsset, isFloorLayer, type CageAsset } from "@/lib/cageAssets";
 import {
   checkLayout,
   findFreeSpot,
@@ -302,6 +302,12 @@ export default function CagePlanner() {
 
   const addAsset = useCallback(
     (asset: CageAsset) => {
+      // 바닥재는 바닥 전체에 하나만: 깔려 있던 바닥재를 바꿔요 (가운데 기준, 고르지 않음)
+      if (isFloorLayer(asset)) {
+        const item: LayoutItem = { id: newItemId(), asset: asset.key, x_mm: round1(cage.width_mm / 2), y_mm: round1(cage.depth_mm / 2), rotation_deg: 0 };
+        commit((d) => ({ ...d, items: [...d.items.filter((it) => !isFloorLayer(getAsset(it.asset))), item] }));
+        return;
+      }
       if (items.length >= MAX_ITEMS) {
         setNotice({ kind: "error", text: `구조물은 ${MAX_ITEMS}개까지 놓을 수 있어요.` });
         return;
@@ -326,6 +332,11 @@ export default function CagePlanner() {
       return { ...d, items: list };
     });
   }, [commit, rules]);
+
+  const removeBedding = useCallback(
+    () => commit((d) => ({ ...d, items: d.items.filter((it) => !isFloorLayer(getAsset(it.asset))) })),
+    [commit],
+  );
 
   const removeItem = useCallback(
     (id: string) => {
@@ -567,6 +578,9 @@ export default function CagePlanner() {
 
   const selected = items.find((it) => it.id === selectedId) ?? null;
   const selectedAsset = selected ? getAsset(selected.asset) : undefined;
+  // 바닥재는 구조물 수에 넣지 않아요
+  const bedding = items.map((it) => getAsset(it.asset)).find((a) => isFloorLayer(a)) ?? null;
+  const structureCount = items.filter((it) => !isFloorLayer(getAsset(it.asset))).length;
   const selectedIssues = selected ? report.issues.filter((i) => i.itemIds.includes(selected.id)) : [];
   const needsLogin = status !== null && !user;
 
@@ -622,14 +636,14 @@ export default function CagePlanner() {
               onUndo={() => dispatch({ type: "undo" })}
               onRedo={() => dispatch({ type: "redo" })}
               cage={cage}
-              itemCount={items.length}
+              itemCount={structureCount}
             />
           </div>
 
           <div className={ui.card}>
             <ReviewPanel
               report={report}
-              itemCount={items.length}
+              itemCount={structureCount}
               rulesLoaded={rules !== null}
               rulesReviewed={species?.rules_reviewed ?? false}
               onPick={(id) => setSelectedId(id)}
@@ -675,7 +689,15 @@ export default function CagePlanner() {
                 </button>
               ))}
             </div>
-            {tab === "catalog" && <CatalogPanel onAdd={addAsset} onStarter={addStarter} empty={items.length === 0} />}
+            {tab === "catalog" && (
+              <CatalogPanel
+                onAdd={addAsset}
+                onStarter={addStarter}
+                empty={structureCount === 0}
+                bedding={bedding}
+                onRemoveBedding={removeBedding}
+              />
+            )}
             {tab === "cage" && (
               <CageSizePanel
                 cage={cage}

@@ -4,7 +4,7 @@
 // 치수는 사용 자세 기준 [가로(x), 세로(y), 높이(z)] mm, 회전 0° 일 때 앞(관찰 면)이 -y 쪽이에요.
 // 서버는 에셋 키만 저장하므로, 키를 바꾸거나 지우면 저장된 배치안에서 그 항목을 불러오지 못해요 (새 키를 추가하세요).
 
-export type AssetCategory = "hide" | "play" | "climb" | "feed" | "care";
+export type AssetCategory = "hide" | "play" | "climb" | "feed" | "care" | "floor";
 
 export type Side = "front" | "back" | "left" | "right";
 
@@ -23,7 +23,8 @@ export type AssetShape =
   | "corner_house"
   | "bowl"
   | "water_stand"
-  | "plate";
+  | "plate"
+  | "bedding";
 
 export type CageAsset = {
   key: string;
@@ -48,6 +49,11 @@ export type CageAsset = {
   entranceCount?: number;
   /** 모래목욕통 안쪽 [가로, 세로] mm: 종별 최소 크기와 비교해요 */
   sandBathInnerMm?: [number, number];
+  /**
+   * 바닥재: 케이지 바닥 전체를 덮는 층 (size 의 높이 = 깊이, 가로·세로는 카탈로그 미리보기용).
+   * 한 번에 하나만 깔고, 겹침·자리 찾기에서 빼요. 다른 구조물은 바닥재 위에 놓여요
+   */
+  floorLayer?: { flakeColor: string };
 };
 
 export const CATEGORIES: { key: AssetCategory; label: string }[] = [
@@ -56,6 +62,7 @@ export const CATEGORIES: { key: AssetCategory; label: string }[] = [
   { key: "climb", label: "지형·층" },
   { key: "feed", label: "급식·급수" },
   { key: "care", label: "위생·휴식" },
+  { key: "floor", label: "바닥재" },
 ];
 
 export const CAGE_ASSETS: CageAsset[] = [
@@ -246,10 +253,56 @@ export const CAGE_ASSETS: CageAsset[] = [
     color: "#e7e5e4",
     description: "더운 날 엎드려 쉬는 얇은 판",
   },
+  // 바닥재 (바닥 전체)
+  {
+    key: "bedding_shavings_5",
+    name: "톱밥 바닥재 5cm",
+    category: "floor",
+    shape: "bedding",
+    size: [300, 200, 50],
+    color: "#e8d2a4",
+    description: "바닥 전체에 5cm 깔아요. 구조물은 바닥재 위에 놓여요",
+    floorLayer: { flakeColor: "#cfae78" },
+  },
+  {
+    key: "bedding_shavings_15",
+    name: "톱밥 바닥재 15cm",
+    category: "floor",
+    shape: "bedding",
+    size: [300, 200, 150],
+    color: "#e8d2a4",
+    description: "굴을 팔 수 있게 15cm 깊게 깔아요. 그만큼 위 공간이 줄어요",
+    floorLayer: { flakeColor: "#cfae78" },
+  },
+  {
+    key: "bedding_paper_5",
+    name: "종이 깔짚 5cm",
+    category: "floor",
+    shape: "bedding",
+    size: [300, 200, 50],
+    color: "#f2ede3",
+    description: "먼지가 적은 종이 깔짚을 바닥 전체에 5cm 깔아요",
+    floorLayer: { flakeColor: "#dcd3c2" },
+  },
 ];
 
 const BY_KEY = new Map(CAGE_ASSETS.map((a) => [a.key, a]));
 
 export function getAsset(key: string): CageAsset | undefined {
   return BY_KEY.get(key);
+}
+
+/** 바닥 전체를 덮는 바닥재인지 */
+export function isFloorLayer(a: CageAsset | undefined): boolean {
+  return a?.floorLayer !== undefined;
+}
+
+/** 깔아 둔 바닥재의 깊이 mm (없으면 0). 구조물은 이 높이 위에 놓여요 */
+export function beddingDepth(items: { asset: string }[]): number {
+  let depth = 0;
+  for (const it of items) {
+    const a = getAsset(it.asset);
+    if (a?.floorLayer) depth = Math.max(depth, a.size[2]);
+  }
+  return depth;
 }

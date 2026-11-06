@@ -6,11 +6,11 @@
 
 import { Edges, Html, OrbitControls } from "@react-three/drei";
 import { Canvas, useThree, type ThreeEvent } from "@react-three/fiber";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 
 import AssetModel from "@/components/cage/AssetModel";
-import { getAsset, type CageAsset } from "@/lib/cageAssets";
+import { beddingDepth, getAsset, isFloorLayer, type CageAsset } from "@/lib/cageAssets";
 import { accessStrip, type LayoutReport } from "@/lib/cageLayout";
 import type { Cage, LayoutItem, LayoutRules } from "@/lib/types";
 
@@ -32,7 +32,8 @@ type Props = {
 };
 
 const Z_UP_TO_Y_UP: [number, number, number] = [-Math.PI / 2, 0, 0];
-const GROUND = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+/** 끌 때 마우스가 가리키는 바닥 높이 (three.js 월드 y = 케이지 z). 바닥재를 깔면 그 윗면 */
+const groundAt = (z: number) => new THREE.Plane(new THREE.Vector3(0, 1, 0), -z);
 /** 3D 위에 띄운 글자가 마우스를 가로채지 않게 (구조물을 바로 잡을 수 있게) */
 const NO_POINTER = { pointerEvents: "none" } as const;
 
@@ -63,19 +64,20 @@ function CameraRig({ cage, view, nonce }: { cage: Cage; view: CameraView; nonce:
   return null;
 }
 
-function FloorGrid({ cage }: { cage: Cage }) {
+function FloorGrid({ cage, z }: { cage: Cage; z: number }) {
   const { width_mm: W, depth_mm: D } = cage;
   const [minor, major] = useMemo(() => {
     const mk = (step: number, skip?: number) => {
       const pts: number[] = [];
-      for (let x = step; x < W; x += step) if (!skip || x % skip !== 0) pts.push(x, 0, 0.3, x, D, 0.3);
-      for (let y = step; y < D; y += step) if (!skip || y % skip !== 0) pts.push(0, y, 0.3, W, y, 0.3);
+      const h = z + 0.3;
+      for (let x = step; x < W; x += step) if (!skip || x % skip !== 0) pts.push(x, 0, h, x, D, h);
+      for (let y = step; y < D; y += step) if (!skip || y % skip !== 0) pts.push(0, y, h, W, y, h);
       const g = new THREE.BufferGeometry();
       g.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
       return g;
     };
     return [mk(50, 100), mk(100)];
-  }, [W, D]);
+  }, [W, D, z]);
   return (
     <group>
       <lineSegments geometry={minor}>
@@ -88,7 +90,7 @@ function FloorGrid({ cage }: { cage: Cage }) {
   );
 }
 
-function CageShell({ cage }: { cage: Cage }) {
+function CageShell({ cage, floorZ }: { cage: Cage; floorZ: number }) {
   const { width_mm: W, depth_mm: D, height_mm: H } = cage;
   // 3D 위 글자(Html)는 이벤트 대상이 연결된 뒤에 붙여요. 먼저 붙이면 대상이 바뀌며 글자가 지워져요
   const labelsReady = useThree((s) => Boolean(s.events.connected));
@@ -99,9 +101,9 @@ function CageShell({ cage }: { cage: Cage }) {
         <planeGeometry args={[W, D]} />
         <meshStandardMaterial color="#f6ead3" roughness={1} />
       </mesh>
-      <FloorGrid cage={cage} />
+      <FloorGrid cage={cage} z={floorZ} />
       {/* 앞(관찰 면) 표시 */}
-      <mesh position={[W / 2, strip / 2, 0.6]}>
+      <mesh position={[W / 2, strip / 2, floorZ + 0.6]}>
         <planeGeometry args={[W, strip]} />
         <meshBasicMaterial color="#f59e0b" />
       </mesh>
@@ -128,6 +130,56 @@ function CageShell({ cage }: { cage: Cage }) {
   );
 }
 
+/** 0~1 사이 결정적 난수 (바닥재 조각 위치가 그릴 때마다 바뀌지 않게) */
+function seeded(seed: number) {
+  let t = seed >>> 0;
+  return () => {
+    t = (t + 0x6d2b79f5) >>> 0;
+    let r = Math.imul(t ^ (t >>> 15), 1 | t);
+    r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
+    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** 바닥재: 바닥 전체를 깊이만큼 채우고, 윗면에 톱밥·종이 조각을 흩뿌려요. 마우스는 통과해요 */
+function Bedding({ cage, asset }: { cage: Cage; asset: CageAsset }) {
+  const { width_mm: W, depth_mm: D } = cage;
+  const depth = asset.size[2];
+  const count = Math.min(5000, Math.round((W * D) / 250));
+  const ref = useRef<THREE.InstancedMesh>(null);
+  useLayoutEffect(() => {
+    const mesh = ref.current;
+    if (!mesh) return;
+    const rnd = seeded(W * 7919 + D * 104729 + depth);
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const e = new THREE.Euler();
+    const sc = new THREE.Vector3();
+    for (let i = 0; i < count; i++) {
+      e.set((rnd() - 0.5) * 0.6, (rnd() - 0.5) * 0.6, rnd() * Math.PI);
+      q.setFromEuler(e);
+      const k = 0.6 + rnd() * 0.9;
+      sc.set(k, k, 1);
+      m.compose(new THREE.Vector3(rnd() * W, rnd() * D, depth + 0.4 + rnd() * 1.2), q, sc);
+      mesh.setMatrixAt(i, m);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+  }, [W, D, depth, count]);
+  const none = () => null;
+  return (
+    <group>
+      <mesh position={[W / 2, D / 2, depth / 2]} receiveShadow raycast={none}>
+        <boxGeometry args={[W, D, depth]} />
+        <meshStandardMaterial color={asset.color} roughness={1} />
+      </mesh>
+      <instancedMesh key={count} ref={ref} args={[undefined, undefined, count]} raycast={none} receiveShadow>
+        <boxGeometry args={[9, 4, 1.2]} />
+        <meshStandardMaterial color={asset.floorLayer?.flakeColor ?? asset.color} roughness={1} />
+      </instancedMesh>
+    </group>
+  );
+}
+
 function Footprint({ asset, color, opacity }: { asset: CageAsset; color: string; opacity: number }) {
   const [w, d] = asset.size;
   return (
@@ -139,6 +191,7 @@ function Footprint({ asset, color, opacity }: { asset: CageAsset; color: string;
 }
 
 function PlacedItem({
+  floorZ,
   item,
   asset,
   selected,
@@ -148,6 +201,7 @@ function PlacedItem({
   onDrag,
   onDragEnd,
 }: {
+  floorZ: number;
   item: LayoutItem;
   asset: CageAsset;
   selected: boolean;
@@ -175,14 +229,15 @@ function PlacedItem({
     [],
   );
 
-  const groundPoint = (e: ThreeEvent<PointerEvent>) => (e.ray.intersectPlane(GROUND, hit) ? { x: hit.x, y: -hit.z } : null);
+  const ground = useMemo(() => groundAt(floorZ), [floorZ]);
+  const groundPoint = (e: ThreeEvent<PointerEvent>) => (e.ray.intersectPlane(ground, hit) ? { x: hit.x, y: -hit.z } : null);
 
   const footColor = state === "error" ? "#ef4444" : state === "warning" ? "#f59e0b" : selected ? "#f59e0b" : "#a8a29e";
   const footOpacity = state === "error" ? 0.45 : state === "warning" ? 0.3 : selected ? 0.3 : 0.15;
 
   return (
     <group
-      position={[item.x_mm, item.y_mm, 0]}
+      position={[item.x_mm, item.y_mm, floorZ]}
       rotation={[0, 0, (item.rotation_deg * Math.PI) / 180]}
       onPointerOver={(e) => {
         e.stopPropagation();
@@ -275,6 +330,9 @@ export default function PlannerScene({
   const S = Math.max(W, D, H);
   const selected = items.find((i) => i.id === selectedId) ?? null;
   const selectedAsset = selected ? getAsset(selected.asset) : undefined;
+  // 바닥재는 바닥 전체에 깔고, 다른 구조물은 그 위에 놓아요
+  const floorZ = beddingDepth(items);
+  const bedding = items.map((it) => getAsset(it.asset)).find(isFloorLayer);
 
   return (
     <Canvas
@@ -299,14 +357,16 @@ export default function PlannerScene({
         shadow-camera-bottom={-S * 2}
       />
       <group rotation={Z_UP_TO_Y_UP}>
-        <CageShell cage={cage} />
+        <CageShell cage={cage} floorZ={floorZ} />
+        {bedding && <Bedding cage={cage} asset={bedding} />}
         {items.map((it) => {
           const asset = getAsset(it.asset);
-          if (!asset) return null;
+          if (!asset || isFloorLayer(asset)) return null;
           const state = report.errorIds.has(it.id) ? "error" : report.warningIds.has(it.id) ? "warning" : "ok";
           return (
             <PlacedItem
               key={it.id}
+              floorZ={floorZ}
               item={it}
               asset={asset}
               selected={it.id === selectedId}
@@ -318,8 +378,10 @@ export default function PlannerScene({
             />
           );
         })}
-        {selected && selectedAsset && rules && (
-          <AccessStrips item={selected} asset={selectedAsset} depth={rules.gap_passable_min_mm} />
+        {selected && selectedAsset && rules && !isFloorLayer(selectedAsset) && (
+          <group position={[0, 0, floorZ]}>
+            <AccessStrips item={selected} asset={selectedAsset} depth={rules.gap_passable_min_mm} />
+          </group>
         )}
       </group>
       <OrbitControls makeDefault maxPolarAngle={Math.PI / 2.05} minDistance={S * 0.25} maxDistance={S * 4} />

@@ -359,6 +359,8 @@ const SHAPES = {
   bowl: Bowl,
   water_stand: WaterStand,
   plate: Plate,
+  // 바닥재는 바닥 전체에 따로 그려요 (PlannerScene 의 Bedding)
+  bedding: () => null,
 } satisfies Record<CageAsset["shape"], (p: { asset: CageAsset; m: MatProps }) => React.ReactNode>;
 
 export default function AssetModel({ asset, highlight }: { asset: CageAsset; highlight: "none" | "selected" | "hover" }) {
