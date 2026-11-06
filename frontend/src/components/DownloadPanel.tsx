@@ -104,7 +104,7 @@ export default function DownloadPanel({
         </>
       ) : (
         <p className="rounded-xl bg-stone-100 p-3 text-sm text-stone-600">
-          검증 문제를 해결해야 파일을 내려받을 수 있어요. 위의 수정 요청란에 원하는 변경을 적어 다시 설계해 보세요.
+          검증 문제를 해결해야 파일을 내려받을 수 있어요. 위의 수정 요청란에 바꿀 내용을 적어 다시 설계하면 돼요.
         </p>
       )}
       <Link

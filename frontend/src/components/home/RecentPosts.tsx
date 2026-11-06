@@ -67,7 +67,7 @@ export default function RecentPosts() {
           (state.data.items.length === 0 ? (
             <div className={`${ui.card} text-center`}>
               <p className="font-medium">아직 올라온 글이 없어요.</p>
-              <p className="mt-1 text-sm text-stone-600">우리 아이 설계나 사육 이야기로 첫 글을 남겨 보세요.</p>
+              <p className="mt-1 text-sm text-stone-600">설계나 사육 이야기를 올려 주세요.</p>
               <Link href="/community" className={`${ui.btnSecondary} mt-4`}>
                 커뮤니티로 가기
               </Link>

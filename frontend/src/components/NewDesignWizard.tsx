@@ -22,7 +22,7 @@ const EXAMPLE_PROMPTS = [
 
 const LIMITS = { ...CAGE_LIMITS, count: [1, 10] } as const;
 
-const LOGIN_MESSAGE = "로그인하고 맞춤 설계를 시작해 보세요";
+const LOGIN_MESSAGE = "로그인하면 설계를 만들 수 있어요";
 const LOGIN_DESCRIPTION = "회원이 되면 설계 내역이 저장되고 커뮤니티에 공유할 수 있어요.";
 
 type Step = 1 | 2;
@@ -343,7 +343,7 @@ export default function NewDesignWizard() {
       {metaError && <p className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{metaError}</p>}
       {meta && !meta.storage_persistent && (
         <p role="status" className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
-          ⚠️ 지금은 임시 저장소로 운영 중이에요. 만든 설계가 잠시 뒤 사라지거나 다시 열리지 않을 수 있으니, 필요한 파일은 바로
+          지금은 임시 저장소로 운영 중이에요. 만든 설계가 잠시 뒤 사라지거나 다시 열리지 않을 수 있으니, 필요한 파일은 바로
           내려받아 주세요.
         </p>
       )}
@@ -390,14 +390,13 @@ export default function NewDesignWizard() {
               <p className="mt-1.5 text-xs text-stone-600">
                 {selectedPet && !selectedPet.cage
                   ? "등록된 케이지 치수가 없어서 종·크기만 채웠어요. 아래 치수를 확인해 주세요."
-                  : "고르면 종·크기와 케이지 치수를 채워 드려요. 채운 뒤에도 고칠 수 있어요."}
+                  : "고르면 종·크기와 케이지 치수가 채워져요. 채운 뒤에도 고칠 수 있어요."}
               </p>
             </div>
           )}
           {pets && pets.length === 0 && (
             <p className="text-sm">
-              <span aria-hidden>💡 </span>
-              <Link href="/me#pets" className="text-amber-700 underline-offset-2 hover:underline">
+                            <Link href="/me#pets" className="text-amber-700 underline-offset-2 hover:underline">
                 내 정보에서 반려동물을 등록하면 다음부터 자동으로 채워져요
               </Link>
             </p>
@@ -468,7 +467,7 @@ export default function NewDesignWizard() {
               ))}
             </div>
             {sizeOpt && count > sizeOpt.max_recommended_count && (
-              <p className="mt-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">⚠️ {sizeOpt.count_warning_ko}</p>
+              <p className="mt-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{sizeOpt.count_warning_ko}</p>
             )}
           </fieldset>
 
@@ -514,7 +513,7 @@ export default function NewDesignWizard() {
             <p className="mt-2 text-xs text-stone-500">바닥재를 깐 상태의 내부 공간 기준으로 재 주세요.</p>
             {sizeOpt && cageBelowRecommended(cage, sizeOpt.enclosure_min_floor_mm) && (
               <p className="mt-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
-                ⚠️ 사육장 바닥 최소 기준은 {sizeOpt.enclosure_min_floor_mm[0] / 10}×
+                사육장 바닥 최소 기준은 {sizeOpt.enclosure_min_floor_mm[0] / 10}×
                 {sizeOpt.enclosure_min_floor_mm[1] / 10}cm예요. 설계는 할 수 있지만 더 넓은 사육장을 권장해요.
               </p>
             )}
@@ -546,7 +545,7 @@ export default function NewDesignWizard() {
       {step === 2 && (
         <section aria-labelledby="prompt-title" className="space-y-5">
           <h2 id="prompt-title" className="text-xl font-bold">
-            어떤 구조물을 원하세요?
+            원하는 구조물을 적어 주세요
           </h2>
           <p className="break-words text-sm text-stone-600">
             {selectedPet && <span className="font-medium text-stone-800">{selectedPet.name} · </span>}
@@ -598,7 +597,7 @@ export default function NewDesignWizard() {
                 submitting || opening ? "disabled:cursor-wait" : "disabled:cursor-not-allowed"
               }`}
             >
-              {opening ? "결과 화면을 여는 중…" : submitting ? "AI가 설계하고 있어요…" : "맞춤 설계 받기"}
+              {opening ? "결과 화면을 여는 중…" : submitting ? "설계하는 중…" : "맞춤 설계 받기"}
             </button>
           </div>
           {quota && quota.remaining !== null && !submitting && !opening && (

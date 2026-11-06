@@ -35,7 +35,6 @@ export default function DesignCard({ design: d }: { design: DesignListItem }) {
         {d.pet_name && (
           <p className="mt-2">
             <span className={`${chip} inline-block max-w-full truncate bg-orange-50 text-orange-900 ring-1 ring-orange-200`}>
-              <span aria-hidden>🐾 </span>
               {d.pet_name}
             </span>
           </p>

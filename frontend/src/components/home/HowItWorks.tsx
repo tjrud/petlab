@@ -3,17 +3,17 @@ import { IconChevronRight, IconCube, IconPencil, IconSparkle } from "@/component
 const STEPS = [
   {
     title: "사육 환경 입력",
-    body: "종과 크기, 마릿수, 케이지 내부 치수를 고르고 원하는 구성을 편하게 적어 주세요.",
+    body: "종·크기·마릿수와 케이지 내부 치수를 고르고, 원하는 구조물을 적어요.",
     Icon: IconPencil,
   },
   {
-    title: "AI 맞춤 설계·자동 검증",
-    body: "AI가 구조물을 설계하고, 출입구 크기·오르는 높이·벽 두께 같은 안전·출력 기준을 자동으로 확인해요.",
+    title: "설계·안전 검증",
+    body: "적은 내용대로 구조물 치수를 정하고, 출입구 크기·오르는 높이·벽 두께 같은 안전·출력 기준을 확인해요.",
     Icon: IconSparkle,
   },
   {
     title: "3D 확인·프린팅 파일(STL·3MF)",
-    body: "3D로 돌려 보며 확인하고, 고치고 싶은 부분은 말로 요청하세요. 완성되면 STL·3MF 파일로 내려받아요.",
+    body: "3D로 돌려 보며 확인하고, 바꿀 부분은 글로 다시 요청해요. 끝나면 STL·3MF 파일로 내려받아요.",
     Icon: IconCube,
   },
 ];
@@ -24,7 +24,7 @@ export default function HowItWorks() {
       <h2 id="how-title" className="text-xl font-bold sm:text-2xl">
         이렇게 만들어요
       </h2>
-      <p className="mt-1 text-sm text-stone-600">세 단계면 우리 아이만의 구조물이 완성돼요.</p>
+      <p className="mt-1 text-sm text-stone-600">세 단계로 진행돼요.</p>
       <ol className="mt-5 grid gap-3 md:grid-cols-3 md:gap-8">
         {STEPS.map(({ title, body, Icon }, i) => (
           <li key={title} className="relative rounded-2xl border border-amber-200 bg-white p-5 shadow-sm">

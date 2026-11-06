@@ -22,7 +22,7 @@ test("관리자 로그인: 사이트는 공개, 설계 기능은 로그인 후�
   await expect(page.getByRole("heading", { level: 1, name: "필요한 구조물을 적어 보세요" })).toBeVisible();
   // 설계하기는 로그인 안내 (자동으로 이동하지 않음)
   await page.goto("/design");
-  await expect(page.getByText("로그인하고 맞춤 설계를 시작해 보세요")).toBeVisible();
+  await expect(page.getByText("로그인하면 설계를 만들 수 있어요")).toBeVisible();
   await expect(page.getByRole("heading", { name: "사육 환경을 알려 주세요" })).toHaveCount(0);
   await page.getByRole("main").getByRole("link", { name: "로그인", exact: true }).click();
   await page.waitForURL(/\/login\?next=%2Fdesign$/);
@@ -42,7 +42,7 @@ test("관리자 로그인: 사이트는 공개, 설계 기능은 로그인 후�
   await page.waitForURL((url) => url.pathname === "/");
   await expect(page.getByRole("banner").getByText("NestForge 운영팀")).toHaveCount(0);
   await page.goto("/design");
-  await expect(page.getByText("로그인하고 맞춤 설계를 시작해 보세요")).toBeVisible();
+  await expect(page.getByText("로그인하면 설계를 만들 수 있어요")).toBeVisible();
 });
 
 test("로그인 후 이동 경로는 같은 사이트 안으로만", async ({ page }) => {

@@ -84,7 +84,7 @@ export default function CommentForm({ postId, onAdded }: { postId: string; onAdd
         maxLength={LIMITS.comment}
         disabled={submitting}
         aria-describedby="comment-body-count"
-        placeholder="따뜻한 말 한마디나 궁금한 점을 남겨 주세요."
+        placeholder="댓글을 적어 주세요."
         onChange={(e) => setBody(e.target.value)}
       />
       {error && (

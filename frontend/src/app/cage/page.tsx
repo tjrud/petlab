@@ -17,8 +17,8 @@ export default function CagePage() {
         <p className="text-xs font-semibold tracking-widest text-amber-700">VIRTUAL CAGE SIMULATION</p>
         <h1 className="mt-1 text-2xl font-bold sm:text-3xl">가상 케이지 시뮬레이션</h1>
         <p className="mt-2 max-w-3xl text-stone-600">
-          케이지 치수를 정하고 카탈로그의 구조물을 게임처럼 골라 옮기고 돌려 보세요. 겹침·케이지 밖·끼임 틈·출입구 앞 공간을
-          놓는 대로 확인해 드려요. 사기 전에, 옮기기 전에 미리 맞춰 보면 몇 번씩 재고 옮기는 수고를 줄일 수 있어요.
+          케이지 치수를 정하고 카탈로그의 구조물을 놓고, 옮기고, 돌려 보세요. 놓을 때마다 겹침·케이지 밖·끼임 틈·출입구 앞
+          공간을 확인해요. 용품을 사거나 배치를 바꾸기 전에 미리 맞춰 볼 수 있어요.
         </p>
         <div className="mt-6">
           {/* 화면이 주소의 ?layout= 을 읽으므로(useSearchParams) Suspense 안에서 그린다 */}

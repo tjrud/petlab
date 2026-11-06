@@ -6,14 +6,14 @@ const AREAS = [
   {
     href: "/design",
     title: "설계하기",
-    body: "케이지 치수와 원하는 구성을 알려 주시면 AI가 우리 아이에게 맞는 구조물을 설계해요.",
+    body: "케이지 치수와 원하는 구조물을 적으면 치수에 맞춘 설계와 3D 프린팅 파일이 나와요.",
     Icon: IconPencil,
     tone: "bg-amber-100 text-amber-800",
   },
   {
     href: "/cage",
     title: "가상 케이지 시뮬레이션",
-    body: "케이지 치수를 등록하고 은신처·쳇바퀴·모래목욕통을 게임처럼 놓아 보며 겹침과 끼임 틈을 미리 확인해요.",
+    body: "케이지 치수를 등록하고 은신처·쳇바퀴·모래목욕통을 놓아 보며 겹침과 끼임 틈을 미리 확인해요.",
     Icon: IconCage,
     tone: "bg-sky-50 text-sky-800",
   },
@@ -27,7 +27,7 @@ const AREAS = [
   {
     href: "/community",
     title: "커뮤니티",
-    body: "다른 보호자들의 설계와 사육 이야기를 둘러보고, 내 설계도 자랑해 보세요.",
+    body: "다른 보호자의 설계와 사육 이야기를 보고, 내 설계를 공유할 수 있어요.",
     Icon: IconChat,
     tone: "bg-orange-100 text-orange-800",
   },
@@ -44,7 +44,7 @@ export default function SectionCards() {
   return (
     <section aria-labelledby="areas-title" className="mt-12">
       <h2 id="areas-title" className="text-xl font-bold sm:text-2xl">
-        무엇을 해 볼까요?
+        주요 기능
       </h2>
       <ul className="mt-5 grid gap-4 sm:grid-cols-2">
         {AREAS.map(({ href, title, body, Icon, tone }) => (

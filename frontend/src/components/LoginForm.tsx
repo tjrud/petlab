@@ -98,7 +98,7 @@ export default function LoginForm() {
       {unreachable && <ServerUnreachable />}
       <form onSubmit={submit} className={`${ui.card} space-y-4`}>
         <p className="text-sm text-stone-600">
-          회원 계정으로 로그인하면 AI 설계를 만들고, 내 설계 내역을 모아 보고, 커뮤니티에 글을 남길 수 있어요.
+          로그인하면 설계를 만들고, 설계 내역을 보고, 커뮤니티에 글을 쓸 수 있어요.
         </p>
         <div>
           <label htmlFor="login-username" className={ui.label}>

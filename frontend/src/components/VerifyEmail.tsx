@@ -78,9 +78,6 @@ function Links({ primary }: { primary: "design" | "me" }) {
 function Verified({ message, loggedOut }: { message: string; loggedOut: boolean }) {
   return (
     <div role="status" className={`${ui.card} text-center`}>
-      <p className="text-4xl" aria-hidden>
-        🎉
-      </p>
       <h2 className={`${ui.h2} mt-2`}>이메일 인증을 마쳤어요</h2>
       <p className="mt-2 text-sm text-stone-600">
         {message}
