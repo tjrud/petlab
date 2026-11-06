@@ -55,7 +55,7 @@
 
 **판단**: 써르써르가 PLA 출력물을 판다는 사실은 판매자 글로 확인된다(식판). 은신처·모래존 같은 인기 상품의 소재는 구매 후기·가이드 블로그에 기댄다. 그래서 "NestForge 방식이 시장에서 흔하고 널리 받아들여진다"는 **중간** 근거다. 안전이 시험되었다는 근거는 아니다(아래 2-1).
 
-> 글에서는 브랜드 이름을 쓰지 않고 "국내 인기 햄스터 용품 브랜드 여러 곳"이라고만 했다. 출처 목록에는 판매자가 직접 쓴 소개글 두 개만 링크했다. 경쟁사를 언급할지는 운영 판단이라, 이름을 넣거나 링크를 빼는 것은 게시 전에 정하면 된다.
+> 글에서는 브랜드 이름을 쓰지 않고 "국내 인기 브랜드를 포함한 판매자 여러 곳", "국내 판매자 두 곳"이라고만 했다. 출처 목록에는 판매자 쪽 블로그 글 두 개와 써르써르 구매 후기 하나를 링크했다. 써르써르 글은 판매자 블로그로 보이는 글이다. 블로그 이름은 '써르써르'이고 글은 하나뿐이다. 글 제목은 '써르써르 햄스터 식판 밥그릇 신제품 리뷰', 작성자 별명은 '수이집사'다. 판매자라고 밝히지는 않았지만 "새로 등록한", "현재 제작 컬러"처럼 만드는 쪽의 말투로 쓰였다. 경쟁사를 언급할지는 운영 판단이라, 이름을 넣거나 링크를 빼는 것은 게시 전에 정하면 된다.
 
 ---
 
@@ -72,10 +72,11 @@
 ### 2-2. 원료 수지의 자료 — **중간** (원료 수지·식품 용기 기준이고, 출력물 기준은 아니다)
 - **PLA는 의료용 고분자이고 분해되면 젖산이 된다**: "Once coming in contact with biological media, the polymer begins breaking down, usually by hydrolysis, into lactic acid (LA) or to carbon dioxide and water. These products are metabolized intracellularly or excreted in the urine and breath." — https://pmc.ncbi.nlm.nih.gov/articles/PMC6682490/
   - 뜻: 체액에 닿으면 주로 가수분해로 젖산이나 이산화탄소와 물로 분해되고, 세포 안에서 대사되거나 소변·숨으로 나간다.
-  - 같은 리뷰: "PLA sutures lose 50% of their weight after approx. 14 weeks at pH 7 and 37°C." (PLA 봉합사는 37°C에서 약 14주 뒤 무게가 절반으로 준다)
-- **젖산은 FDA GRAS(식품 성분 인정)다**: "The ingredient is used in food, except in infant foods and infant formulas, at levels not to exceed current good manufacturing practice." — 21 CFR 184.1061, https://www.law.cornell.edu/cfr/text/21/184.1061
+  - 같은 리뷰: "PLA sutures lose 50% of their weight after approx. 14 weeks at pH 7 and 37°C." (PLA 봉합사는 37°C에서 약 14주 뒤 무게가 절반으로 준다) / "The median half-life of the polymer is 30 weeks" / "The half-life of L-PLA screws in tissue averages 24 months"
+  - 그래서 글에는 "몸속에 심으면 몇 달~몇 년에 걸쳐"라고 적었다. 이 숫자는 몸에 심은 경우의 자료이고, 장을 지나가는 몇 시간 동안의 이야기가 아니다.
+- **젖산은 FDA GRAS(식품 성분 인정)다** (글 본문에서는 뺐다. 삼킨 조각과 거리가 멀고 '먹어도 안심'처럼 읽힐 수 있어서다): "The ingredient is used in food, except in infant foods and infant formulas, at levels not to exceed current good manufacturing practice." — 21 CFR 184.1061, https://www.law.cornell.edu/cfr/text/21/184.1061
   - 영유아 식품은 이 인정에서 빠진다.
-- **PLA 식품접촉 신고(FCN 178)**: "Food Contact Substance: Polylactide polymers (CAS Reg. No. 9051-89-2). … Notifier: NatureWorks LLC … Intended Use: As components of articles intended to contact food." — https://www.cfsanappsexternal.fda.gov/scripts/fdcc/index.cfm?set=FCN&id=178
+- **PLA 식품접촉 신고(FCN 178)**: "Food Contact Substance: Polylactide polymers (CAS Reg. No. 9051-89-2). … Notifier: NatureWorks LLC … Intended Use: As components of articles intended to contact food." — https://www.hfpappexternal.fda.gov/scripts/fdcc/index.cfm?set=FCN&id=178 (옛 주소 cfsanappsexternal.fda.gov는 이 주소로 넘어간다)
   - 단서: "food contact substance notifications (FCNs) are effective only for the listed manufacturer and its customers." (이 신고는 NatureWorks와 그 고객사 제품에만 효력이 있다)
 - **1995년 PLA GRAS 결론 논문**: "It is concluded that PLA is safe and 'Generally Recognized As Safe' for its intended uses as a polymer for fabricating articles that will hold and/or package food." — https://pubmed.ncbi.nlm.nih.gov/7737601/
   - 이해관계: 저자 2명이 제조사 Cargill 소속이다. 글 본문에는 넣지 않았다.
@@ -85,7 +86,7 @@
 - **반대 근거**
   - 삼킨 PLA 미세입자는 장에서 젖산으로만 바뀌지 않고 올리고머 나노입자가 될 수 있다(3-3).
   - 시판 PETG 필라멘트에서는 첨가제 때문으로 보이는 세포 독성이 나왔다(3-4).
-  - 그래서 글은 "원료 수지 이야기라 색소·첨가제가 든 필라멘트나 출력물까지 보증하진 않아요"라고 단서를 달았다.
+  - 그래서 글은 "원료 수지 이야기라 색소·첨가제가 든 필라멘트나 출력물, 삼킨 조각까지 보증하진 않아요"라고 단서를 달았다.
 
 ### 2-3. 출력물 검사(AWI 지원 보고서) — **중간보다 약함**
 출처: Woodman 2021, AWI Refinement Research Award, 동료 심사 없음.
@@ -102,7 +103,7 @@
   - 뜻: 동물이 갉을 집, 운동 기구, 구조물을 3D 출력물로 만드는 데 거부감이 없다. 특히 색소 독성 위험을 줄이려 식품 안전 인증 소재나 무착색 원료를 쓴다면 더 그렇다.
 - **한계**
   - 시료가 극히 작다. PLA는 eSUN 흰색이고, 필라멘트 검사는 Filaments.ca의 식품안전 인증 무색 PLA·PETG, Matterhackers ABS+, Polymaker PVB 각 1개씩이다.
-  - 가장 유리한 소재(인증, 무착색)를 시험했다.
+  - 프탈레이트·BPA 시험의 PLA·PETG는 가장 유리한 소재(식품안전 인증, 무착색)였다. 중금속 시험은 eSUN 흰색 PLA(착색, 인증 언급 없음) 출력물로 했다: "All test prints were made from one of two rolls of filament, Esun brand PLA, in white."
   - 동물에게 먹인 시험이 아니다.
 - **확인 방법**: 원 사이트는 403, Wayback은 연결 실패였다. 그래서 이 세션 앞 단계에서 저장한 PDF 전문 추출본과 인용을 대조했다. 이용자가 위 새 주소를 브라우저로 한 번 열어 확인하길 권한다.
 
@@ -129,14 +130,15 @@
   - 두 페이지 모두 'plastic'이라는 말이 0번 나온다.
   - 그래서 "수의사가 권장한다"는 쓰면 안 되고, "허용한다" 정도가 맞다.
 
-### 2-5. 실험동물 현장 — **중간** (성형품이거나 마우스 대상이고, 건강 영향을 평가하지 않았다)
+### 2-5. 실험동물 현장 — 지침·교과서는 **중간**, PLA 출력 장비 논문은 **약함**, 먹이 퍼즐 선호도 연구는 **약~중간** (성형품이거나 마우스 대상이고, 건강 영향을 평가하지 않았다)
 - **NC3Rs(영국 실험동물 3R 센터) 햄스터 지침**(2021): "Environmental enrichment should include nesting material, a refuge area (e.g. tube, plastic shelter), roughage (e.g. hay) and gnawing objects (e.g. hard nylon chews and wooden blocks)" — https://nc3rs.org.uk/3rs-resources/housing-and-husbandry-hamster
   - 뜻: 둥지 재료, 숨을 곳(튜브, 플라스틱 쉼터), 건초, 갉기 용품(단단한 나일론, 나무 블록)을 넣어야 한다.
 - **실험동물 교과서**(Mulder 2012): "Contemporary cages are generally made of commercially manufactured rigid plastic materials (i.e. polycarbonate, polysulfone, and polypropylene) or stainless steel." — https://doi.org/10.1016/B978-0-12-380920-9.00028-6
 - **PLA 출력 쳇바퀴**(LOST-Wheel, PLOS ONE 2021): https://doi.org/10.1371/journal.pone.0261618
   - "All pieces were printed using fusion deposition modeling with polylactic acid (PLA) on an Ender3 V2 3D printer"
   - "While mice have occasionally chewed the running surface, this has not hindered its balance or performance." (마우스가 가끔 달리는 면을 갉았지만 균형과 성능에는 문제가 없었다)
-- **다른 쳇바퀴 논문**(eNeuro 2022): "This also means that replacement parts can be made should mice damage a part during the experiment." — https://doi.org/10.1523/ENEURO.0246-22.2022
+- **다른 쳇바퀴 논문**(eNeuro 2022, 홈케이지용 쳇바퀴): "All 3D printing used generic 1.75-mm-diameter PLA (polylactic acid)." / "This also means that replacement parts can be made should mice damage a part during the experiment." — https://doi.org/10.1523/ENEURO.0246-22.2022
+  - 뜻: 모든 부품을 일반 PLA로 출력했고, 마우스가 부품을 망가뜨리면 새로 출력해 바꿀 수 있다. 소재 문장은 Europe PMC 본문(PMC9621472) Methods의 '3D printing' 항목에서 확인했다.
 - **급이 장치 FED3**(eLife 2021): "We have printed FED3 with an FDM printer in PLA" — https://doi.org/10.7554/eLife.66173
 - **독일 BfR 산하 Bf3R의 먹이 퍼즐**(PLOS ONE 2023): "foraging treatball (self-designed and printed with Filamentworld schneeweiß PLA …)" — https://doi.org/10.1371/journal.pone.0278709
   - 단서: 선호도 연구다. 선호도 1위는 PLA 출력물이 아니라 종이를 채운 격자 공이었다. 이 연구를 "PLA가 낫다"는 근거로 쓰면 안 된다.
@@ -161,11 +163,12 @@
 - **TVT 골든햄스터 지침**(2025년 4월 전면 개정). 스캔 PDF라 눈으로 옮겨 적었다: https://www.tierschutz-tvt.de/alle-merkblaetter-und-stellungnahmen/?no_cache=1&download=goldhamster271024-2.pdf&did=37
   - "Plastikteile werden zernagt und es besteht die Gefahr, dass scharfkantige Teile abgeschluckt werden. Deswegen sollten vorrangig Naturmaterialien verwendet werden." (플라스틱 부품은 갉히고 날카로운 조각을 삼킬 위험이 있으니 자연 소재를 우선 써야 한다)
   - "Sandbad, Wasser- und Futternapf (Porzellan, kein Plastik) sollten erhöht platziert werden, damit sie nicht eingegraben werden." (모래 목욕통과 물·밥그릇은 도자기로, 플라스틱은 안 된다. 묻히지 않게 높여 둔다)
-  - "Röhrensysteme aus Plastik sind zu vermeiden … Sie können jedoch in der Einstreu vergraben oder fest eingebaut als Verbindung zwischen verschiedenen Gehegen dienen." (플라스틱 튜브 시스템은 피하되, 바닥재에 묻거나 사육장 사이를 잇는 고정 통로로는 쓸 수 있다)
+  - "Röhrensysteme aus Plastik sind zu vermeiden, da sie kein Ersatz für das natürliche Grabeverhalten sein können. Außerdem bieten die durchsichtigen Röhren keine optische Rückzugsmöglichkeit. Sie können jedoch in der Einstreu vergraben oder fest eingebaut als Verbindung zwischen verschiedenen Gehegen dienen." (플라스틱 튜브 시스템은 파는 습성을 대신할 수 없고, 투명한 튜브는 눈을 가려 줄 숨을 곳이 되지 못하니 피해야 한다. 다만 바닥재에 묻거나 사육장 사이를 잇는 고정 통로로는 쓸 수 있다)
+    - 무착색(내추럴) PLA·PETG 출력물은 빛이 비칠 수 있다. 07 글의 "투명 튜브는 숨을 곳이 못 되니 바닥재에 묻거나 연결 통로로 쓰래요" 안내와 함께 읽어야 한다.
 - **독일 동물보호연맹 입장문**(2024년 6월): https://www.tierschutzbund.de/fileadmin/Seiten/tierschutzbund.de/Downloads/Berichte/Positionspapier_DTSchB_Tierschutzwidriges_Zubehoer.pdf
   - "Plastik ist als Material für Gehege und Strukturierungselemente in der Regel ungeeignet, da eine Verletzungs- und Verschluckungsgefahr durch Annagen besteht." (플라스틱은 갉아서 다치거나 삼킬 위험이 있어 사육장과 구조물 소재로 대체로 부적합하다)
   - "Kunststoffröhren sind nur dann akzeptabel, wenn sie höchstens die doppelte Körperlänge des Tieres haben, eine ausreichende Belüftung gewährleisten und mit einer Gebrauchsanleitung versehen sind" (플라스틱 튜브는 몸길이의 2배 이하이고, 환기가 충분하고, 사용설명서가 있을 때만 받아들일 수 있다)
-- 표현의 강도: 구조물 전반에는 'vorrangig(우선)', 'in der Regel(대체로)'이라는 말을 써서 플라스틱 전체를 금지하지는 않는다. 다만 모래 목욕통·물그릇·밥그릇은 'kein Plastik(플라스틱 아님)'이라고 분명히 적는다. 글에도 "플라스틱 전체를 금지하진 않지만 그릇·모래 목욕통에선 빼라고 해요"라고 적었다.
+- 표현의 강도: 구조물 전반에는 'vorrangig(우선)', 'in der Regel(대체로)'이라는 말을 써서 플라스틱 전체를 금지하지는 않는다. 다만 모래 목욕통·물그릇·밥그릇은 'kein Plastik(플라스틱 아님)'이라고 분명히 적는다. 동물보호연맹 입장문에는 그릇·모래 목욕통 규정이 없다(Napf·Sandbad·Porzellan이 나오지 않는다). 그래서 글에는 그릇 규정을 TVT 문장에만 두고, "두 곳 다 플라스틱 전체를 금지하진 않고, 근거 연구를 따로 밝히진 않아요"라고 적었다. 동물보호연맹은 TVT 지침서를 출처로 든다.
 
 ### 3-2. 시판 PLA 출력물도 갉혀 부서진다 — **약함** (개인 후기)
 - "자꾸 노즈워크존을 갉아먹어요 !!!! 이갈이도 밥도 충분하게 줬는데 말이죠", "다음날 자고 일어나보니 아작나있음 ㅠ 바로 케이지에서 OUT 창고행..." — https://blog.naver.com/jjyun1683/224226332075
@@ -186,7 +189,7 @@
     - 용량은 2.5 mg/kg과 25 mg/kg이다. 저자는 2.5 mg/kg을 "current human exposure levels"로 설명한다.
   - 자라는 생쥐에게 6주 먹였다: "After six weeks of exposure, PLA-MP exposure resulted in more severe inhibition of the mice's weight gain than PVC-MPs did." — https://pubmed.ncbi.nlm.nih.gov/38039335/
 - **해석상 주의**
-  - 이 실험들은 공장에서 만든 미세입자를 관으로 매일 먹인 것이다. 햄스터가 출력물을 갉는 상황과 같지 않다.
+  - 이 실험들은 공장에서 만든 미세입자를 먹인 것이다. Liang 2024는 28일 동안 매일 관으로 먹였다. Wang 2023과 6주 연구(Deng 2023)는 먹인 방법과 용량을 확인하지 못했다. 어느 쪽이든 햄스터가 출력물을 갉는 상황과 같지 않다.
   - 그렇다고 "실험 용량이 비현실적이라 괜찮다"고 쓸 수도 없다. 실험 용량이 수십만 배 높다는 리뷰는 토양 농도와 비교한 것이지, 물건을 직접 갉는 상황과 비교한 것이 아니다.
   - 그래서 글에는 "갉는 상황과 똑같진 않지만 먹어도 되는 물질은 아니에요"라고 적었다.
 - AWI 보고서도 같은 결론이다: "so the goal should not be to expose the animals to plastic dust or encourage the ingestion of plastics."
@@ -223,16 +226,18 @@
 | 금속 필라멘트 빼기 | EPA 2024: "metals released from the acidic exposure of print objects using metal-fill filaments, especially copper, are toxic to rat and human intestinal cells" — https://pubmed.ncbi.nlm.nih.gov/38458500/ |
 | 반짝이·탄소섬유 빼기 | 메이커 설명: "you should definitely avoid higher-temperature materials like ABS and anything containing glitter, carbon fibre and the like" — https://www.printables.com/model/571743-hamster-hide-burrow-multi-chamber (같은 메이커는 PLA+우드를 권하지만, 08 글 기준에 맞춰 우드는 섭취 자료가 없어 뺐다) |
 | 레진 빼기 | Oskui 2016 (08 글 출처) |
+| 실크·야광 빼기 | 08 글 기준: 실크·반짝이·야광·탄소섬유·우드는 섭취 자료가 없어 피한다 |
+| 서포트 자국 다듬기·출력 중 케이지 다른 방 | 08 글 기준: 서포트 뗀 자리는 날카로울 수 있다. 출력 중에는 초미세입자와 화학 증기가 나온다(NIOSH, 08 글 출처) |
 | 무착색이나 색상별 식품접촉 서류 공개 필라멘트 | Prusa 위 인용 · BASF 색상 제외 · Bambu PLA Pure: "every one of them - including the pigments - holds certification for compliance with EU 10/2011"(단, "These certifications apply to the filament itself and its ingredients.") — https://blog.bambulab.com/introducing-bambu-lab-pla-pure-a-filament-made-for-printing-where-you-live/ |
 | 젖는 자리는 PETG | AWI: "PLA becomes weak over time in water, as it is broken down, hydrolyzed, by water. This weakening requires replacement as the parts weaken after repeated washing or time in a wet or humid environment." · 소로이3D: "습식 운영/분무가 잦으면 PETG 권장" — https://blog.naver.com/soroi8989/224138821916 · Prusa PETG: "waterproof parts (thanks to great layer adhesion)" — https://help.prusa3d.com/article/petg_2059 |
-| 스테인리스 노즐 | Rindelaub 2019: 황동 노즐을 쓰면 납이 늘었다 · Prusa: "Brass nozzles (and even our hardened steel nozzles) might cause a health risk due to lead present in the alloy." → 경화강이 아니라 스테인리스를 권함 |
+| 노즐은 가능하면 스테인리스 (08 글과 같은 강도) | Rindelaub 2019: 황동 노즐을 쓰면 납이 늘었다. 다만 1 g당 1~1.5 ng으로 아주 적다 · Prusa: "Brass nozzles (and even our hardened steel nozzles) might cause a health risk due to lead present in the alloy." → 경화강이 아니라 스테인리스를 권함 |
 | 권장 온도 이내 | NIOSH(08 글 출처): 높은 온도에서 입자 방출이 81배로 늘었다 |
 | 외벽 여러 겹·채움 높게·층 접착 확인 | AWI: "A strong plastic that is printed into a thin, object will be broken apart as though it were soft plastic because durability requires multiple printed layers of material." / "Here, the height between layers was too great and the layers could be peeled apart, creating an entanglement hazard and intestinal impaction hazard." · Prusa: 100% 채움 권장 |
 | 모서리 둥글게·얇은 돌출부 없게·갉기 전용 출력물 금지 | 위 AWI 인용 · AWI "the goal should not be to … encourage the ingestion of plastics" · Fable's "not designed to be chew toys" · 나일론 갉기 막대 연구(아래)의 미량 섭취 가능성. **'갉기 전용 금지'는 NestForge의 판단이다**(NC3Rs는 나일론 갉기 용품을 든다) |
 | 처음 며칠 매일, 이후 청소 때마다 점검 | 점검 주기를 정한 자료는 없다(08 글과 같음). 하룻밤에 갉아 부순 후기(3-2)를 근거로 한 보수적 기준이다 |
 | 교체 신호 | Fable's: "inspect PLA accessories regularly and replace them if you notice: Deep bite marks. Cracks. Loose fragments. Sharp edges. Layer separation." · 소변 얼룩: AWI "In prints that are not watertight, organic material and water will infiltrate deep into the print" |
 | 계속 갉는 개체는 원목·코르크 | Fable's: "If your hamster is a particularly persistent chewer who repeatedly damages plastic accessories, natural materials such as hardwood or cork may be a more suitable choice for that individual." |
-| 미지근한 물, 끓는 물·식기세척기 금지 | Fable's: "Avoid exposing PLA to very high temperatures, such as boiling water or dishwashers, as the material can soften and warp." · 써르써르 이름표 설명: "고온에서 장시간 사용시 변형이 올수 있습니다 미지근한 물로 세척 해주세요" · PLA 열변형 온도: Bambu 데이터시트 54~57°C(08 글), NatureWorks 4043D 55°C, Prusa "gets soft and deforms at temperatures over 60 °C" |
+| 미지근한 물, 끓는 물·식기세척기 금지 (PETG 포함. PETG는 약 65~70°C에서 물러진다, Bambu 데이터시트, 08 글) | Fable's: "Avoid exposing PLA to very high temperatures, such as boiling water or dishwashers, as the material can soften and warp." · 써르써르 이름표 설명: "고온에서 장시간 사용시 변형이 올수 있습니다 미지근한 물로 세척 해주세요" · PLA 열변형 온도: Bambu 데이터시트 54~57°C(08 글), NatureWorks 4043D 55°C, Prusa "gets soft and deforms at temperatures over 60 °C" |
 
 **나일론 갉기 막대 연구**(랫드, 2025): "plastic-based GS used as EE may influence gut microbiota and immune-related measures with ingestion of minimal amounts of EE components potentially at levels not readily visible or detected by weighing" — https://doi.org/10.1186/s42523-024-00369-6
 - 뜻: 플라스틱 갉기 막대가 장내 미생물과 면역 지표에 영향을 줄 수 있고, 무게로 잴 수 없을 만큼 적은 양을 먹었을 가능성이 있다.
@@ -257,7 +262,7 @@
   - Fable's는 PLA를 모래 목욕통과 밥그릇에 맞는 용도로 꼽는다(2-4).
   - AWI: "I would be comfortable offering dry, non-greasy foods in 3D- printed dishes of food-safe PLA, PETG, and non-food safe certified Polysmooth brand PVB."
   - Prusa는 필라멘트 그릇을 권하지 않는다(코팅 없이는 식품 안전하지 않다).
-  - → "우리는 도자기를 먼저 권해요"는 이 중 보수적인 쪽을 고른 것이다.
+  - → "우리는 도자기를 먼저 권하고, 물그릇은 도자기로 해요"는 이 중 보수적인 쪽을 고른 것이다. 출력한 물그릇을 받쳐 주는 출처는 없다. AWI는 마른 먹이만 괜찮다고 했고, 출력물이 물을 머금으면 속까지 유기물이 스민다고 경고한다.
 
 ---
 
