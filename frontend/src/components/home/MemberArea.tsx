@@ -30,7 +30,7 @@ export default function MemberArea() {
         내 공간
       </h2>
       <p className="mt-1 break-words text-sm text-stone-600">
-        {user.nickname}님, 반가워요. 이어서 설계하거나 등록한 아이로 새 설계를 시작해 보세요.
+        {user.nickname}님의 최근 설계와 등록한 반려동물이에요.
       </p>
       {/* 다른 계정으로 바뀌면 이전 계정의 목록을 버리고 새로 불러온다 */}
       <div key={user.id} className="mt-5 grid gap-4 lg:grid-cols-2">

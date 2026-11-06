@@ -4,7 +4,7 @@ import "./globals.css";
 import { AuthProvider } from "@/components/AuthProvider";
 
 const DESCRIPTION =
-  "사육 환경과 요구사항을 입력하면 AI가 케이지 구조물을 맞춤 설계하고 3D 프린팅 파일(STL·3MF)을 만들어 드립니다.";
+  "햄스터 케이지 치수에 맞춘 은신처·터널·경사로·모래목욕통 설계와 3D 프린팅 파일(STL·3MF).";
 
 export const metadata: Metadata = {
   title: { default: "NestForge – 햄스터 맞춤 케이지 구조물 설계", template: "%s · NestForge" },

@@ -77,9 +77,9 @@ export default function NewPostForm() {
 
   if (status === null) return <NewPostPlaceholder />;
   // 쓰던 내용이 있으면 로그인이 풀려도 폼을 바꾸지 않는다 (아래 안내로 다시 로그인하게 한다)
-  if (!user && !dirty) return <LoginRequired message="로그인하고 글을 써 보세요" />;
+  if (!user && !dirty) return <LoginRequired message="로그인하면 글을 쓸 수 있어요" />;
   if (attachAuthCode && !dirty) {
-    return <LoginRequired message="로그인하고 글을 써 보세요" unavailable={attachAuthCode === "auth_unavailable"} />;
+    return <LoginRequired message="로그인하면 글을 쓸 수 있어요" unavailable={attachAuthCode === "auth_unavailable"} />;
   }
 
   async function submit(e: React.FormEvent) {

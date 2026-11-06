@@ -66,11 +66,8 @@ export default function PostList() {
   if (total === 0) {
     return (
       <div className={`${ui.card} flex flex-col items-center py-12 text-center`}>
-        <p className="text-4xl" aria-hidden>
-          💬
-        </p>
-        <p className="mt-3 text-lg font-semibold">아직 글이 없어요. 첫 글을 남겨 보세요!</p>
-        <p className="mt-1 text-sm text-stone-600">우리 아이 케이지 설계나 사육 경험을 나눠 주세요.</p>
+        <p className="text-lg font-semibold">아직 글이 없어요.</p>
+        <p className="mt-1 text-sm text-stone-600">케이지 설계나 사육 경험을 올려 주세요.</p>
       </div>
     );
   }

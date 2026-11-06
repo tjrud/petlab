@@ -28,7 +28,7 @@ export default function CommentSection({
         <p className={`${ui.muted} mt-1`}>댓글이 많아서 최근 {comments.length}개만 보여요.</p>
       )}
       {comments.length === 0 ? (
-        <p className={`${ui.muted} mt-3`}>아직 댓글이 없어요. 첫 댓글을 남겨 보세요.</p>
+        <p className={`${ui.muted} mt-3`}>아직 댓글이 없어요.</p>
       ) : (
         <ul className="mt-1 divide-y divide-stone-100">
           {comments.map((c) => (

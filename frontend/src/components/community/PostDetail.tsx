@@ -37,9 +37,6 @@ function PostNotFound() {
   return (
     <div className="mx-auto max-w-3xl">
       <div className={`${ui.card} text-center`}>
-        <p className="text-4xl" aria-hidden>
-          🔍
-        </p>
         <h1 className="mt-3 text-xl font-bold">글을 찾을 수 없어요</h1>
         <p className="mt-2 text-sm text-stone-600">주소가 잘못되었거나 삭제된 글이에요.</p>
         <Link href={COMMUNITY_PATH} className={`${ui.btnSecondary} mt-5`}>

@@ -21,7 +21,7 @@ export default function LayoutsPanel({
 }) {
   if (error) return <p className={ui.error}>{error}</p>;
   if (!layouts) return <p className="text-sm text-stone-500">불러오는 중…</p>;
-  if (layouts.length === 0) return <p className="text-sm text-stone-500">아직 저장한 배치안이 없어요. 배치를 만들고 저장해 보세요.</p>;
+  if (layouts.length === 0) return <p className="text-sm text-stone-500">아직 저장한 배치안이 없어요. 배치를 만들고 저장하면 여기에 보여요.</p>;
   return (
     <ul className="space-y-2">
       {layouts.map((l) => (

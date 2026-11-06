@@ -161,7 +161,7 @@ def _check_signup_fields(db: Session, settings: Settings, data: SignupIn, email_
     """가입 입력값을 검사하고 정규화한 이메일 주소(없으면 None)를 돌려준다.
     순서: 이메일 필수 → 예약 아이디 → 예약 닉네임 → 약한 비밀번호 → 아이디 중복 → 닉네임 중복 → 인증된 이메일 중복."""
     if email_on and not data.email:
-        raise AppError("이메일을 입력해 주세요. 인증 메일을 보내 드려요.", code="email_required")
+        raise AppError("이메일을 입력해 주세요. 그 주소로 인증 메일을 보내요.", code="email_required")
     if data.username in RESERVED_USERNAMES or data.username == settings.admin_username.lower():
         raise ConflictError("사용할 수 없는 아이디예요.", code="username_taken")
     if is_reserved_nickname(data.nickname, settings):

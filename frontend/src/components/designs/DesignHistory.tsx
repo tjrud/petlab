@@ -85,11 +85,8 @@ export default function DesignHistory() {
   if (total === 0) {
     return (
       <div className={`${ui.card} flex flex-col items-center py-12 text-center`}>
-        <p className="text-4xl" aria-hidden>
-          🐹
-        </p>
         <p className="mt-3 text-lg font-semibold">아직 만든 설계가 없어요</p>
-        <p className="mt-1 text-sm text-stone-600">케이지 크기와 원하는 구성만 알려 주시면 바로 설계해 드려요.</p>
+        <p className="mt-1 text-sm text-stone-600">케이지 크기와 원하는 구조물을 적으면 설계를 시작할 수 있어요.</p>
         <Link href="/design" className={`${ui.btnPrimary} mt-5`}>
           첫 설계 만들기
         </Link>

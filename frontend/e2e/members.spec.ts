@@ -18,13 +18,13 @@ test("로그인하지 않으면 회원 기능 대신 안내가 보이고, 커뮤
   await expect(nav.getByRole("link", { name: "설계하기" })).not.toHaveAttribute("aria-current", "page");
   await expect(page.getByText("로그인하면 내 설계 내역을 볼 수 있어요")).toBeVisible();
   await page.goto("/me");
-  await expect(page.getByText("로그인하고 내 정보를 관리해 보세요")).toBeVisible();
+  await expect(page.getByText("로그인하면 내 정보를 관리할 수 있어요")).toBeVisible();
   // 로그인·회원가입 링크는 로그인 뒤 지금 화면으로 돌아오게 next 를 붙인다
-  const gate = page.getByRole("status").filter({ hasText: "로그인하고 내 정보를 관리해 보세요" });
+  const gate = page.getByRole("status").filter({ hasText: "로그인하면 내 정보를 관리할 수 있어요" });
   await expect(gate.getByRole("link", { name: "로그인", exact: true })).toHaveAttribute("href", "/login?next=%2Fme");
   await expect(gate.getByRole("link", { name: "회원가입" })).toHaveAttribute("href", "/signup?next=%2Fme");
   await page.goto("/community/new");
-  await expect(page.getByText("로그인하고 글을 써 보세요")).toBeVisible();
+  await expect(page.getByText("로그인하면 글을 쓸 수 있어요")).toBeVisible();
   await page.goto("/community");
   await expect(page.getByRole("heading", { level: 1, name: "커뮤니티" })).toBeVisible();
   await expect(page.getByRole("main").getByRole("link", { name: "글쓰기" })).toHaveAttribute(
@@ -272,12 +272,12 @@ test("설계 결과로 이동하는 중 다른 곳을 눌러도 설계 버튼이
     await route.continue();
   });
   await page.getByRole("button", { name: "맞춤 설계 받기" }).click();
-  await expect(page.getByRole("button", { name: /결과 화면을 여는 중|AI가 설계하고 있어요/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /결과 화면을 여는 중|설계하는 중/ })).toBeVisible();
   await page.getByRole("banner").getByRole("link", { name: "설계하기" }).click();
   release();
   await page.waitForLoadState("networkidle");
   // 어느 화면에 있든 버튼이 '진행 중'으로 굳어 있지 않아야 한다
-  await expect(page.getByRole("button", { name: /결과 화면을 여는 중|AI가 설계하고 있어요/ })).toHaveCount(0, { timeout: 10_000 });
+  await expect(page.getByRole("button", { name: /결과 화면을 여는 중|설계하는 중/ })).toHaveCount(0, { timeout: 10_000 });
 });
 
 test("이메일 인증 전: 안내 띠가 보이고 설계·글쓰기가 막혀 있다가, 메일의 링크로 인증하면 설계할 수 있다", async ({ page }) => {
@@ -489,7 +489,7 @@ test("내 정보: 종 목록·반려동물 목록을 불러오지 못하면 알�
   await expect(
     page.getByRole("alert").filter({ hasText: "종 목록을 불러오지 못해 지금은 등록·수정할 수 없어요. 로그인이 필요해요." }),
   ).toBeVisible();
-  await expect(page.getByText("로그인하고 내 정보를 관리해 보세요")).toHaveCount(0);
+  await expect(page.getByText("로그인하면 내 정보를 관리할 수 있어요")).toHaveCount(0);
   await page.unroute("**/species");
 
   // 반려동물 목록: 서버 오류는 그 자리에 문구를 보여 준다
@@ -505,5 +505,5 @@ test("내 정보: 종 목록·반려동물 목록을 불러오지 못하면 알�
     r.fulfill({ status: 401, json: { detail: { code: "auth_required", message_ko: "로그인이 필요해요." } } }),
   );
   await page.reload();
-  await expect(page.getByText("로그인하고 내 정보를 관리해 보세요")).toBeVisible();
+  await expect(page.getByText("로그인하면 내 정보를 관리할 수 있어요")).toBeVisible();
 });

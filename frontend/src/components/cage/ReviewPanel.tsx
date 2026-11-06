@@ -37,10 +37,10 @@ export default function ReviewPanel({
       </div>
 
       {itemCount === 0 ? (
-        <p className="text-sm text-stone-500">카탈로그에서 구조물을 골라 케이지에 놓아 보세요. 놓는 대로 겹침·끼임 틈·출입구 공간을 확인해 드려요.</p>
+        <p className="text-sm text-stone-500">카탈로그에서 구조물을 고르면 케이지에 놓여요. 놓을 때마다 겹침·끼임 틈·출입구 앞 공간을 확인해요.</p>
       ) : report.issues.length === 0 ? (
         <p role="status" className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">
-          ✅ 겹치거나 케이지 밖으로 나간 구조물이 없고, 끼임 틈·출입구 공간도 기준에 맞아요.
+          겹치거나 케이지 밖으로 나간 구조물이 없고, 끼임 틈과 출입구 앞 공간도 기준에 맞아요.
         </p>
       ) : (
         <ul className="space-y-1.5">
@@ -53,7 +53,7 @@ export default function ReviewPanel({
                   i.severity === "error" ? "bg-red-50 text-red-800 hover:bg-red-100" : "bg-amber-50 text-amber-900 hover:bg-amber-100"
                 }`}
               >
-                {i.severity === "error" ? "⛔ " : "⚠️ "}
+                <span className="mr-1.5 font-semibold">{i.severity === "error" ? "오류" : "경고"}</span>
                 {i.message}
               </button>
             </li>
@@ -68,7 +68,7 @@ export default function ReviewPanel({
         {rulesLoaded
           ? `끼임 틈·출입구·높이 기준은 선택한 종·크기의 규칙을 따라요.${rulesReviewed ? "" : " 규칙은 아직 전문가 검수 전 임시값이에요."}`
           : "종별 기준을 불러오지 못해 겹침·케이지 밖·높이만 확인했어요."}{" "}
-        3D 프린팅용 구조물 설계는 AI 맞춤 설계에서 할 수 있어요.
+        3D 프린팅용 구조물은 설계하기 화면에서 만들 수 있어요.
       </p>
     </section>
   );

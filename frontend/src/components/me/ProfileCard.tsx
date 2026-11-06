@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 
+import { IconPaw } from "@/components/home/icons";
 import type { Me, User } from "@/lib/types";
 import { formatDate, ui } from "@/lib/ui";
 
@@ -36,8 +37,8 @@ export default function ProfileCard({
   return (
     <section aria-labelledby="profile-title" className={ui.card}>
       <div className="flex items-start gap-3">
-        <span aria-hidden className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-amber-100 text-2xl">
-          🐹
+        <span aria-hidden className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-amber-100">
+          <IconPaw className="h-6 w-6 text-amber-800" />
         </span>
         <div className="min-w-0">
           <h2 id="profile-title" className="flex flex-wrap items-center gap-2 text-lg font-semibold">

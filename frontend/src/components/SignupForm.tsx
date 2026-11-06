@@ -90,9 +90,6 @@ function SignupDone({ email, sent, next }: { email: string; sent: boolean; next:
   const go = (path: string) => window.location.assign(path);
   return (
     <div role="status" className={`${ui.card} text-center`}>
-      <p className="text-4xl" aria-hidden>
-        {sent ? "📮" : "🐹"}
-      </p>
       <h2 className={`${ui.h2} mt-2`}>{sent ? "인증 메일을 보냈어요" : "가입을 마쳤어요"}</h2>
       {sent ? (
         <p className="mt-2 text-sm text-stone-600">

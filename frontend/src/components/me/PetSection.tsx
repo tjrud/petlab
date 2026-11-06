@@ -114,12 +114,9 @@ export default function PetSection({
         ) : pets.length === 0 ? (
           editing !== "new" && (
             <div className="rounded-xl border border-dashed border-amber-300 bg-amber-50/50 p-6 text-center">
-              <p className="text-3xl" aria-hidden>
-                🐹
-              </p>
               <p className="mt-2 font-medium">아직 등록한 반려동물이 없어요</p>
               <p className="mt-1 text-sm text-stone-600">
-                이름과 종·크기, 케이지 치수를 저장해 두면 다음 설계부터 바로 채워 드려요.
+                이름·종·크기·케이지 치수를 저장해 두면 다음 설계 때 자동으로 채워져요.
               </p>
             </div>
           )

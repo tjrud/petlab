@@ -17,7 +17,7 @@ export default function CommunityPage() {
           <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
             <div className="min-w-0">
               <h1 className={ui.h1}>커뮤니티</h1>
-              <p className={`${ui.muted} mt-1`}>설계 아이디어와 사육 팁을 나눠요.</p>
+              <p className={`${ui.muted} mt-1`}>설계와 사육 정보를 올리고 보는 곳이에요.</p>
             </div>
             <WriteButton />
           </div>

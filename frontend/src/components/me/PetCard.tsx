@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useId, useState } from "react";
 
+import { IconPaw } from "@/components/home/icons";
 import { api, ApiError, errorText, isAuthError } from "@/lib/api";
 import type { Pet } from "@/lib/types";
 import { ui } from "@/lib/ui";
@@ -48,8 +49,8 @@ export default function PetCard({
   return (
     <article aria-labelledby={`${uid}-name`} className="flex h-full flex-col rounded-2xl border border-stone-200 bg-white p-4">
       <div className="flex items-start gap-3">
-        <span aria-hidden className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-amber-100 text-xl">
-          🐹
+        <span aria-hidden className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-amber-100">
+          <IconPaw className="h-5 w-5 text-amber-800" />
         </span>
         <div className="min-w-0">
           <h3 id={`${uid}-name`} className="break-words text-lg font-semibold">

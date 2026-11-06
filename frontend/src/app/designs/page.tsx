@@ -17,7 +17,7 @@ export default function DesignsPage() {
         <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
           <div className="min-w-0">
             <h1 className={ui.h1}>내 설계</h1>
-            <p className={`${ui.muted} mt-1`}>지금까지 만든 설계를 최근에 수정한 순서로 보여 드려요.</p>
+            <p className={`${ui.muted} mt-1`}>만든 설계를 최근 수정한 순서로 보여요.</p>
           </div>
           <Link href="/design" className={ui.btnPrimary}>
             새 설계

@@ -728,10 +728,10 @@ export default function CagePlanner() {
               ))}
           </div>
           <div className={`${ui.cardPlain} text-sm`}>
-            <p className="font-medium">배치가 마음에 드시나요?</p>
-            <p className="mt-1 text-stone-600">이 케이지에 꼭 맞는 은신처·터널·램프를 AI가 설계하고 3D 프린팅 파일로 만들어 드려요.</p>
+            <p className="font-medium">구조물을 직접 만들려면</p>
+            <p className="mt-1 text-stone-600">이 케이지 치수에 맞춰 은신처·터널·경사로를 설계하고 3D 프린팅 파일(STL·3MF)로 받을 수 있어요.</p>
             <Link href={meta.petId ? `/design?pet=${encodeURIComponent(meta.petId)}` : "/design"} className={`${ui.link} mt-2 inline-block font-medium`}>
-              AI 맞춤 설계로 이어가기 →
+              설계하기로 가기 →
             </Link>
           </div>
         </aside>

@@ -147,7 +147,8 @@ export default function InspectorPanel({
         <ul className="space-y-1 text-xs">
           {issues.map((i) => (
             <li key={i.key} className={i.severity === "error" ? "text-red-700" : "text-amber-800"}>
-              {i.severity === "error" ? "⛔" : "⚠️"} {i.message}
+              <span className="mr-1 font-semibold">{i.severity === "error" ? "오류" : "경고"}</span>
+              {i.message}
             </li>
           ))}
         </ul>

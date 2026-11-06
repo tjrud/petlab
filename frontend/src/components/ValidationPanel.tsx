@@ -1,9 +1,9 @@
 import type { Issue, Item, Validation } from "@/lib/types";
 
 const GROUPS = [
-  { key: "error", title: "해결이 필요한 문제", tone: "border-red-200 bg-red-50 text-red-800", icon: "⛔" },
-  { key: "warning", title: "주의", tone: "border-amber-200 bg-amber-50 text-amber-900", icon: "⚠️" },
-  { key: "fixed", title: "자동 보정한 내용", tone: "border-sky-200 bg-sky-50 text-sky-900", icon: "🔧" },
+  { key: "error", title: "해결이 필요한 문제", tone: "border-red-200 bg-red-50 text-red-800" },
+  { key: "warning", title: "주의", tone: "border-amber-200 bg-amber-50 text-amber-900" },
+  { key: "fixed", title: "자동 보정한 내용", tone: "border-sky-200 bg-sky-50 text-sky-900" },
 ] as const;
 
 function groupOf(i: Issue): (typeof GROUPS)[number]["key"] {
@@ -44,7 +44,7 @@ export default function ValidationPanel({
         return (
           <div key={g.key} className={`rounded-xl border p-3 ${g.tone}`}>
             <h3 className="mb-2 text-sm font-semibold">
-              {g.icon} {g.title} ({list.length})
+              {g.title} ({list.length})
             </h3>
             <ul className="space-y-1.5 text-sm">
               {list.map((i, n) => (

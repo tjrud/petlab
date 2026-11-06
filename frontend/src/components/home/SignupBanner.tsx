@@ -18,7 +18,7 @@ export default function SignupBanner({ signupEnabled, emailRequired }: { signupE
       <div className="grid gap-6 md:grid-cols-[minmax(0,1.4fr)_auto] md:items-center">
         <div>
           <h2 id="join-title" className="text-balance text-xl font-bold sm:text-2xl">
-            {signupEnabled ? "가입하고 우리 아이 맞춤 설계를 시작해 보세요" : "로그인하고 우리 아이 맞춤 설계를 시작해 보세요"}
+            {signupEnabled ? "가입하면 설계를 저장하고 공유할 수 있어요" : "로그인하면 설계를 저장하고 공유할 수 있어요"}
           </h2>
           <p className="mt-2 text-sm text-teal-50/90 sm:text-base">
             설계 만들기는 회원만 할 수 있어요.

@@ -16,7 +16,7 @@ from app.services.design_service import DesignService
 router = make_router(prefix="/waitlist", tags=["제작·배송 대기"])
 
 WAITLIST_DAILY_LIMIT = 10  # 회원 1명당 24시간 (남의 이메일을 대량으로 올리지 못하게)
-DONE_MESSAGE = "제작·배송 서비스 대기 명단에 등록했어요. 서비스가 열리면 이메일로 가장 먼저 알려드릴게요."
+DONE_MESSAGE = "제작·배송 서비스 대기 명단에 등록했어요. 서비스가 열리면 이메일로 알려요."
 
 
 @router.post("", response_model=WaitlistOut, status_code=status.HTTP_201_CREATED, summary="제작·배송 대기 등록")

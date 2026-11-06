@@ -49,9 +49,6 @@ export default function WaitlistForm() {
   if (done) {
     return (
       <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-6 text-center" role="status">
-        <p className="text-3xl" aria-hidden>
-          📮
-        </p>
         <h2 className="mt-2 text-xl font-bold">대기 등록 완료</h2>
         <p className="mt-2 text-stone-700">{done}</p>
         {designId && (
@@ -66,7 +63,7 @@ export default function WaitlistForm() {
   return (
     <form onSubmit={submit} className="space-y-4 rounded-2xl border border-amber-200 bg-white p-6">
       <p className="text-stone-700">
-        출력·배송 서비스는 준비 중이에요. 이메일을 남겨 주시면 서비스가 열릴 때 가장 먼저 알려 드릴게요.
+        출력·배송 서비스는 준비 중이에요. 이메일을 남기면 서비스가 열릴 때 알림 메일을 보내요.
         {designId && <span className="block text-sm text-stone-500">선택한 설계: {designId.slice(0, 8)}{version ? ` · v${version}` : ""}</span>}
       </p>
       <label className="block">

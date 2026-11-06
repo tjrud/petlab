@@ -65,11 +65,11 @@ export default function MyInfo() {
 
   if (authError) {
     return (
-      <LoginRequired unavailable={authError.code === "auth_unavailable"} message="로그인하고 내 정보를 관리해 보세요" />
+      <LoginRequired unavailable={authError.code === "auth_unavailable"} message="로그인하면 내 정보를 관리할 수 있어요" />
     );
   }
   if (!status) return <AuthChecking />;
-  if (!user) return <LoginRequired message="로그인하고 내 정보를 관리해 보세요" />;
+  if (!user) return <LoginRequired message="로그인하면 내 정보를 관리할 수 있어요" />;
 
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] lg:grid-rows-[auto_1fr] lg:items-start">
