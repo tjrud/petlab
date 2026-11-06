@@ -14,7 +14,7 @@ const status = (page: Page) => page.getByText(/^케이지 \d+×\d+×\d+mm · 구
 
 test("가상 케이지: 에셋 놓기·끌어 옮기기·되돌리기·회전·케이지 크기·저장", async ({ page }) => {
   await page.goto("/cage");
-  await expect(page.getByRole("heading", { level: 1, name: "가상 케이지 공간 설계" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "가상 케이지 시뮬레이션" })).toBeVisible();
   await expect(status(page)).toHaveText("케이지 1000×500×500mm · 구조물 0개");
 
   // 기본 구성: 쳇바퀴는 케이지 높이에 맞는 크기로 (기본 케이지는 높이 50cm 라 28cm 쳇바퀴가 들어가요, 높이 경고 없음)
@@ -221,7 +221,7 @@ test("로그인 확인이 늦어도 브라우저 임시 저장은 바로 되살�
     await route.continue();
   });
   await page.goto(`/cage?layout=${a}`);
-  await expect(page.getByRole("heading", { level: 1, name: "가상 케이지 공간 설계" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "가상 케이지 시뮬레이션" })).toBeVisible();
   await page.getByRole("button", { name: "새로 만들기" }).click();
   await expect(page).toHaveURL(/\/cage$/);
   await page.getByRole("button", { name: "밥그릇 추가" }).click();
