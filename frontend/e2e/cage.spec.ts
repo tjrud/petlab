@@ -751,3 +751,35 @@ test("가상 케이지 상단 줄·3D 위 도구 모음: 종·크기 선택, 저
   await expect(page.getByText("끌어서 옮기기 · R 90° 회전 · Q/E 15° · 방향키 1cm(Shift 1mm) · Del 삭제")).toBeVisible();
   await expect(status(page)).toHaveText("케이지 1000×500×500mm · 구조물 1개");
 });
+
+test("바닥재: 바닥 전체에 하나만 깔리고, 구조물 수에 들지 않으며, 깊이만큼 위 공간이 줄어든다", async ({ page }) => {
+  await page.goto("/cage");
+  await expect(status(page)).toHaveText("케이지 1000×500×500mm · 구조물 0개");
+
+  await page.getByRole("button", { name: "바닥재", exact: true }).click();
+  await page.getByRole("button", { name: "톱밥 바닥재 5cm 깔기" }).click();
+  await expect(page.getByText("바닥재: 톱밥 바닥재 5cm")).toBeVisible();
+  // 바닥재는 구조물로 세지 않고 고르지도 않아요
+  await expect(status(page)).toHaveText("케이지 1000×500×500mm · 구조물 0개");
+  await expect(page.getByLabel("가로 위치 (mm)")).toHaveCount(0);
+
+  // 다른 바닥재를 고르면 바뀌어요 (하나만)
+  await page.getByRole("button", { name: "톱밥 바닥재 15cm 깔기" }).click();
+  await expect(page.getByText("바닥재: 톱밥 바닥재 15cm")).toBeVisible();
+  await expect(page.getByRole("button", { name: "톱밥 바닥재 15cm 깔려 있음" })).toBeVisible();
+
+  // 15cm 바닥재 위에 28cm 쳇바퀴(높이 32cm) → 47cm, 높이 40cm 케이지에는 안 들어가요
+  await page.getByRole("tab", { name: "케이지 크기" }).click();
+  await page.getByRole("button", { name: "대형 80×50×40" }).click();
+  await page.getByRole("tab", { name: "카탈로그" }).click();
+  await page.getByRole("button", { name: "전체", exact: true }).click();
+  await page.getByRole("button", { name: "28cm 쳇바퀴 추가" }).click();
+  await expect(status(page)).toHaveText("케이지 800×500×400mm · 구조물 1개");
+  await expect(page.getByText("28cm 쳇바퀴 높이 320mm에 바닥재 150mm를 더하면 케이지 높이 400mm보다 높아요.").first()).toBeVisible();
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/cage-bedding.png`, fullPage: true });
+
+  // 바닥재를 빼면 오류가 사라져요
+  await page.getByRole("button", { name: "바닥재 빼기" }).click();
+  await expect(page.getByText(/바닥재 150mm를 더하면/)).toHaveCount(0);
+  await expect(page.getByText(/^바닥재: /)).toHaveCount(0);
+});

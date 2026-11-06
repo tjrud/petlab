@@ -3,7 +3,7 @@
 // 좌표계는 백엔드 배치기와 같아요: mm, 원점 = 앞-왼쪽 바닥 모서리, x = 오른쪽, y = 뒤쪽(안쪽), 회전은 위에서 볼 때 반시계.
 // 검토 기준 수치(끼임 틈·출입구 폭·오르는 높이)는 서버의 종별 규칙(/species 의 layout_rules)에서 받아요.
 
-import { getAsset, type CageAsset, type Side } from "@/lib/cageAssets";
+import { beddingDepth, getAsset, isFloorLayer, type CageAsset, type Side } from "@/lib/cageAssets";
 import { josa } from "@/lib/josa";
 import type { Cage, LayoutItem, LayoutRules } from "@/lib/types";
 
@@ -123,6 +123,7 @@ function outsideBox(b: Box, cage: Cage): boolean {
 
 /** 항목이 케이지 벽 밖으로 TOL 넘게 나갔는지 (배치 검토의 '케이지 밖' 오류와 같은 기준) */
 export function isOutsideCage(item: LayoutItem, asset: CageAsset, cage: Cage): boolean {
+  if (isFloorLayer(asset)) return false; // 바닥재는 케이지 바닥 전체를 덮어요
   return Object.values(wallGaps(footprint(item, asset), cage)).some((v) => v < -TOL);
 }
 
@@ -196,11 +197,13 @@ export function checkLayout(cage: Cage, items: LayoutItem[], rules: LayoutRules 
   for (const item of items) {
     const asset = getAsset(item.asset);
     if (!asset) unknownAssets.push(item.asset);
-    else placed.push({ item, asset, poly: footprint(item, asset) });
+    else if (!isFloorLayer(asset)) placed.push({ item, asset, poly: footprint(item, asset) });
   }
   const W = cage.width_mm;
   const D = cage.depth_mm;
   const H = cage.height_mm;
+  // 바닥재를 깔면 구조물이 그 위에 놓여 위 공간이 줄어요
+  const bed = beddingDepth(items);
   const add = (severity: CheckSeverity, key: string, message: string, ...itemIds: string[]) =>
     issues.push({ severity, key, message, itemIds });
 
@@ -224,8 +227,15 @@ export function checkLayout(cage: Cage, items: LayoutItem[], rules: LayoutRules 
     const g = wallGaps(poly, cage);
     const out = Object.values(g).some((v) => v < -TOL);
     if (out) add("error", `out:${item.id}`, `${josa(asset.name, "이가")} 케이지 밖으로 나가 있어요.`, item.id);
-    if (asset.size[2] > H + TOL) {
-      add("error", `tall:${item.id}`, `${asset.name} 높이 ${fmt(asset.size[2])}가 케이지 높이 ${fmt(H)}보다 높아요.`, item.id);
+    if (asset.size[2] + bed > H + TOL) {
+      add(
+        "error",
+        `tall:${item.id}`,
+        bed > 0
+          ? `${asset.name} 높이 ${fmt(asset.size[2])}에 바닥재 ${fmt(bed)}를 더하면 케이지 높이 ${fmt(H)}보다 높아요.`
+          : `${asset.name} 높이 ${fmt(asset.size[2])}가 케이지 높이 ${fmt(H)}보다 높아요.`,
+        item.id,
+      );
     }
     if (!rules) continue;
     if (!out && !low(asset)) {
@@ -261,7 +271,7 @@ export function checkLayout(cage: Cage, items: LayoutItem[], rules: LayoutRules 
           item.id,
         );
       }
-      const head = H - asset.size[2];
+      const head = H - bed - asset.size[2];
       if (isTrap(head)) {
         add(
           "warning",
@@ -378,7 +388,7 @@ export function findFreeSpot(
   const others: { asset: CageAsset; poly: Pt[]; strips: Pt[][] }[] = [];
   for (const it of items) {
     const a = getAsset(it.asset);
-    if (!a) continue;
+    if (!a || isFloorLayer(a)) continue;
     const strips = rules ? (a.accessSides ?? []).map((sd) => accessStrip(it, a, sd, rules.gap_passable_min_mm)) : [];
     others.push({ asset: a, poly: footprint(it, a), strips });
   }
@@ -482,7 +492,7 @@ export function snapPosition(
   for (const it of items) {
     if (it.id === moving.id) continue;
     const a = getAsset(it.asset);
-    if (!a) continue;
+    if (!a || isFloorLayer(a)) continue;
     const o = bounds(footprint(it, a));
     // 옆으로 나란한 구조물에만 붙어요 (반대 축 범위가 겹칠 때)
     if (o.y0 < b.y1 && o.y1 > b.y0) xTargets.push({ edge: "x0", at: o.x1 }, { edge: "x1", at: o.x0 });
@@ -494,7 +504,7 @@ export function snapPosition(
 /** 케이지 밖으로 나간 항목을 벽 안쪽으로 밀어 넣어요 (케이지를 줄였을 때) */
 export function pullInside(cage: Cage, item: LayoutItem): LayoutItem {
   const a = getAsset(item.asset);
-  if (!a) return item;
+  if (!a || isFloorLayer(a)) return item;
   const { w, d } = rotatedExtent(a, item.rotation_deg);
   const clamp = (v: number, half: number, max: number) => (half * 2 > max ? max / 2 : Math.min(Math.max(v, half), max - half));
   return {
