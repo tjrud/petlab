@@ -19,7 +19,7 @@ test("관리자 로그인: 사이트는 공개, 설계 기능은 로그인 후�
   expect(r.status()).toBe(401);
   // 메인 화면은 누구나 열 수 있다
   await page.goto("/");
-  await expect(page.getByRole("heading", { level: 1, name: "우리 아이 케이지에 꼭 맞는 구조물을 설계해 드려요" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "필요한 구조물을 적어 보세요" })).toBeVisible();
   // 설계하기는 로그인 안내 (자동으로 이동하지 않음)
   await page.goto("/design");
   await expect(page.getByText("로그인하고 맞춤 설계를 시작해 보세요")).toBeVisible();

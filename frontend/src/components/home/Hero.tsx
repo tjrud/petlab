@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 
-import { IconCheck } from "@/components/home/icons";
+import { IconArrowRight, IconCheck, IconSearch } from "@/components/home/icons";
 import { TEMPLATE_COLORS } from "@/lib/templates";
 
 const HIGHLIGHTS = ["안전 기준 자동 검증", "3D로 미리 보기", "STL·3MF 파일 내려받기"];
@@ -14,7 +14,14 @@ const PARTS = [
   { label: "모래목욕통", color: TEMPLATE_COLORS.sand_bath, pos: "right-[5%] bottom-[10%] -rotate-2" },
 ];
 
-const cta = "inline-flex w-full items-center justify-center rounded-xl px-6 py-3 font-semibold sm:w-auto";
+// 입력창 아래 예시. 누르면 그 문장으로 설계하기 화면이 열린다
+const EXAMPLES = [
+  "왼쪽 구석에 은신처, 그 옆에 터널",
+  "모래목욕통과 계단, 가운데는 비워 두기",
+  "출입구 두 개짜리 큰 은신처",
+];
+
+const designHref = (prompt: string) => `/design?prompt=${encodeURIComponent(prompt)}`;
 
 export default function Hero() {
   return (
@@ -25,22 +32,50 @@ export default function Hero() {
       <div className="grid items-center gap-8 md:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
         <div>
           <p className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900 sm:text-sm">
-            햄스터 케이지 맞춤 구조물 · AI 설계
+            햄스터 케이지 맞춤 구조물
           </p>
           <h1 id="hero-title" className="mt-4 text-balance text-3xl font-bold leading-tight sm:text-4xl lg:text-5xl">
-            우리 아이 케이지에 꼭 맞는 구조물을 설계해 드려요
+            필요한 구조물을 적어 보세요
           </h1>
           <p className="mt-4 max-w-xl text-pretty text-stone-600 sm:text-lg">
-            케이지 크기와 원하는 구성을 알려 주시면 AI가 은신처·터널 같은 구조물을 맞춤 설계하고, 3D 프린팅
-            파일(STL·3MF)까지 만들어 드려요.
+            은신처, 터널, 계단, 모래목욕통. 원하는 구성과 위치를 적으면 케이지 치수에 맞게 설계하고, 3D 프린팅
+            파일(STL·3MF)로 받을 수 있어요.
           </p>
-          <div className="mt-7 flex flex-col gap-3 sm:flex-row">
-            <Link href="/design" className={`${cta} bg-amber-500 text-white shadow-sm hover:bg-amber-600`}>
-              맞춤 설계 시작하기
-            </Link>
-            <Link href="/community" className={`${cta} border border-stone-300 bg-white hover:bg-stone-50`}>
-              커뮤니티 둘러보기
-            </Link>
+
+          {/* 검색창처럼 한 줄로 적고 바로 설계하기로 넘어간다 (자바스크립트 없이도 동작하는 GET 폼) */}
+          <form action="/design" method="get" role="search" aria-label="맞춤 설계 요청" className="mt-7 max-w-xl">
+            <div className="flex items-center gap-2 rounded-full border border-stone-300 bg-white py-1.5 pl-4 pr-1.5 shadow-sm transition focus-within:border-amber-400 focus-within:shadow-md focus-within:ring-2 focus-within:ring-amber-200">
+              <IconSearch className="h-5 w-5 shrink-0 text-stone-400" />
+              <input
+                type="search"
+                name="prompt"
+                aria-label="원하는 구조물"
+                placeholder="예: 은신처와 터널을 한쪽에 몰아서"
+                maxLength={2000}
+                autoComplete="off"
+                enterKeyHint="go"
+                className="min-w-0 flex-1 bg-transparent py-2 text-base outline-none placeholder:text-stone-400"
+              />
+              <button
+                type="submit"
+                className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-500 px-4 py-2.5 font-semibold text-white hover:bg-amber-600 sm:px-5"
+              >
+                설계하기
+                <IconArrowRight className="hidden h-4 w-4 sm:block" />
+              </button>
+            </div>
+          </form>
+          <div className="mt-3 flex max-w-xl flex-wrap items-center gap-2 text-sm">
+            <span className="text-stone-500">예시</span>
+            {EXAMPLES.map((e) => (
+              <Link
+                key={e}
+                href={designHref(e)}
+                className="rounded-full border border-stone-200 bg-white/80 px-3 py-1 text-stone-700 hover:border-amber-300 hover:bg-amber-50"
+              >
+                {e}
+              </Link>
+            ))}
           </div>
           <ul className="mt-6 flex flex-wrap gap-x-4 gap-y-2 text-sm text-stone-600">
             {HIGHLIGHTS.map((h) => (

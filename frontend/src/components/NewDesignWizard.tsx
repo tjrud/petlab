@@ -65,8 +65,11 @@ export default function NewDesignWizard() {
   const { bfcacheId } = router;
   const { status, user, refresh, emailUnverified } = useAuth();
   const userId = user?.id ?? null;
+  const searchParams = useSearchParams();
   // /design?pet={id}: 내 정보의 "이 아이로 설계하기"에서 들어온 경우 그 반려동물로 미리 채운다
-  const wantedPet = useSearchParams().get("pet");
+  const wantedPet = searchParams.get("pet");
+  // /design?prompt=...: 메인 화면 입력창에 적은 요청. 요구사항 칸에 미리 채운다
+  const wantedPrompt = searchParams.get("prompt")?.trim().slice(0, 2000) || null;
   const petSelectId = useId();
   const [meta, setMeta] = useState<SpeciesResponse | null>(null);
   const [metaError, setMetaError] = useState<string | null>(null);
@@ -78,6 +81,8 @@ export default function NewDesignWizard() {
   const [count, setCount] = useState(1);
   const [cage, setCage] = useState<Cage>({ w: 600, d: 400, h: 300 });
   const [prompt, setPrompt] = useState("");
+  /** 메인 화면에서 적어 온 요청 (사육 환경 단계에서 보여 준다) */
+  const [carriedPrompt, setCarriedPrompt] = useState<string | null>(null);
 
   const [habitatId, setHabitatId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -109,7 +114,9 @@ export default function NewDesignWizard() {
   }, [submitting, opening]);
 
   // 로그인이 풀려도 쓰던 요구사항은 지운 것처럼 보이지 않게 폼을 두고, 다시 로그인하고 돌아오면 되살린다
-  const dirty = prompt.trim() !== "";
+  // 주소(?prompt=)로 받아 온 그대로인 요청은 "쓰던 내용"으로 보지 않는다: 로그인 전이면 보통 로그인 안내를 보여 주고,
+  // 로그인 후 같은 주소로 돌아오면 다시 채운다
+  const dirty = prompt.trim() !== "" && prompt.trim() !== carriedPrompt;
   const needsLogin = status !== null && (!user || authError !== null);
   useDraftBackup<WizardDraft>(
     DRAFT_KEY,
@@ -126,6 +133,19 @@ export default function NewDesignWizard() {
       setStep(2);
     },
   );
+
+  // 주소의 ?prompt= 은 들어올 때마다 한 번 적용한다 (?pet= 과 같이 bfcacheId 로 구분: 뒤로 가기로 돌아오면 고친 요구사항을 덮지 않는다).
+  // 사육 환경을 먼저 확인해야 하므로 1단계에 머문다
+  const appliedPromptParam = useRef<string | null>(null);
+  useEffect(() => {
+    if (!wantedPrompt) return;
+    const key = `${bfcacheId}|${wantedPrompt}`;
+    if (appliedPromptParam.current === key) return;
+    appliedPromptParam.current = key;
+    setPrompt(wantedPrompt);
+    setCarriedPrompt(wantedPrompt);
+    setStep(1);
+  }, [wantedPrompt, bfcacheId]);
 
   // 종 목록은 누구나 볼 수 있다
   useEffect(() => {
@@ -331,6 +351,14 @@ export default function NewDesignWizard() {
           <h2 id="habitat-title" className="text-xl font-bold">
             사육 환경을 알려 주세요
           </h2>
+
+          {carriedPrompt && prompt.trim() === carriedPrompt && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 text-sm">
+              <p className="font-medium text-stone-800">적어 주신 요청</p>
+              <p className="mt-1 whitespace-pre-wrap break-words text-stone-700">{carriedPrompt}</p>
+              <p className="mt-2 text-xs text-stone-500">케이지 정보를 확인하고 다음을 누르면 이 요청으로 설계해요. 다음 단계에서 고칠 수 있어요.</p>
+            </div>
+          )}
 
           {pets && pets.length > 0 && (
             <div className="rounded-xl bg-amber-50 p-4">
