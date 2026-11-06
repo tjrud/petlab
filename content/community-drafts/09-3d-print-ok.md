@@ -28,11 +28,11 @@
 
 ■ 부품별로
 - 은신처: Fable's는 PLA가 잘 맞는 용도에 은신처를 넣지 않고, 은신처엔 원목을 꼽아요. 플라스틱 은신처는 더울 때 열이 찰 수 있다는 보호자 위키 의견도 있어요. NestForge 은신처는 기본으로 지붕에 환기구를 둬요.
-- 터널: 몸길이의 2배 이하로 짧고 통풍되게(동물보호연맹). TVT는 플라스틱 튜브는 피하되 바닥재에 묻거나 사육장 사이 고정 통로로는 쓸 수 있대요. NestForge 터널은 기본 길이가 200 mm이고 몸길이에 맞춘 자동 제한은 없어요. 몸길이의 2배 이하로 길이를 정해 요청해 주세요.
+- 터널: 몸길이의 2배 이하로 짧고 통풍되게(동물보호연맹). TVT는 플라스틱 튜브는 피하되(비치는 튜브는 숨을 곳이 못 된대요) 바닥재에 묻거나 사육장 사이 고정 통로로는 쓸 수 있대요. 무착색 출력물도 빛이 비칠 수 있어요. NestForge 터널은 기본 길이가 200 mm이고 몸길이에 맞춘 자동 제한은 없어요. 몸길이의 2배 이하로 길이를 정해 요청해 주세요.
 - 밥그릇·모래 목욕통: TVT는 플라스틱 말고 도자기로 하라고 하고, Fable's와 AWI는 출력한 그릇도 괜찮다고 봐요(AWI는 식품 안전 소재에 기름기 없는 마른 먹이 기준). 우리는 도자기를 먼저 권하고, 물그릇은 도자기로 해요. 출력한 그릇·통은 갉힌 자국이나 얼룩이 보이면 바로 바꿔요.
 
 ■ 더 알아보기
-소재별 주의점·노즐·소독은 「3D 프린팅 소재와 출력 안전」, 구조물 공통 기준은 「소동물 구조물 공통 안전 수칙」 글에 있어요.
+소재별 주의점·노즐·소독은 「3D 프린팅 소재와 출력 안전」, 구조물 공통 기준은 「공통 안전 수칙」 글에 있어요.
 
 ■ 출처
 - 판매자 블로그: https://blog.naver.com/ssurssur-/224139021768 · https://blog.naver.com/fordung/223820916263
@@ -46,7 +46,7 @@
 - VCA: https://vcahospitals.com/know-your-pet/rodents-housing
 - NC3Rs: https://nc3rs.org.uk/3rs-resources/housing-and-husbandry-hamster
 - 연구실 PLA 출력물: https://doi.org/10.1371/journal.pone.0261618 · https://doi.org/10.1523/ENEURO.0246-22.2022 · https://doi.org/10.7554/eLife.66173 · https://doi.org/10.1371/journal.pone.0278709
-- TVT: 「소동물 구조물 공통 안전 수칙」 글 출처 참고
+- TVT: 「공통 안전 수칙」 글 출처 참고
 - 독일 동물보호연맹: https://www.tierschutzbund.de/fileadmin/Seiten/tierschutzbund.de/Downloads/Berichte/Positionspapier_DTSchB_Tierschutzwidriges_Zubehoer.pdf
 - PLA 미세입자 생쥐 실험: https://pubmed.ncbi.nlm.nih.gov/36864128/ · https://pmc.ncbi.nlm.nih.gov/articles/PMC11267364/
 - Rindelaub 2019: https://pmc.ncbi.nlm.nih.gov/articles/PMC6530847/

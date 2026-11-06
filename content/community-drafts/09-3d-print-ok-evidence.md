@@ -237,7 +237,7 @@
 | 처음 며칠 매일, 이후 청소 때마다 점검 | 점검 주기를 정한 자료는 없다(08 글과 같음). 하룻밤에 갉아 부순 후기(3-2)를 근거로 한 보수적 기준이다 |
 | 교체 신호 | Fable's: "inspect PLA accessories regularly and replace them if you notice: Deep bite marks. Cracks. Loose fragments. Sharp edges. Layer separation." · 소변 얼룩: AWI "In prints that are not watertight, organic material and water will infiltrate deep into the print" |
 | 계속 갉는 개체는 원목·코르크 | Fable's: "If your hamster is a particularly persistent chewer who repeatedly damages plastic accessories, natural materials such as hardwood or cork may be a more suitable choice for that individual." |
-| 미지근한 물, 끓는 물·식기세척기 금지 (PETG 포함. PETG는 약 65~70°C에서 물러진다, Bambu 데이터시트, 08 글) | Fable's: "Avoid exposing PLA to very high temperatures, such as boiling water or dishwashers, as the material can soften and warp." · 써르써르 이름표 설명: "고온에서 장시간 사용시 변형이 올수 있습니다 미지근한 물로 세척 해주세요" · PLA 열변형 온도: Bambu 데이터시트 54~57°C(08 글), NatureWorks 4043D 55°C, Prusa "gets soft and deforms at temperatures over 60 °C" |
+| 미지근한 물, 끓는 물·식기세척기 금지 (PETG 포함. PETG는 약 65~70°C에서 물러진다, Bambu 데이터시트, 08 글. 참고: 한 연구(Polymaker PETG, 70°C 식기세척 10일)는 결론에서 영향이 작다고 썼지만, 본문 측정값은 층 접착력 24%·충격 강도 23% 감소였다 — https://real.mtak.hu/247468/1/446-article-p135.pdf) | Fable's: "Avoid exposing PLA to very high temperatures, such as boiling water or dishwashers, as the material can soften and warp." · 써르써르 이름표 설명: "고온에서 장시간 사용시 변형이 올수 있습니다 미지근한 물로 세척 해주세요" · PLA 열변형 온도: Bambu 데이터시트 54~57°C(08 글), NatureWorks 4043D 55°C, Prusa "gets soft and deforms at temperatures over 60 °C" |
 
 **나일론 갉기 막대 연구**(랫드, 2025): "plastic-based GS used as EE may influence gut microbiota and immune-related measures with ingestion of minimal amounts of EE components potentially at levels not readily visible or detected by weighing" — https://doi.org/10.1186/s42523-024-00369-6
 - 뜻: 플라스틱 갉기 막대가 장내 미생물과 면역 지표에 영향을 줄 수 있고, 무게로 잴 수 없을 만큼 적은 양을 먹었을 가능성이 있다.
@@ -255,14 +255,14 @@
   - Hamster Care Wiki: "Plastic hides can absorb and trap heat very easily during warm weather. Ceramic is a much better alternative." — https://hamstercare.wiki.gg/wiki/Safe_Materials
     - 이 세션에서는 Cloudflare 때문에 다시 열지 못했고, 앞서 저장한 사본으로 확인했다.
   - NestForge 은신처 템플릿은 기본값으로 지붕 환기구 6개를 둔다(`backend/app/templates/hideout.py`, `vent_count` 기본 6).
-- **터널**: 동물보호연맹의 몸길이 2배 이하·환기 조건과 TVT의 '묻거나 고정한 통로' 조건(3-1).
+- **터널**: 동물보호연맹의 몸길이 2배 이하·환기 조건과, TVT의 '바닥재에 묻거나 사육장 사이 고정 통로' 조건 및 '투명한 튜브는 숨을 곳이 못 된다'는 이유(3-1). 무착색 출력물은 빛이 비칠 수 있어 글에 함께 적었다.
   - **NestForge 시사점**: 현재 터널 템플릿의 길이 범위는 80~600 mm(기본 200 mm)이고, 종별 터널 최대 길이 규칙은 없다. 드워프라면 기본값 200 mm도 몸길이 2배를 넘을 수 있다. `species.yaml`에 터널 최대 길이 규칙을 넣을지 검토가 필요하다. 이번 작업 범위 밖이라 코드는 바꾸지 않았다.
 - **밥그릇·모래 목욕통**
   - TVT는 도자기를 권한다(3-1).
   - Fable's는 PLA를 모래 목욕통과 밥그릇에 맞는 용도로 꼽는다(2-4).
   - AWI: "I would be comfortable offering dry, non-greasy foods in 3D- printed dishes of food-safe PLA, PETG, and non-food safe certified Polysmooth brand PVB."
   - Prusa는 필라멘트 그릇을 권하지 않는다(코팅 없이는 식품 안전하지 않다).
-  - → "우리는 도자기를 먼저 권하고, 물그릇은 도자기로 해요"는 이 중 보수적인 쪽을 고른 것이다. 출력한 물그릇을 받쳐 주는 출처는 없다. AWI는 마른 먹이만 괜찮다고 했고, 출력물이 물을 머금으면 속까지 유기물이 스민다고 경고한다.
+  - → "우리는 도자기를 먼저 권하고, 물그릇은 도자기로 해요"는 이 중 보수적인 쪽을 고른 것이다. 출력한 물그릇을 그냥 써도 된다고 한 출처는 없다. Prusa 반려동물 글은 밥그릇·물그릇은 틈으로 물이 스며 오래 고일 수 있다며 100% 채움이나 에폭시 충전을 권한다("This is especially important for various food or drinking bowls e.g. water could leak into the model through gaps"). 하지만 Prusa 식품 안전 글은 100% 채움으로도 "the results will never be good enough"라고 한다. AWI는 마른 먹이만 괜찮다고 했고, 수밀하지 않은 출력물은 속까지 유기물과 물이 스민다고 경고한다("In prints that are not watertight, organic material and water will infiltrate deep into the print").
 
 ---
 
