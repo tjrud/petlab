@@ -6,7 +6,7 @@ import { FormatChips, imageSrc, marketHref, NoPreview } from "@/components/marke
 import type { MarketItemSummary } from "@/lib/types";
 import { formatDate } from "@/lib/ui";
 
-/** 둥지마당 목록의 작품 카드 */
+/** 탐색 목록의 작품 카드 */
 export default function MarketItemCard({ item }: { item: MarketItemSummary }) {
   return (
     <li>
@@ -25,6 +25,7 @@ export default function MarketItemCard({ item }: { item: MarketItemSummary }) {
           <p className="text-xs font-medium text-amber-800">{item.category_name_ko}</p>
           <h2 className="break-words font-semibold leading-snug">{item.title}</h2>
           <FormatChips formats={item.formats} />
+          {item.reason_ko && <p className="text-xs text-teal-800">{item.reason_ko}</p>}
           <p className="mt-auto flex flex-wrap items-center gap-x-2 gap-y-1 pt-1 text-xs text-stone-500">
             <AuthorName author={item.author} />
             <span aria-hidden>·</span>

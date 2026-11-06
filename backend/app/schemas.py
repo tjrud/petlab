@@ -439,11 +439,11 @@ class SharedDesignOut(BaseModel):
     habitat: HabitatOut
 
 
-# ── 둥지마당 ───────────────────────────────────────────────
+# ── 탐색 ───────────────────────────────────────────────
 
 MARKET_CATEGORIES = {
     "hideout": "은신처", "tunnel": "터널", "ramp": "경사로·계단", "sand_bath": "모래목욕통",
-    "cage": "케이지 전체", "etc": "기타",
+    "cage": "케이지 전체", "layout": "가상 케이지 배치", "etc": "기타",
 }
 MAX_ITEM_FILES = 5
 
@@ -472,6 +472,21 @@ class MarketFileOut(BaseModel):
     # 내려받기·보기 주소. "/" 로 시작하면 API 기준 경로, 아니면 공개 주소(Blob)
     download_url: str
     view_url: str | None = None
+    # STL·3MF: 외곽 크기 [x, y, z] mm 와 3D 로 불러올 주소 (가상 케이지에 놓을 때). SKP 는 없음
+    dims_mm: list[float] | None = None
+    mesh_url: str | None = None
+    attached: bool = False  # 작품에 붙었거나 공유한 배치에 들어 있어 누구나 볼 수 있는지
+
+
+class LayoutSnapshot(BaseModel):
+    """탐색에 공유한 가상 케이지 배치 (공유할 때의 배치안 사본)"""
+
+    name: str
+    species: str
+    size: str
+    size_name_ko: str = ""
+    cage: CageIn
+    items: list[LayoutItemIn]
 
 
 class MarketItemIn(BaseModel):
@@ -479,11 +494,12 @@ class MarketItemIn(BaseModel):
 
     title: Title
     description: Annotated[str, Text1, Field(min_length=1, max_length=3000)]
-    category: Literal["hideout", "tunnel", "ramp", "sand_bath", "cage", "etc"]
+    category: Literal["hideout", "tunnel", "ramp", "sand_bath", "cage", "layout", "etc"]
     file_ids: Annotated[list[EntityId], Field(max_length=MAX_ITEM_FILES)] = []
     image_file_id: EntityId | None = None
     design_id: EntityId | None = None
     design_version: VersionNo | None = None
+    layout_id: EntityId | None = Field(default=None, description="공유할 내 가상 케이지 배치안")
     post_to_community: bool = True
 
 
@@ -492,7 +508,7 @@ class MarketItemUpdateIn(BaseModel):
 
     title: Title | None = None
     description: Annotated[str, Text1, Field(min_length=1, max_length=3000)] | None = None
-    category: Literal["hideout", "tunnel", "ramp", "sand_bath", "cage", "etc"] | None = None
+    category: Literal["hideout", "tunnel", "ramp", "sand_bath", "cage", "layout", "etc"] | None = None
 
 
 class MarketItemSummary(BaseModel):
@@ -504,14 +520,17 @@ class MarketItemSummary(BaseModel):
     formats: list[str]
     image: MarketFileOut | None
     has_design: bool
+    has_layout: bool = False
     download_count: int
     created_at: datetime
+    reason_ko: str | None = None  # 추천 목록에서만: 추천한 까닭
 
 
 class MarketItemOut(MarketItemSummary):
     description: str
     files: list[MarketFileOut]
     design: SharedDesignOut | None
+    layout: LayoutSnapshot | None = None
     post_id: str | None
     updated_at: datetime
     can_edit: bool
@@ -526,7 +545,7 @@ class MarketListOut(BaseModel):
 
 
 class MarketItemBrief(BaseModel):
-    """커뮤니티 글에 붙여 보여 주는 둥지마당 작품 요약"""
+    """커뮤니티 글에 붙여 보여 주는 공유 작품 요약"""
 
     id: str
     title: str
@@ -543,7 +562,7 @@ class PostSummary(BaseModel):
     comment_count: int
     has_design: bool
     thumbnail: PostImage | None = None  # 첫 사진 (목록에 작게 보여 준다)
-    market_item_id: str | None = None  # 둥지마당 작품 소개 글이면 그 작품 ID
+    market_item_id: str | None = None  # 공유 작품 소개 글이면 그 작품 ID
 
 
 class PostListOut(BaseModel):
@@ -562,7 +581,7 @@ class PostOut(BaseModel):
     updated_at: datetime
     design: SharedDesignOut | None
     images: list[PostImage] = []
-    market_item: MarketItemBrief | None = None  # 둥지마당 작품 소개 글이면 그 작품
+    market_item: MarketItemBrief | None = None  # 공유 작품 소개 글이면 그 작품
     comments: list[CommentOut]  # 최근 댓글 최대 200개 (오래된 것부터)
     comment_total: int           # 전체 댓글 수
     can_edit: bool

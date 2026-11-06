@@ -348,7 +348,7 @@ test("저장을 기다리는 사이 다른 화면에 다녀오거나 다른 배�
   await page.getByRole("button", { name: "새 배치안으로 저장" }).click();
   await expect(page.getByRole("button", { name: "저장 중…" })).toBeVisible();
   await page.getByRole("button", { name: "밥그릇 추가" }).click();
-  await page.getByRole("navigation", { name: "주 메뉴" }).getByRole("link", { name: "내 정보" }).click();
+  await page.getByRole("navigation", { name: "내 정보 메뉴" }).getByRole("link", { name: "내 정보" }).click();
   await expect(page).toHaveURL(/\/me$/);
   await finish(hold);
   await expect(page).toHaveURL(/\/me$/); // 저장이 끝나도 /cage 로 끌려가지 않아요
@@ -584,7 +584,9 @@ test("저장을 기다리는 사이 여러 화면을 다녀와 가상 케이지�
   // 다른 화면을 셋 다녀오면 예전 가상 케이지 화면은 내려가고, 돌아오면 새로 만들어져요
   const nav = page.getByRole("navigation", { name: "주 메뉴" });
   for (const [name, path] of [["커뮤니티", "/community"], ["내 설계", "/designs"], ["내 정보", "/me"]] as const) {
-    await nav.getByRole("link", { name }).click();
+    // "내 정보"는 헤더 오른쪽 끝의 따로 된 메뉴에 있어요
+    const menu = name === "내 정보" ? page.getByRole("navigation", { name: "내 정보 메뉴" }) : nav;
+    await menu.getByRole("link", { name }).click();
     await expect(page).toHaveURL(new RegExp(`${path}$`));
   }
   await nav.getByRole("link", { name: "가상 케이지" }).click();

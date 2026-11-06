@@ -25,10 +25,15 @@ export default function Header() {
               />
             </Link>
             <Suspense fallback={null}>
-              <NavLinks className="hidden md:block" />
+              <NavLinks part="main" className="hidden md:block" />
             </Suspense>
           </div>
-          <AuthMenu />
+          <div className="flex items-center gap-2">
+            <Suspense fallback={null}>
+              <NavLinks part="me" className="hidden md:block" />
+            </Suspense>
+            <AuthMenu />
+          </div>
         </div>
         <Suspense fallback={null}>
           <NavLinks className="border-t border-amber-100 px-2 py-1.5 md:hidden" />

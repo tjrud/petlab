@@ -72,7 +72,7 @@ def _check_images(images: list[PostImage] | None, user: User) -> None:
 
 
 def _market_brief(db: Session, post: Post) -> MarketItemBrief | None:
-    """이 글이 둥지마당 작품 소개 글이면 그 작품 요약"""
+    """이 글이 공유 작품 소개 글이면 그 작품 요약"""
     item = db.scalar(select(MarketItem).where(MarketItem.post_id == post.id).options(selectinload(MarketItem.files)))
     if item is None:
         return None
@@ -125,7 +125,7 @@ def list_posts(page: int = Query(default=1, ge=1, le=MAX_PAGE), page_size: int =
             select(Comment.post_id, func.count(Comment.id))
             .where(Comment.post_id.in_([p.id for p in posts])).group_by(Comment.post_id)
         ).all())
-    # 둥지마당 작품 소개 글 (이 페이지의 글만)
+    # 공유 작품 소개 글 (이 페이지의 글만)
     market_ids: dict[str, str] = {}
     if posts:
         market_ids = dict(db.execute(select(MarketItem.post_id, MarketItem.id)
@@ -191,7 +191,7 @@ def delete_post(post_id: str, db: Session = Depends(get_db), user: User = Depend
     post = _get_post(db, post_id)
     if not _can_manage(user, post.author_id):
         raise ForbiddenError("내가 쓴 글만 지울 수 있어요.")
-    # 둥지마당 작품의 소개 글이면 연결만 끊는다 (작품은 남는다)
+    # 공유 작품의 소개 글이면 연결만 끊는다 (작품은 남는다)
     db.execute(update(MarketItem).where(MarketItem.post_id == post.id).values(post_id=None))
     db.delete(post)  # 댓글도 함께 삭제. 첨부했던 설계는 다른 글에 첨부되어 있지 않으면 다시 비공개가 된다
     db.commit()

@@ -3,6 +3,16 @@
 import type { CameraView } from "@/components/cage/PlannerScene";
 import type { Cage } from "@/lib/types";
 
+const BACKGROUNDS = [
+  { label: "크림 (기본)", color: "#fbf7f0" },
+  { label: "흰색", color: "#ffffff" },
+  { label: "하늘", color: "#e6eef6" },
+  { label: "연두", color: "#eef4e4" },
+  { label: "회색", color: "#e7e5e4" },
+  { label: "남색", color: "#1e293b" },
+  { label: "검정", color: "#111111" },
+];
+
 /** 3D 화면 위 도구 모음: 시점·1cm 격자·붙이기(왼쪽 위), 되돌리기·다시 하기(오른쪽 위), 케이지 크기·구조물 수와 조작 안내(오른쪽 아래) */
 export default function SceneOverlay({
   view,
@@ -17,6 +27,8 @@ export default function SceneOverlay({
   onRedo,
   cage,
   itemCount,
+  background,
+  onBackground,
 }: {
   view: CameraView;
   onView: (v: CameraView) => void;
@@ -30,6 +42,8 @@ export default function SceneOverlay({
   onRedo: () => void;
   cage: Cage;
   itemCount: number;
+  background: string;
+  onBackground: (color: string) => void;
 }) {
   return (
     <>
@@ -61,6 +75,38 @@ export default function SceneOverlay({
           <input type="checkbox" checked={magnet} onChange={(e) => onMagnet(e.target.checked)} />
           벽·구조물에 붙이기
         </label>
+        <details className="relative rounded-lg border border-stone-200 bg-white/90 text-xs text-stone-600 shadow-sm">
+          <summary className="flex cursor-pointer list-none items-center gap-1.5 px-2 py-1.5">
+            <span className="inline-block h-3 w-3 rounded-full ring-1 ring-stone-300" style={{ backgroundColor: background }} />
+            배경
+          </summary>
+          <div className="absolute left-0 top-full z-10 mt-1 w-52 rounded-lg border border-stone-200 bg-white p-2 shadow-md" role="group" aria-label="배경색">
+            <div className="flex flex-wrap gap-1.5">
+              {BACKGROUNDS.map((b) => (
+                <button
+                  key={b.color}
+                  type="button"
+                  title={b.label}
+                  aria-label={`배경 ${b.label}`}
+                  aria-pressed={background.toLowerCase() === b.color}
+                  onClick={() => onBackground(b.color)}
+                  className={`h-7 w-7 rounded-full ring-1 ring-stone-300 ${background.toLowerCase() === b.color ? "outline outline-2 outline-offset-1 outline-amber-500" : ""}`}
+                  style={{ backgroundColor: b.color }}
+                />
+              ))}
+            </div>
+            <label className="mt-2 flex items-center justify-between gap-2">
+              직접 고르기
+              <input
+                type="color"
+                aria-label="배경색 직접 고르기"
+                value={background}
+                onChange={(e) => onBackground(e.target.value)}
+                className="h-7 w-10 cursor-pointer rounded border border-stone-200 bg-white"
+              />
+            </label>
+          </div>
+        </details>
       </div>
       <div className="absolute right-3 top-3 flex gap-1.5">
         <button

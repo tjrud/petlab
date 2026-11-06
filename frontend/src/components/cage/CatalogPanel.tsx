@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 
+import MyFilesSection from "@/components/cage/MyFilesSection";
 import { CAGE_ASSETS, CATEGORIES, type AssetCategory, type CageAsset } from "@/lib/cageAssets";
+import type { MarketFile } from "@/lib/types";
 
 const cm = (mm: number) => (mm % 10 === 0 ? `${mm / 10}` : (mm / 10).toFixed(1));
 
@@ -35,6 +37,9 @@ export default function CatalogPanel({
   empty,
   bedding,
   onRemoveBedding,
+  loggedIn,
+  myFiles,
+  onUploadFile,
 }: {
   onAdd: (a: CageAsset) => void;
   onStarter: () => void;
@@ -42,13 +47,17 @@ export default function CatalogPanel({
   /** 깔아 둔 바닥재 (없으면 null) */
   bedding: CageAsset | null;
   onRemoveBedding: () => void;
+  loggedIn: boolean;
+  /** 내가 올린 파일 (불러오는 중이면 null) */
+  myFiles: MarketFile[] | null;
+  onUploadFile: (file: File, onProgress: (pct: number) => void) => Promise<void>;
 }) {
-  const [cat, setCat] = useState<AssetCategory | "all">("all");
-  const list = cat === "all" ? CAGE_ASSETS : CAGE_ASSETS.filter((a) => a.category === cat);
+  const [cat, setCat] = useState<AssetCategory | "all" | "mine">("all");
+  const list = cat === "mine" ? [] : cat === "all" ? CAGE_ASSETS : CAGE_ASSETS.filter((a) => a.category === cat);
   return (
     <div>
       <div className="flex flex-wrap gap-1.5" role="group" aria-label="에셋 종류">
-        {[{ key: "all" as const, label: "전체" }, ...CATEGORIES].map((c) => (
+        {[{ key: "all" as const, label: "전체" }, ...CATEGORIES, { key: "mine" as const, label: "내 파일" }].map((c) => (
           <button
             key={c.key}
             type="button"
@@ -62,6 +71,7 @@ export default function CatalogPanel({
           </button>
         ))}
       </div>
+      {cat === "mine" && <MyFilesSection loggedIn={loggedIn} files={myFiles} onAdd={onAdd} onUpload={onUploadFile} />}
       {bedding && (
         <div className="mt-3 flex items-center justify-between gap-2 rounded-xl bg-amber-50/70 px-3 py-2 text-sm">
           <span>
@@ -72,7 +82,7 @@ export default function CatalogPanel({
           </button>
         </div>
       )}
-      {empty && (
+      {empty && cat !== "mine" && (
         <button
           type="button"
           onClick={onStarter}

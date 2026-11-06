@@ -17,6 +17,8 @@ import type { Cage, LayoutItem, LayoutRules } from "@/lib/types";
 export type CameraView = "3d" | "top" | "front";
 
 type Props = {
+  /** 3D 화면 배경색 */
+  background?: string;
   cage: Cage;
   items: LayoutItem[];
   selectedId: string | null;
@@ -314,6 +316,7 @@ function AccessStrips({ item, asset, depth }: { item: LayoutItem; asset: CageAss
 }
 
 export default function PlannerScene({
+  background = "#fbf7f0",
   cage,
   items,
   selectedId,
@@ -344,7 +347,7 @@ export default function PlannerScene({
       className="h-full w-full touch-none"
       gl={{ preserveDrawingBuffer: true }}
     >
-      <color attach="background" args={["#fbf7f0"]} />
+      <color attach="background" args={[background]} />
       <ambientLight intensity={0.7} />
       <directionalLight
         position={[W * 0.2, S * 1.6, S * 0.8]}

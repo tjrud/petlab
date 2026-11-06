@@ -20,7 +20,7 @@ import SceneOverlay from "@/components/cage/SceneOverlay";
 import { usePlannerShortcuts } from "@/components/cage/usePlannerShortcuts";
 import type { CameraView } from "@/components/cage/PlannerScene";
 import { api, ApiError, isAuthError } from "@/lib/api";
-import { getAsset, isFloorLayer, type CageAsset } from "@/lib/cageAssets";
+import { fileIdOf, getAsset, isFloorLayer, registerFileAsset, type CageAsset } from "@/lib/cageAssets";
 import {
   checkLayout,
   findFreeSpot,
@@ -33,7 +33,8 @@ import {
 } from "@/lib/cageLayout";
 import { histReducer, metaOf, readDraft, snapshotOf, writeDraft, type Doc, type Meta } from "@/lib/cagePlannerDoc";
 import { withNext } from "@/lib/safeNext";
-import type { Cage, CageLayout, CageLayoutInput, CageLayoutSummary, LayoutItem, LayoutRules, Pet, SpeciesResponse } from "@/lib/types";
+import { uploadMarketFile } from "@/lib/marketUpload";
+import type { Cage, CageLayout, CageLayoutInput, CageLayoutSummary, LayoutItem, LayoutRules, MarketFile, Pet, SpeciesResponse } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
 const PlannerScene = dynamic(() => import("@/components/cage/PlannerScene"), {
@@ -44,6 +45,8 @@ const PlannerScene = dynamic(() => import("@/components/cage/PlannerScene"), {
 // 처음 크기는 종 규칙의 사육장 최소 기준(100×50×50cm, species.yaml enclosure_min_floor_mm)에 맞춰요
 const DEFAULT_CAGE: Cage = { width_mm: 1000, depth_mm: 500, height_mm: 500 };
 const DEFAULT_NAME = "새 배치안";
+const DEFAULT_BG = "#fbf7f0";
+const BG_KEY = "nestforge:cage-bg";
 
 /** 지금 화면에 붙어 있는 플래너의 번호. 가려졌다 다시 보일 때(Activity)는 그대로이고,
  *  다른 화면을 여럿 다녀와 플래너가 새로 만들어지면 바뀌어요. 옛 플래너에 늦게 온 저장 결과가 새 플래너를 건드리지 않게 해요 */
@@ -93,6 +96,12 @@ export default function CagePlanner() {
   const busy = writing || loadingLayout;
   const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [ready, setReady] = useState(false);
+  /** 내가 올린 파일 (가상 케이지에 놓기). 파일 에셋을 표에 넣을 때마다 assetVer 를 올려 다시 그린다 */
+  const [myFiles, setMyFiles] = useState<MarketFile[] | null>(null);
+  const [assetVer, setAssetVer] = useState(0);
+  const requestedFiles = useRef(new Set<string>());
+  /** 3D 화면 배경색 (이 브라우저에 기억) */
+  const [background, setBackground] = useState(DEFAULT_BG);
 
   // ── 규칙·내 정보 불러오기 ──
 
@@ -136,7 +145,77 @@ export default function CagePlanner() {
 
   const sizeOpt = species?.species.find((s) => s.key === meta.species)?.sizes.find((z) => z.key === meta.size);
   const rules = sizeOpt?.layout_rules ?? null;
-  const report = useMemo(() => checkLayout(cage, items, rules), [cage, items, rules]);
+  // assetVer: 파일 에셋을 새로 넣으면 다시 검토한다 (getAsset 이 그 에셋을 찾게 된다)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const report = useMemo(() => checkLayout(cage, items, rules), [cage, items, rules, assetVer]);
+
+  // 내가 올린 파일: 3D 로 볼 수 있는 것은 에셋 표에 넣는다
+  const refreshMyFiles = useCallback(
+    () =>
+      api.myMarketFiles().then((list) => {
+        for (const f of list) registerFileAsset(f, api.marketUrl);
+        setMyFiles(list);
+        setAssetVer((v) => v + 1);
+      }),
+    [],
+  );
+  useEffect(() => {
+    if (!userId) return;
+    let alive = true;
+    api.myMarketFiles().then(
+      (list) => {
+        if (!alive) return;
+        for (const f of list) registerFileAsset(f, api.marketUrl);
+        setMyFiles(list);
+        setAssetVer((v) => v + 1);
+      },
+      () => alive && setMyFiles([]),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [userId]);
+
+  // 배치에 들어 있는 파일 에셋(담아 온 배치 등) 중 아직 모르는 것은 파일 정보를 받아 넣는다
+  useEffect(() => {
+    const missing = items
+      .map((it) => fileIdOf(it.asset))
+      .filter((id): id is string => !!id && !getAsset(`file_${id}`) && !requestedFiles.current.has(id));
+    if (!missing.length) return;
+    for (const id of missing) requestedFiles.current.add(id);
+    void Promise.allSettled(missing.map((id) => api.marketFile(id).then((f) => registerFileAsset(f, api.marketUrl)))).then(() =>
+      setAssetVer((v) => v + 1),
+    );
+  }, [items]);
+
+  // 배경색: 이 브라우저에 기억해 둔 값을 붙은 뒤에 읽는다 (서버 렌더와 맞추려고)
+  useEffect(() => {
+    try {
+      const v = window.localStorage.getItem(BG_KEY);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (v && /^#[0-9a-f]{6}$/i.test(v)) setBackground(v);
+    } catch {
+      /* 저장소를 못 쓰면 기본색 */
+    }
+  }, []);
+  const changeBackground = useCallback((v: string) => {
+    setBackground(v);
+    try {
+      window.localStorage.setItem(BG_KEY, v);
+    } catch {
+      /* 저장소를 못 쓰면 이번만 */
+    }
+  }, []);
+
+  const uploadForCage = useCallback(
+    async (file: File, onProgress: (pct: number) => void) => {
+      const f = await uploadMarketFile(file, "model", (sent, total) => onProgress(Math.round((sent / total) * 100)));
+      await refreshMyFiles();
+      const asset = registerFileAsset(f, api.marketUrl);
+      if (!asset) throw new Error(f.format === "skp" ? "SketchUp 파일은 3D로 볼 수 없어요." : "파일 크기를 읽지 못했어요.");
+    },
+    [refreshMyFiles],
+  );
 
   // ── 배치안 불러오기 (주소의 ?layout=) / 임시 저장 되살리기 ──
 
@@ -596,6 +675,7 @@ export default function CagePlanner() {
         needsLogin={needsLogin}
         onNew={newLayout}
         onSave={(asNew) => void save(asNew)}
+        shareHref={meta.layoutId && !dirty ? `/explore/new?layout=${encodeURIComponent(meta.layoutId)}` : null}
       />
 
       {notice && (
@@ -607,8 +687,12 @@ export default function CagePlanner() {
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
         {/* 3D 화면 */}
         <div className="space-y-4">
-          <div className="relative h-[60vh] min-h-[380px] overflow-hidden rounded-2xl border border-amber-200 bg-[#fbf7f0] shadow-sm lg:h-[620px]">
+          <div
+            className="relative h-[60vh] min-h-[380px] overflow-hidden rounded-2xl border border-amber-200 shadow-sm lg:h-[620px]"
+            style={{ backgroundColor: background }}
+          >
             <PlannerScene
+              background={background}
               cage={cage}
               items={items}
               selectedId={selectedId}
@@ -637,6 +721,8 @@ export default function CagePlanner() {
               onRedo={() => dispatch({ type: "redo" })}
               cage={cage}
               itemCount={structureCount}
+              background={background}
+              onBackground={changeBackground}
             />
           </div>
 
@@ -696,6 +782,9 @@ export default function CagePlanner() {
                 empty={structureCount === 0}
                 bedding={bedding}
                 onRemoveBedding={removeBedding}
+                loggedIn={!!user}
+                myFiles={myFiles}
+                onUploadFile={uploadForCage}
               />
             )}
             {tab === "cage" && (

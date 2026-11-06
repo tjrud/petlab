@@ -1,10 +1,10 @@
-// 둥지마당 공통: 주소, 형식 이름, 크기 표시, 미리보기 자리
+// 탐색 공통: 주소, 형식 이름, 크기 표시, 미리보기 자리
 
 import { api } from "@/lib/api";
 import type { MarketCategory, MarketFile } from "@/lib/types";
 
-export const MARKET_PATH = "/market";
-export const NEW_MARKET_PATH = "/market/new";
+export const MARKET_PATH = "/explore";
+export const NEW_MARKET_PATH = "/explore/new";
 export const marketHref = (id: string) => `${MARKET_PATH}/${encodeURIComponent(id)}`;
 
 export const MARKET_CATEGORIES: { key: MarketCategory; label: string }[] = [
@@ -13,6 +13,7 @@ export const MARKET_CATEGORIES: { key: MarketCategory; label: string }[] = [
   { key: "ramp", label: "경사로·계단" },
   { key: "sand_bath", label: "모래목욕통" },
   { key: "cage", label: "케이지 전체" },
+  { key: "layout", label: "가상 케이지 배치" },
   { key: "etc", label: "기타" },
 ];
 
@@ -21,6 +22,7 @@ export const FORMAT_LABEL: Record<string, string> = {
   "3mf": "3MF",
   stl: "STL",
   nestforge: "NestForge 설계",
+  layout: "가상 케이지 배치",
 };
 
 export const FORMAT_HINT: Record<string, string> = {

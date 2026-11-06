@@ -16,12 +16,12 @@ const PNG = Buffer.from(
   "base64",
 );
 
-test("둥지마당: SKP 파일 나눠 올리기 → 작품 등록 → 내려받기, 목록·커뮤니티 소개 글", async ({ page, request }) => {
-  await page.goto("/login?next=/market/new");
+test("탐색: SKP 파일 나눠 올리기 → 작품 등록 → 내려받기, 목록·커뮤니티 소개 글", async ({ page, request }) => {
+  await page.goto("/login?next=/explore/new");
   await page.getByLabel("아이디").fill(ADMIN.username);
   await page.getByLabel("비밀번호").fill(ADMIN.password);
   await page.getByRole("button", { name: "로그인", exact: true }).click();
-  await page.waitForURL((u) => u.pathname === "/market/new");
+  await page.waitForURL((u) => u.pathname === "/explore/new");
 
   const title = `다방 은신처 ${Date.now().toString(36)}`;
   await page.getByLabel("제목", { exact: true }).fill(title);
@@ -39,10 +39,10 @@ test("둥지마당: SKP 파일 나눠 올리기 → 작품 등록 → 내려받�
   await expect(page.getByText(/preview\.png/)).toBeVisible();
   await expect(page.getByRole("checkbox", { name: /커뮤니티에 소개 글도 올리기/ })).toBeChecked();
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/market-new.png`, fullPage: true });
-  await page.getByRole("button", { name: "둥지마당에 올리기" }).click();
+  await page.getByRole("button", { name: "탐색에 올리기" }).click();
 
   // 작품 화면: 파일·내려받기·커뮤니티 소개 글
-  await page.waitForURL(/\/market\/[0-9a-f]{32}$/);
+  await page.waitForURL(/\/explore\/[0-9a-f]{32}$/);
   await expect(page.getByRole("heading", { level: 1, name: title })).toBeVisible();
   const link = page.getByRole("link", { name: "은신처.skp 내려받기" });
   await expect(link).toBeVisible();
@@ -53,16 +53,16 @@ test("둥지마당: SKP 파일 나눠 올리기 → 작품 등록 → 내려받�
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/market-item.png`, fullPage: true });
 
   await page.getByRole("link", { name: "커뮤니티 소개 글에서 댓글 보기 →" }).click();
-  await expect(page.getByRole("heading", { level: 1, name: `[둥지마당] ${title}` })).toBeVisible();
-  await expect(page.getByRole("link", { name: new RegExp(`둥지마당 작품.*${title}`) })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: `[탐색] ${title}` })).toBeVisible();
+  await expect(page.getByRole("link", { name: new RegExp(`공유 작품.*${title}`) })).toBeVisible();
 
   // 목록 (로그인하지 않아도 보인다)
-  await page.goto("/market");
+  await page.goto("/explore?category=all"); // 추천은 내 작품을 빼므로 전체에서 본다
   const card = page.getByRole("link", { name: new RegExp(title) });
   await expect(card).toBeVisible();
   await expect(card.getByText("SKP")).toBeVisible();
   await expect(card.getByText("내려받기 1")).toBeVisible();
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/market-list.png`, fullPage: true });
-  await page.goto("/market?category=tunnel");
+  await page.goto("/explore?category=tunnel");
   await expect(page.getByRole("link", { name: new RegExp(title) })).toHaveCount(0);
 });
