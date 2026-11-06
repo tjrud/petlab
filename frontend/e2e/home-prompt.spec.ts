@@ -27,7 +27,7 @@ test("메인 입력창에 적은 요청이 로그인을 거쳐 설계하기 화�
 
 test("메인 예시를 누르면 그 문장으로 설계하기가 열린다", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("link", { name: "모래목욕통과 계단, 가운데는 비워 두기" }).click();
+  await page.getByRole("link", { name: "완만한 경사로를 하나 만들어 주세요" }).click();
   await page.waitForURL((url) => url.pathname === "/design");
-  expect(new URL(page.url()).searchParams.get("prompt")).toBe("모래목욕통과 계단, 가운데는 비워 두기");
+  expect(new URL(page.url()).searchParams.get("prompt")).toBe("완만한 경사로를 하나 만들어 주세요");
 });

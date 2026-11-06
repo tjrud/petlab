@@ -16,9 +16,9 @@ const PARTS = [
 
 // 입력창 아래 예시. 누르면 그 문장으로 설계하기 화면이 열린다
 const EXAMPLES = [
-  "왼쪽 구석에 은신처, 그 옆에 터널",
-  "모래목욕통과 계단, 가운데는 비워 두기",
-  "출입구 두 개짜리 큰 은신처",
+  "출입구가 두 개 있는 은신처를 만들어 주세요",
+  "케이지 한쪽에 놓을 긴 터널이 필요해요",
+  "완만한 경사로를 하나 만들어 주세요",
 ];
 
 const designHref = (prompt: string) => `/design?prompt=${encodeURIComponent(prompt)}`;
@@ -50,7 +50,7 @@ export default function Hero() {
                 type="search"
                 name="prompt"
                 aria-label="원하는 구조물"
-                placeholder="예: 은신처와 터널을 한쪽에 몰아서"
+                placeholder="예: 환기구가 있는 은신처를 만들어 주세요"
                 maxLength={2000}
                 autoComplete="off"
                 enterKeyHint="go"

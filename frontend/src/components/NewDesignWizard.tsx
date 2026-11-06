@@ -12,10 +12,12 @@ import { CAGE_DIMS, CAGE_LIMITS, CAGE_PRESETS, cageDimError } from "@/components
 import { api, ApiError, errorText, isAuthError, isEmailUnverified } from "@/lib/api";
 import type { Me, Pet, SpeciesResponse } from "@/lib/types";
 
+// 구조물 하나를 요청하는 예시 (템플릿마다 하나)
 const EXAMPLE_PROMPTS = [
-  "은신처와 터널을 한쪽에 몰아서 넣고 싶어요",
-  "은신처를 오른쪽 구석에 넣고, 환기구는 넉넉하게 해 주세요",
-  "모래목욕통과 계단을 넣고 가운데는 넓게 비워 주세요",
+  "출입구가 두 개 있는 은신처를 만들어 주세요",
+  "케이지 한쪽에 놓을 긴 터널이 필요해요",
+  "완만한 경사로를 하나 만들어 주세요",
+  "모래 목욕용 통을 하나 만들고 싶어요",
 ];
 
 const LIMITS = { ...CAGE_LIMITS, count: [1, 10] } as const;
@@ -554,7 +556,7 @@ export default function NewDesignWizard() {
             aria-label="요구사항"
             rows={5}
             maxLength={2000}
-            placeholder="예: 은신처와 터널을 한쪽에 몰아서 넣고 싶어요"
+            placeholder="예: 환기구가 있는 은신처를 만들어 주세요"
             className="w-full rounded-xl border border-stone-300 p-4 leading-relaxed"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}

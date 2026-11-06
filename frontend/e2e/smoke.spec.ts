@@ -237,7 +237,7 @@ test("여러 구조물: 은신처와 터널을 한쪽에 몰아서", async ({ pa
   await page.getByText("골든 (시리안)").click();
   await page.getByRole("button", { name: "대형 80×50×40cm" }).click();
   await page.getByRole("button", { name: "다음" }).click();
-  await page.getByRole("button", { name: "은신처와 터널을 한쪽에 몰아서 넣고 싶어요" }).click();
+  await page.getByLabel("요구사항").fill("은신처와 터널을 한쪽에 몰아서 넣고 싶어요");
   const meshes: string[] = [];
   page.on("response", (r) => {
     if (r.url().includes("/parts/") && r.status() === 200) meshes.push(r.url());
