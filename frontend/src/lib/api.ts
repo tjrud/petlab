@@ -160,12 +160,16 @@ export const api = {
     request<CageLayout>(`/layouts/${encodeURIComponent(id)}`, json("PUT", body)),
   deleteLayout: (id: string) => request<void>(`/layouts/${encodeURIComponent(id)}`, json("DELETE")),
 
-  // 둥지마당 (보기는 누구나)
+  // 탐색 (보기는 누구나)
   marketConfig: () => request<MarketConfig>("/market/config"),
   marketItems: (page = 1, pageSize = 24, category?: string) =>
     request<Paged<MarketItemSummary>>(
       `/market/items?page=${page}&page_size=${pageSize}${category ? `&category=${encodeURIComponent(category)}` : ""}`,
     ),
+  marketRecommended: (limit = 24) => request<MarketItemSummary[]>(`/market/recommended?limit=${limit}`),
+  copyLayout: (id: string) => request<{ layout_id: string }>(`/market/items/${encodeURIComponent(id)}/copy-layout`, json("POST", {})),
+  myMarketFiles: () => request<MarketFile[]>("/market/files/mine"),
+  marketFile: (id: string) => request<MarketFile>(`/market/files/${encodeURIComponent(id)}`),
   marketItem: (id: string) => request<MarketItem>(`/market/items/${encodeURIComponent(id)}`),
   createMarketItem: (body: MarketItemInput) => request<MarketItem>("/market/items", json("POST", body)),
   updateMarketItem: (id: string, body: { title?: string; description?: string; category?: string }) =>
@@ -181,7 +185,7 @@ export const api = {
       headers: { "Content-Type": "application/octet-stream" },
     }),
   completeUpload: (uploadId: string) => request<MarketFile>(`/market/uploads/${encodeURIComponent(uploadId)}/complete`, json("POST", {})),
-  /** 둥지마당 파일 주소: API 기준 경로("/market/...")면 API 주소를 붙이고, 공개 주소(Blob)면 그대로 */
+  /** 탐색 파일 주소: API 기준 경로("/market/...")면 API 주소를 붙이고, 공개 주소(Blob)면 그대로 */
   marketUrl: (path: string) => (path.startsWith("/") ? `${API_BASE}${path}` : path),
 
   // 커뮤니티 (읽기는 누구나)

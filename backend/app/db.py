@@ -89,6 +89,9 @@ MIGRATION_COLUMNS: list[tuple[str, str, str]] = [
     ("users", "email_verified_at", "TIMESTAMP WITH TIME ZONE"),
     ("posts", "images", "JSON"),
     ("design_versions", "geometry", "JSON"),
+    ("market_items", "layout", "JSON"),
+    ("market_files", "dims_mm", "JSON"),
+    ("market_files", "shared", "BOOLEAN"),
 ]
 # (인덱스 이름, 테이블, 인덱스 정의). 정의는 Postgres·SQLite 공통 문법만 쓴다
 MIGRATION_INDEXES: list[tuple[str, str, str]] = [

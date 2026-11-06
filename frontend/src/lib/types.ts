@@ -234,7 +234,7 @@ export type PostSummary = {
   has_design: boolean;
   /** 첫 사진 (없으면 null) */
   thumbnail: PostImage | null;
-  /** 둥지마당 작품 소개 글이면 그 작품 ID */
+  /** 공유 작품 소개 글이면 그 작품 ID */
   market_item_id: string | null;
 };
 
@@ -260,7 +260,7 @@ export type Post = {
   design: SharedDesign | null;
   /** 운영팀 글의 사진 (없으면 빈 배열) */
   images: PostImage[];
-  /** 둥지마당 작품 소개 글이면 그 작품 요약 */
+  /** 공유 작품 소개 글이면 그 작품 요약 */
   market_item: MarketItemBrief | null;
   /** 최근 댓글 최대 200개 (오래된 것부터). 전체 개수는 comment_total */
   comments: Comment[];
@@ -298,9 +298,9 @@ export type CageLayoutInput = {
   items: LayoutItem[];
 };
 
-// ── 둥지마당 ──
+// ── 탐색 ──
 
-export type MarketCategory = "hideout" | "tunnel" | "ramp" | "sand_bath" | "cage" | "etc";
+export type MarketCategory = "hideout" | "tunnel" | "ramp" | "sand_bath" | "cage" | "layout" | "etc";
 
 export type MarketConfig = {
   uploads_enabled: boolean;
@@ -322,6 +322,22 @@ export type MarketFile = {
   /** "/" 로 시작하면 API 기준 경로, 아니면 공개 주소 */
   download_url: string;
   view_url: string | null;
+  /** STL·3MF: 외곽 크기 [x, y, z] mm (SKP 는 null) */
+  dims_mm: [number, number, number] | null;
+  /** STL·3MF: 3D 로 불러올 주소 ("/" 로 시작하면 API 경로) */
+  mesh_url: string | null;
+  /** 작품에 붙었거나 공유한 배치에 들어 있어 누구나 볼 수 있는지 */
+  attached: boolean;
+};
+
+/** 탐색에 공유한 가상 케이지 배치 (공유할 때의 배치안 사본) */
+export type LayoutSnapshot = {
+  name: string;
+  species: string;
+  size: string;
+  size_name_ko: string;
+  cage: Cage;
+  items: LayoutItem[];
 };
 
 export type MarketItemSummary = {
@@ -334,14 +350,18 @@ export type MarketItemSummary = {
   formats: string[];
   image: MarketFile | null;
   has_design: boolean;
+  has_layout: boolean;
   download_count: number;
   created_at: string;
+  /** 추천 목록에서만: 추천한 까닭 */
+  reason_ko?: string | null;
 };
 
 export type MarketItem = MarketItemSummary & {
   description: string;
   files: MarketFile[];
   design: SharedDesign | null;
+  layout: LayoutSnapshot | null;
   post_id: string | null;
   updated_at: string;
   can_edit: boolean;
@@ -358,5 +378,6 @@ export type MarketItemInput = {
   image_file_id: string | null;
   design_id: string | null;
   design_version: number | null;
+  layout_id: string | null;
   post_to_community: boolean;
 };

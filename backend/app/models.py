@@ -246,7 +246,7 @@ class CageLayout(Base):
 
 
 class MarketItem(Base):
-    """둥지마당 작품: 회원이 올린 완성 파일(SKP·3MF·STL)이나 NestForge 설계를 공유한다.
+    """공유 작품: 회원이 올린 완성 파일(SKP·3MF·STL)이나 NestForge 설계를 공유한다.
     소개 글(post_id)을 커뮤니티에 함께 올리면 댓글은 그 글에서 받는다. 설계를 첨부하면 그 글로 설계가 공개된다."""
 
     __tablename__ = "market_items"
@@ -260,6 +260,8 @@ class MarketItem(Base):
     design_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     post_id: Mapped[str | None] = mapped_column(ForeignKey("posts.id"), nullable=True, index=True)
     download_count: Mapped[int] = mapped_column(Integer, default=0)
+    # 가상 케이지 배치 예시 (공유할 때의 배치안 사본: name·species·size·cage·items). 기존 DB 에는 마이그레이션으로 추가
+    layout: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
 
@@ -282,6 +284,10 @@ class MarketFile(Base):
     sha256: Mapped[str] = mapped_column(String(64))
     storage_key: Mapped[str] = mapped_column(String(300))
     url: Mapped[str | None] = mapped_column(String(500), nullable=True)  # Vercel Blob 공개 주소 (로컬 저장이면 없음)
+    # STL·3MF 의 외곽 크기 [x, y, z] mm (가상 케이지에 놓을 때). SKP·이미지는 없음
+    dims_mm: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # 공유한 배치 예시에 들어 있어 누구나 볼 수 있는 파일 (작품에 붙지 않았어도)
+    shared: Mapped[bool | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
@@ -305,3 +311,16 @@ class MarketUploadChunk(Base):
     upload_id: Mapped[str] = mapped_column(ForeignKey("market_uploads.id", ondelete="CASCADE"), primary_key=True)
     n: Mapped[int] = mapped_column(Integer, primary_key=True)
     data: Mapped[bytes] = mapped_column(LargeBinary)
+
+
+class MarketEvent(Base):
+    """탐색 작품을 본 기록·내려받은 기록 (로그인한 회원만). 맞춤 추천에 쓴다."""
+
+    __tablename__ = "market_events"
+    __table_args__ = (Index("ix_market_events_user_created", "user_id", "created_at"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    item_id: Mapped[str] = mapped_column(ForeignKey("market_items.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(16))  # view | download | copy
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

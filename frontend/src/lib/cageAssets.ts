@@ -24,7 +24,8 @@ export type AssetShape =
   | "bowl"
   | "water_stand"
   | "plate"
-  | "bedding";
+  | "bedding"
+  | "mesh";
 
 export type CageAsset = {
   key: string;
@@ -54,6 +55,8 @@ export type CageAsset = {
    * 한 번에 하나만 깔고, 겹침·자리 찾기에서 빼요. 다른 구조물은 바닥재 위에 놓여요
    */
   floorLayer?: { flakeColor: string };
+  /** 내가 올린 STL·3MF 파일 (shape "mesh"): 3D 로 불러올 주소와 형식. 크기는 파일의 외곽 크기 */
+  mesh?: { url: string; format: "stl" | "3mf"; fileId: string };
 };
 
 export const CATEGORIES: { key: AssetCategory; label: string }[] = [
@@ -289,7 +292,40 @@ export const CAGE_ASSETS: CageAsset[] = [
 const BY_KEY = new Map(CAGE_ASSETS.map((a) => [a.key, a]));
 
 export function getAsset(key: string): CageAsset | undefined {
-  return BY_KEY.get(key);
+  return BY_KEY.get(key) ?? FILE_ASSETS.get(key);
+}
+
+// ── 내가 올린 파일 에셋 (탐색에 올린 STL·3MF) ──
+// 배치안에는 "file_<파일 ID>" 키로 저장하고, 화면은 파일 정보를 받아 이 표에 넣은 뒤 다른 에셋처럼 쓴다.
+
+export const FILE_ASSET_PREFIX = "file_";
+const FILE_ASSETS = new Map<string, CageAsset>();
+
+export const fileAssetKey = (fileId: string) => `${FILE_ASSET_PREFIX}${fileId}`;
+export const fileIdOf = (key: string) => (key.startsWith(FILE_ASSET_PREFIX) ? key.slice(FILE_ASSET_PREFIX.length) : null);
+
+/** 파일 정보로 에셋을 만들어 넣는다 (3D 로 볼 수 없는 SKP·크기를 모르는 파일은 넣지 않는다). 넣었으면 그 에셋 */
+export function registerFileAsset(f: {
+  id: string;
+  filename: string;
+  format: string;
+  dims_mm: [number, number, number] | null;
+  mesh_url: string | null;
+}, meshUrl: (path: string) => string): CageAsset | null {
+  if (!f.dims_mm || !f.mesh_url || (f.format !== "stl" && f.format !== "3mf")) return null;
+  const key = fileAssetKey(f.id);
+  const asset: CageAsset = {
+    key,
+    name: f.filename.replace(/\.[^.]+$/, "") || "내 파일",
+    category: "hide",
+    shape: "mesh",
+    size: [f.dims_mm[0], f.dims_mm[1], f.dims_mm[2]],
+    color: "#b8a6e0",
+    description: `내가 올린 ${f.format.toUpperCase()} 파일`,
+    mesh: { url: meshUrl(f.mesh_url), format: f.format, fileId: f.id },
+  };
+  FILE_ASSETS.set(key, asset);
+  return asset;
 }
 
 /** 바닥 전체를 덮는 바닥재인지 */

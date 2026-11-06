@@ -1,4 +1,4 @@
-"""둥지마당: 조각 업로드·내용 확인·작품 올리기·커뮤니티 소개 글·설계 공유·권한·저장소."""
+"""탐색: 조각 업로드·내용 확인·작품 올리기·커뮤니티 소개 글·설계 공유·권한·저장소."""
 
 from __future__ import annotations
 
@@ -80,9 +80,9 @@ def test_upload_item_community_post_and_download(client):
     assert [x["filename"] for x in item["files"]] == ["은신처.skp", "part.stl", "plate.3mf"]
     assert item["category_name_ko"] == "은신처" and item["can_edit"] and item["post_id"]
 
-    # 커뮤니티 소개 글: 제목 앞에 [둥지마당], 글에 작품 요약
+    # 커뮤니티 소개 글: 제목 앞에 [탐색], 글에 작품 요약
     post = client.get(f"/community/posts/{item['post_id']}").json()
-    assert post["title"] == "[둥지마당] 나무 은신처 (다방형)" and post["market_item"]["id"] == item["id"]
+    assert post["title"] == "[탐색] 나무 은신처 (다방형)" and post["market_item"]["id"] == item["id"]
     listed = client.get("/community/posts").json()["items"][0]
     assert listed["market_item_id"] == item["id"]
 
@@ -217,3 +217,97 @@ def test_blob_storage_requests(monkeypatch):
     assert headers["authorization"] == "Bearer tok" and headers["x-vercel-blob-access"] == "public"
     st.delete([out])
     assert calls[1][1] == "https://vercel.com/api/blob/delete" and calls[1][2] == {"urls": [out.url]}
+
+
+def tetra_stl(size: float = 120.0) -> bytes:
+    """크기 size×size×size 정사면체 모양 바이너리 STL"""
+    v = [(0, 0, 0), (size, 0, 0), (0, size, 0), (0, 0, size)]
+    faces = [(0, 2, 1), (0, 1, 3), (0, 3, 2), (1, 2, 3)]
+    out = b"\x00" * 80 + struct.pack("<I", len(faces))
+    for a, b, c in faces:
+        out += struct.pack("<3f", 0, 0, 0) + b"".join(struct.pack("<3f", *v[i]) for i in (a, b, c)) + b"\x00\x00"
+    return out
+
+
+def test_mesh_dims_my_files_and_visibility(client):
+    a = signup(client, "maker_a")
+    f = upload(client, "house.stl", tetra_stl(120))
+    assert f["dims_mm"] == [120.0, 120.0, 120.0] and f["mesh_url"].endswith("/mesh") and f["attached"] is False
+    sk = upload(client, "house.skp", skp_bytes(1024))
+    assert sk["dims_mm"] is None and sk["mesh_url"] is None
+    mine = client.get("/market/files/mine").json()
+    assert [x["id"] for x in mine] == [sk["id"], f["id"]]
+    assert client.get(f["mesh_url"]).content == tetra_stl(120)
+    # 남은 아직 볼 수 없다
+    b = signup(client, "maker_b")
+    use(client, b)
+    assert client.get(f["mesh_url"]).status_code == 404
+    assert client.get("/market/files/mine").json() == []
+    use(client, None)
+    assert client.get("/market/files/mine").status_code == 401
+
+
+def test_layout_share_makes_files_visible_and_copy(client):
+    a = signup(client, "maker_a")
+    f = upload(client, "house.stl", tetra_stl(100))
+    lay = client.post("/layouts", json={
+        "name": "거실 케이지", "species": "hamster", "size": "syrian",
+        "cage": {"width_mm": 1000, "depth_mm": 500, "height_mm": 500},
+        "items": [{"id": "a1", "asset": "hideout_multi", "x_mm": 160, "y_mm": 390, "rotation_deg": 0},
+                  {"id": "a2", "asset": f"file_{f['id']}", "x_mm": 500, "y_mm": 250, "rotation_deg": 90}],
+    }).json()
+    item = client.post("/market/items", json=item_body(category="layout", layout_id=lay["id"])).json()
+    assert item["formats"] == ["layout"] and item["has_layout"] and item["category_name_ko"] == "가상 케이지 배치"
+    assert item["layout"]["cage"]["width_mm"] == 1000 and len(item["layout"]["items"]) == 2
+    assert item["layout"]["size_name_ko"]
+
+    b = signup(client, "maker_b")
+    use(client, b)
+    # 배치에 들어 있는 파일은 다른 사람도 3D 로 본다
+    assert client.get(f["mesh_url"]).status_code == 200
+    # 남의 배치안은 공유할 수 없다
+    assert client.post("/market/items", json=item_body(layout_id=lay["id"])).status_code == 404
+    r = client.post(f"/market/items/{item['id']}/copy-layout")
+    assert r.status_code == 201
+    copied = client.get(f"/layouts/{r.json()['layout_id']}").json()
+    assert copied["name"] == "거실 케이지 (탐색)" and copied["items"] == lay["items"] and copied["cage"] == lay["cage"]
+
+    files_only = None
+    use(client, a)
+    files_only = client.post("/market/items", json=item_body(file_ids=[upload(client, "x.stl", tetra_stl(50))["id"]])).json()
+    use(client, b)
+    r = client.post(f"/market/items/{files_only['id']}/copy-layout")
+    assert r.status_code == 400 and r.json()["detail"]["code"] == "no_layout"
+    use(client, None)
+    assert client.post(f"/market/items/{item['id']}/copy-layout").status_code == 401
+
+
+def test_recommendations(client):
+    b = signup(client, "maker_b")
+    tunnel = client.post("/market/items", json=item_body(title="긴 터널", category="tunnel",
+                                                          file_ids=[upload(client, "t.stl", tetra_stl(60))["id"]])).json()
+    hide = client.post("/market/items", json=item_body(title="다방 은신처", category="hideout",
+                                                        file_ids=[upload(client, "h.stl", tetra_stl(60))["id"]])).json()
+
+    # 로그인하지 않으면 인기·새로움 순 (까닭도 함께)
+    use(client, None)
+    anon = client.get("/market/recommended").json()
+    assert {x["id"] for x in anon} == {tunnel["id"], hide["id"]} and all(x["reason_ko"] for x in anon)
+
+    # 내 설계에 은신처가 있으면 은신처 작품이 먼저
+    a = signup(client, "maker_a")
+    make_design(client, "은신처를 왼쪽에")
+    rec = client.get("/market/recommended").json()
+    assert rec[0]["id"] == hide["id"] and "내 설계" in rec[0]["reason_ko"]
+
+    # 터널 작품을 여러 번 보고 내려받으면 터널 관심도가 오른다 (본 기록은 1시간에 한 번)
+    for _ in range(3):
+        client.get(f"/market/items/{tunnel['id']}")
+    f_id = client.get(f"/market/items/{tunnel['id']}").json()["files"][0]["id"]
+    client.get(f"/market/files/{f_id}/download")
+    rec = client.get("/market/recommended").json()
+    assert {x["id"] for x in rec} == {tunnel["id"], hide["id"]}
+
+    # 내 작품은 추천하지 않는다
+    use(client, b)
+    assert client.get("/market/recommended").json() == []

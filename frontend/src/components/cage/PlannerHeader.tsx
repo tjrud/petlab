@@ -18,6 +18,7 @@ export default function PlannerHeader({
   needsLogin,
   onNew,
   onSave,
+  shareHref,
 }: {
   meta: Meta;
   onMetaChange: (patch: Partial<Meta>) => void;
@@ -28,6 +29,8 @@ export default function PlannerHeader({
   needsLogin: boolean;
   onNew: () => void;
   onSave: (asNew: boolean) => void;
+  /** 저장한 배치안을 탐색에 공유하는 주소 (저장하지 않은 변경이 있으면 null) */
+  shareHref: string | null;
 }) {
   return (
     <div className={`${ui.card} flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between`}>
@@ -77,6 +80,11 @@ export default function PlannerHeader({
               <button type="button" className={ui.btnSecondary} onClick={() => onSave(true)} disabled={busy}>
                 새 배치안으로 저장
               </button>
+            )}
+            {shareHref && (
+              <Link href={shareHref} className={ui.btnSecondary}>
+                탐색에 공유
+              </Link>
             )}
             <button type="button" className={ui.btnPrimary} onClick={() => onSave(false)} disabled={busy || (!dirty && !!meta.layoutId)}>
               {busy ? "저장 중…" : "저장"}

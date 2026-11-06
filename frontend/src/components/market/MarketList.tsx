@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { useAuth } from "@/components/AuthProvider";
 import { errorText, Placeholder } from "@/components/community/common";
 import Pagination from "@/components/community/Pagination";
 import { MARKET_CATEGORIES, MARKET_PATH } from "@/components/market/common";
@@ -14,6 +15,8 @@ import type { MarketItemSummary, Paged } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
 const PAGE_SIZE = 24;
+/** 주소에 분류가 없으면 "추천", ?category=all 이면 "전체" */
+const ALL = "all";
 
 function parsePage(raw: string | null): number {
   const n = Number(raw);
@@ -29,38 +32,47 @@ function listHref(category: string | null, page = 1): string {
 }
 
 type Result =
-  | { key: string; kind: "ok"; data: Paged<MarketItemSummary> }
+  | { key: string; kind: "list"; data: Paged<MarketItemSummary> }
+  | { key: string; kind: "recommended"; items: MarketItemSummary[] }
   | { key: string; kind: "error"; message: string };
 
 export function MarketListPlaceholder() {
   return <Placeholder rows={3} label="작품 목록을 불러오는 중이에요" rowClassName="h-40" />;
 }
 
-/** 둥지마당 작품 목록 (누구나). 분류·페이지는 주소(?category=&page=)로 */
+/** 탐색 (누구나): 추천(기본)·전체·분류별. 분류·페이지는 주소(?category=&page=)로 */
 export default function MarketList() {
   const params = useSearchParams();
+  const { user, status } = useAuth();
   const rawCat = params.get("category");
-  const category = MARKET_CATEGORIES.some((c) => c.key === rawCat) ? rawCat : null;
+  const category = rawCat === ALL || MARKET_CATEGORIES.some((c) => c.key === rawCat) ? rawCat : null;
   const page = parsePage(params.get("page"));
   const [attempt, setAttempt] = useState(0);
   const [result, setResult] = useState<Result | null>(null);
-  const key = `${category}|${page}|${attempt}`;
+  // 추천은 로그인 상태에 따라 달라지므로 로그인 확인이 끝난 뒤에 받는다
+  const key = `${category}|${page}|${attempt}|${user?.id ?? ""}`;
+  const waitAuth = category === null && status === null;
 
   useEffect(() => {
+    if (waitAuth) return;
     let alive = true;
-    api.marketItems(page, PAGE_SIZE, category ?? undefined).then(
-      (data) => alive && setResult({ key, kind: "ok", data }),
-      (e: unknown) => alive && setResult({ key, kind: "error", message: errorText(e, "작품 목록을 불러오지 못했어요.") }),
-    );
+    const fail = (e: unknown) => alive && setResult({ key, kind: "error", message: errorText(e, "작품 목록을 불러오지 못했어요.") });
+    if (category === null) {
+      api.marketRecommended(PAGE_SIZE).then((items) => alive && setResult({ key, kind: "recommended", items }), fail);
+    } else {
+      api
+        .marketItems(page, PAGE_SIZE, category === ALL ? undefined : category)
+        .then((data) => alive && setResult({ key, kind: "list", data }), fail);
+    }
     return () => {
       alive = false;
     };
-  }, [page, category, key]);
+  }, [page, category, key, waitAuth]);
 
   const r = result?.key === key ? result : null;
   const chips = (
     <nav aria-label="분류" className="mb-5 flex flex-wrap gap-1.5">
-      {[{ key: null, label: "전체" }, ...MARKET_CATEGORIES].map((c) => {
+      {[{ key: null, label: "추천" }, { key: ALL, label: "전체" }, ...MARKET_CATEGORIES].map((c) => {
         const on = category === c.key;
         return (
           <Link
@@ -78,25 +90,45 @@ export default function MarketList() {
     </nav>
   );
 
+  const grid = (items: MarketItemSummary[]) => (
+    <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {items.map((it) => (
+        <MarketItemCard key={it.id} item={it} />
+      ))}
+    </ul>
+  );
+  const empty = (msg: string) => (
+    <div className={`${ui.card} py-12 text-center`}>
+      <p className="text-lg font-semibold">{msg}</p>
+      <p className="mt-1 text-sm text-stone-600">SKP·3MF·STL 파일, NestForge 설계, 가상 케이지 배치를 올려 주세요.</p>
+    </div>
+  );
+
   if (!r) return (<>{chips}<MarketListPlaceholder /></>);
   if (r.kind === "error") return (<>{chips}<RetryAlert message={r.message} onRetry={() => setAttempt((n) => n + 1)} /></>);
+  if (r.kind === "recommended") {
+    return (
+      <>
+        {chips}
+        <p className={`${ui.muted} mb-3`}>
+          {user
+            ? "내 설계·가상 케이지 배치안·반려동물·최근에 본 작품을 바탕으로 골랐어요."
+            : "많이 내려받은 작품과 새 작품이에요. 로그인하면 내 설계와 반려동물에 맞춘 추천이 보여요."}
+        </p>
+        {r.items.length === 0 ? empty("아직 추천할 작품이 없어요.") : grid(r.items)}
+      </>
+    );
+  }
   const { items, total, page_size } = r.data;
   return (
     <>
       {chips}
       {total === 0 ? (
-        <div className={`${ui.card} py-12 text-center`}>
-          <p className="text-lg font-semibold">{category ? "이 분류에는 아직 작품이 없어요." : "아직 올라온 작품이 없어요."}</p>
-          <p className="mt-1 text-sm text-stone-600">SKP·3MF·STL 파일이나 NestForge 설계를 올려 주세요.</p>
-        </div>
+        empty(category === ALL ? "아직 올라온 작품이 없어요." : "이 분류에는 아직 작품이 없어요.")
       ) : (
         <>
           <p className={`${ui.muted} mb-3`}>작품 {total}개</p>
-          <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {items.map((it) => (
-              <MarketItemCard key={it.id} item={it} />
-            ))}
-          </ul>
+          {grid(items)}
           {total > page_size && (
             <Pagination page={page} totalPages={Math.ceil(total / page_size)} hrefFor={(p) => listHref(category, p)} />
           )}

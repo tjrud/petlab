@@ -4,7 +4,7 @@ import Link from "next/link";
 import { FormatChips, imageSrc, marketHref, NoPreview } from "@/components/market/common";
 import type { MarketItemBrief } from "@/lib/types";
 
-/** 커뮤니티 소개 글에 붙는 둥지마당 작품 카드 */
+/** 커뮤니티 소개 글에 붙는 공유 작품 카드 */
 export default function MarketItemBriefCard({ item }: { item: MarketItemBrief }) {
   return (
     <Link
@@ -15,7 +15,7 @@ export default function MarketItemBriefCard({ item }: { item: MarketItemBrief })
         {item.image ? <img src={imageSrc(item.image)} alt="" className="h-full w-full object-cover" /> : <NoPreview formats={item.formats} />}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block text-xs font-semibold text-lime-800">둥지마당 작품</span>
+        <span className="block text-xs font-semibold text-lime-800">공유 작품</span>
         <span className="block truncate font-semibold">{item.title}</span>
         <FormatChips formats={item.formats} className="mt-1" />
       </span>

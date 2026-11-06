@@ -83,7 +83,7 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
             log.error("관리자 인증 설정 오류로 API 를 막습니다: %s", "; ".join(settings.auth_problems))
         elif settings.auth_mode == "disabled" and (settings.ephemeral_filesystem or settings.normalized_api_prefix):
             log.error("관리자 인증이 꺼져 있습니다 (ADMIN_PASSWORD 없음). 배포 환경이라면 API 가 공개 상태입니다.")
-        app.state.market_storage = make_storage(settings)  # 둥지마당 파일 (없으면 올리기를 막는다)
+        app.state.market_storage = make_storage(settings)  # 탐색 파일 (없으면 올리기를 막는다)
         app.state.db_dialect = engine.dialect.name
         app.state.db_ephemeral = is_ephemeral_database(settings.database_url, settings.ephemeral_filesystem)
         if app.state.db_ephemeral:

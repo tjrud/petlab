@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
@@ -9,9 +9,10 @@ import DesignAttachField, { useAttachOptions } from "@/components/community/Desi
 import { EmailUnverifiedNotice, useEmailBlocked } from "@/components/EmailVerification";
 import LoginRequired from "@/components/LoginRequired";
 import { FORMAT_HINT, formatBytes, MARKET_CATEGORIES, marketHref } from "@/components/market/common";
+import LayoutPreview from "@/components/market/LayoutPreview";
 import { api, isEmailUnverified } from "@/lib/api";
 import { uploadMarketFile } from "@/lib/marketUpload";
-import type { MarketCategory, MarketConfig, MarketFile } from "@/lib/types";
+import type { CageLayout, MarketCategory, MarketConfig, MarketFile } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
 const MAX_FILES = 5; // 서버 MAX_ITEM_FILES 와 같다
@@ -33,7 +34,7 @@ export function MarketNewPlaceholder() {
 
 let slotSeq = 0;
 
-/** 둥지마당 작품 올리기: 완성 파일(SKP·3MF·STL) 또는 NestForge 설계 + 소개 */
+/** 공유 작품 올리기: 완성 파일(SKP·3MF·STL) 또는 NestForge 설계 + 소개 */
 export default function MarketNewForm() {
   const router = useRouter();
   const { status, user, emailUnverified } = useAuth();
@@ -43,7 +44,11 @@ export default function MarketNewForm() {
   const [config, setConfig] = useState<MarketConfig | null>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [category, setCategory] = useState<MarketCategory>("hideout");
+  // 가상 케이지의 "탐색에 공유"로 들어오면(?layout=) 그 배치안을 함께 공유한다
+  const layoutParam = useSearchParams().get("layout");
+  const [layout, setLayout] = useState<CageLayout | null>(null);
+  const [layoutError, setLayoutError] = useState<string | null>(null);
+  const [category, setCategory] = useState<MarketCategory>(layoutParam ? "layout" : "hideout");
   const [slots, setSlots] = useState<Slot[]>([]);
   const [image, setImage] = useState<Slot | null>(null);
   const [designId, setDesignId] = useState("");
@@ -53,6 +58,22 @@ export default function MarketNewForm() {
   const [emailBlocked, setEmailBlocked] = useEmailBlocked();
   const fileInput = useRef<HTMLInputElement>(null);
   const imageInput = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!layoutParam || !user) return;
+    let alive = true;
+    api.layout(layoutParam).then(
+      (l) => {
+        if (!alive) return;
+        setLayout(l);
+        setTitle((t) => t || l.name);
+      },
+      (e: unknown) => alive && setLayoutError(errorText(e, "배치안을 불러오지 못했어요.")),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [layoutParam, user]);
 
   useEffect(() => {
     let alive = true;
@@ -105,7 +126,7 @@ export default function MarketNewForm() {
     setEmailBlocked(false);
     if (!title.trim()) return setError("제목을 입력해 주세요.");
     if (!description.trim()) return setError("소개를 입력해 주세요.");
-    if (doneFiles.length === 0 && !design) return setError("파일을 올리거나 NestForge 설계를 하나 골라 주세요.");
+    if (doneFiles.length === 0 && !design && !layout) return setError("파일을 올리거나 NestForge 설계를 하나 골라 주세요.");
     if (uploading) return setError("파일을 다 올린 뒤에 등록해 주세요.");
     setSubmitting(true);
     try {
@@ -117,6 +138,7 @@ export default function MarketNewForm() {
         image_file_id: image?.status === "done" && image.file ? image.file.id : null,
         design_id: design?.id ?? null,
         design_version: design?.version ?? null,
+        layout_id: layout?.id ?? null,
         post_to_community: toCommunity || !!design,
       });
       router.replace(marketHref(item.id));
@@ -137,6 +159,23 @@ export default function MarketNewForm() {
         <p role="status" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
           지금은 파일 저장소가 준비되지 않아 파일을 올릴 수 없어요. NestForge 설계는 공유할 수 있어요.
         </p>
+      )}
+
+      {layoutParam && (
+        <section aria-label="공유할 가상 케이지 배치" className="rounded-xl border border-sky-200 bg-sky-50/40 p-4">
+          <p className={ui.label}>공유할 가상 케이지 배치</p>
+          {layout ? (
+            <>
+              <LayoutPreview layout={layout} className="mx-auto max-h-64 w-full" />
+              <p className="mt-2 text-sm text-stone-600">
+                {layout.name} · 케이지 {layout.cage.width_mm}×{layout.cage.depth_mm}×{layout.cage.height_mm}mm · 구조물 {layout.items.length}개
+              </p>
+              <p className="text-xs text-stone-500">배치에 넣은 내 파일(STL·3MF)도 이 배치를 보는 사람이 3D로 볼 수 있게 공개돼요.</p>
+            </>
+          ) : (
+            <p className="text-sm text-stone-500">{layoutError ?? "불러오는 중…"}</p>
+          )}
+        </section>
       )}
 
       <div>
@@ -269,7 +308,7 @@ export default function MarketNewForm() {
       )}
       <div className="flex justify-end">
         <button type="submit" className={ui.btnPrimary} disabled={submitting || uploading || emailUnverified}>
-          {submitting ? "올리는 중…" : uploading ? "파일 올리는 중…" : "둥지마당에 올리기"}
+          {submitting ? "올리는 중…" : uploading ? "파일 올리는 중…" : "탐색에 올리기"}
         </button>
       </div>
     </form>

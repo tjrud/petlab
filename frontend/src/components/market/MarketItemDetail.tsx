@@ -7,6 +7,10 @@ import { useEffect, useState } from "react";
 
 import { AuthorName, errorText, Placeholder, postHref } from "@/components/community/common";
 import SharedDesignCard from "@/components/community/SharedDesignCard";
+import { useAuth } from "@/components/AuthProvider";
+import LayoutPreview from "@/components/market/LayoutPreview";
+import { fileIdOf, getAsset, registerFileAsset } from "@/lib/cageAssets";
+import { readDraft, writeDraft } from "@/lib/cagePlannerDoc";
 import { FORMAT_HINT, FORMAT_LABEL, formatBytes, FormatChips, imageSrc, MARKET_PATH } from "@/components/market/common";
 import RetryAlert from "@/components/RetryAlert";
 import { api, ApiError } from "@/lib/api";
@@ -19,13 +23,15 @@ export function MarketItemPlaceholder() {
   return <Placeholder rows={2} label="작품을 불러오는 중이에요" rowClassName="h-48" />;
 }
 
-/** 둥지마당 작품 보기: 미리보기·소개·파일 내려받기·NestForge 설계·커뮤니티 소개 글 */
+/** 공유 작품 보기: 미리보기·소개·파일 내려받기·NestForge 설계·커뮤니티 소개 글 */
 export default function MarketItemDetail({ id }: { id: string }) {
   const router = useRouter();
   const [attempt, setAttempt] = useState(0);
   const [result, setResult] = useState<Result | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [copying, setCopying] = useState(false);
+  const { user } = useAuth();
   const key = `${id}|${attempt}`;
 
   useEffect(() => {
@@ -41,6 +47,22 @@ export default function MarketItemDetail({ id }: { id: string }) {
     };
   }, [id, key]);
 
+  // 배치에 들어 있는 파일(STL·3MF)의 크기를 받아 위에서 본 그림에 실제 크기로 그린다
+  const [, setFilesVer] = useState(0);
+  const layoutItems = result?.kind === "ok" ? (result.item.layout?.items ?? null) : null;
+  useEffect(() => {
+    if (!layoutItems) return;
+    const ids = [...new Set(layoutItems.map((it) => fileIdOf(it.asset)).filter((x): x is string => !!x && !getAsset(`file_${x}`)))];
+    if (!ids.length) return;
+    let alive = true;
+    void Promise.allSettled(ids.map((fid) => api.marketFile(fid).then((f) => registerFileAsset(f, api.marketUrl)))).then(
+      () => alive && setFilesVer((v) => v + 1),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [layoutItems]);
+
   const r = result?.key === key ? result : null;
   if (!r) return <MarketItemPlaceholder />;
   if (r.kind === "error") {
@@ -50,7 +72,7 @@ export default function MarketItemDetail({ id }: { id: string }) {
           <h1 className="text-xl font-bold">작품을 찾을 수 없어요</h1>
           <p className="mt-2 text-sm text-stone-600">주소가 잘못되었거나 지워진 작품이에요.</p>
           <Link href={MARKET_PATH} className={`${ui.btnSecondary} mt-4`}>
-            둥지마당으로
+            탐색으로
           </Link>
         </div>
       );
@@ -58,6 +80,36 @@ export default function MarketItemDetail({ id }: { id: string }) {
     return <RetryAlert message={r.message} onRetry={() => setAttempt((n) => n + 1)} />;
   }
   const it = r.item;
+
+  /** 배치 예시를 내 가상 케이지로: 로그인했으면 내 배치안으로 저장해 열고, 아니면 이 브라우저의 작업으로 담아 연다 */
+  async function copyToCage() {
+    const lay = it.layout;
+    if (!lay) return;
+    setActionError(null);
+    if (user) {
+      setCopying(true);
+      try {
+        const { layout_id } = await api.copyLayout(it.id);
+        router.push(`/cage?layout=${encodeURIComponent(layout_id)}`);
+      } catch (e) {
+        setActionError(errorText(e, "담지 못했어요."));
+        setCopying(false);
+      }
+      return;
+    }
+    const draft = readDraft();
+    if (draft && draft.items.length > 0 && !window.confirm("가상 케이지에서 저장하지 않은 작업이 이 배치로 바뀌어요. 계속할까요?")) return;
+    writeDraft({
+      name: `${lay.name} (탐색)`.slice(0, 40),
+      species: lay.species,
+      size: lay.size,
+      petId: null,
+      layoutId: null,
+      cage: lay.cage,
+      items: lay.items,
+    });
+    router.push("/cage");
+  }
 
   async function remove() {
     if (!window.confirm("이 작품을 지울까요? 올린 파일도 함께 지워지고 되돌릴 수 없어요. 커뮤니티 소개 글은 남아요.")) return;
@@ -91,6 +143,27 @@ export default function MarketItemDetail({ id }: { id: string }) {
           </p>
         </header>
         <div className="whitespace-pre-wrap break-words leading-relaxed text-stone-800">{it.description}</div>
+
+        {it.layout && (
+          <section aria-labelledby="layout-title" className="space-y-3 rounded-xl border border-sky-200 bg-sky-50/40 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 id="layout-title" className={ui.h2}>
+                가상 케이지 배치
+              </h2>
+              <button type="button" className={ui.btnPrimary} onClick={() => void copyToCage()} disabled={copying}>
+                {copying ? "담는 중…" : "내 가상 케이지로 담기"}
+              </button>
+            </div>
+            <LayoutPreview layout={it.layout} className="mx-auto max-h-80 w-full" />
+            <p className="text-sm text-stone-600">
+              {it.layout.name} · 케이지 {it.layout.cage.width_mm}×{it.layout.cage.depth_mm}×{it.layout.cage.height_mm}mm ·{" "}
+              {it.layout.size_name_ko}
+            </p>
+            <p className="text-xs text-stone-500">
+              {user ? "담으면 내 배치안으로 저장되고 가상 케이지에서 바로 열려요." : "담으면 가상 케이지에서 바로 열려요. 저장하려면 로그인하세요."}
+            </p>
+          </section>
+        )}
 
         {it.files.length > 0 && (
           <section aria-labelledby="files-title" className="space-y-2">
