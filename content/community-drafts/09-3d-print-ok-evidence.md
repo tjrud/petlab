@@ -26,7 +26,7 @@
 
 ## 1. 써르써르(ssurssur)도 플라스틱인가?
 
-**답: 맞다. 써르써르의 주력 용품은 PLA 3D 출력물이다.** 집에서 PLA로 뽑는 것과 같은 계열의 소재다. 다만 PETG로 뽑는다면 써르써르와 같은 소재는 아니다.
+**답: 맞다. 써르써르는 PLA 3D 출력 용품을 판다.** 집에서 PLA로 뽑는 것과 같은 계열의 소재다. 다만 PETG로 뽑는다면 써르써르와 같은 소재는 아니다.
 
 | 제품 | 소재 | 근거 | 근거 종류 |
 |---|---|---|---|
@@ -53,7 +53,7 @@
 - **3DHAM**: "3d프린터로 제작한 햄스터, 소동물 용품 스토어입니다." — https://blog.naver.com/chaltteokpie/224079434604
 - **차3스토어**: "3D 프린팅 서비스/ 소동물 용품 주문 제작" — 출처는 위와 같다.
 
-**판단**: 써르써르가 PLA 출력물을 많이 판다는 사실은 NestForge 방식이 시장에서 흔하고 널리 받아들여진다는 근거다(**강함**). 하지만 안전이 시험되었다는 근거는 아니다(아래 3-1).
+**판단**: 써르써르가 PLA 출력물을 판다는 사실은 판매자 글로 확인된다(식판). 은신처·모래존 같은 인기 상품의 소재는 구매 후기·가이드 블로그에 기댄다. 그래서 "NestForge 방식이 시장에서 흔하고 널리 받아들여진다"는 **중간** 근거다. 안전이 시험되었다는 근거는 아니다(아래 2-1).
 
 > 글에서는 브랜드 이름을 쓰지 않고 "국내 인기 햄스터 용품 브랜드 여러 곳"이라고만 했다. 출처 목록에는 판매자가 직접 쓴 소개글 두 개만 링크했다. 경쟁사를 언급할지는 운영 판단이라, 이름을 넣거나 링크를 빼는 것은 게시 전에 정하면 된다.
 
@@ -65,7 +65,7 @@
 - 근거는 위 1절과 같다.
 - 단서: 국내에는 반려동물 용품 전용 안전 기준이 없다.
   - "반려동물 양육 인구가 전체 국민의 4분의 1에 달하면서 반려동물용품·서비스 시장이 급성장하고 있지만 정작 품질 인증 및 표준화 제도는 제대로 갖춰지지 않아 소비자 피해가 잇따르고 있다." — 서울신문 2025-10-23, https://www.seoul.co.kr/news/politics/2025/10/23/20251023500231
-  - "국내의 경우, 반려동물 용품에 대한 전용 안전 기준이 존재하지 않아 인체용 화학제품 기준을 임시 적용하거나 … 업계 자율 규정에 의존하고 있다." — 한국산학기술학회 2025 춘계 포스터, https://www.kais99.org/jkais/springNfall/spring2025/poster/2025_spring_110.pdf
+  - "국내의 경우, 반려동물 용품에 대한 전용 안전 기준이 존재하지 않아 인체용 화학제품 기준을 임시 적용하거나 업계 자율 규정에 의존하고 있다." — 한국산학기술학회 2025 춘계 포스터, https://www.kais99.org/jkais/springNfall/spring2025/poster/2025_spring_110.pdf
   - 이 포스터의 저자에는 업계와 시험기관(KOTITI) 사람이 들어 있다.
   - 한계: 정부 법령 원문으로는 확인하지 못했다.
 
@@ -107,7 +107,7 @@
 - **확인 방법**: 원 사이트는 403, Wayback은 연결 실패였다. 그래서 이 세션 앞 단계에서 저장한 PDF 전문 추출본과 인용을 대조했다. 이용자가 위 새 주소를 브라우저로 한 번 열어 확인하길 권한다.
 
 ### 2-4. 구조단체·동물병원 — **중간**
-- **Fable's Hamster Rescue(영국)**: 2026년 8월 글, 2026년 7월 검토. https://www.fableshamsters.co.uk/post/pla-and-3d-printed-products-for-hamsters
+- **Fable's Hamster Rescue(영국)**: 게시일 표기 'Aug 26'(연도 없음), 'Last reviewed: July 2026'. https://www.fableshamsters.co.uk/post/pla-and-3d-printed-products-for-hamsters
   - "At Fable's, we believe high-quality PLA is an excellent material for many hamster accessories." (고품질 PLA는 많은 햄스터 용품에 훌륭한 소재라고 본다)
   - "Currently, there are no published scientific studies showing that properly manufactured PLA accessories present a risk to hamsters during normal use." (제대로 만든 PLA 용품이 정상 사용에서 위험하다는 연구는 아직 없다)
   - "There is also very little hamster-specific research investigating PLA, so it's important to be honest about what we do - and don't - know." (햄스터에 대한 PLA 연구가 거의 없으니 아는 것과 모르는 것을 솔직히 말해야 한다)
@@ -165,7 +165,7 @@
 - **독일 동물보호연맹 입장문**(2024년 6월): https://www.tierschutzbund.de/fileadmin/Seiten/tierschutzbund.de/Downloads/Berichte/Positionspapier_DTSchB_Tierschutzwidriges_Zubehoer.pdf
   - "Plastik ist als Material für Gehege und Strukturierungselemente in der Regel ungeeignet, da eine Verletzungs- und Verschluckungsgefahr durch Annagen besteht." (플라스틱은 갉아서 다치거나 삼킬 위험이 있어 사육장과 구조물 소재로 대체로 부적합하다)
   - "Kunststoffröhren sind nur dann akzeptabel, wenn sie höchstens die doppelte Körperlänge des Tieres haben, eine ausreichende Belüftung gewährleisten und mit einer Gebrauchsanleitung versehen sind" (플라스틱 튜브는 몸길이의 2배 이하이고, 환기가 충분하고, 사용설명서가 있을 때만 받아들일 수 있다)
-- 표현의 강도: 'vorrangig(우선)', 'in der Regel(대체로)'이라는 말을 쓰므로 절대 금지가 아니다. 글에도 "절대 금지는 아니지만"이라고 적었다.
+- 표현의 강도: 구조물 전반에는 'vorrangig(우선)', 'in der Regel(대체로)'이라는 말을 써서 플라스틱 전체를 금지하지는 않는다. 다만 모래 목욕통·물그릇·밥그릇은 'kein Plastik(플라스틱 아님)'이라고 분명히 적는다. 글에도 "플라스틱 전체를 금지하진 않지만 그릇·모래 목욕통에선 빼라고 해요"라고 적었다.
 
 ### 3-2. 시판 PLA 출력물도 갉혀 부서진다 — **약함** (개인 후기)
 - "자꾸 노즈워크존을 갉아먹어요 !!!! 이갈이도 밥도 충분하게 줬는데 말이죠", "다음날 자고 일어나보니 아작나있음 ㅠ 바로 케이지에서 OUT 창고행..." — https://blog.naver.com/jjyun1683/224226332075
