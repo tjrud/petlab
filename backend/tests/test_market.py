@@ -1,0 +1,219 @@
+"""둥지마당: 조각 업로드·내용 확인·작품 올리기·커뮤니티 소개 글·설계 공유·권한·저장소."""
+
+from __future__ import annotations
+
+import io
+import os
+import struct
+import zipfile
+
+import httpx
+import pytest
+from fastapi.testclient import TestClient
+
+from app.main import create_app
+from app.storage import BlobStorage
+from tests.test_members import admin_login, make_design, settings, signup, use
+
+CHUNK = 3 * 1024 * 1024
+
+
+@pytest.fixture
+def client(tmp_path):
+    with TestClient(create_app(settings(tmp_path, market_storage_dir=tmp_path / "market"))) as c:
+        yield c
+
+
+def skp_bytes(size: int = 7 * 1024 * 1024 + 123) -> bytes:
+    head = b"\xff\xfe\xff\x0e" + "SketchUp Model".encode("utf-16le") + b"\xff\xfe\xff\x08" + "{17.0.1}".encode("utf-16le")
+    return head + os.urandom(size - len(head))
+
+
+def threemf_bytes() -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("[Content_Types].xml", "<Types/>")
+        z.writestr("3D/3dmodel.model", "<model/>")
+    return buf.getvalue()
+
+
+def stl_bytes() -> bytes:
+    tri = struct.pack("<12fH", *([0.0] * 3 + [0, 0, 0] + [1, 0, 0] + [0, 1, 0]), 0)
+    return b"\x00" * 80 + struct.pack("<I", 2) + tri * 2
+
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+
+
+def upload(c: TestClient, filename: str, data: bytes, kind: str = "model", status: int = 200) -> dict:
+    r = c.post("/market/uploads", json={"filename": filename, "size": len(data), "kind": kind})
+    assert r.status_code == 201, r.text
+    up = r.json()
+    assert up["chunk_bytes"] == CHUNK and up["chunks"] == -(-len(data) // CHUNK)
+    for n in range(up["chunks"]):
+        r = c.put(f"/market/uploads/{up['id']}/chunks/{n}", content=data[n * CHUNK:(n + 1) * CHUNK])
+        assert r.status_code == 204, r.text
+    r = c.post(f"/market/uploads/{up['id']}/complete")
+    assert r.status_code == status, r.text
+    return r.json()
+
+
+def item_body(**kw) -> dict:
+    b = {"title": "나무 은신처 (다방형)", "description": "SketchUp 2017로 만든 다방 은신처예요.", "category": "hideout"}
+    b.update(kw)
+    return b
+
+
+def test_upload_item_community_post_and_download(client):
+    signup(client, "maker_a")
+    data = skp_bytes()
+    f = upload(client, "은신처.skp", data)
+    assert f["format"] == "skp" and f["size"] == len(data) and f["kind"] == "model"
+    img = upload(client, "preview.png", PNG, kind="image")
+    tri = upload(client, "part.stl", stl_bytes())
+    mf = upload(client, "plate.3mf", threemf_bytes())
+
+    r = client.post("/market/items", json=item_body(file_ids=[f["id"], tri["id"], mf["id"]], image_file_id=img["id"]))
+    assert r.status_code == 201, r.text
+    item = r.json()
+    assert item["formats"] == ["3mf", "skp", "stl"] and item["image"]["id"] == img["id"]
+    assert [x["filename"] for x in item["files"]] == ["은신처.skp", "part.stl", "plate.3mf"]
+    assert item["category_name_ko"] == "은신처" and item["can_edit"] and item["post_id"]
+
+    # 커뮤니티 소개 글: 제목 앞에 [둥지마당], 글에 작품 요약
+    post = client.get(f"/community/posts/{item['post_id']}").json()
+    assert post["title"] == "[둥지마당] 나무 은신처 (다방형)" and post["market_item"]["id"] == item["id"]
+    listed = client.get("/community/posts").json()["items"][0]
+    assert listed["market_item_id"] == item["id"]
+
+    # 누구나 목록·작품·내려받기 (로컬 저장소는 백엔드가 파일을 돌려준다)
+    use(client, None)
+    lst = client.get("/market/items").json()
+    assert lst["total"] == 1 and lst["items"][0]["image"]["view_url"].endswith("/view")
+    assert client.get("/market/items?category=tunnel").json()["total"] == 0
+    got = client.get(f"/market/files/{f['id']}/download")
+    assert got.status_code == 200 and got.content == data
+    assert "attachment" in got.headers["content-disposition"]
+    assert client.get(f"/market/items/{item['id']}").json()["download_count"] == 1
+    assert client.get(img["view_url"]).content == PNG
+
+
+@pytest.mark.parametrize("name,data,code", [
+    ("x.skp", b"not sketchup at all" * 10, "bad_file_content"),
+    ("x.3mf", b"PK\x03\x04garbage", "bad_file_content"),
+    ("x.stl", b"hello world", "bad_file_content"),
+])
+def test_content_must_match_extension(client, name, data, code):
+    signup(client, "maker_a")
+    r = upload(client, name, data, status=400)
+    assert r["detail"]["code"] == code
+
+
+def test_upload_validation(client):
+    signup(client, "maker_a")
+    r = client.post("/market/uploads", json={"filename": "virus.exe", "size": 10})
+    assert r.status_code == 400 and r.json()["detail"]["code"] == "unsupported_format"
+    r = client.post("/market/uploads", json={"filename": "a.skp", "size": 60 * 1024 * 1024})
+    assert r.status_code == 400 and r.json()["detail"]["code"] == "file_too_large"
+    r = client.post("/market/uploads", json={"filename": "a.skp", "size": 10, "kind": "image"})
+    assert r.status_code == 400 and r.json()["detail"]["code"] == "unsupported_format"
+    up = client.post("/market/uploads", json={"filename": "a.stl", "size": CHUNK + 5}).json()
+    # 조각 크기·번호가 맞지 않으면 거절, 다 오기 전에 마치면 거절
+    assert client.put(f"/market/uploads/{up['id']}/chunks/0", content=b"x" * 10).status_code == 400
+    assert client.put(f"/market/uploads/{up['id']}/chunks/5", content=b"x" * 5).status_code == 400
+    assert client.put(f"/market/uploads/{up['id']}/chunks/1", content=b"x" * 5).status_code == 204
+    r = client.post(f"/market/uploads/{up['id']}/complete")
+    assert r.status_code == 400 and r.json()["detail"]["code"] == "upload_incomplete"
+    assert client.post("/market/items", json=item_body()).json()["detail"]["code"] == "empty_item"
+
+
+def test_permissions(client):
+    a = signup(client, "maker_a")
+    f = upload(client, "a.stl", stl_bytes())
+    pending = client.post("/market/uploads", json={"filename": "b.stl", "size": 100}).json()
+
+    b = signup(client, "maker_b")
+    use(client, b)
+    # 남의 파일·업로드는 쓸 수 없고, 작품에 붙기 전 파일은 내려받을 수 없다
+    assert client.post("/market/items", json=item_body(file_ids=[f["id"]])).status_code == 404
+    assert client.put(f"/market/uploads/{pending['id']}/chunks/0", content=b"x" * 100).status_code == 404
+    assert client.get(f"/market/files/{f['id']}/download").status_code == 404
+
+    use(client, a)
+    item = client.post("/market/items", json=item_body(file_ids=[f["id"]], post_to_community=False)).json()
+    assert item["post_id"] is None
+    # 한 파일은 한 작품에만
+    assert client.post("/market/items", json=item_body(file_ids=[f["id"]])).status_code == 404
+
+    use(client, b)
+    assert client.patch(f"/market/items/{item['id']}", json={"title": "x"}).status_code == 403
+    assert client.delete(f"/market/items/{item['id']}").status_code == 403
+    use(client, a)
+    r = client.patch(f"/market/items/{item['id']}", json={"title": "바꾼 제목", "category": "tunnel"})
+    assert r.status_code == 200 and r.json()["title"] == "바꾼 제목" and r.json()["category"] == "tunnel"
+
+    # 관리자는 지울 수 있고, 파일도 함께 사라진다
+    admin_login(client)
+    assert client.delete(f"/market/items/{item['id']}").status_code == 204
+    assert client.get(f"/market/items/{item['id']}").status_code == 404
+    assert client.get(f"/market/files/{f['id']}/download").status_code == 404
+
+    use(client, None)
+    assert client.post("/market/uploads", json={"filename": "a.stl", "size": 10}).status_code == 401
+    assert client.post("/market/items", json=item_body()).status_code == 401
+
+
+def test_design_attached_through_community_post(client):
+    a = signup(client, "maker_a")
+    d = make_design(client)
+    item = client.post("/market/items", json=item_body(design_id=d["id"], post_to_community=False)).json()
+    # 설계를 붙이면 소개 글을 꼭 함께 올린다 (그 글로 설계 버전이 공개된다)
+    assert item["post_id"] and item["formats"] == ["nestforge"] and item["design"]["id"] == d["id"]
+
+    b = signup(client, "maker_b")
+    use(client, b)
+    seen = client.get(f"/market/items/{item['id']}").json()
+    assert seen["design"]["version"] == 1 and not seen["can_edit"]
+    assert client.get(f"/designs/{d['id']}/export?format=stl&version=1").status_code in (200, 409)
+    # 남의 설계는 붙일 수 없다
+    assert client.post("/market/items", json=item_body(design_id=d["id"])).status_code == 404
+
+    # 소개 글을 지우면 작품은 남고, 설계 공개가 끝나 설계 카드도 사라진다
+    use(client, a)
+    assert client.delete(f"/community/posts/{item['post_id']}").status_code == 204
+    after = client.get(f"/market/items/{item['id']}").json()
+    assert after["post_id"] is None and after["design"] is None
+
+
+def test_storage_unavailable_on_deploy_without_blob_token(tmp_path):
+    s = settings(tmp_path, api_prefix="/api", market_storage_dir=tmp_path / "market")
+    with TestClient(create_app(s)) as c:
+        assert c.get("/api/market/config").json()["uploads_enabled"] is False
+        signup_path = c.post("/api/auth/signup", json={"username": "maker_a", "nickname": "메이커", "password": "hamster-love-123"})
+        assert signup_path.status_code == 201
+        r = c.post("/api/market/uploads", json={"filename": "a.skp", "size": 10})
+        assert r.status_code == 503 and r.json()["detail"]["code"] == "storage_unavailable"
+        assert c.get("/api/market/items").json()["total"] == 0  # 보기는 된다
+
+
+def test_blob_storage_requests(monkeypatch):
+    calls = []
+
+    def fake_put(url, params, content, headers, timeout):
+        calls.append(("put", url, params, headers, len(content)))
+        return httpx.Response(200, json={"url": f"https://abc.public.blob.vercel-storage.com/{params['pathname']}"})
+
+    def fake_post(url, json, headers, timeout):
+        calls.append(("post", url, json, headers))
+        return httpx.Response(200, json={})
+
+    monkeypatch.setattr(httpx, "put", fake_put)
+    monkeypatch.setattr(httpx, "post", fake_post)
+    st = BlobStorage("tok", "https://vercel.com/api/blob")
+    out = st.put("market/abc/abc.skp", b"12345", "application/vnd.sketchup.skp")
+    assert out.url == "https://abc.public.blob.vercel-storage.com/market/abc/abc.skp"
+    _, url, params, headers, n = calls[0]
+    assert url == "https://vercel.com/api/blob/" and params == {"pathname": "market/abc/abc.skp"} and n == 5
+    assert headers["authorization"] == "Bearer tok" and headers["x-vercel-blob-access"] == "public"
+    st.delete([out])
+    assert calls[1][1] == "https://vercel.com/api/blob/delete" and calls[1][2] == {"urls": [out.url]}

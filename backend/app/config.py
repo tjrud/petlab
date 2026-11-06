@@ -49,6 +49,13 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("DATABASE_URL", "POSTGRES_URL"),
     )
     mesh_cache_dir: Path = BACKEND_DIR / "data" / "meshes"
+    # 둥지마당 파일 저장소. BLOB_READ_WRITE_TOKEN 이 있으면 Vercel Blob(공개 주소로 내려받기),
+    # 없으면 로컬 디스크(market_storage_dir). 로컬 디스크가 사라지는 배포 환경에서 토큰이 없으면 올리기를 막는다
+    blob_read_write_token: str | None = None
+    blob_api_url: str = "https://vercel.com/api/blob"
+    market_storage_dir: Path = BACKEND_DIR / "data" / "market"
+    market_upload_daily_limit: int = Field(default=30, ge=0, le=10_000)  # 회원 1명의 24시간 파일 올리기 수
+    market_item_daily_limit: int = Field(default=10, ge=0, le=10_000)    # 회원 1명의 24시간 작품 올리기 수
 
     # 규칙 파일 디렉터리 (species.yaml, printing.yaml)
     rules_dir: Path = BACKEND_DIR / "rules"

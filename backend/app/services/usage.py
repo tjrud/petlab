@@ -23,7 +23,7 @@ WINDOW = timedelta(hours=24)
 # Postgres advisory lock 키 (db.init_db 의 727274 와 겹치지 않게). 종류별로 따로 직렬화한다.
 _LOCK_NS = 727275
 _KIND_IDS = {"design": 1, "post": 2, "comment": 3, "habitat": 4, "waitlist": 5, "email": 6, "email_change": 7,
-             "email_fail": 8}
+             "email_fail": 8, "market_upload": 9, "market_item": 10}
 _local_lock = threading.Lock()  # SQLite(로컬·테스트, 단일 프로세스)용
 
 

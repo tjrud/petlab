@@ -9,6 +9,11 @@ import type {
   Design,
   DesignListItem,
   Habitat,
+  MarketConfig,
+  MarketFile,
+  MarketItem,
+  MarketItemInput,
+  MarketItemSummary,
   Me,
   Paged,
   Pet,
@@ -154,6 +159,30 @@ export const api = {
   updateLayout: (id: string, body: CageLayoutInput) =>
     request<CageLayout>(`/layouts/${encodeURIComponent(id)}`, json("PUT", body)),
   deleteLayout: (id: string) => request<void>(`/layouts/${encodeURIComponent(id)}`, json("DELETE")),
+
+  // 둥지마당 (보기는 누구나)
+  marketConfig: () => request<MarketConfig>("/market/config"),
+  marketItems: (page = 1, pageSize = 24, category?: string) =>
+    request<Paged<MarketItemSummary>>(
+      `/market/items?page=${page}&page_size=${pageSize}${category ? `&category=${encodeURIComponent(category)}` : ""}`,
+    ),
+  marketItem: (id: string) => request<MarketItem>(`/market/items/${encodeURIComponent(id)}`),
+  createMarketItem: (body: MarketItemInput) => request<MarketItem>("/market/items", json("POST", body)),
+  updateMarketItem: (id: string, body: { title?: string; description?: string; category?: string }) =>
+    request<MarketItem>(`/market/items/${encodeURIComponent(id)}`, json("PATCH", body)),
+  deleteMarketItem: (id: string) => request<void>(`/market/items/${encodeURIComponent(id)}`, json("DELETE")),
+  startUpload: (filename: string, size: number, kind: "model" | "image") =>
+    request<{ id: string; chunk_bytes: number; chunks: number }>("/market/uploads", json("POST", { filename, size, kind })),
+  putChunk: (uploadId: string, n: number, chunk: Blob, signal?: AbortSignal) =>
+    request<void>(`/market/uploads/${encodeURIComponent(uploadId)}/chunks/${n}`, {
+      method: "PUT",
+      body: chunk,
+      signal,
+      headers: { "Content-Type": "application/octet-stream" },
+    }),
+  completeUpload: (uploadId: string) => request<MarketFile>(`/market/uploads/${encodeURIComponent(uploadId)}/complete`, json("POST", {})),
+  /** 둥지마당 파일 주소: API 기준 경로("/market/...")면 API 주소를 붙이고, 공개 주소(Blob)면 그대로 */
+  marketUrl: (path: string) => (path.startsWith("/") ? `${API_BASE}${path}` : path),
 
   // 커뮤니티 (읽기는 누구나)
   posts: (page = 1, pageSize = 20) => request<Paged<PostSummary>>(`/community/posts?page=${page}&page_size=${pageSize}`),

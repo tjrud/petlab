@@ -18,6 +18,13 @@ const AREAS = [
     tone: "bg-sky-50 text-sky-800",
   },
   {
+    href: "/market",
+    title: "둥지마당",
+    body: "보호자들이 만든 SKP·3MF·STL 파일과 NestForge 설계를 내려받고, 내가 만든 구조물을 올릴 수 있어요.",
+    Icon: IconFolder,
+    tone: "bg-lime-50 text-lime-800",
+  },
+  {
     href: "/designs",
     title: "내 설계 내역",
     body: "지금까지 만든 설계와 버전을 한곳에서 보고, 이어서 고치거나 다시 내려받을 수 있어요.",

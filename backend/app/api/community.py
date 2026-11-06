@@ -3,18 +3,19 @@
 from __future__ import annotations
 
 from fastapi import Depends, Query, Request, Response, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import get_db, get_service, make_router
 from app.auth import get_current_user, get_optional_user, get_verified_user
 from app.errors import ForbiddenError
-from app.models import Comment, DesignVersion, Post, User
+from app.models import Comment, DesignVersion, MarketItem, Post, User
 from app.schemas import (
     ID_RE,
     AuthorOut,
     CommentIn,
     CommentOut,
+    MarketItemBrief,
     PostImage,
     PostIn,
     PostListOut,
@@ -70,6 +71,17 @@ def _check_images(images: list[PostImage] | None, user: User) -> None:
         raise ForbiddenError("사진은 운영팀 글에만 넣을 수 있어요.")
 
 
+def _market_brief(db: Session, post: Post) -> MarketItemBrief | None:
+    """이 글이 둥지마당 작품 소개 글이면 그 작품 요약"""
+    item = db.scalar(select(MarketItem).where(MarketItem.post_id == post.id).options(selectinload(MarketItem.files)))
+    if item is None:
+        return None
+    from app.api.market import _file_out, _formats, _image  # 순환 import 방지
+
+    img = _image(item)
+    return MarketItemBrief(id=item.id, title=item.title, formats=_formats(item), image=_file_out(img) if img else None)
+
+
 def _post_out(db: Session, svc: DesignService, post: Post, user: User | None) -> PostOut:
     comments, total = _recent_comments(db, post.id)
     shared = None
@@ -88,6 +100,7 @@ def _post_out(db: Session, svc: DesignService, post: Post, user: User | None) ->
     return PostOut(
         id=post.id, title=post.title, body=post.body, author=_author(post.author),
         created_at=post.created_at, updated_at=post.updated_at, design=shared, images=_images(post),
+        market_item=_market_brief(db, post),
         comments=[CommentOut(id=c.id, body=c.body, author=_author(c.author), created_at=c.created_at,
                              can_delete=_can_manage(user, c.author_id)) for c in comments],
         comment_total=total,
@@ -112,12 +125,18 @@ def list_posts(page: int = Query(default=1, ge=1, le=MAX_PAGE), page_size: int =
             select(Comment.post_id, func.count(Comment.id))
             .where(Comment.post_id.in_([p.id for p in posts])).group_by(Comment.post_id)
         ).all())
+    # 둥지마당 작품 소개 글 (이 페이지의 글만)
+    market_ids: dict[str, str] = {}
+    if posts:
+        market_ids = dict(db.execute(select(MarketItem.post_id, MarketItem.id)
+                                     .where(MarketItem.post_id.in_([p.id for p in posts]))).all())
     items = [
         PostSummary(
             id=p.id, title=p.title,
             excerpt=(p.body[:EXCERPT_LEN] + "…") if len(p.body) > EXCERPT_LEN else p.body,
             author=_author(p.author), created_at=p.created_at, comment_count=counts.get(p.id, 0),
             has_design=p.design_id is not None, thumbnail=(_images(p) or [None])[0],
+            market_item_id=market_ids.get(p.id),
         )
         for p in posts
     ]
@@ -172,6 +191,8 @@ def delete_post(post_id: str, db: Session = Depends(get_db), user: User = Depend
     post = _get_post(db, post_id)
     if not _can_manage(user, post.author_id):
         raise ForbiddenError("내가 쓴 글만 지울 수 있어요.")
+    # 둥지마당 작품의 소개 글이면 연결만 끊는다 (작품은 남는다)
+    db.execute(update(MarketItem).where(MarketItem.post_id == post.id).values(post_id=None))
     db.delete(post)  # 댓글도 함께 삭제. 첨부했던 설계는 다른 글에 첨부되어 있지 않으면 다시 비공개가 된다
     db.commit()
     return Response(status_code=204)

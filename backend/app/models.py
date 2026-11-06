@@ -12,6 +12,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -242,3 +243,65 @@ class CageLayout(Base):
     items: Mapped[list] = mapped_column(JSON)  # [{id, asset, x_mm, y_mm, rotation_deg}]
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+
+class MarketItem(Base):
+    """둥지마당 작품: 회원이 올린 완성 파일(SKP·3MF·STL)이나 NestForge 설계를 공유한다.
+    소개 글(post_id)을 커뮤니티에 함께 올리면 댓글은 그 글에서 받는다. 설계를 첨부하면 그 글로 설계가 공개된다."""
+
+    __tablename__ = "market_items"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    title: Mapped[str] = mapped_column(String(100))
+    description: Mapped[str] = mapped_column(Text)
+    category: Mapped[str] = mapped_column(String(32))
+    design_id: Mapped[str | None] = mapped_column(ForeignKey("designs.id"), nullable=True)
+    design_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    post_id: Mapped[str | None] = mapped_column(ForeignKey("posts.id"), nullable=True, index=True)
+    download_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+    owner: Mapped[User] = relationship()
+    files: Mapped[list["MarketFile"]] = relationship(order_by="MarketFile.created_at")
+
+
+class MarketFile(Base):
+    """올린 파일. 작품에 붙기 전(item_id 없음)에는 올린 사람만 쓴다. 내용은 저장소(Vercel Blob 또는 로컬 디스크)에 있다."""
+
+    __tablename__ = "market_files"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    item_id: Mapped[str | None] = mapped_column(ForeignKey("market_items.id"), nullable=True, index=True)
+    kind: Mapped[str] = mapped_column(String(8))     # model | image
+    filename: Mapped[str] = mapped_column(String(120))
+    format: Mapped[str] = mapped_column(String(8))   # skp | 3mf | stl | png | jpg | webp
+    size: Mapped[int] = mapped_column(Integer)
+    sha256: Mapped[str] = mapped_column(String(64))
+    storage_key: Mapped[str] = mapped_column(String(300))
+    url: Mapped[str | None] = mapped_column(String(500), nullable=True)  # Vercel Blob 공개 주소 (로컬 저장이면 없음)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class MarketUpload(Base):
+    """나눠 올리는 중인 파일 (배포 플랫폼의 요청 크기 한도 때문에 3MB 조각으로 받는다)."""
+
+    __tablename__ = "market_uploads"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(8))
+    filename: Mapped[str] = mapped_column(String(120))
+    format: Mapped[str] = mapped_column(String(8))
+    size: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
+
+
+class MarketUploadChunk(Base):
+    __tablename__ = "market_upload_chunks"
+
+    upload_id: Mapped[str] = mapped_column(ForeignKey("market_uploads.id", ondelete="CASCADE"), primary_key=True)
+    n: Mapped[int] = mapped_column(Integer, primary_key=True)
+    data: Mapped[bytes] = mapped_column(LargeBinary)
