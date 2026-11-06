@@ -19,7 +19,7 @@ test("관리자 로그인: 사이트는 공개, 설계 기능은 로그인 후�
   expect(r.status()).toBe(401);
   // 메인 화면은 누구나 열 수 있다
   await page.goto("/");
-  await expect(page.getByRole("heading", { level: 1, name: "우리 아이 케이지에 꼭 맞는 구조물을 설계해 드려요" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "필요한 구조물을 적어 보세요" })).toBeVisible();
   // 설계하기는 로그인 안내 (자동으로 이동하지 않음)
   await page.goto("/design");
   await expect(page.getByText("로그인하고 맞춤 설계를 시작해 보세요")).toBeVisible();
@@ -237,7 +237,7 @@ test("여러 구조물: 은신처와 터널을 한쪽에 몰아서", async ({ pa
   await page.getByText("골든 (시리안)").click();
   await page.getByRole("button", { name: "대형 80×50×40cm" }).click();
   await page.getByRole("button", { name: "다음" }).click();
-  await page.getByRole("button", { name: "은신처와 터널을 한쪽에 몰아서 넣고 싶어요" }).click();
+  await page.getByLabel("요구사항").fill("은신처와 터널을 한쪽에 몰아서 넣고 싶어요");
   const meshes: string[] = [];
   page.on("response", (r) => {
     if (r.url().includes("/parts/") && r.status() === 200) meshes.push(r.url());
