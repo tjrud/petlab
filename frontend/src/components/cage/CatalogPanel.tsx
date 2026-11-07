@@ -40,6 +40,7 @@ export default function CatalogPanel({
   loggedIn,
   myFiles,
   onUploadFile,
+  onDeleteFile,
 }: {
   onAdd: (a: CageAsset) => void;
   onStarter: () => void;
@@ -51,6 +52,7 @@ export default function CatalogPanel({
   /** 내가 올린 파일 (불러오는 중이면 null) */
   myFiles: MarketFile[] | null;
   onUploadFile: (file: File, onProgress: (pct: number) => void) => Promise<void>;
+  onDeleteFile: (file: MarketFile) => Promise<void>;
 }) {
   const [cat, setCat] = useState<AssetCategory | "all" | "mine">("all");
   const list = cat === "mine" ? [] : cat === "all" ? CAGE_ASSETS : CAGE_ASSETS.filter((a) => a.category === cat);
@@ -71,7 +73,7 @@ export default function CatalogPanel({
           </button>
         ))}
       </div>
-      {cat === "mine" && <MyFilesSection loggedIn={loggedIn} files={myFiles} onAdd={onAdd} onUpload={onUploadFile} />}
+      {cat === "mine" && <MyFilesSection loggedIn={loggedIn} files={myFiles} onAdd={onAdd} onUpload={onUploadFile} onDelete={onDeleteFile} />}
       {bedding && (
         <div className="mt-3 flex items-center justify-between gap-2 rounded-xl bg-amber-50/70 px-3 py-2 text-sm">
           <span>

@@ -15,16 +15,14 @@ import math
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models import CageLayout, Design, DesignVersion, MarketEvent, MarketItem, Pet, User
+from app.schemas import MARKET_CATEGORIES
 
 TEMPLATE_CATEGORY = {"hideout": "hideout", "tunnel": "tunnel", "ramp": "ramp", "sand_bath": "sand_bath"}
-CATEGORY_NAME = {
-    "hideout": "은신처", "tunnel": "터널", "ramp": "경사로·계단", "sand_bath": "모래목욕통",
-    "cage": "케이지 전체", "layout": "가상 케이지 배치", "etc": "기타",
-}
+CATEGORY_NAME = MARKET_CATEGORIES
 EVENT_WEIGHT = {"view": 1.0, "download": 3.0, "copy": 3.0}
 
 
@@ -81,12 +79,13 @@ def profile(db: Session, user: User) -> dict:
     events = Counter()
     since = datetime.now(timezone.utc) - timedelta(days=90)
     rows = db.execute(
-        select(MarketEvent.kind, MarketItem.category)
+        select(MarketEvent.kind, MarketItem.category, func.count())
         .join(MarketItem, MarketItem.id == MarketEvent.item_id)
         .where(MarketEvent.user_id == user.id, MarketEvent.created_at >= since)
+        .group_by(MarketEvent.kind, MarketItem.category)
     ).all()
-    for kind, cat in rows:
-        events[cat] += EVENT_WEIGHT.get(kind, 0.0)
+    for kind, cat, n in rows:
+        events[cat] += EVENT_WEIGHT.get(kind, 0.0) * n
     downloaded = set(db.scalars(select(MarketEvent.item_id).where(MarketEvent.user_id == user.id,
                                                                   MarketEvent.kind.in_(("download", "copy")))))
     return {

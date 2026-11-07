@@ -8,7 +8,15 @@ from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, get_service, make_router
-from app.auth import get_current_user, get_optional_user, get_verified_user, usage_ip_key
+from app.auth import (
+    ACCOUNT_V6_PREFIX,
+    client_key,
+    get_current_user,
+    get_optional_user,
+    get_verified_user,
+    usage_ip_key,
+)
+from app.errors import QuotaExceededError
 from app.models import User
 from app.schemas import DesignCreateIn, DesignListOut, DesignOut, DesignReviseIn
 from app.services.design_service import DesignService
@@ -61,10 +69,14 @@ def part_mesh(design_id: str, version: int = Path(ge=1, le=2**31 - 1), index: in
 
 
 @router.get("/{design_id}/export", summary="3D 프린팅 파일 내려받기 (STL / 3MF)")
-def export_design(design_id: str, format: Literal["stl", "3mf"] = Query(default="stl"),
+def export_design(design_id: str, request: Request, format: Literal["stl", "3mf"] = Query(default="stl"),
                   version: int | None = Query(default=None, ge=1, le=2**31 - 1),
                   db: Session = Depends(get_db), svc: DesignService = Depends(get_service),
                   user: User | None = Depends(get_optional_user)):
+    # 파일을 만들 때마다 메시를 다시 읽고 합치므로(무거움) IP 별 횟수를 묶는다
+    key = client_key(request.app.state.settings, request, v6_prefix=ACCOUNT_V6_PREFIX)
+    if not request.app.state.export_limiter.hit(key):
+        raise QuotaExceededError("내려받기가 너무 잦아요. 잠시 후 다시 시도해 주세요.", code="too_many_exports")
     f = svc.export(db, design_id, version, format, user)
     return Response(
         content=f.content, media_type=f.media_type,

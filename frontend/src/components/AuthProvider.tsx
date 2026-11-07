@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { api, AUTH_ERROR_EVENT } from "@/lib/api";
+import { writeDraft } from "@/lib/cagePlannerDoc";
 import type { AuthStatus, User } from "@/lib/types";
 
 type AuthContextValue = {
@@ -182,6 +183,7 @@ export function useLogout() {
       setBusy(false);
       return;
     }
+    writeDraft(null); // 가상 케이지 임시 저장도 지워요 (같은 기기를 쓰는 다른 사람에게 보이지 않게)
     window.location.replace("/");
   }, []);
 

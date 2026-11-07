@@ -11,27 +11,33 @@
 from __future__ import annotations
 
 import hashlib
-import io
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
 from fastapi import Depends, Query, Request, Response, status
 from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy import delete, func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.api.deps import get_db, get_service, make_router
-from app.auth import get_current_user, get_optional_user, get_verified_user
-from app.errors import AppError, ConflictError, ForbiddenError
+from app.api.layouts import ensure_layout_capacity
+from app.auth import ACCOUNT_V6_PREFIX, client_key, get_current_user, get_optional_user, get_verified_user
+from app.errors import AppError, ConflictError, ForbiddenError, NotFoundError
 from app.market_formats import (
     CONTENT_TYPES,
+    FILE_ASSET_PREFIX,
     IMAGE_FORMATS,
     MAX_IMAGE_BYTES,
     MAX_MODEL_BYTES,
+    MESH_FORMATS,
     MODEL_FORMATS,
     content_matches,
     format_of,
+    mesh_dims,
 )
+from app.lookup import get_or_404
 from app.models import CageLayout, MarketEvent, MarketFile, MarketItem, MarketUpload, MarketUploadChunk, Post, User
 from app.schemas import (
     ID_RE,
@@ -44,12 +50,12 @@ from app.schemas import (
     MarketItemUpdateIn,
     LayoutSnapshot,
     MarketListOut,
-    SharedDesignOut,
     UploadStartIn,
     UploadStartOut,
 )
 from app.services import recommend, usage
-from app.services.design_service import DesignService, NotFoundError
+from app.services.market_view import file_out, item_formats, item_image, item_models
+from app.services.design_service import DesignService
 from app.storage import LocalStorage, Storage, StorageError, Stored
 
 router = make_router(prefix="/market", tags=["탐색"])
@@ -57,6 +63,9 @@ router = make_router(prefix="/market", tags=["탐색"])
 CHUNK_BYTES = 3 * 1024 * 1024
 UPLOAD_TTL = timedelta(hours=6)
 MAX_PAGE = 1000
+STALE_SWEEP_BATCH = 50  # 한 번에 정리하는 오래된 업로드 수 (요청 하나가 오래 걸리지 않게)
+# 같은 작품을 다시 보거나 내려받은 기록은 이 시간 안이면 한 번으로 센다
+EVENT_DEDUPE = {"view": timedelta(hours=1), "download": timedelta(hours=24), "copy": timedelta(hours=24)}
 
 
 class StorageUnavailableError(AppError):
@@ -75,70 +84,29 @@ def _author(u: User) -> AuthorOut:
     return AuthorOut(nickname=u.nickname, role="admin" if u.is_admin else "member")
 
 
-def _file_out(f: MarketFile) -> MarketFileOut:
-    download = f"/market/files/{f.id}/download"
-    view = (f.url or f"/market/files/{f.id}/view") if f.kind == "image" else None
-    # 3D 로 불러올 주소: Blob 공개 주소(쿠키 없이 받는다) 또는 API 경로(로컬 저장소)
-    mesh = (f.url or f"/market/files/{f.id}/mesh") if f.format in MESH_FORMATS else None
-    return MarketFileOut(id=f.id, kind=f.kind, filename=f.filename, format=f.format, size=f.size,
-                         sha256=f.sha256, download_url=download, view_url=view, dims_mm=f.dims_mm,
-                         mesh_url=mesh, attached=f.item_id is not None or bool(f.shared))
-
-
-MESH_FORMATS = {"stl", "3mf"}
-FILE_ASSET_PREFIX = "file_"  # 가상 케이지 배치안에서 내가 올린 파일을 가리키는 에셋 키: file_<파일 ID>
-
-
-def mesh_dims(fmt: str, data: bytes) -> list[float] | None:
-    """STL·3MF 외곽 크기 [x, y, z] mm (못 읽으면 None)"""
-    if fmt not in MESH_FORMATS:
-        return None
-    try:
-        import trimesh
-
-        loaded = trimesh.load(io.BytesIO(data), file_type=fmt, force="mesh")
-        ext = [float(round(v, 2)) for v in loaded.extents]
-    except Exception:  # noqa: BLE001 - 형식은 이미 확인했고, 크기를 못 읽어도 올리기는 막지 않는다
-        return None
-    return ext if len(ext) == 3 and all(0 < v < 10_000 for v in ext) else None
-
-
-def _models(item: MarketItem) -> list[MarketFile]:
-    return [f for f in item.files if f.kind == "model"]
-
-
-def _image(item: MarketItem) -> MarketFile | None:
-    return next((f for f in item.files if f.kind == "image"), None)
-
-
-def _formats(item: MarketItem) -> list[str]:
-    fmts = sorted({f.format for f in _models(item)})
-    return fmts + (["nestforge"] if item.design_id else []) + (["layout"] if item.layout else [])
+def _chunk_count(size: int) -> int:
+    return -(-size // CHUNK_BYTES)
 
 
 def _summary_fields(item: MarketItem) -> dict:
-    img = _image(item)
+    img = item_image(item)
     return dict(
         id=item.id, title=item.title, category=item.category,
         category_name_ko=MARKET_CATEGORIES.get(item.category, item.category), author=_author(item.owner),
-        formats=_formats(item), image=_file_out(img) if img else None, has_design=item.design_id is not None,
+        formats=item_formats(item), image=file_out(img) if img else None, has_design=item.design_id is not None,
         has_layout=bool(item.layout),
         download_count=item.download_count, created_at=item.created_at,
     )
 
 
-def _shared_design(db: Session, svc: DesignService, item: MarketItem) -> SharedDesignOut | None:
+def _shared_design(db: Session, svc: DesignService, item: MarketItem):
     """붙인 설계 (그 버전이 아직 커뮤니티 글로 공개되어 있을 때만)."""
     if not item.design_id or item.design_version is None:
         return None
     if item.design_version not in svc.shared_versions(db, item.design_id):
         return None
     d = svc.get_design(db, item.design_id)
-    v = svc.get_version(db, d, item.design_version)
-    return SharedDesignOut(
-        id=d.id, version=v.version, title=svc.title_of(d), summary_ko=v.llm_spec.get("summary_ko", ""),
-        item_labels=[it["label_ko"] for it in v.items], passed=v.passed, habitat=svc.habitat_out(d.habitat),
-    )
+    return svc.shared_design_out(d, svc.get_version(db, d, item.design_version))
 
 
 def _layout_out(svc: DesignService, item: MarketItem) -> LayoutSnapshot | None:
@@ -154,7 +122,7 @@ def _item_out(db: Session, svc: DesignService, item: MarketItem, user: User | No
     owner = user is not None and user.id == item.owner_id
     post_id = item.post_id if item.post_id and db.get(Post, item.post_id) is not None else None
     return MarketItemOut(
-        **_summary_fields(item), description=item.description, files=[_file_out(f) for f in _models(item)],
+        **_summary_fields(item), description=item.description, files=[file_out(f) for f in item_models(item)],
         design=_shared_design(db, svc, item), layout=_layout_out(svc, item), post_id=post_id,
         updated_at=item.updated_at,
         can_edit=owner, can_delete=owner or (user is not None and user.is_admin),
@@ -162,24 +130,35 @@ def _item_out(db: Session, svc: DesignService, item: MarketItem, user: User | No
 
 
 def _get_item(db: Session, item_id: str) -> MarketItem:
-    item = db.get(MarketItem, item_id) if ID_RE.fullmatch(item_id) else None
-    if item is None:
-        raise NotFoundError("작품을 찾을 수 없어요.")
-    return item
+    return get_or_404(db, MarketItem, item_id, "작품을 찾을 수 없어요.")
 
 
 def _limits(kind: str) -> tuple[set[str], int]:
     return (MODEL_FORMATS, MAX_MODEL_BYTES) if kind == "model" else (IMAGE_FORMATS, MAX_IMAGE_BYTES)
 
 
-def _cleanup_stale(db: Session, user: User) -> None:
-    """오래된 미완성 업로드를 지운다 (조각이 DB 에 쌓이지 않게)."""
+def _discard_uploads(db: Session, upload_ids: list[str]) -> None:
+    """올리던 파일(조각 포함)을 지운다 (커밋은 부르는 쪽에서)."""
+    if upload_ids:
+        db.execute(delete(MarketUploadChunk).where(MarketUploadChunk.upload_id.in_(upload_ids)))
+        db.execute(delete(MarketUpload).where(MarketUpload.id.in_(upload_ids)))
+
+
+def _sweep_stale_uploads(db: Session) -> None:
+    """오래된 미완성 업로드를 지운다. 누가 올리던 것이든 함께 정리한다 (조각이 DB 에 쌓이지 않게)."""
     cutoff = datetime.now(timezone.utc) - UPLOAD_TTL
-    stale = db.scalars(select(MarketUpload.id).where(MarketUpload.owner_id == user.id,
-                                                     MarketUpload.created_at < cutoff)).all()
-    if stale:
-        db.execute(delete(MarketUploadChunk).where(MarketUploadChunk.upload_id.in_(stale)))
-        db.execute(delete(MarketUpload).where(MarketUpload.id.in_(stale)))
+    _discard_uploads(db, list(db.scalars(select(MarketUpload.id).where(MarketUpload.created_at < cutoff)
+                                         .limit(STALE_SWEEP_BATCH))))
+
+
+def _check_storage_quota(db: Session, user: User, size: int, limit_mb: int) -> None:
+    """회원 1명이 올려 둔 파일(올리는 중인 것 포함)의 합계 상한."""
+    stored = db.scalar(select(func.coalesce(func.sum(MarketFile.size), 0)).where(MarketFile.owner_id == user.id)) or 0
+    pending = db.scalar(select(func.coalesce(func.sum(MarketUpload.size), 0))
+                        .where(MarketUpload.owner_id == user.id)) or 0
+    if stored + pending + size > limit_mb * 1024 * 1024:
+        raise AppError(f"올려 둔 파일이 {limit_mb}MB를 넘어요. 안 쓰는 파일을 지운 뒤 다시 올려 주세요.",
+                       code="storage_quota_exceeded")
 
 
 # ── 설정 ──
@@ -210,21 +189,21 @@ def start_upload(data: UploadStartIn, request: Request, db: Session = Depends(ge
         raise AppError(f"{names} 파일만 올릴 수 있어요.", code="unsupported_format")
     if data.size > max_bytes:
         raise AppError(f"파일은 {max_bytes // (1024 * 1024)}MB까지 올릴 수 있어요.", code="file_too_large")
-    limit = request.app.state.settings.market_upload_daily_limit
+    settings = request.app.state.settings
+    _sweep_stale_uploads(db)
+    _check_storage_quota(db, user, data.size, settings.market_storage_per_user_mb)
+    limit = settings.market_upload_daily_limit
     usage.reserve_per_member(db, "market_upload", user, limit, f"파일은 24시간에 {limit}개까지 올릴 수 있어요.",
                              "too_many_uploads")
-    _cleanup_stale(db, user)
     up = MarketUpload(owner_id=user.id, kind=data.kind, filename=data.filename, format=fmt, size=data.size)
     db.add(up)
     db.commit()
-    return UploadStartOut(id=up.id, chunk_bytes=CHUNK_BYTES, chunks=-(-data.size // CHUNK_BYTES))
+    return UploadStartOut(id=up.id, chunk_bytes=CHUNK_BYTES, chunks=_chunk_count(data.size))
 
 
 def _my_upload(db: Session, upload_id: str, user: User) -> MarketUpload:
-    up = db.get(MarketUpload, upload_id) if ID_RE.fullmatch(upload_id) else None
-    if up is None or up.owner_id != user.id:
-        raise NotFoundError("올리던 파일을 찾을 수 없어요. 처음부터 다시 올려 주세요.")
-    return up
+    return get_or_404(db, MarketUpload, upload_id, "올리던 파일을 찾을 수 없어요. 처음부터 다시 올려 주세요.",
+                      owner_id=user.id)
 
 
 @router.put("/uploads/{upload_id}/chunks/{n}", status_code=status.HTTP_204_NO_CONTENT, summary="파일 조각 올리기")
@@ -236,14 +215,18 @@ async def put_chunk(upload_id: str, n: int, request: Request, user: User = Depen
         declared = 0
     if declared > CHUNK_BYTES:
         raise AppError("조각이 너무 커요.", code="bad_chunk")
-    body = await request.body()
-    if len(body) > CHUNK_BYTES:
-        raise AppError("조각이 너무 커요.", code="bad_chunk")
+    # Content-Length 가 없는(chunked) 요청도 조각 크기를 넘으면 읽다가 멈춘다
+    buf = bytearray()
+    async for part in request.stream():
+        buf += part
+        if len(buf) > CHUNK_BYTES:
+            raise AppError("조각이 너무 커요.", code="bad_chunk")
+    body = bytes(buf)
     # 본문을 다 받은 뒤에 짧게 DB 에 쓴다
     factory = request.app.state.session_factory
     with factory() as db:
         up = _my_upload(db, upload_id, user)
-        chunks = -(-up.size // CHUNK_BYTES)
+        chunks = _chunk_count(up.size)
         if not 0 <= n < chunks:
             raise AppError("조각 번호가 맞지 않아요.", code="bad_chunk")
         expected = CHUNK_BYTES if n < chunks - 1 else up.size - CHUNK_BYTES * (chunks - 1)
@@ -259,36 +242,39 @@ def complete_upload(upload_id: str, request: Request, db: Session = Depends(get_
                     user: User = Depends(get_verified_user)):
     storage = _storage(request)
     up = _my_upload(db, upload_id, user)
-    chunks = -(-up.size // CHUNK_BYTES)
+    chunks = _chunk_count(up.size)
     have = db.scalar(select(func.count()).select_from(MarketUploadChunk)
                      .where(MarketUploadChunk.upload_id == up.id)) or 0
     if have != chunks:
         raise AppError("아직 다 올라오지 않았어요. 다시 올려 주세요.", code="upload_incomplete")
-    data = b"".join(c.data for c in db.scalars(select(MarketUploadChunk)
-                                               .where(MarketUploadChunk.upload_id == up.id)
-                                               .order_by(MarketUploadChunk.n)))
+    # 조각 행을 객체로 불러오지 않고 내용만 이어 붙인다 (메모리에 파일이 두 벌 생기지 않게)
+    data = b"".join(db.scalars(select(MarketUploadChunk.data).where(MarketUploadChunk.upload_id == up.id)
+                               .order_by(MarketUploadChunk.n)))
     if len(data) != up.size:
         raise AppError("파일 크기가 맞지 않아요. 다시 올려 주세요.", code="upload_incomplete")
     if not content_matches(up.format, data):
-        db.execute(delete(MarketUploadChunk).where(MarketUploadChunk.upload_id == up.id))
-        db.delete(up)
+        _discard_uploads(db, [up.id])
         db.commit()
         raise AppError(f"{up.format.upper()} 파일이 아니거나 손상된 파일이에요.", code="bad_file_content")
     f = MarketFile(owner_id=user.id, kind=up.kind, filename=up.filename, format=up.format, size=up.size,
                    sha256=hashlib.sha256(data).hexdigest(), storage_key="")
     f.id = up.id  # 저장 키와 파일 ID 를 같게 (추측하기 어려운 무작위 값)
-    key = f"market/{f.id}/{f.id}.{f.format}"
+    # 저장하기 전에 잰다: 읽다가 실패해도 저장소에 주인 없는 파일이 남지 않게
+    f.dims_mm = mesh_dims(f.format, data)
     try:
-        stored = storage.put(key, data, CONTENT_TYPES[up.format])
+        stored = storage.put(f"market/{f.id}/{f.id}.{f.format}", data, CONTENT_TYPES[up.format])
     except StorageError as e:
         raise StorageUnavailableError("파일을 저장하지 못했어요. 잠시 후 다시 올려 주세요.") from e
     f.storage_key, f.url = stored.key, stored.url
-    f.dims_mm = mesh_dims(f.format, data)
-    db.execute(delete(MarketUploadChunk).where(MarketUploadChunk.upload_id == up.id))
-    db.delete(up)
+    _discard_uploads(db, [up.id])
     db.add(f)
-    db.commit()
-    return _file_out(f)
+    try:
+        db.commit()
+    except (IntegrityError, StaleDataError) as e:
+        # 같은 업로드를 동시에 마친 요청이 먼저 끝났다 (저장 키가 같으므로 저장소 파일은 그대로 둔다)
+        db.rollback()
+        raise ConflictError("이미 올라간 파일이에요. 목록을 새로 고쳐 주세요.", code="upload_completed") from e
+    return file_out(f)
 
 
 # ── 작품 ──
@@ -330,19 +316,10 @@ def create_item(data: MarketItemIn, request: Request, db: Session = Depends(get_
         version = svc.get_version(db, design, data.design_version).version
     snapshot, layout_files = None, []
     if data.layout_id is not None:
-        lay = db.get(CageLayout, data.layout_id)
-        if lay is None or lay.owner_id != user.id:
-            raise NotFoundError("배치안을 찾을 수 없어요.")
-        snapshot = {"name": lay.name, "species": lay.species, "size": lay.size,
-                    "cage": {"width_mm": lay.cage_width_mm, "depth_mm": lay.cage_depth_mm, "height_mm": lay.cage_height_mm},
-                    "items": list(lay.items or [])}
-        # 배치에 넣은 내 파일은 이 배치를 보는 사람도 3D 로 볼 수 있게 공개한다
-        for it in snapshot["items"]:
-            key = it.get("asset", "")
-            if key.startswith(FILE_ASSET_PREFIX):
-                f = db.get(MarketFile, key[len(FILE_ASSET_PREFIX):])
-                if f is not None and f.owner_id == user.id:
-                    layout_files.append(f)
+        lay = get_or_404(db, CageLayout, data.layout_id, "배치안을 찾을 수 없어요.", owner_id=user.id)
+        snapshot = _layout_snapshot(lay)
+        # 배치에 넣은 내 파일은 이 배치를 보는 사람도 3D 로 볼 수 있게 공개한다 (작품에 붙은 파일은 이미 공개)
+        layout_files = [f for f in _owned_files(db, _layout_file_ids(snapshot), user.id) if f.item_id is None]
     settings = request.app.state.settings
     limit = settings.market_item_daily_limit
     usage.reserve_per_member(db, "market_item", user, limit, f"작품은 24시간에 {limit}개까지 올릴 수 있어요.",
@@ -372,17 +349,57 @@ def create_item(data: MarketItemIn, request: Request, db: Session = Depends(get_
     return _item_out(db, svc, item, user)
 
 
-def _record(db: Session, user: User | None, item: MarketItem, kind: str) -> None:
-    """맞춤 추천용 기록 (로그인한 회원, 남의 작품만). 같은 작품을 1시간 안에 다시 보면 한 번으로 센다"""
-    if user is None or user.id == item.owner_id:
+def _layout_snapshot(lay: CageLayout) -> dict:
+    """배치안을 작품에 담아 둘 모양으로 (원본 배치안을 고치거나 지워도 공유한 배치는 그대로)."""
+    return {"name": lay.name, "species": lay.species, "size": lay.size,
+            "cage": {"width_mm": lay.cage_width_mm, "depth_mm": lay.cage_depth_mm, "height_mm": lay.cage_height_mm},
+            "items": list(lay.items or [])}
+
+
+def _layout_from_snapshot(snap: dict, owner: User) -> CageLayout:
+    cage = snap["cage"]
+    return CageLayout(owner_id=owner.id, name=f"{snap['name']} (탐색)"[:40], species=snap["species"],
+                      size=snap["size"], cage_width_mm=cage["width_mm"], cage_depth_mm=cage["depth_mm"],
+                      cage_height_mm=cage["height_mm"], items=list(snap["items"]))
+
+
+def _layout_file_ids(snapshot: dict | None) -> set[str]:
+    """배치에 놓은 '내 파일' 의 ID"""
+    keys = (it.get("asset", "") for it in (snapshot or {}).get("items", []))
+    return {k[len(FILE_ASSET_PREFIX):] for k in keys if k.startswith(FILE_ASSET_PREFIX)}
+
+
+def _owned_files(db: Session, ids: set[str], owner_id: str) -> list[MarketFile]:
+    ids = {i for i in ids if ID_RE.fullmatch(i)}
+    if not ids:
+        return []
+    return list(db.scalars(select(MarketFile).where(MarketFile.id.in_(ids), MarketFile.owner_id == owner_id)))
+
+
+def _unshare_layout_files(db: Session, item: MarketItem) -> None:
+    """지우는 작품의 배치에만 들어 있던 파일을 다시 올린 사람만 볼 수 있게 한다."""
+    ids = _layout_file_ids(item.layout)
+    if not ids:
         return
-    if kind == "view":
-        since = datetime.now(timezone.utc) - timedelta(hours=1)
-        if db.scalar(select(MarketEvent.id).where(MarketEvent.user_id == user.id, MarketEvent.item_id == item.id,
-                                                  MarketEvent.kind == "view", MarketEvent.created_at >= since).limit(1)):
-            return
+    others = db.scalars(select(MarketItem.layout).where(MarketItem.owner_id == item.owner_id,
+                                                        MarketItem.id != item.id, MarketItem.layout.is_not(None)))
+    still = set().union(*(_layout_file_ids(lay) for lay in others))
+    for f in _owned_files(db, ids - still, item.owner_id):
+        f.shared = None
+
+
+def _record(db: Session, user: User | None, item: MarketItem, kind: str) -> bool:
+    """맞춤 추천용 기록 (로그인한 회원, 남의 작품만). 같은 작품을 EVENT_DEDUPE 안에 다시 하면 한 번으로 센다.
+    새로 기록했으면 True"""
+    if user is None or user.id == item.owner_id:
+        return False
+    since = datetime.now(timezone.utc) - EVENT_DEDUPE[kind]
+    if db.scalar(select(MarketEvent.id).where(MarketEvent.user_id == user.id, MarketEvent.item_id == item.id,
+                                              MarketEvent.kind == kind, MarketEvent.created_at >= since).limit(1)):
+        return False
     db.add(MarketEvent(user_id=user.id, item_id=item.id, kind=kind))
     db.commit()
+    return True
 
 
 @router.get("/recommended", response_model=list[MarketItemSummary], summary="맞춤 추천 (로그인하면 내 설계·배치안·반려동물·본 작품 기준)")
@@ -423,6 +440,7 @@ def delete_item(item_id: str, request: Request, db: Session = Depends(get_db), u
     stored = [Stored(key=f.storage_key, url=f.url) for f in item.files]
     for f in list(item.files):
         db.delete(f)
+    _unshare_layout_files(db, item)
     db.execute(delete(MarketEvent).where(MarketEvent.item_id == item.id))
     db.delete(item)  # 커뮤니티 소개 글은 남긴다 (댓글이 있을 수 있다). 글의 작품 카드는 사라진다
     db.commit()
@@ -435,19 +453,11 @@ def delete_item(item_id: str, request: Request, db: Session = Depends(get_db), u
 @router.post("/items/{item_id}/copy-layout", status_code=status.HTTP_201_CREATED,
              summary="배치 예시를 내 가상 케이지 배치안으로 담기")
 def copy_layout(item_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
-    from app.api.layouts import MAX_LAYOUTS
-
     item = _get_item(db, item_id)
-    lay = item.layout
-    if not lay:
+    if not item.layout:
         raise AppError("이 작품에는 가상 케이지 배치가 없어요.", code="no_layout")
-    if (db.scalar(select(func.count(CageLayout.id)).where(CageLayout.owner_id == user.id)) or 0) >= MAX_LAYOUTS:
-        raise ConflictError(f"배치안은 {MAX_LAYOUTS}개까지 저장할 수 있어요. 안 쓰는 배치안을 지워 주세요.",
-                            code="too_many_layouts")
-    cage = lay["cage"]
-    copy = CageLayout(owner_id=user.id, name=f"{lay['name']} (탐색)"[:40], species=lay["species"], size=lay["size"],
-                      cage_width_mm=cage["width_mm"], cage_depth_mm=cage["depth_mm"], cage_height_mm=cage["height_mm"],
-                      items=list(lay["items"]))
+    ensure_layout_capacity(db, user)
+    copy = _layout_from_snapshot(item.layout, user)
     db.add(copy)
     db.commit()
     _record(db, user, item, "copy")
@@ -482,26 +492,49 @@ def _serve(request: Request, f: MarketFile, attachment: bool):
 def download_file(file_id: str, request: Request, db: Session = Depends(get_db),
                   user: User | None = Depends(get_optional_user)):
     f = _visible_file(db, file_id, user)
-    if f.item_id and f.kind == "model":
-        db.execute(update(MarketItem).where(MarketItem.id == f.item_id)
+    item = db.get(MarketItem, f.item_id) if f.item_id and f.kind == "model" else None
+    if item is not None and _counts_as_download(request, db, user, item):
+        db.execute(update(MarketItem).where(MarketItem.id == item.id)
                    .values(download_count=MarketItem.download_count + 1))
         db.commit()
-        item = db.get(MarketItem, f.item_id)
-        if item is not None:
-            _record(db, user, item, "download")
     return _serve(request, f, attachment=True)
+
+
+def _counts_as_download(request: Request, db: Session, user: User | None, item: MarketItem) -> bool:
+    """올린 사람이 아니고, 같은 사람(회원은 24시간, 로그인 안 했으면 같은 IP 1시간)이 처음 받을 때만 센다"""
+    if user is not None:
+        return _record(db, user, item, "download")
+    ip = client_key(request.app.state.settings, request, v6_prefix=ACCOUNT_V6_PREFIX)
+    return request.app.state.download_counter.hit(f"{ip}|{item.id}")
 
 
 @router.get("/files/mine", response_model=list[MarketFileOut], summary="내가 올린 3D 파일 (가상 케이지에 놓기)")
 def my_files(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     rows = db.scalars(select(MarketFile).where(MarketFile.owner_id == user.id, MarketFile.kind == "model")
                       .order_by(MarketFile.created_at.desc()).limit(100)).all()
-    return [_file_out(f) for f in rows]
+    return [file_out(f) for f in rows]
 
 
 @router.get("/files/{file_id}", response_model=MarketFileOut, summary="파일 정보 (볼 수 있는 파일만)")
 def file_info(file_id: str, db: Session = Depends(get_db), user: User | None = Depends(get_optional_user)):
-    return _file_out(_visible_file(db, file_id, user))
+    return file_out(_visible_file(db, file_id, user))
+
+
+@router.delete("/files/{file_id}", status_code=status.HTTP_204_NO_CONTENT,
+               summary="올린 파일 지우기 (작품에 붙지 않은 내 파일만)")
+def delete_file(file_id: str, request: Request, db: Session = Depends(get_db),
+                user: User = Depends(get_current_user)):
+    f = get_or_404(db, MarketFile, file_id, "파일을 찾을 수 없어요.", owner_id=user.id)
+    if f.item_id is not None or f.shared:
+        raise ConflictError("탐색에 올린 작품이나 공유한 배치에 들어 있는 파일이에요. 그 작품을 먼저 지워 주세요.",
+                            code="file_in_use")
+    stored = Stored(key=f.storage_key, url=f.url)
+    db.delete(f)
+    db.commit()
+    storage = request.app.state.market_storage
+    if storage is not None:
+        storage.delete([stored])
+    return Response(status_code=204)
 
 
 @router.get("/files/{file_id}/mesh", summary="3D 로 불러올 파일 (가상 케이지, 내려받기 횟수에 넣지 않음)")

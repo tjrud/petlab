@@ -33,9 +33,7 @@ from app.services.design_service import (
     DesignService,
     ExportBlockedError,
     GeometryChangedError,
-    InvalidInputError,
     MeshRegenerationError,
-    NotFoundError,
 )
 
 log = logging.getLogger(__name__)
@@ -59,7 +57,8 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
         app.state.rules = rules
         app.state.session_factory = make_session_factory(engine)
         app.state.llm_config_error = None
-        app.state.login_limiter = LoginRateLimiter()
+        # 로그인: IP 별 15분 10번. 표가 가득 차도 새 접속 전체를 막지 않는다 (계정별 상한은 DB 에서 따로 센다)
+        app.state.login_limiter = LoginRateLimiter(fail_closed=False)
         # 회원가입: IP 별 1시간 시도 수 (0 이면 제한 없음). 표가 차도 신규 가입 전체를 막지 않는다 (fail open)
         app.state.signup_limiter = (
             LoginRateLimiter(max_failures=settings.signup_per_ip_per_hour, window_s=3600.0, fail_closed=False)
@@ -84,6 +83,11 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
         elif settings.auth_mode == "disabled" and (settings.ephemeral_filesystem or settings.normalized_api_prefix):
             log.error("관리자 인증이 꺼져 있습니다 (ADMIN_PASSWORD 없음). 배포 환경이라면 API 가 공개 상태입니다.")
         app.state.market_storage = make_storage(settings)  # 탐색 파일 (없으면 올리기를 막는다)
+        # 탐색 내려받기 횟수: 같은 IP·작품은 1시간에 한 번만 센다 (횟수 부풀리기로 인기 순위를 바꾸지 못하게)
+        # 설계 3D 프린팅 파일 만들기: IP 별 10분에 30번
+        app.state.export_limiter = LoginRateLimiter(max_failures=30, window_s=600.0, fail_closed=False)
+        app.state.download_counter = LoginRateLimiter(max_failures=1, window_s=3600.0, max_keys=50_000,
+                                                      fail_closed=False)
         app.state.db_dialect = engine.dialect.name
         app.state.db_ephemeral = is_ephemeral_database(settings.database_url, settings.ephemeral_filesystem)
         if app.state.db_ephemeral:
@@ -145,6 +149,11 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
         response = await call_next(request)
         response.headers.setdefault("Cache-Control", "no-store")
         response.headers.add_vary_header("Cookie")  # 기존 Vary(Origin 등)에 덧붙인다
+        # API 응답(파일 내려받기 포함)을 브라우저가 HTML 로 해석하거나 다른 사이트가 틀에 넣지 못하게 한다
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        if not request.url.path.endswith("/docs"):  # 개발용 Swagger UI 는 외부 스크립트를 쓴다
+            response.headers.setdefault("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; sandbox")
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
         return response
 
     @app.exception_handler(RequestValidationError)
@@ -173,14 +182,6 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
     @app.exception_handler(AuthUnavailableError)
     async def _auth_unavailable(_: Request, e: AuthUnavailableError):
         return JSONResponse(status_code=503, content={"detail": {"code": "auth_unavailable", "message_ko": e.message_ko}})
-
-    @app.exception_handler(NotFoundError)
-    async def _not_found(_: Request, e: NotFoundError):
-        return JSONResponse(status_code=404, content={"detail": {"code": e.code, "message_ko": e.message_ko}})
-
-    @app.exception_handler(InvalidInputError)
-    async def _invalid(_: Request, e: InvalidInputError):
-        return JSONResponse(status_code=422, content={"detail": {"code": "invalid_input", "message_ko": e.message_ko}})
 
     @app.exception_handler(MeshRegenerationError)
     async def _regen(_: Request, e: MeshRegenerationError):

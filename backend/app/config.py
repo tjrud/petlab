@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     market_storage_dir: Path = BACKEND_DIR / "data" / "market"
     market_upload_daily_limit: int = Field(default=30, ge=0, le=10_000)  # 회원 1명의 24시간 파일 올리기 수
     market_item_daily_limit: int = Field(default=10, ge=0, le=10_000)    # 회원 1명의 24시간 작품 올리기 수
+    market_storage_per_user_mb: int = Field(default=1000, ge=1, le=100_000)  # 회원 1명이 올려 둘 수 있는 파일 합계
 
     # 규칙 파일 디렉터리 (species.yaml, printing.yaml)
     rules_dir: Path = BACKEND_DIR / "rules"

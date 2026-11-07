@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { COMMUNITY_PATH, errorText, Placeholder } from "@/components/community/common";
-import Pagination from "@/components/community/Pagination";
+import Pagination from "@/components/Pagination";
 import PostListItem from "@/components/community/PostListItem";
 import RetryAlert from "@/components/RetryAlert";
 import { api } from "@/lib/api";

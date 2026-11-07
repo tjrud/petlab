@@ -19,11 +19,13 @@ export default function MyFilesSection({
   files,
   onAdd,
   onUpload,
+  onDelete,
 }: {
   loggedIn: boolean;
   files: MarketFile[] | null;
   onAdd: (a: CageAsset) => void;
   onUpload: (file: File, onProgress: (pct: number) => void) => Promise<void>;
+  onDelete: (file: MarketFile) => Promise<void>;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [progress, setProgress] = useState<number | null>(null);
@@ -50,6 +52,16 @@ export default function MyFilesSection({
       setError(errorText(e, "올리지 못했어요."));
     } finally {
       setProgress(null);
+    }
+  }
+
+  async function remove(f: MarketFile) {
+    if (!window.confirm(`"${f.filename}" 파일을 지울까요? 이 파일을 놓아 둔 배치안에서도 보이지 않게 돼요.`)) return;
+    setError(null);
+    try {
+      await onDelete(f);
+    } catch (e) {
+      setError(errorText(e, "지우지 못했어요."));
     }
   }
 
@@ -88,13 +100,13 @@ export default function MyFilesSection({
                   ? "크기를 읽지 못한 파일이에요."
                   : null;
             return (
-              <li key={f.id}>
+              <li key={f.id} className="flex items-center gap-1.5">
                 <button
                   type="button"
                   disabled={!asset}
                   onClick={() => asset && onAdd(asset)}
                   aria-label={`${f.filename} ${asset ? "놓기" : "놓을 수 없음"}`}
-                  className="flex w-full items-center gap-2 rounded-xl border border-stone-200 bg-white p-2 text-left hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-stone-200"
+                  className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-stone-200 bg-white p-2 text-left hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-stone-200"
                 >
                   <span className="grid h-10 w-12 shrink-0 place-items-center rounded-lg bg-violet-50 text-[11px] font-bold text-violet-800">
                     {f.format.toUpperCase()}
@@ -106,6 +118,16 @@ export default function MyFilesSection({
                     </span>
                   </span>
                 </button>
+                {!f.attached && (
+                  <button
+                    type="button"
+                    onClick={() => void remove(f)}
+                    aria-label={`${f.filename} 지우기`}
+                    className="shrink-0 rounded-lg px-2 py-1 text-xs text-stone-500 hover:bg-red-50 hover:text-red-700"
+                  >
+                    지우기
+                  </button>
+                )}
               </li>
             );
           })}

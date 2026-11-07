@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import DesignCard from "@/components/designs/DesignCard";
 import DesignGridSkeleton from "@/components/designs/DesignGridSkeleton";
-import Pagination from "@/components/designs/Pagination";
+import Pagination from "@/components/Pagination";
 import LoginRequired from "@/components/LoginRequired";
 import RetryAlert from "@/components/RetryAlert";
 import { api, errorText, isAuthError } from "@/lib/api";

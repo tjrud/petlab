@@ -21,6 +21,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.errors import InvalidInputError, NotFoundError
 from app.domain import BuiltItem, Cage, Placement, PlacementHint
 from app.geometry.export import ExportFile, ExportPart, export_parts
 from app.geometry.fingerprint import file_digest, geometry_fingerprint
@@ -38,6 +39,7 @@ from app.schemas import (
     HabitatOut,
     ItemOut,
     PlacementOut,
+    SharedDesignOut,
     VersionOut,
     VersionSummary,
 )
@@ -52,19 +54,6 @@ from app.services.engine import (
 from app.templates.registry import get_template
 
 log = logging.getLogger(__name__)
-
-
-class NotFoundError(LookupError):
-    def __init__(self, message_ko: str, code: str = "not_found"):
-        super().__init__(message_ko)
-        self.message_ko = message_ko
-        self.code = code
-
-
-class InvalidInputError(ValueError):
-    def __init__(self, message_ko: str):
-        super().__init__(message_ko)
-        self.message_ko = message_ko
 
 
 class ExportBlockedError(RuntimeError):
@@ -280,13 +269,22 @@ class DesignService:
             raise NotFoundError("사육 환경을 찾을 수 없습니다.")
         return h
 
-    def habitat_out(self, h: Habitat) -> HabitatOut:
+    def habitat_out(self, h: Habitat, owner_view: bool = True) -> HabitatOut:
+        """owner_view 가 아니면(공유된 설계를 다른 사람이 볼 때) 반려동물 ID 는 빼고 보낸다."""
         species_name, size_name = self.rules.display_names(h.species, h.size)
         return HabitatOut(
-            id=h.id, pet_id=h.pet_id, species=h.species, species_name_ko=species_name,
+            id=h.id, pet_id=h.pet_id if owner_view else None, species=h.species, species_name_ko=species_name,
             size=h.size, size_name_ko=size_name, count=h.count,
             cage=CageIn(width_mm=h.cage_width_mm, depth_mm=h.cage_depth_mm, height_mm=h.cage_height_mm),
             created_at=h.created_at,
+        )
+
+    def shared_design_out(self, d: Design, v: DesignVersion) -> SharedDesignOut:
+        """커뮤니티 글·탐색 작품에 붙은 설계 버전 요약 (누구나 보는 화면)."""
+        return SharedDesignOut(
+            id=d.id, version=v.version, title=self.title_of(d), summary_ko=v.llm_spec.get("summary_ko", ""),
+            item_labels=[it["label_ko"] for it in v.items], passed=v.passed,
+            habitat=self.habitat_out(d.habitat, owner_view=False),
         )
 
     @staticmethod
@@ -549,7 +547,7 @@ class DesignService:
             shared=bool(shared),
             shared_versions=shared,
             owner_nickname=design.owner.nickname if design.owner else None,
-            habitat=self.habitat_out(design.habitat),
+            habitat=self.habitat_out(design.habitat, owner_view=see_all),
             versions=[
                 VersionSummary(version=x.version, prompt=x.prompt, passed=x.passed, provider=x.provider,
                                created_at=x.created_at)

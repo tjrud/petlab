@@ -11,9 +11,11 @@ import hmac
 import os
 import threading
 
-N, R, P, DKLEN = 2**14, 8, 1, 32
+# OWASP 권장 수준 중 메모리를 적게 쓰는 조합 (N=2^14·r=8 은 16 MiB, p=5 로 계산량을 늘린다).
+# 예전 설정(p=1)으로 만든 해시는 로그인에 성공할 때 새 설정으로 다시 만든다 (needs_rehash)
+N, R, P, DKLEN = 2**14, 8, 5, 32
 _MAXMEM = 64 * 1024 * 1024
-# scrypt 는 호출마다 16 MiB·수십 ms 를 쓴다. 동시에 도는 개수를 묶어 로그인 요청이 몰려도
+# scrypt 는 호출마다 16 MiB·백수십 ms 를 쓴다. 동시에 도는 개수를 묶어 로그인 요청이 몰려도
 # 메모리·스레드 풀을 다 차지하지 못하게 한다 (나머지는 잠깐 기다린다).
 _SLOTS = threading.BoundedSemaphore(max(2, min(8, os.cpu_count() or 2)))
 
@@ -49,3 +51,14 @@ def verify_password(password: str, stored: str | None) -> bool:
     except (ValueError, TypeError):
         return False
     return hmac.compare_digest(digest, expected) and stored is not None
+
+
+def needs_rehash(stored: str | None) -> bool:
+    """지금 설정보다 약한 해시인지 (로그인에 성공했을 때 새로 만든다)"""
+    if not stored:
+        return False
+    try:
+        scheme, n, r, p, *_ = stored.split("$")
+        return scheme != "scrypt" or (int(n), int(r), int(p)) != (N, R, P)
+    except ValueError:
+        return True
