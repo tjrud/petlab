@@ -22,9 +22,8 @@ from app.schemas import (
     PostOut,
     PostSummary,
     PostUpdateIn,
-    SharedDesignOut,
 )
-from app.services import usage
+from app.services import market_view, usage
 from app.services.design_service import DesignService, NotFoundError
 
 router = make_router(prefix="/community", tags=["커뮤니티"])
@@ -76,10 +75,9 @@ def _market_brief(db: Session, post: Post) -> MarketItemBrief | None:
     item = db.scalar(select(MarketItem).where(MarketItem.post_id == post.id).options(selectinload(MarketItem.files)))
     if item is None:
         return None
-    from app.api.market import _file_out, _formats, _image  # 순환 import 방지
-
-    img = _image(item)
-    return MarketItemBrief(id=item.id, title=item.title, formats=_formats(item), image=_file_out(img) if img else None)
+    img = market_view.item_image(item)
+    return MarketItemBrief(id=item.id, title=item.title, formats=market_view.item_formats(item),
+                           image=market_view.file_out(img) if img else None)
 
 
 def _post_out(db: Session, svc: DesignService, post: Post, user: User | None) -> PostOut:
@@ -90,13 +88,8 @@ def _post_out(db: Session, svc: DesignService, post: Post, user: User | None) ->
         # 첨부한 버전만 읽는다 (설계의 모든 버전 JSON 을 불러오지 않게)
         v = db.scalar(select(DesignVersion).where(DesignVersion.design_id == d.id,
                                                   DesignVersion.version == post.design_version))
-        if v is None:
-            v = db.scalar(select(DesignVersion).where(DesignVersion.design_id == d.id)
-                          .order_by(DesignVersion.version.desc()).limit(1))
-        shared = SharedDesignOut(
-            id=d.id, version=v.version, title=svc.title_of(d), summary_ko=v.llm_spec.get("summary_ko", ""),
-            item_labels=[it["label_ko"] for it in v.items], passed=v.passed, habitat=svc.habitat_out(d.habitat),
-        )
+        if v is not None:  # 첨부한 버전이 없으면 설계를 보여 주지 않는다 (공개하지 않은 버전이 드러나지 않게)
+            shared = svc.shared_design_out(d, v)
     return PostOut(
         id=post.id, title=post.title, body=post.body, author=_author(post.author),
         created_at=post.created_at, updated_at=post.updated_at, design=shared, images=_images(post),

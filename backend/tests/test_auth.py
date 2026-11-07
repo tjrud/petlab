@@ -480,3 +480,49 @@ def test_swagger_ui_disabled_when_auth_on(tmp_path):
         assert c.get("/openapi.json").status_code == 200
     with TestClient(create_app(settings(tmp_path, admin_password=None))) as c:
         assert c.get("/docs").status_code == 200
+
+
+def test_member_account_is_locked_after_many_failures_from_anywhere(tmp_path):
+    """IP·인스턴스를 바꿔 가며 한 계정을 맞혀 보아도 계정별 실패 횟수(DB)로 막는다. 관리자는 해당하지 않는다."""
+    from app.api.auth import ACCOUNT_MAX_FAILURES
+    from tests.api_helpers import PW, member_settings, signup
+
+    with TestClient(create_app(member_settings(tmp_path))) as c:
+        signup(c, "victim1")
+        c.cookies.clear()
+        for i in range(ACCOUNT_MAX_FAILURES):
+            if i % 5 == 0:  # 다른 IP·인스턴스에서 온 것처럼 IP 별 기록을 비운다
+                c.app.state.login_limiter = LoginRateLimiter(fail_closed=False)
+            assert c.post("/auth/login", json={"username": "victim1", "password": "wrong-pass"}).status_code == 401
+        c.app.state.login_limiter = LoginRateLimiter(fail_closed=False)
+        r = c.post("/auth/login", json={"username": "victim1", "password": PW})
+        assert r.status_code == 429 and r.json()["detail"]["code"] == "too_many_attempts"
+        # 다른 회원과 관리자는 그대로 로그인한다
+        signup(c, "bystander")
+        c.cookies.clear()
+        assert c.post("/auth/login", json={"username": "bystander", "password": PW}).status_code == 200
+        assert c.post("/auth/login", json=ADMIN).status_code == 200
+
+
+def test_old_password_hashes_are_upgraded_on_login(tmp_path):
+    import os
+
+    from app.passwords import N, P, R, _b64, _scrypt, needs_rehash
+    from tests.api_helpers import PW, member_settings, signup
+
+    with TestClient(create_app(member_settings(tmp_path))) as c:
+        signup(c, "olduser")
+        salt = os.urandom(16)
+        old = f"scrypt${N}${R}$1${_b64(salt)}${_b64(_scrypt(PW, salt, N, R, 1, 32))}"
+        assert needs_rehash(old) and P != 1
+        with c.app.state.session_factory() as db:
+            u = db.query(User).filter_by(username="olduser").one()
+            u.password_hash = old
+            db.commit()
+        c.cookies.clear()
+        assert c.post("/auth/login", json={"username": "olduser", "password": PW}).status_code == 200
+        with c.app.state.session_factory() as db:
+            new = db.query(User).filter_by(username="olduser").one().password_hash
+        assert new != old and not needs_rehash(new)
+        c.cookies.clear()
+        assert c.post("/auth/login", json={"username": "olduser", "password": PW}).status_code == 200

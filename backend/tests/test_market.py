@@ -311,3 +311,111 @@ def test_recommendations(client):
     # 내 작품은 추천하지 않는다
     use(client, b)
     assert client.get("/market/recommended").json() == []
+
+
+def test_mesh_dims_reads_ascii_stl_and_skips_zip_bombs():
+    from app.market_formats import mesh_dims
+
+    ascii_stl = (b"solid t\n facet normal 0 0 1\n  outer loop\n   vertex 0 0 0\n   vertex 40 0 0\n"
+                 b"   vertex 0 25.5 10\n  endloop\n endfacet\nendsolid t\n")
+    assert mesh_dims("stl", ascii_stl) == [40.0, 25.5, 10.0]
+    assert mesh_dims("stl", tetra_stl(80)) == [80.0, 80.0, 80.0]
+    # 작게 압축돼 있어도 풀린 크기가 크면 열지 않는다
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("3D/3dmodel.model", b"\0" * (80 * 1024 * 1024))
+    assert len(buf.getvalue()) < 1024 * 1024 and mesh_dims("3mf", buf.getvalue()) is None
+
+
+def test_storage_quota_and_deleting_my_files(tmp_path):
+    s = settings(tmp_path, market_storage_dir=tmp_path / "market", market_storage_per_user_mb=1)
+    with TestClient(create_app(s)) as c:
+        signup(c, "maker_a")
+        f = upload(c, "a.stl", tetra_stl(60))
+        big = c.post("/market/uploads", json={"filename": "b.skp", "size": 1024 * 1024, "kind": "model"})
+        assert big.status_code == 400 and big.json()["detail"]["code"] == "storage_quota_exceeded"
+
+        # 남의 파일은 지울 수 없다
+        b = signup(c, "maker_b")
+        use(c, b)
+        assert c.delete(f"/market/files/{f['id']}").status_code == 404
+        use(c, None)
+        assert c.delete(f"/market/files/{f['id']}").status_code == 401
+
+        signup(c, "maker_c")
+        g = upload(c, "g.stl", tetra_stl(40))
+        item = c.post("/market/items", json=item_body(file_ids=[g["id"]])).json()
+        r = c.delete(f"/market/files/{g['id']}")
+        assert r.status_code == 409 and r.json()["detail"]["code"] == "file_in_use"
+        h = upload(c, "h.stl", tetra_stl(40))
+        assert c.delete(f"/market/files/{h['id']}").status_code == 204
+        assert c.get(f"/market/files/{h['id']}").status_code == 404
+        assert [x["id"] for x in c.get("/market/files/mine").json()] == [g["id"]]
+        assert item["id"]
+
+
+def test_deleting_layout_share_hides_its_files_again(client):
+    a = signup(client, "maker_a")
+    f = upload(client, "house.stl", tetra_stl(100))
+    lay = client.post("/layouts", json={
+        "name": "거실 케이지", "species": "hamster", "size": "syrian",
+        "cage": {"width_mm": 1000, "depth_mm": 500, "height_mm": 500},
+        "items": [{"id": "a2", "asset": f"file_{f['id']}", "x_mm": 500, "y_mm": 250, "rotation_deg": 0}],
+    }).json()
+    first = client.post("/market/items", json=item_body(category="layout", layout_id=lay["id"])).json()
+    second = client.post("/market/items", json=item_body(category="layout", layout_id=lay["id"])).json()
+    assert client.delete(f"/market/files/{f['id']}").status_code == 409
+
+    b = signup(client, "maker_b")
+    use(client, b)
+    assert client.get(f["mesh_url"]).status_code == 200
+    use(client, a)
+    assert client.delete(f"/market/items/{first['id']}").status_code == 204
+    use(client, b)
+    assert client.get(f["mesh_url"]).status_code == 200  # 다른 공유에 아직 들어 있다
+    use(client, a)
+    assert client.delete(f"/market/items/{second['id']}").status_code == 204
+    use(client, b)
+    assert client.get(f["mesh_url"]).status_code == 404
+    use(client, a)
+    assert client.get(f["mesh_url"]).status_code == 200  # 올린 사람은 계속 쓴다
+
+
+def test_download_count_is_not_inflated(client):
+    a = signup(client, "maker_a")
+    f = upload(client, "a.stl", tetra_stl(60))
+    item = client.post("/market/items", json=item_body(file_ids=[f["id"]])).json()
+    url = f"/market/files/{f['id']}/download"
+
+    def count() -> int:
+        return client.get(f"/market/items/{item['id']}").json()["download_count"]
+
+    client.get(url, follow_redirects=False)  # 올린 사람은 세지 않는다
+    assert count() == 0
+    use(client, None)
+    for _ in range(3):
+        client.get(url, follow_redirects=False)  # 같은 IP 는 1시간에 한 번
+    assert count() == 1
+    b = signup(client, "maker_b")
+    for _ in range(3):
+        client.get(url, follow_redirects=False)  # 같은 회원은 24시간에 한 번
+    assert count() == 2
+
+
+def test_stale_uploads_of_any_member_are_swept(client):
+    from datetime import datetime, timedelta, timezone
+
+    from app.models import MarketUpload, MarketUploadChunk
+
+    signup(client, "maker_a")
+    r = client.post("/market/uploads", json={"filename": "old.stl", "size": 200, "kind": "model"})
+    old_id = r.json()["id"]
+    client.put(f"/market/uploads/{old_id}/chunks/0", content=b"\0" * 200)
+    with client.app.state.session_factory() as db:
+        db.get(MarketUpload, old_id).created_at = datetime.now(timezone.utc) - timedelta(days=1)
+        db.commit()
+    signup(client, "maker_b")
+    client.post("/market/uploads", json={"filename": "new.stl", "size": 200, "kind": "model"})
+    with client.app.state.session_factory() as db:
+        assert db.get(MarketUpload, old_id) is None
+        assert db.query(MarketUploadChunk).filter_by(upload_id=old_id).count() == 0

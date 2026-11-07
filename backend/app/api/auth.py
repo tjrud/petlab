@@ -6,6 +6,7 @@ import asyncio
 import hmac
 import logging
 from collections.abc import Callable
+from datetime import timedelta
 from typing import Any, TypeVar
 
 from fastapi import Depends, Request, Response, status
@@ -37,11 +38,11 @@ from app.auth import (
 from app.captcha import CaptchaUnavailableError, check_captcha
 from app.config import Settings
 from app.errors import AppError, ConflictError, ForbiddenError, QuotaExceededError
-from app.models import User
+from app.models import UsageEvent, User
 from app.names import email_key, lookalike_key, nickname_key
-from app.passwords import hash_password, verify_password
+from app.passwords import hash_password, needs_rehash, verify_password
 from app.schemas import AuthStatusOut, CaptchaOut, ResendVerificationOut, SignupIn, UserOut, VerifyEmailIn
-from app.services import email_verify
+from app.services import email_verify, usage
 
 router = make_router(prefix="/auth", tags=["회원 인증"])
 log = logging.getLogger(__name__)
@@ -49,6 +50,10 @@ log = logging.getLogger(__name__)
 T = TypeVar("T")
 
 FAILED_LOGIN_DELAY_S = 0.5  # 실패 응답을 조금 늦춰 무차별 대입을 느리게 한다
+# 계정별 로그인 실패 상한 (DB 에 기록: 서버 인스턴스·IP 를 바꿔 가며 한 계정을 계속 맞혀 보지 못하게).
+# 관리자 계정은 비밀번호가 길어(16자 이상) 맞히기 어렵고, 남이 일부러 잠가 버리지 못하게 IP 제한만 쓴다
+ACCOUNT_MAX_FAILURES = 20
+ACCOUNT_FAILURE_WINDOW = timedelta(minutes=15)
 
 
 async def limited_attempt(limiter: LoginRateLimiter, key: str, blocked_message_ko: str,
@@ -224,9 +229,20 @@ def _authenticate(db: Session, settings: Settings, username: str, password: str)
             verify_password(password, None)  # 회원 로그인과 같은 시간이 걸리게
             return ensure_admin_user(db, settings) if check_admin_credentials(settings, username, password) else None
         row = db.scalar(select(User).where(User.username == username.lower()))
+        member = row if row is not None and not row.is_admin else None
+        if member is not None and usage.count(db, "login_fail", user_id=member.id,
+                                              window=ACCOUNT_FAILURE_WINDOW) >= ACCOUNT_MAX_FAILURES:
+            raise QuotaExceededError("이 계정에 틀린 로그인이 많아 잠시 막았어요. 15분 뒤에 다시 시도해 주세요.",
+                                     code="too_many_attempts")
         db.commit()  # 해시 비교 동안 DB 연결을 쥐고 있지 않게
-        stored = row.password_hash if row is not None and not row.is_admin else None
-        return row if verify_password(password, stored) else None
+        stored = member.password_hash if member is not None else None
+        if not verify_password(password, stored):
+            if member is not None:
+                db.add(UsageEvent(user_id=member.id, kind="login_fail"))
+            return None
+        if needs_rehash(stored):
+            member.password_hash = hash_password(password)
+        return member
     except BaseException:
         db.rollback()
         raise
@@ -243,7 +259,7 @@ async def login(data: LoginIn, request: Request, db: Session = Depends(get_db)) 
     if settings.auth_mode == "misconfigured":
         raise AuthUnavailableError()
     limiter = request.app.state.login_limiter
-    key = client_key(settings, request)
+    key = client_key(settings, request, v6_prefix=ACCOUNT_V6_PREFIX)
     user = await limited_attempt(limiter, key, "로그인 시도가 너무 많아요. 15분 뒤에 다시 시도해 주세요.",
                                  _authenticate, db, settings, data.username.strip(), data.password)
     if user is None:  # 실패 지연은 limited_attempt 가 이미 기다렸다

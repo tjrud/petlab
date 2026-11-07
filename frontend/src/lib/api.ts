@@ -170,6 +170,7 @@ export const api = {
   copyLayout: (id: string) => request<{ layout_id: string }>(`/market/items/${encodeURIComponent(id)}/copy-layout`, json("POST", {})),
   myMarketFiles: () => request<MarketFile[]>("/market/files/mine"),
   marketFile: (id: string) => request<MarketFile>(`/market/files/${encodeURIComponent(id)}`),
+  deleteMarketFile: (id: string) => request<void>(`/market/files/${encodeURIComponent(id)}`, json("DELETE")),
   marketItem: (id: string) => request<MarketItem>(`/market/items/${encodeURIComponent(id)}`),
   createMarketItem: (body: MarketItemInput) => request<MarketItem>("/market/items", json("POST", body)),
   updateMarketItem: (id: string, body: { title?: string; description?: string; category?: string }) =>

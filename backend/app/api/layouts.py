@@ -36,6 +36,13 @@ def layout_out(svc: DesignService, lay: CageLayout) -> CageLayoutOut:
     return CageLayoutOut(**_summary_fields(svc, lay), items=[LayoutItemIn(**i) for i in lay.items or []])
 
 
+def ensure_layout_capacity(db: Session, user: User) -> None:
+    """배치안을 하나 더 저장할 수 있는지 (새로 저장할 때와 탐색에서 담아올 때)."""
+    if (db.scalar(select(func.count(CageLayout.id)).where(CageLayout.owner_id == user.id)) or 0) >= MAX_LAYOUTS:
+        raise ConflictError(f"배치안은 {MAX_LAYOUTS}개까지 저장할 수 있어요. 안 쓰는 배치안을 지워 주세요.",
+                            code="too_many_layouts")
+
+
 def _my_layout(db: Session, layout_id: str, user: User) -> CageLayout:
     lay = db.get(CageLayout, layout_id) if ID_RE.fullmatch(layout_id) else None
     if lay is None or lay.owner_id != user.id:
@@ -69,9 +76,7 @@ def list_layouts(db: Session = Depends(get_db), svc: DesignService = Depends(get
 @router.post("", response_model=CageLayoutOut, status_code=status.HTTP_201_CREATED, summary="배치안 저장")
 def create_layout(data: CageLayoutIn, db: Session = Depends(get_db), svc: DesignService = Depends(get_service),
                   user: User = Depends(get_current_user)):
-    if (db.scalar(select(func.count(CageLayout.id)).where(CageLayout.owner_id == user.id)) or 0) >= MAX_LAYOUTS:
-        raise ConflictError(f"배치안은 {MAX_LAYOUTS}개까지 저장할 수 있어요. 안 쓰는 배치안을 지워 주세요.",
-                            code="too_many_layouts")
+    ensure_layout_capacity(db, user)
     lay = CageLayout(owner_id=user.id)
     _apply(db, svc, lay, data, user)
     db.add(lay)

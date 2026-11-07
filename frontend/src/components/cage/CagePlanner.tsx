@@ -217,6 +217,11 @@ export default function CagePlanner() {
     [refreshMyFiles],
   );
 
+  const deleteMyFile = useCallback(async (f: MarketFile) => {
+    await api.deleteMarketFile(f.id);
+    setMyFiles((prev) => prev && prev.filter((x) => x.id !== f.id));
+  }, []);
+
   // ── 배치안 불러오기 (주소의 ?layout=) / 임시 저장 되살리기 ──
 
   /** 화면의 배치를 통째로 바꿀 때마다 올리는 번호 (불러오기·임시 저장 되살리기·새로 만들기) */
@@ -785,6 +790,7 @@ export default function CagePlanner() {
                 loggedIn={!!user}
                 myFiles={myFiles}
                 onUploadFile={uploadForCage}
+                onDeleteFile={deleteMyFile}
               />
             )}
             {tab === "cage" && (
