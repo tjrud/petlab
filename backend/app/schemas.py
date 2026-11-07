@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from datetime import date, datetime
-from typing import Annotated, Literal
+from typing import Annotated, Literal, get_args
 
 from pydantic import (
     AfterValidator,
@@ -441,10 +441,12 @@ class SharedDesignOut(BaseModel):
 
 # ── 탐색 ───────────────────────────────────────────────
 
-MARKET_CATEGORIES = {
+MarketCategory = Literal["hideout", "tunnel", "ramp", "sand_bath", "cage", "layout", "etc"]
+MARKET_CATEGORIES: dict[str, str] = {
     "hideout": "은신처", "tunnel": "터널", "ramp": "경사로·계단", "sand_bath": "모래목욕통",
     "cage": "케이지 전체", "layout": "가상 케이지 배치", "etc": "기타",
 }
+assert set(MARKET_CATEGORIES) == set(get_args(MarketCategory))
 MAX_ITEM_FILES = 5
 
 
@@ -494,7 +496,7 @@ class MarketItemIn(BaseModel):
 
     title: Title
     description: Annotated[str, Text1, Field(min_length=1, max_length=3000)]
-    category: Literal["hideout", "tunnel", "ramp", "sand_bath", "cage", "layout", "etc"]
+    category: MarketCategory
     file_ids: Annotated[list[EntityId], Field(max_length=MAX_ITEM_FILES)] = []
     image_file_id: EntityId | None = None
     design_id: EntityId | None = None
@@ -508,7 +510,7 @@ class MarketItemUpdateIn(BaseModel):
 
     title: Title | None = None
     description: Annotated[str, Text1, Field(min_length=1, max_length=3000)] | None = None
-    category: Literal["hideout", "tunnel", "ramp", "sand_bath", "cage", "layout", "etc"] | None = None
+    category: MarketCategory | None = None
 
 
 class MarketItemSummary(BaseModel):

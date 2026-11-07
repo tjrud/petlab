@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
 import { errorText, Placeholder } from "@/components/community/common";
-import Pagination from "@/components/community/Pagination";
+import Pagination from "@/components/Pagination";
 import { MARKET_CATEGORIES, MARKET_PATH } from "@/components/market/common";
 import MarketItemCard from "@/components/market/MarketItemCard";
 import RetryAlert from "@/components/RetryAlert";

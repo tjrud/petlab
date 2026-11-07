@@ -24,7 +24,7 @@ from sqlalchemy.orm.exc import StaleDataError
 from app.api.deps import get_db, get_service, make_router
 from app.api.layouts import ensure_layout_capacity
 from app.auth import ACCOUNT_V6_PREFIX, client_key, get_current_user, get_optional_user, get_verified_user
-from app.errors import AppError, ConflictError, ForbiddenError
+from app.errors import AppError, ConflictError, ForbiddenError, NotFoundError
 from app.market_formats import (
     CONTENT_TYPES,
     FILE_ASSET_PREFIX,
@@ -37,6 +37,7 @@ from app.market_formats import (
     format_of,
     mesh_dims,
 )
+from app.lookup import get_or_404
 from app.models import CageLayout, MarketEvent, MarketFile, MarketItem, MarketUpload, MarketUploadChunk, Post, User
 from app.schemas import (
     ID_RE,
@@ -54,7 +55,7 @@ from app.schemas import (
 )
 from app.services import recommend, usage
 from app.services.market_view import file_out, item_formats, item_image, item_models
-from app.services.design_service import DesignService, NotFoundError
+from app.services.design_service import DesignService
 from app.storage import LocalStorage, Storage, StorageError, Stored
 
 router = make_router(prefix="/market", tags=["탐색"])
@@ -129,10 +130,7 @@ def _item_out(db: Session, svc: DesignService, item: MarketItem, user: User | No
 
 
 def _get_item(db: Session, item_id: str) -> MarketItem:
-    item = db.get(MarketItem, item_id) if ID_RE.fullmatch(item_id) else None
-    if item is None:
-        raise NotFoundError("작품을 찾을 수 없어요.")
-    return item
+    return get_or_404(db, MarketItem, item_id, "작품을 찾을 수 없어요.")
 
 
 def _limits(kind: str) -> tuple[set[str], int]:
@@ -204,10 +202,8 @@ def start_upload(data: UploadStartIn, request: Request, db: Session = Depends(ge
 
 
 def _my_upload(db: Session, upload_id: str, user: User) -> MarketUpload:
-    up = db.get(MarketUpload, upload_id) if ID_RE.fullmatch(upload_id) else None
-    if up is None or up.owner_id != user.id:
-        raise NotFoundError("올리던 파일을 찾을 수 없어요. 처음부터 다시 올려 주세요.")
-    return up
+    return get_or_404(db, MarketUpload, upload_id, "올리던 파일을 찾을 수 없어요. 처음부터 다시 올려 주세요.",
+                      owner_id=user.id)
 
 
 @router.put("/uploads/{upload_id}/chunks/{n}", status_code=status.HTTP_204_NO_CONTENT, summary="파일 조각 올리기")
@@ -320,9 +316,7 @@ def create_item(data: MarketItemIn, request: Request, db: Session = Depends(get_
         version = svc.get_version(db, design, data.design_version).version
     snapshot, layout_files = None, []
     if data.layout_id is not None:
-        lay = db.get(CageLayout, data.layout_id) if ID_RE.fullmatch(data.layout_id) else None
-        if lay is None or lay.owner_id != user.id:
-            raise NotFoundError("배치안을 찾을 수 없어요.")
+        lay = get_or_404(db, CageLayout, data.layout_id, "배치안을 찾을 수 없어요.", owner_id=user.id)
         snapshot = _layout_snapshot(lay)
         # 배치에 넣은 내 파일은 이 배치를 보는 사람도 3D 로 볼 수 있게 공개한다 (작품에 붙은 파일은 이미 공개)
         layout_files = [f for f in _owned_files(db, _layout_file_ids(snapshot), user.id) if f.item_id is None]
@@ -530,9 +524,7 @@ def file_info(file_id: str, db: Session = Depends(get_db), user: User | None = D
                summary="올린 파일 지우기 (작품에 붙지 않은 내 파일만)")
 def delete_file(file_id: str, request: Request, db: Session = Depends(get_db),
                 user: User = Depends(get_current_user)):
-    f = db.get(MarketFile, file_id) if ID_RE.fullmatch(file_id) else None
-    if f is None or f.owner_id != user.id:
-        raise NotFoundError("파일을 찾을 수 없어요.")
+    f = get_or_404(db, MarketFile, file_id, "파일을 찾을 수 없어요.", owner_id=user.id)
     if f.item_id is not None or f.shared:
         raise ConflictError("탐색에 올린 작품이나 공유한 배치에 들어 있는 파일이에요. 그 작품을 먼저 지워 주세요.",
                             code="file_in_use")

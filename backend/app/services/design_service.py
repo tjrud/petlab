@@ -21,6 +21,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.errors import InvalidInputError, NotFoundError
 from app.domain import BuiltItem, Cage, Placement, PlacementHint
 from app.geometry.export import ExportFile, ExportPart, export_parts
 from app.geometry.fingerprint import file_digest, geometry_fingerprint
@@ -53,19 +54,6 @@ from app.services.engine import (
 from app.templates.registry import get_template
 
 log = logging.getLogger(__name__)
-
-
-class NotFoundError(LookupError):
-    def __init__(self, message_ko: str, code: str = "not_found"):
-        super().__init__(message_ko)
-        self.message_ko = message_ko
-        self.code = code
-
-
-class InvalidInputError(ValueError):
-    def __init__(self, message_ko: str):
-        super().__init__(message_ko)
-        self.message_ko = message_ko
 
 
 class ExportBlockedError(RuntimeError):

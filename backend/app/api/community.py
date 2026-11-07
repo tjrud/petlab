@@ -8,7 +8,8 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import get_db, get_service, make_router
 from app.auth import get_current_user, get_optional_user, get_verified_user
-from app.errors import ForbiddenError
+from app.errors import ForbiddenError, NotFoundError
+from app.lookup import get_or_404
 from app.models import Comment, DesignVersion, MarketItem, Post, User
 from app.schemas import (
     ID_RE,
@@ -24,7 +25,7 @@ from app.schemas import (
     PostUpdateIn,
 )
 from app.services import market_view, usage
-from app.services.design_service import DesignService, NotFoundError
+from app.services.design_service import DesignService
 
 router = make_router(prefix="/community", tags=["커뮤니티"])
 
@@ -208,9 +209,7 @@ def create_comment(post_id: str, data: CommentIn, request: Request, db: Session 
 
 @router.delete("/comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT, summary="댓글 삭제 (작성자·관리자)")
 def delete_comment(comment_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    c = db.get(Comment, comment_id) if ID_RE.fullmatch(comment_id) else None
-    if c is None:
-        raise NotFoundError("댓글을 찾을 수 없습니다.")
+    c = get_or_404(db, Comment, comment_id, "댓글을 찾을 수 없습니다.")
     if not _can_manage(user, c.author_id):
         raise ForbiddenError("내가 쓴 댓글만 지울 수 있어요.")
     db.delete(c)

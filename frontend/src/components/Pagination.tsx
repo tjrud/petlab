@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { ui } from "@/lib/ui";
 
-/** 글 목록의 이전/다음 페이지 이동 (페이지 번호는 주소의 ?page= 에 남는다) */
+/** 목록의 이전/다음 페이지 이동 (페이지 번호는 주소의 ?page= 에 남는다) */
 export default function Pagination({
   page,
   totalPages,

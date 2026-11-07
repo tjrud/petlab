@@ -12,10 +12,11 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, get_service, make_router
 from app.auth import get_current_user
-from app.errors import ConflictError
+from app.errors import ConflictError, NotFoundError
+from app.lookup import get_or_404
 from app.models import CageLayout, Pet, User
-from app.schemas import ID_RE, CageIn, CageLayoutIn, CageLayoutOut, CageLayoutSummary, LayoutItemIn
-from app.services.design_service import DesignService, NotFoundError
+from app.schemas import CageIn, CageLayoutIn, CageLayoutOut, CageLayoutSummary, LayoutItemIn
+from app.services.design_service import DesignService
 
 router = make_router(prefix="/layouts", tags=["가상 케이지"])
 
@@ -44,10 +45,7 @@ def ensure_layout_capacity(db: Session, user: User) -> None:
 
 
 def _my_layout(db: Session, layout_id: str, user: User) -> CageLayout:
-    lay = db.get(CageLayout, layout_id) if ID_RE.fullmatch(layout_id) else None
-    if lay is None or lay.owner_id != user.id:
-        raise NotFoundError("배치안을 찾을 수 없습니다.")
-    return lay
+    return get_or_404(db, CageLayout, layout_id, "배치안을 찾을 수 없습니다.", owner_id=user.id)
 
 
 def _apply(db: Session, svc: DesignService, lay: CageLayout, data: CageLayoutIn, user: User) -> None:
