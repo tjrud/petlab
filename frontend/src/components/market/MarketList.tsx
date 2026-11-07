@@ -100,7 +100,7 @@ export default function MarketList() {
   const empty = (msg: string) => (
     <div className={`${ui.card} py-12 text-center`}>
       <p className="text-lg font-semibold">{msg}</p>
-      <p className="mt-1 text-sm text-stone-600">SKP·3MF·STL 파일, NestForge 설계, 가상 케이지 배치를 올려 주세요.</p>
+      <p className="mt-1 text-sm text-stone-600">SKP·3MF·STL 파일이나 가상 케이지 배치를 올려 주세요.</p>
     </div>
   );
 

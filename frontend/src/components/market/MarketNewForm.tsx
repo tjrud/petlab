@@ -1,17 +1,18 @@
 "use client";
+/* eslint-disable @next/next/no-img-element -- 올린 미리보기 이미지는 Blob 공개 주소(외부)에서 바로 받는다 */
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
 import { CharCount, errorText, oneLine, Placeholder } from "@/components/community/common";
-import DesignAttachField, { useAttachOptions } from "@/components/community/DesignAttachField";
 import { EmailUnverifiedNotice, useEmailBlocked } from "@/components/EmailVerification";
 import LoginRequired from "@/components/LoginRequired";
-import { FORMAT_HINT, formatBytes, MARKET_CATEGORIES, marketHref } from "@/components/market/common";
+import { FORMAT_HINT, formatBytes, imageSrc, MARKET_CATEGORIES, marketHref } from "@/components/market/common";
 import LayoutPreview from "@/components/market/LayoutPreview";
 import { api, isEmailUnverified } from "@/lib/api";
 import { uploadMarketFile } from "@/lib/marketUpload";
+import { isMeshFormat, renderMeshThumbnail, thumbnailFile } from "@/lib/meshThumbnail";
 import type { CageLayout, MarketCategory, MarketConfig, MarketFile } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
@@ -26,6 +27,8 @@ type Slot = {
   sent: number;
   file?: MarketFile;
   error?: string;
+  /** STL·3MF 로 자동으로 만든 미리보기 이미지 */
+  auto?: boolean;
 };
 
 export function MarketNewPlaceholder() {
@@ -34,11 +37,10 @@ export function MarketNewPlaceholder() {
 
 let slotSeq = 0;
 
-/** 공유 작품 올리기: 완성 파일(SKP·3MF·STL) 또는 NestForge 설계 + 소개 */
+/** 공유 작품 올리기: 완성 파일(SKP·3MF·STL) 또는 가상 케이지 배치 + 소개 */
 export default function MarketNewForm() {
   const router = useRouter();
   const { status, user, emailUnverified } = useAuth();
-  const attach = useAttachOptions(user?.id ?? null, null, undefined);
   const ids = { title: useId(), desc: useId(), cat: useId(), files: useId(), image: useId(), count: useId() };
 
   const [config, setConfig] = useState<MarketConfig | null>(null);
@@ -51,13 +53,17 @@ export default function MarketNewForm() {
   const [category, setCategory] = useState<MarketCategory>(layoutParam ? "layout" : "hideout");
   const [slots, setSlots] = useState<Slot[]>([]);
   const [image, setImage] = useState<Slot | null>(null);
-  const [designId, setDesignId] = useState("");
   const [toCommunity, setToCommunity] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [emailBlocked, setEmailBlocked] = useEmailBlocked();
   const fileInput = useRef<HTMLInputElement>(null);
   const imageInput = useRef<HTMLInputElement>(null);
+  /** 미리보기 이미지 칸이 차 있는지 (비동기 작업에서 최신 값을 보려고) */
+  const imageTaken = useRef(false);
+  useEffect(() => {
+    imageTaken.current = image !== null;
+  }, [image]);
 
   useEffect(() => {
     if (!layoutParam || !user) return;
@@ -89,7 +95,6 @@ export default function MarketNewForm() {
   if (status === null) return <MarketNewPlaceholder />;
   if (!user) return <LoginRequired message="로그인하면 작품을 올릴 수 있어요" />;
 
-  const design = attach.kind === "ok" ? (attach.options.find((o) => o.id === designId) ?? null) : null;
   const uploading = slots.some((s) => s.status === "uploading") || image?.status === "uploading";
   const doneFiles = slots.filter((s) => s.status === "done" && s.file).map((s) => s.file!);
   const uploadsOff = config !== null && !config.uploads_enabled;
@@ -99,17 +104,37 @@ export default function MarketNewForm() {
     else setSlots((list) => list.map((s) => (s.key === key ? { ...s, ...patch } : s)));
   };
 
-  async function start(file: File, isImage: boolean) {
-    const slot: Slot = { key: `s${++slotSeq}`, name: file.name, size: file.size, status: "uploading", sent: 0 };
-    if (isImage) setImage(slot);
-    else setSlots((list) => [...list, slot]);
+  async function start(file: File, isImage: boolean, auto = false) {
+    const slot: Slot = { key: `s${++slotSeq}`, name: file.name, size: file.size, status: "uploading", sent: 0, auto };
+    if (isImage) {
+      imageTaken.current = true;
+      setImage(slot);
+    } else setSlots((list) => [...list, slot]);
     try {
       const f = await uploadMarketFile(file, isImage ? "image" : "model", (sent) => setSlot(slot.key, { sent }, isImage));
       setSlot(slot.key, { status: "done", file: f, sent: file.size }, isImage);
+      if (!isImage) void autoImage(file, f);
     } catch (e) {
       if (isEmailUnverified(e)) setEmailBlocked(true);
       setSlot(slot.key, { status: "error", error: errorText(e, "올리지 못했어요.") }, isImage);
     }
+  }
+
+  /** 미리보기 이미지를 고르지 않았으면 처음 올린 STL·3MF 의 3D 모습을 그려 대신 올린다 */
+  async function autoImage(file: File, uploaded: MarketFile) {
+    if (imageTaken.current || !isMeshFormat(uploaded.format) || !uploaded.dims_mm) return;
+    imageTaken.current = true; // 그리는 동안 다른 파일이 또 그리지 않게
+    let blob: Blob | null = null;
+    try {
+      blob = await renderMeshThumbnail(await file.arrayBuffer(), uploaded.format);
+    } catch {
+      blob = null;
+    }
+    if (!blob) {
+      imageTaken.current = false;
+      return;
+    }
+    await start(thumbnailFile(blob, file.name), true, true);
   }
 
   function pickFiles(list: FileList | null) {
@@ -126,7 +151,7 @@ export default function MarketNewForm() {
     setEmailBlocked(false);
     if (!title.trim()) return setError("제목을 입력해 주세요.");
     if (!description.trim()) return setError("소개를 입력해 주세요.");
-    if (doneFiles.length === 0 && !design && !layout) return setError("파일을 올리거나 NestForge 설계를 하나 골라 주세요.");
+    if (doneFiles.length === 0 && !layout) return setError("파일을 하나 이상 올려 주세요.");
     if (uploading) return setError("파일을 다 올린 뒤에 등록해 주세요.");
     setSubmitting(true);
     try {
@@ -136,10 +161,8 @@ export default function MarketNewForm() {
         category,
         file_ids: doneFiles.map((f) => f.id),
         image_file_id: image?.status === "done" && image.file ? image.file.id : null,
-        design_id: design?.id ?? null,
-        design_version: design?.version ?? null,
         layout_id: layout?.id ?? null,
-        post_to_community: toCommunity || !!design,
+        post_to_community: toCommunity,
       });
       router.replace(marketHref(item.id));
     } catch (err) {
@@ -157,7 +180,7 @@ export default function MarketNewForm() {
       {(emailUnverified || emailBlocked) && <EmailUnverifiedNotice action="작품을 올릴" />}
       {uploadsOff && (
         <p role="status" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
-          지금은 파일 저장소가 준비되지 않아 파일을 올릴 수 없어요. NestForge 설계는 공유할 수 있어요.
+          지금은 파일 저장소가 준비되지 않아 파일을 올릴 수 없어요.
         </p>
       )}
 
@@ -256,6 +279,7 @@ export default function MarketNewForm() {
         <legend className={ui.label}>
           미리보기 이미지 <span className="font-normal text-stone-500">(선택 · PNG·JPG·WEBP)</span>
         </legend>
+        <p className="text-xs text-stone-500">고르지 않으면 올린 STL·3MF의 3D 모습으로 만들어 넣어요.</p>
         <input
           ref={imageInput}
           id={ids.image}
@@ -273,6 +297,16 @@ export default function MarketNewForm() {
           <ul>
             <SlotRow slot={image} onRemove={() => setImage(null)} />
           </ul>
+        ) : null}
+        {image?.status === "done" && image.file && (
+          <img src={imageSrc(image.file)} alt="미리보기 이미지" className="max-h-48 rounded-lg border border-stone-200 bg-stone-50 object-contain" />
+        )}
+        {image ? (
+          image.auto && (
+            <button type="button" className={ui.btnSecondary} onClick={() => imageInput.current?.click()}>
+              다른 이미지로 바꾸기
+            </button>
+          )
         ) : (
           <button type="button" className={ui.btnSecondary} onClick={() => imageInput.current?.click()}>
             이미지 고르기
@@ -280,23 +314,18 @@ export default function MarketNewForm() {
         )}
       </fieldset>
 
-      <div>
-        <p className={ui.label}>NestForge 설계 함께 공유 (선택)</p>
-        <DesignAttachField state={attach} value={designId} onChange={setDesignId} disabled={submitting} />
-      </div>
-
       <label className="flex items-start gap-2 text-sm">
         <input
           type="checkbox"
           className="mt-0.5"
-          checked={toCommunity || !!design}
-          disabled={!!design || submitting}
+          checked={toCommunity}
+          disabled={submitting}
           onChange={(e) => setToCommunity(e.target.checked)}
         />
         <span>
           커뮤니티에 소개 글도 올리기
           <span className="block text-xs text-stone-500">
-            {design ? "설계를 공유하려면 소개 글이 필요해요. 댓글은 소개 글에서 받아요." : "댓글은 소개 글에서 받아요."}
+            댓글은 소개 글에서 받아요.
           </span>
         </span>
       </label>
@@ -327,6 +356,7 @@ function SlotRow({ slot, onRemove }: { slot: Slot; onRemove: () => void }) {
           {FORMAT_HINT[fmt] ? ` · ${FORMAT_HINT[fmt]}` : ""}
           {slot.status === "uploading" && ` · ${pct}%`}
           {slot.status === "done" && " · 올림"}
+          {slot.auto && " · 3D 파일로 만든 이미지"}
         </p>
         {slot.status === "uploading" && (
           <div className="mt-1 h-1.5 overflow-hidden rounded bg-stone-100" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={`${slot.name} 올리는 중`}>

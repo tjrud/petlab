@@ -1,6 +1,7 @@
 "use client";
 /* eslint-disable @next/next/no-img-element -- 미리보기는 Blob 공개 주소(외부)에서 바로 받는다 */
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -13,9 +14,23 @@ import { fileIdOf, getAsset, registerFileAsset } from "@/lib/cageAssets";
 import { readDraft, writeDraft } from "@/lib/cagePlannerDoc";
 import { FORMAT_HINT, FORMAT_LABEL, formatBytes, FormatChips, imageSrc, MARKET_PATH } from "@/components/market/common";
 import RetryAlert from "@/components/RetryAlert";
+import { needsCredentials } from "@/components/three/FileMesh";
 import { api, ApiError } from "@/lib/api";
-import type { MarketItem } from "@/lib/types";
+import { uploadMarketFile } from "@/lib/marketUpload";
+import { isMeshFormat, renderMeshThumbnail, thumbnailFile } from "@/lib/meshThumbnail";
+import type { MarketFile, MarketItem } from "@/lib/types";
 import { formatDateTime, ui } from "@/lib/ui";
+
+const ModelPreview = dynamic(() => import("@/components/market/ModelPreview"), {
+  ssr: false,
+  loading: () => <div className="h-80 animate-pulse rounded-xl bg-stone-100 sm:h-96" />,
+});
+
+/** 3D 로 볼 수 있는 파일 (STL·3MF 이고 크기를 읽은 것) */
+const previewable = (f: MarketFile) => isMeshFormat(f.format) && !!f.mesh_url && !!f.dims_mm;
+
+/** 가상 케이지에서 이 파일을 빈 자리에 놓는 주소 */
+export const cageAddHref = (fileId: string) => `/cage?add=${encodeURIComponent(fileId)}`;
 
 type Result = { key: string; kind: "ok"; item: MarketItem } | { key: string; kind: "error"; status: number; message: string };
 
@@ -23,7 +38,7 @@ export function MarketItemPlaceholder() {
   return <Placeholder rows={2} label="작품을 불러오는 중이에요" rowClassName="h-48" />;
 }
 
-/** 공유 작품 보기: 미리보기·소개·파일 내려받기·NestForge 설계·커뮤니티 소개 글 */
+/** 공유 작품 보기: 미리보기(이미지·3D)·소개·파일 내려받기·가상 케이지에 놓아 보기·커뮤니티 소개 글 */
 export default function MarketItemDetail({ id }: { id: string }) {
   const router = useRouter();
   const [attempt, setAttempt] = useState(0);
@@ -31,6 +46,8 @@ export default function MarketItemDetail({ id }: { id: string }) {
   const [deleting, setDeleting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [copying, setCopying] = useState(false);
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const [thumbBusy, setThumbBusy] = useState(false);
   const { user } = useAuth();
   const key = `${id}|${attempt}`;
 
@@ -80,6 +97,30 @@ export default function MarketItemDetail({ id }: { id: string }) {
     return <RetryAlert message={r.message} onRetry={() => setAttempt((n) => n + 1)} />;
   }
   const it = r.item;
+  const meshFiles = it.files.filter(previewable);
+  const preview = meshFiles.find((f) => f.id === previewId) ?? meshFiles[0] ?? null;
+  const hasSkp = it.files.some((f) => f.format === "skp");
+
+  /** 3D 모습을 그려 대표 이미지로 (이미지 없이 올린 작품. 올린 사람만) */
+  async function makeImage(f: MarketFile) {
+    if (!f.mesh_url || !isMeshFormat(f.format)) return;
+    setThumbBusy(true);
+    setActionError(null);
+    try {
+      const url = api.marketUrl(f.mesh_url);
+      const res = await fetch(url, { credentials: needsCredentials(url) ? "include" : "omit" });
+      if (!res.ok) throw new Error("파일을 받지 못했어요.");
+      const blob = await renderMeshThumbnail(await res.arrayBuffer(), f.format);
+      if (!blob) throw new Error("이 브라우저에서는 이미지를 만들 수 없어요.");
+      const img = await uploadMarketFile(thumbnailFile(blob, f.filename), "image", () => {});
+      const item = await api.updateMarketItem(it.id, { image_file_id: img.id });
+      setResult({ key, kind: "ok", item });
+    } catch (e) {
+      setActionError(errorText(e, e instanceof Error ? e.message : "대표 이미지를 만들지 못했어요."));
+    } finally {
+      setThumbBusy(false);
+    }
+  }
 
   /** 배치 예시를 내 가상 케이지로: 로그인했으면 내 배치안으로 저장해 열고, 아니면 이 브라우저의 작업으로 담아 연다 */
   async function copyToCage() {
@@ -144,6 +185,45 @@ export default function MarketItemDetail({ id }: { id: string }) {
         </header>
         <div className="whitespace-pre-wrap break-words leading-relaxed text-stone-800">{it.description}</div>
 
+        {preview && (
+          <section aria-labelledby="preview-title" className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 id="preview-title" className={ui.h2}>
+                3D 미리보기
+              </h2>
+              <Link href={cageAddHref(preview.id)} className={ui.btnPrimary}>
+                가상 케이지에 놓아 보기
+              </Link>
+            </div>
+            {meshFiles.length > 1 && (
+              <div className="flex flex-wrap gap-1.5" role="group" aria-label="미리 볼 파일">
+                {meshFiles.map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    aria-pressed={f.id === preview.id}
+                    onClick={() => setPreviewId(f.id)}
+                    className={`rounded-full border px-3 py-1 text-xs ${
+                      f.id === preview.id ? "border-amber-500 bg-amber-100 font-semibold text-amber-900" : "border-stone-300 text-stone-600 hover:bg-stone-50"
+                    }`}
+                  >
+                    {f.filename}
+                  </button>
+                ))}
+              </div>
+            )}
+            <ModelPreview key={preview.id} file={preview} className="h-80 sm:h-96" />
+            <p className="text-xs text-stone-500">
+              가상 케이지에 놓으면 지금 작업 중인 케이지의 빈 자리에 실제 크기로 들어가요. 저장은 가상 케이지에서 해요.
+            </p>
+            {it.can_edit && !it.image && (
+              <button type="button" className={ui.btnSecondary} onClick={() => void makeImage(preview)} disabled={thumbBusy}>
+                {thumbBusy ? "대표 이미지 만드는 중…" : "이 3D 모습으로 대표 이미지 만들기"}
+              </button>
+            )}
+          </section>
+        )}
+
         {it.layout && (
           <section aria-labelledby="layout-title" className="space-y-3 rounded-xl border border-sky-200 bg-sky-50/40 p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -183,12 +263,22 @@ export default function MarketItemDetail({ id }: { id: string }) {
                       {FORMAT_HINT[f.format] ? ` · ${FORMAT_HINT[f.format]}` : ""}
                     </span>
                   </span>
+                  {previewable(f) && (
+                    <Link href={cageAddHref(f.id)} className={ui.btnSecondary} aria-label={`${f.filename} 가상 케이지에 놓아 보기`}>
+                      케이지에 놓기
+                    </Link>
+                  )}
                   <a href={api.marketUrl(f.download_url)} className={ui.btnPrimary} aria-label={`${f.filename} 내려받기`}>
                     내려받기
                   </a>
                 </li>
               ))}
             </ul>
+            {hasSkp && (
+              <p className="text-xs text-stone-500">
+                SketchUp(SKP) 파일은 브라우저에서 3D로 볼 수 없어 미리보기와 가상 케이지를 쓸 수 없어요. SketchUp에서 STL로 내보내 함께 올리면 볼 수 있어요.
+              </p>
+            )}
             <p className="text-xs text-stone-500">올린 사람이 만든 파일이에요. NestForge 안전 검증을 거치지 않았으니 크기와 틈을 확인하고 쓰세요.</p>
           </section>
         )}

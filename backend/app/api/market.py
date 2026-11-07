@@ -418,7 +418,7 @@ def get_item(item_id: str, db: Session = Depends(get_db), svc: DesignService = D
 
 
 @router.patch("/items/{item_id}", response_model=MarketItemOut, summary="작품 고치기 (올린 사람만)")
-def update_item(item_id: str, data: MarketItemUpdateIn, db: Session = Depends(get_db),
+def update_item(item_id: str, data: MarketItemUpdateIn, request: Request, db: Session = Depends(get_db),
                 svc: DesignService = Depends(get_service), user: User = Depends(get_current_user)):
     item = _get_item(db, item_id)
     if item.owner_id != user.id:
@@ -427,7 +427,21 @@ def update_item(item_id: str, data: MarketItemUpdateIn, db: Session = Depends(ge
         v = getattr(data, k)
         if v is not None:
             setattr(item, k, v)
+    old: list[Stored] = []
+    if data.image_file_id is not None:
+        img = get_or_404(db, MarketFile, data.image_file_id, "올린 이미지를 찾을 수 없어요. 다시 올려 주세요.",
+                         owner_id=user.id)
+        if img.kind != "image" or img.item_id is not None:
+            raise AppError("미리보기에는 아직 붙이지 않은 이미지 파일만 쓸 수 있어요.", code="wrong_file_kind")
+        prev = item_image(item)
+        if prev is not None:
+            old.append(Stored(key=prev.storage_key, url=prev.url))
+            db.delete(prev)
+        img.item_id = item.id
     db.commit()
+    storage = request.app.state.market_storage
+    if old and storage is not None:
+        storage.delete(old)
     db.refresh(item)
     return _item_out(db, svc, item, user)
 
