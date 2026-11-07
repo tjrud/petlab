@@ -388,20 +388,22 @@ export default function CagePlanner() {
   );
 
   const addAsset = useCallback(
-    (asset: CageAsset) => {
+    /** 놓았으면 true (구조물 수 상한에 걸리면 false) */
+    (asset: CageAsset): boolean => {
       // 바닥재는 바닥 전체에 하나만: 깔려 있던 바닥재를 바꿔요 (가운데 기준, 고르지 않음)
       if (isFloorLayer(asset)) {
         const item: LayoutItem = { id: newItemId(), asset: asset.key, x_mm: round1(cage.width_mm / 2), y_mm: round1(cage.depth_mm / 2), rotation_deg: 0 };
         commit((d) => ({ ...d, items: [...d.items.filter((it) => !isFloorLayer(getAsset(it.asset))), item] }));
-        return;
+        return true;
       }
       if (items.length >= MAX_ITEMS) {
         setNotice({ kind: "error", text: `구조물은 ${MAX_ITEMS}개까지 놓을 수 있어요.` });
-        return;
+        return false;
       }
       const item = newItemAt(cage, items, asset, rules);
       commit((d) => ({ ...d, items: [...d.items, item] }));
       setSelectedId(item.id);
+      return true;
     },
     [cage, items, commit, rules],
   );
@@ -435,8 +437,7 @@ export default function CagePlanner() {
         setAssetVer((v) => v + 1);
         if (!asset) {
           setNotice({ kind: "error", text: f.format === "skp" ? "SketchUp 파일은 가상 케이지에 놓을 수 없어요." : "이 파일은 크기를 읽지 못해 놓을 수 없어요." });
-        } else {
-          addAssetRef.current(asset);
+        } else if (addAssetRef.current(asset)) {
           setNotice({ kind: "ok", text: `"${f.filename}" 파일을 빈 자리에 놓았어요. 마음에 들면 저장하세요.` });
         }
         dropParam();

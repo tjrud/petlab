@@ -115,7 +115,7 @@ test("탐색: STL 을 올리면 미리보기 이미지를 자동으로 만들고
 
   // 3D 미리보기
   await expect(page.getByRole("heading", { level: 2, name: "3D 미리보기" })).toBeVisible();
-  await expect(page.getByText(/9×9×9cm · 끌어서 돌리고, 휠로 확대해요/)).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText(/9×9×9cm · 끌어서 돌려 볼 수 있어요/)).toBeVisible({ timeout: 30_000 });
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/explore-3d-preview.png`, fullPage: true });
 
   // 가상 케이지에 놓아 보기 → 빈 자리에 놓이고 주소의 add 는 지워진다
@@ -129,7 +129,7 @@ test("탐색: STL 을 올리면 미리보기 이미지를 자동으로 만들고
   // 로그인하지 않은 사람도 놓아 볼 수 있다 (파일 목록의 '케이지에 놓기')
   await page.context().clearCookies();
   await page.goto(detailUrl);
-  await page.getByRole("link", { name: "round-house.stl 가상 케이지에 놓아 보기" }).click();
+  await page.getByRole("link", { name: "round-house.stl 케이지에 놓기" }).click();
   await page.waitForURL(/\/cage$/);
   await expect(page.getByText('"round-house.stl" 파일을 빈 자리에 놓았어요. 마음에 들면 저장하세요.')).toBeVisible();
   await expect(status(page)).toHaveText(/구조물 [12]개$/);

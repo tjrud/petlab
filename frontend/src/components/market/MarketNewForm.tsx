@@ -61,6 +61,10 @@ export default function MarketNewForm() {
   const imageInput = useRef<HTMLInputElement>(null);
   /** 미리보기 이미지 칸이 차 있는지 (비동기 작업에서 최신 값을 보려고) */
   const imageTaken = useRef(false);
+  /** 3D 모습으로 미리보기 이미지를 그리는 중 (그동안 등록을 막는다) */
+  const [autoRendering, setAutoRendering] = useState(false);
+  /** 이 값이 바뀌면 그리던 미리보기를 버린다 (사람이 이미지를 골랐거나 등록을 시작했을 때) */
+  const autoToken = useRef(0);
   useEffect(() => {
     imageTaken.current = image !== null;
   }, [image]);
@@ -95,7 +99,7 @@ export default function MarketNewForm() {
   if (status === null) return <MarketNewPlaceholder />;
   if (!user) return <LoginRequired message="로그인하면 작품을 올릴 수 있어요" />;
 
-  const uploading = slots.some((s) => s.status === "uploading") || image?.status === "uploading";
+  const uploading = slots.some((s) => s.status === "uploading") || image?.status === "uploading" || autoRendering;
   const doneFiles = slots.filter((s) => s.status === "done" && s.file).map((s) => s.file!);
   const uploadsOff = config !== null && !config.uploads_enabled;
 
@@ -107,6 +111,7 @@ export default function MarketNewForm() {
   async function start(file: File, isImage: boolean, auto = false) {
     const slot: Slot = { key: `s${++slotSeq}`, name: file.name, size: file.size, status: "uploading", sent: 0, auto };
     if (isImage) {
+      if (!auto) autoToken.current += 1; // 직접 고른 이미지가 우선
       imageTaken.current = true;
       setImage(slot);
     } else setSlots((list) => [...list, slot]);
@@ -124,12 +129,17 @@ export default function MarketNewForm() {
   async function autoImage(file: File, uploaded: MarketFile) {
     if (imageTaken.current || !isMeshFormat(uploaded.format) || !uploaded.dims_mm) return;
     imageTaken.current = true; // 그리는 동안 다른 파일이 또 그리지 않게
+    const token = ++autoToken.current;
+    setAutoRendering(true);
     let blob: Blob | null = null;
     try {
       blob = await renderMeshThumbnail(await file.arrayBuffer(), uploaded.format);
     } catch {
       blob = null;
+    } finally {
+      setAutoRendering(false);
     }
+    if (token !== autoToken.current) return; // 그사이 이미지를 직접 골랐거나 등록을 시작했다
     if (!blob) {
       imageTaken.current = false;
       return;
@@ -153,6 +163,7 @@ export default function MarketNewForm() {
     if (!description.trim()) return setError("소개를 입력해 주세요.");
     if (doneFiles.length === 0 && !layout) return setError("파일을 하나 이상 올려 주세요.");
     if (uploading) return setError("파일을 다 올린 뒤에 등록해 주세요.");
+    autoToken.current += 1;
     setSubmitting(true);
     try {
       const item = await api.createMarketItem({
@@ -180,7 +191,9 @@ export default function MarketNewForm() {
       {(emailUnverified || emailBlocked) && <EmailUnverifiedNotice action="작품을 올릴" />}
       {uploadsOff && (
         <p role="status" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
-          지금은 파일 저장소가 준비되지 않아 파일을 올릴 수 없어요.
+          {layoutParam
+            ? "지금은 파일을 올릴 수 없어요. 가상 케이지 배치는 그대로 공유할 수 있어요."
+            : "지금은 파일을 올릴 수 없어요. 가상 케이지에서 저장한 배치는 '탐색에 공유'로 올릴 수 있어요."}
         </p>
       )}
 
@@ -250,6 +263,7 @@ export default function MarketNewForm() {
         <legend className={ui.label}>
           완성 파일 <span className="font-normal text-stone-500">(SKP·3MF·STL, 최대 {MAX_FILES}개, 파일당 {formatBytes(config?.max_model_bytes ?? 50 * 1024 * 1024)})</span>
         </legend>
+        <p className="text-xs text-stone-500">3D 미리보기와 가상 케이지에는 STL·3MF가 필요해요. SKP만 있다면 STL로도 내보내 함께 올려 주세요.</p>
         <input
           ref={fileInput}
           id={ids.files}
@@ -279,7 +293,9 @@ export default function MarketNewForm() {
         <legend className={ui.label}>
           미리보기 이미지 <span className="font-normal text-stone-500">(선택 · PNG·JPG·WEBP)</span>
         </legend>
-        <p className="text-xs text-stone-500">고르지 않으면 올린 STL·3MF의 3D 모습으로 만들어 넣어요.</p>
+        <p className="text-xs text-stone-500">
+          {autoRendering ? "올린 3D 파일로 미리보기 이미지를 만드는 중이에요." : "고르지 않으면 올린 STL·3MF의 3D 모습으로 만들어 넣어요."}
+        </p>
         <input
           ref={imageInput}
           id={ids.image}
@@ -336,8 +352,8 @@ export default function MarketNewForm() {
         </p>
       )}
       <div className="flex justify-end">
-        <button type="submit" className={ui.btnPrimary} disabled={submitting || uploading || emailUnverified}>
-          {submitting ? "올리는 중…" : uploading ? "파일 올리는 중…" : "탐색에 올리기"}
+        <button type="submit" className={ui.btnPrimary} disabled={submitting || uploading || emailUnverified || (uploadsOff && !layoutParam)}>
+          {submitting ? "올리는 중…" : autoRendering ? "미리보기 만드는 중…" : uploading ? "파일 올리는 중…" : "탐색에 올리기"}
         </button>
       </div>
     </form>

@@ -64,6 +64,18 @@ function MeshParts({ parts, material }: { parts: MeshPart[]; material: () => Rea
   );
 }
 
+const loaderOf = (f: MeshFormat) => (f === "stl" ? STLLoader : ThreeMFLoader);
+let lastPreview: { url: string; format: MeshFormat } | null = null;
+
+/** 미리보기는 마지막에 본 파일만 메모리에 남긴다 (탐색을 둘러보는 동안 큰 메시가 쌓이지 않게).
+ * 막 본 파일은 남겨 두므로 "가상 케이지에 놓아 보기"로 넘어가면 다시 받지 않는다 */
+export function keepOnlyPreview(url: string, format: MeshFormat) {
+  if (lastPreview && (lastPreview.url !== url || lastPreview.format !== format)) {
+    useLoader.clear(loaderOf(lastPreview.format), lastPreview.url);
+  }
+  lastPreview = { url, format };
+}
+
 /** 파일 형상 (불러오는 동안 Suspense 로 멈춘다. 감싸는 쪽에서 Suspense·MeshErrorBoundary 로 받는다) */
 export function LoadedMesh({ url, format, material }: { url: string; format: MeshFormat; material: () => ReactNode }) {
   return format === "stl" ? <StlParts url={url} material={material} /> : <ThreeMfParts url={url} material={material} />;
