@@ -145,6 +145,11 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
         response = await call_next(request)
         response.headers.setdefault("Cache-Control", "no-store")
         response.headers.add_vary_header("Cookie")  # 기존 Vary(Origin 등)에 덧붙인다
+        # API 응답(파일 내려받기 포함)을 브라우저가 HTML 로 해석하거나 다른 사이트가 틀에 넣지 못하게 한다
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        if not request.url.path.endswith("/docs"):  # 개발용 Swagger UI 는 외부 스크립트를 쓴다
+            response.headers.setdefault("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; sandbox")
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
         return response
 
     @app.exception_handler(RequestValidationError)
