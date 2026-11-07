@@ -295,7 +295,7 @@ export function getAsset(key: string): CageAsset | undefined {
   return BY_KEY.get(key) ?? FILE_ASSETS.get(key);
 }
 
-// ── 내가 올린 파일 에셋 (탐색에 올린 STL·3MF) ──
+// ── 파일 에셋 (탐색에 올라온 STL·3MF) ──
 // 배치안에는 "file_<파일 ID>" 키로 저장하고, 화면은 파일 정보를 받아 이 표에 넣은 뒤 다른 에셋처럼 쓴다.
 
 export const FILE_ASSET_PREFIX = "file_";
@@ -321,7 +321,7 @@ export function registerFileAsset(f: {
     shape: "mesh",
     size: [f.dims_mm[0], f.dims_mm[1], f.dims_mm[2]],
     color: "#b8a6e0",
-    description: `내가 올린 ${f.format.toUpperCase()} 파일`,
+    description: `올린 ${f.format.toUpperCase()} 파일 (실제 크기)`,
     mesh: { url: meshUrl(f.mesh_url), format: f.format, fileId: f.id },
   };
   FILE_ASSETS.set(key, asset);

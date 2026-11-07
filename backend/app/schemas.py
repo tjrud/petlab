@@ -511,6 +511,8 @@ class MarketItemUpdateIn(BaseModel):
     title: Title | None = None
     description: Annotated[str, Text1, Field(min_length=1, max_length=3000)] | None = None
     category: MarketCategory | None = None
+    # 새 미리보기 이미지 (내가 올렸고 아직 어디에도 붙지 않은 이미지 파일). 예전 이미지는 지운다
+    image_file_id: EntityId | None = None
 
 
 class MarketItemSummary(BaseModel):

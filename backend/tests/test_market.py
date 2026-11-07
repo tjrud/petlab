@@ -419,3 +419,30 @@ def test_stale_uploads_of_any_member_are_swept(client):
     with client.app.state.session_factory() as db:
         assert db.get(MarketUpload, old_id) is None
         assert db.query(MarketUploadChunk).filter_by(upload_id=old_id).count() == 0
+
+
+def test_owner_can_replace_preview_image(client):
+    a = signup(client, "maker_a")
+    f = upload(client, "a.stl", tetra_stl(60))
+    item = client.post("/market/items", json=item_body(file_ids=[f["id"]])).json()
+    assert item["image"] is None
+    img = upload(client, "thumb.png", PNG, kind="image")
+    r = client.patch(f"/market/items/{item['id']}", json={"image_file_id": img["id"]})
+    assert r.status_code == 200 and r.json()["image"]["id"] == img["id"]
+    assert client.get("/market/items").json()["items"][0]["image"]["id"] == img["id"]
+    # 다시 바꾸면 예전 이미지는 지워진다
+    img2 = upload(client, "thumb2.png", PNG, kind="image")
+    assert client.patch(f"/market/items/{item['id']}", json={"image_file_id": img2["id"]}).json()["image"]["id"] == img2["id"]
+    assert client.get(f"/market/files/{img['id']}").status_code == 404
+    # 모델 파일·이미 붙은 이미지는 미리보기로 쓸 수 없다
+    model = upload(client, "b.stl", tetra_stl(40))
+    r = client.patch(f"/market/items/{item['id']}", json={"image_file_id": model["id"]})
+    assert r.status_code == 400 and r.json()["detail"]["code"] == "wrong_file_kind"
+    assert client.patch(f"/market/items/{item['id']}", json={"image_file_id": img2["id"]}).status_code == 400
+    # 남의 이미지·남의 작품은 안 된다
+    b = signup(client, "maker_b")
+    other = upload(client, "o.png", PNG, kind="image")
+    use(client, a)
+    assert client.patch(f"/market/items/{item['id']}", json={"image_file_id": other["id"]}).status_code == 404
+    use(client, b)
+    assert client.patch(f"/market/items/{item['id']}", json={"image_file_id": other["id"]}).status_code == 403

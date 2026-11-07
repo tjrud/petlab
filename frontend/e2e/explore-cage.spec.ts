@@ -98,3 +98,55 @@ test("가상 케이지: 내 STL 올려 놓기 → 배치 저장 → 탐색에 �
   await page.goto("/explore?category=layout");
   await expect(page.getByRole("link", { name: /파일 넣은 배치/ }).first()).toBeVisible();
 });
+
+test("탐색: STL 을 올리면 미리보기 이미지를 자동으로 만들고, 상세에서 3D 로 보고 가상 케이지에 바로 놓는다", async ({ page }) => {
+  await adminLogin(page, "/explore/new");
+  await page.getByLabel("완성 파일 고르기").setInputFiles({ name: "round-house.stl", mimeType: "model/stl", buffer: tetraStl(90) });
+  // 이미지를 고르지 않았으니 3D 모습으로 만든 이미지가 들어간다
+  await expect(page.getByText("3D 파일로 만든 이미지")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("img", { name: "미리보기 이미지" })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("NestForge 설계 함께 공유")).toHaveCount(0);
+  await page.getByLabel("제목", { exact: true }).fill("둥근 집 STL");
+  await page.getByLabel("소개", { exact: true }).fill("STL 미리보기 확인용이에요.");
+  await page.getByRole("button", { name: "탐색에 올리기" }).click();
+  await page.waitForURL(/\/explore\/[0-9a-f]{32}$/);
+  const detailUrl = page.url();
+  await expect(page.getByRole("img", { name: "둥근 집 STL 미리보기" })).toBeVisible();
+
+  // 3D 미리보기
+  await expect(page.getByRole("heading", { level: 2, name: "3D 미리보기" })).toBeVisible();
+  await expect(page.getByText(/9×9×9cm · 끌어서 돌려 볼 수 있어요/)).toBeVisible({ timeout: 30_000 });
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/explore-3d-preview.png`, fullPage: true });
+
+  // 가상 케이지에 놓아 보기 → 빈 자리에 놓이고 주소의 add 는 지워진다
+  await page.getByRole("link", { name: "가상 케이지에 놓아 보기", exact: true }).click();
+  await page.waitForURL(/\/cage$/);
+  await expect(page.getByText('"round-house.stl" 파일을 빈 자리에 놓았어요. 마음에 들면 저장하세요.')).toBeVisible();
+  await expect(status(page)).toHaveText("케이지 1000×500×500mm · 구조물 1개");
+  await expect(page.getByRole("heading", { level: 3, name: "round-house" })).toBeVisible();
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/cage-from-explore.png`, fullPage: true });
+
+  // 로그인하지 않은 사람도 놓아 볼 수 있다 (파일 목록의 '케이지에 놓기')
+  await page.context().clearCookies();
+  await page.goto(detailUrl);
+  await page.getByRole("link", { name: "round-house.stl 케이지에 놓기" }).click();
+  await page.waitForURL(/\/cage$/);
+  await expect(page.getByText('"round-house.stl" 파일을 빈 자리에 놓았어요. 마음에 들면 저장하세요.')).toBeVisible();
+  await expect(status(page)).toHaveText(/구조물 [12]개$/);
+});
+
+test("탐색: 이미지 없이 올린 작품은 올린 사람이 3D 모습으로 대표 이미지를 만든다", async ({ page }) => {
+  await adminLogin(page, "/explore/new");
+  await page.getByLabel("완성 파일 고르기").setInputFiles({ name: "plain.stl", mimeType: "model/stl", buffer: tetraStl(70) });
+  await expect(page.getByText("3D 파일로 만든 이미지")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("button", { name: /미리보기\.webp 빼기|미리보기\.png 빼기/ })).toBeVisible({ timeout: 30_000 });
+  await page.getByRole("button", { name: /미리보기\.(webp|png) 빼기/ }).click();
+  await page.getByLabel("제목", { exact: true }).fill("이미지 없는 STL");
+  await page.getByLabel("소개", { exact: true }).fill("대표 이미지를 나중에 만들어요.");
+  await page.getByRole("button", { name: "탐색에 올리기" }).click();
+  await page.waitForURL(/\/explore\/[0-9a-f]{32}$/);
+  await expect(page.getByRole("img", { name: "이미지 없는 STL 미리보기" })).toHaveCount(0);
+  await page.getByRole("button", { name: "이 3D 모습으로 대표 이미지 만들기" }).click();
+  await expect(page.getByRole("img", { name: "이미지 없는 STL 미리보기" })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("button", { name: "이 3D 모습으로 대표 이미지 만들기" })).toHaveCount(0);
+});

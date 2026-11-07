@@ -376,8 +376,6 @@ export type MarketItemInput = {
   category: MarketCategory;
   file_ids: string[];
   image_file_id: string | null;
-  design_id: string | null;
-  design_version: number | null;
   layout_id: string | null;
   post_to_community: boolean;
 };

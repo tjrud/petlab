@@ -9,7 +9,7 @@ import { ui } from "@/lib/ui";
 
 export const metadata: Metadata = {
   title: "탐색",
-  description: "보호자들이 만든 은신처·터널·경사로 SKP·3MF·STL 파일과 NestForge 설계를 나누는 곳.",
+  description: "보호자들이 만든 은신처·터널·경사로 SKP·3MF·STL 파일과 가상 케이지 배치를 나누는 곳.",
 };
 
 export default function MarketPage() {
@@ -20,7 +20,7 @@ export default function MarketPage() {
         <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
           <div className="min-w-0">
             <h1 className={ui.h1}>탐색</h1>
-            <p className={`${ui.muted} mt-1`}>보호자들이 만든 구조물 파일(SKP·3MF·STL)과 NestForge 설계를 내려받고 나누는 곳이에요.</p>
+            <p className={`${ui.muted} mt-1`}>보호자들이 만든 구조물 파일(SKP·3MF·STL)과 가상 케이지 배치를 내려받고 나누는 곳이에요.</p>
           </div>
           <Link href={NEW_MARKET_PATH} className={ui.btnPrimary}>
             작품 올리기

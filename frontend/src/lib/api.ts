@@ -173,7 +173,7 @@ export const api = {
   deleteMarketFile: (id: string) => request<void>(`/market/files/${encodeURIComponent(id)}`, json("DELETE")),
   marketItem: (id: string) => request<MarketItem>(`/market/items/${encodeURIComponent(id)}`),
   createMarketItem: (body: MarketItemInput) => request<MarketItem>("/market/items", json("POST", body)),
-  updateMarketItem: (id: string, body: { title?: string; description?: string; category?: string }) =>
+  updateMarketItem: (id: string, body: { title?: string; description?: string; category?: string; image_file_id?: string }) =>
     request<MarketItem>(`/market/items/${encodeURIComponent(id)}`, json("PATCH", body)),
   deleteMarketItem: (id: string) => request<void>(`/market/items/${encodeURIComponent(id)}`, json("DELETE")),
   startUpload: (filename: string, size: number, kind: "model" | "image") =>

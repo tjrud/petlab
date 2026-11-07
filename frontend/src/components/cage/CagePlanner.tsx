@@ -69,7 +69,10 @@ type Tab = "catalog" | "cage" | "saved";
 
 export default function CagePlanner() {
   const router = useRouter();
-  const wantedLayout = useSearchParams().get("layout");
+  const params = useSearchParams();
+  const wantedLayout = params.get("layout");
+  /** 탐색에서 "가상 케이지에 놓아 보기"로 들어오면(?add=파일 ID) 그 파일을 지금 배치의 빈 자리에 놓아요 */
+  const addFileParam = params.get("add");
   const { status, user } = useAuth();
   const userId = user?.id ?? null;
 
@@ -385,23 +388,66 @@ export default function CagePlanner() {
   );
 
   const addAsset = useCallback(
-    (asset: CageAsset) => {
+    /** 놓았으면 true (구조물 수 상한에 걸리면 false) */
+    (asset: CageAsset): boolean => {
       // 바닥재는 바닥 전체에 하나만: 깔려 있던 바닥재를 바꿔요 (가운데 기준, 고르지 않음)
       if (isFloorLayer(asset)) {
         const item: LayoutItem = { id: newItemId(), asset: asset.key, x_mm: round1(cage.width_mm / 2), y_mm: round1(cage.depth_mm / 2), rotation_deg: 0 };
         commit((d) => ({ ...d, items: [...d.items.filter((it) => !isFloorLayer(getAsset(it.asset))), item] }));
-        return;
+        return true;
       }
       if (items.length >= MAX_ITEMS) {
         setNotice({ kind: "error", text: `구조물은 ${MAX_ITEMS}개까지 놓을 수 있어요.` });
-        return;
+        return false;
       }
       const item = newItemAt(cage, items, asset, rules);
       commit((d) => ({ ...d, items: [...d.items, item] }));
       setSelectedId(item.id);
+      return true;
     },
     [cage, items, commit, rules],
   );
+
+  // ?add=파일 ID: 불러오기(임시 저장 되살리기)를 마친 뒤 한 번만 놓고, 주소에서 add 는 지워요
+  const addAssetRef = useRef(addAsset);
+  useEffect(() => {
+    addAssetRef.current = addAsset;
+  });
+  const handledAdd = useRef<string | null>(null);
+  useEffect(() => {
+    if (!addFileParam) {
+      handledAdd.current = null; // 주소에서 지운 뒤 같은 파일로 다시 들어오면 또 놓아요
+      return;
+    }
+    if (!ready || handledAdd.current === addFileParam) return;
+    handledAdd.current = addFileParam;
+    const dropParam = () => {
+      const url = new URL(window.location.href);
+      if (url.pathname !== "/cage" || url.searchParams.get("add") !== addFileParam) return;
+      url.searchParams.delete("add");
+      window.history.replaceState(null, "", `${url.pathname}${url.search}`);
+    };
+    if (!/^[0-9a-f]{32}$/.test(addFileParam)) {
+      dropParam();
+      return;
+    }
+    api.marketFile(addFileParam).then(
+      (f) => {
+        const asset = registerFileAsset(f, api.marketUrl);
+        setAssetVer((v) => v + 1);
+        if (!asset) {
+          setNotice({ kind: "error", text: f.format === "skp" ? "SketchUp 파일은 가상 케이지에 놓을 수 없어요." : "이 파일은 크기를 읽지 못해 놓을 수 없어요." });
+        } else if (addAssetRef.current(asset)) {
+          setNotice({ kind: "ok", text: `"${f.filename}" 파일을 빈 자리에 놓았어요. 마음에 들면 저장하세요.` });
+        }
+        dropParam();
+      },
+      (e: unknown) => {
+        setNotice({ kind: "error", text: e instanceof ApiError ? e.messageKo : "파일을 불러오지 못했어요." });
+        dropParam();
+      },
+    );
+  }, [ready, addFileParam]);
 
   const addStarter = useCallback(() => {
     commit((d) => {

@@ -4,12 +4,10 @@
 // 크기는 카탈로그(lib/cageAssets.ts)의 [가로, 세로, 높이] 안에 들어가게 맞춰요.
 
 import { RoundedBox } from "@react-three/drei";
-import { useLoader } from "@react-three/fiber";
-import { Component, Suspense, useMemo, type ReactNode } from "react";
+import { Suspense, useMemo } from "react";
 import * as THREE from "three";
-import { ThreeMFLoader } from "three/examples/jsm/loaders/3MFLoader.js";
-import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 
+import { LoadedMesh, MeshErrorBoundary } from "@/components/three/FileMesh";
 import type { CageAsset } from "@/lib/cageAssets";
 
 type MatProps = { color: string; emissive: string; emissiveIntensity: number };
@@ -360,76 +358,13 @@ function MeshFallback({ asset, m }: { asset: CageAsset; m: MatProps }) {
   );
 }
 
-class MeshErrorBoundary extends Component<{ fallback: ReactNode; children: ReactNode }, { failed: boolean }> {
-  state = { failed: false };
-  static getDerivedStateFromError() {
-    return { failed: true };
-  }
-  render() {
-    return this.state.failed ? this.props.fallback : this.props.children;
-  }
-}
-
-/** Blob 공개 주소는 쿠키 없이, API 경로(로컬 저장소)는 로그인 쿠키와 함께 받는다 */
-const needsCredentials = (url: string) => !url.includes(".blob.vercel-storage.com");
-
-/** 불러온 형상들을 바닥 가운데로 옮긴다 (가로·세로 가운데 0, 바닥 z=0). 단위는 mm 로 본다 */
-function centered(parts: { geometry: THREE.BufferGeometry; matrix: THREE.Matrix4 }[]) {
-  const box = new THREE.Box3();
-  for (const p of parts) {
-    p.geometry.computeBoundingBox();
-    box.union(p.geometry.boundingBox!.clone().applyMatrix4(p.matrix));
-  }
-  const offset = new THREE.Matrix4().makeTranslation(
-    -(box.min.x + box.max.x) / 2,
-    -(box.min.y + box.max.y) / 2,
-    -box.min.z,
-  );
-  return parts.map((p) => ({ geometry: p.geometry, matrix: offset.clone().multiply(p.matrix) }));
-}
-
-function StlMesh({ url, m }: { url: string; m: MatProps }) {
-  const geometry = useLoader(STLLoader, url, (l) => l.setWithCredentials(needsCredentials(url)));
-  const parts = useMemo(() => {
-    geometry.computeVertexNormals();
-    return centered([{ geometry, matrix: new THREE.Matrix4() }]);
-  }, [geometry]);
-  return <MeshParts parts={parts} m={m} />;
-}
-
-function ThreeMfMesh({ url, m }: { url: string; m: MatProps }) {
-  const group = useLoader(ThreeMFLoader, url, (l) => l.setWithCredentials(needsCredentials(url)));
-  const parts = useMemo(() => {
-    group.updateMatrixWorld(true);
-    const list: { geometry: THREE.BufferGeometry; matrix: THREE.Matrix4 }[] = [];
-    group.traverse((o) => {
-      const mesh = o as THREE.Mesh;
-      if (mesh.isMesh) list.push({ geometry: mesh.geometry, matrix: mesh.matrixWorld.clone() });
-    });
-    return centered(list);
-  }, [group]);
-  return <MeshParts parts={parts} m={m} />;
-}
-
-function MeshParts({ parts, m }: { parts: { geometry: THREE.BufferGeometry; matrix: THREE.Matrix4 }[]; m: MatProps }) {
-  return (
-    <group>
-      {parts.map((p, i) => (
-        <mesh key={i} geometry={p.geometry} matrix={p.matrix} matrixAutoUpdate={false} castShadow receiveShadow>
-          <Mat {...m} />
-        </mesh>
-      ))}
-    </group>
-  );
-}
-
 function FileMesh({ asset, m }: { asset: CageAsset; m: MatProps }) {
   if (!asset.mesh) return <MeshFallback asset={asset} m={m} />;
   const fallback = <MeshFallback asset={asset} m={m} />;
   return (
     <MeshErrorBoundary key={asset.mesh.url} fallback={fallback}>
       <Suspense fallback={fallback}>
-        {asset.mesh.format === "stl" ? <StlMesh url={asset.mesh.url} m={m} /> : <ThreeMfMesh url={asset.mesh.url} m={m} />}
+        <LoadedMesh url={asset.mesh.url} format={asset.mesh.format} material={() => <Mat {...m} />} />
       </Suspense>
     </MeshErrorBoundary>
   );
