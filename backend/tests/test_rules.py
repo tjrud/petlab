@@ -96,13 +96,24 @@ def test_sourced_values(rules):
     assert rules.size_rules("hamster", "syrian").tunnel_max_length_mm == 250
 
 
-def test_tunnel_max_shorter_than_min_diameter_rejected(rules_copy):
+@pytest.mark.parametrize("value", [40, 70])
+def test_tunnel_max_too_short_rejected(rules_copy, value):
+    """최소 내경(50)보다 짧거나, 템플릿 길이 하한(80)보다 짧으면 기동 때 거부한다 (70 은 터널을 만들 수 없다)."""
     _edit_species(
         rules_copy,
-        lambda d: d["species"]["hamster"]["sizes"]["dwarf"].update(tunnel_max_length_mm=40),
+        lambda d: d["species"]["hamster"]["sizes"]["dwarf"].update(tunnel_max_length_mm=value),
     )
     with pytest.raises(RuleFileError, match="tunnel_max_length_mm"):
         load_rules(rules_copy)
+
+
+def test_tunnel_length_floor_matches_template():
+    """로더의 길이 하한 상수가 터널 템플릿 length_mm 하한과 같은지 (순환 import 때문에 값을 따로 둔다)."""
+    from app.rules.loader import TUNNEL_LENGTH_FIELD_MIN_MM
+    from app.templates.tunnel import TunnelParams
+    from app.validation.autofix import field_bounds
+
+    assert field_bounds(TunnelParams, "length_mm")[0] == TUNNEL_LENGTH_FIELD_MIN_MM
 
 
 def test_missing_tunnel_max_rejected(rules_copy):

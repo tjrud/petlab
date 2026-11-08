@@ -151,7 +151,8 @@ def test_valid_first_try(req):
     user_msg = call["messages"][0]["content"]
     # 종별 기준 수치가 species.yaml 에서 주입되었는지
     assert '"출입구 최소 폭(mm)": 70.0' in user_msg
-    assert '"터널 최대 길이(mm) — 몸길이의 2배"' in user_msg
+    assert '"터널 최대 길이(mm) — 이 크기 구분에서 가장 작은 개체 몸길이의 2배"' in user_msg
+    assert '"터널 최대 휨 각도(도)' in user_msg
     assert "은신처를 왼쪽에" in user_msg
 
 

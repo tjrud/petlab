@@ -52,6 +52,7 @@ from app.services.engine import (
     run_engine,
 )
 from app.templates.registry import get_template
+from app.validation.autofix import rule_change_notices
 
 log = logging.getLogger(__name__)
 
@@ -527,7 +528,9 @@ class DesignService:
             for it in v.items
         ]
         report = dict(v.report)
-        issues = report.get("issues", [])
+        stored_issues = report.get("issues", [])
+        # 저장 뒤에 더한 기준을 넘는 값은 경고로만 덧붙인다 (저장된 보고서·통과 여부·내려받기는 그대로)
+        issues = stored_issues + self._rule_notices(design, v, stored_issues)
         errors = _unresolved_errors(issues)
         validation = {
             "passed": v.passed,
@@ -560,6 +563,26 @@ class DesignService:
                 created_at=v.created_at,
             ),
         )
+
+    def _rule_notices(self, design: Design, v: DesignVersion, stored_issues: list[dict]) -> list[dict]:
+        """저장된 버전이 그 뒤에 더한 기준(blocking=False, 예: 터널 최대 길이)을 넘으면 rule_changed 경고로 알린다.
+
+        보기 화면에서만 덧붙이고 저장하지 않는다. 검사하지 못하면(규칙에서 빠진 종·옛 파라미터) 조용히 건너뛴다:
+        보기를 막을 까닭이 아니다."""
+        seen = {(i.get("item_index"), (i.get("details") or {}).get("field"))
+                for i in stored_issues if i.get("code") == "rule_changed"}
+        try:
+            rctx = self._engine_ctx(design.habitat).rule_ctx
+            out: list[dict] = []
+            for it in v.items:
+                t = get_template(it["template"])
+                for n in rule_change_notices(t, t.load_stored_params(it["params"]), rctx, it["index"], it["label_ko"]):
+                    if (n.item_index, n.details.get("field")) not in seen:
+                        out.append(n.model_dump(mode="json"))
+            return out
+        except Exception:
+            log.exception("rule-change check failed: design=%s v=%s", design.id, v.version)
+            return []
 
     # ── 메시 / 내보내기 ──────────────────────────────────────
 

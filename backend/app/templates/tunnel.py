@@ -113,6 +113,20 @@ class TunnelTemplate(Template):
     def constraints(self, p: TunnelParams, ctx: RuleContext) -> list[ParamConstraint]:
         s = ctx.size
         d = max(p.inner_diameter_mm, s.tunnel_min_inner_diameter_mm)
+        max_len = s.tunnel_max_length_mm
+        shape_min = 1.5 * d
+        if shape_min > max_len:
+            min_reason = (f"터널 길이는 내경의 1.5배 이상이 좋지만 최대 길이 {max_len:g}mm 를 넘을 수 없어 "
+                          f"{max_len:g}mm 까지만 요구합니다")
+        else:
+            min_reason = "터널 길이는 내경의 1.5배 이상이어야 합니다"
+        bend_max = math.degrees(p.length_mm / d)
+        if p.length_mm >= max_len - 1e-6 and bend_max < 180:
+            # 더 길게 만들 수 없어 휨 각도가 막힌 경우: 까닭(최대 길이)을 밝힌다
+            bend_reason = (f"{s.display_name} 터널은 최대 {max_len:g}mm 라 이 내경으로는 {bend_max:.0f}° 까지만 "
+                           "휠 수 있습니다 (U자는 만들 수 없어 끝 출입구 방향이 바뀔 수 있습니다)")
+        else:
+            bend_reason = "굽힘이 너무 급하면 몸이 돌아 나가기 어려워 휘는 각도를 줄였습니다"
         return [
             ctx.wall_thickness_constraint(),
             ParamConstraint(
@@ -121,19 +135,19 @@ class TunnelTemplate(Template):
             ),
             ParamConstraint(
                 # 모양 기준(내경의 1.5배)보다 종별 최대 길이(동물 복지 기준)를 앞세운다: 둘이 부딪히면 최대 길이까지만 요구한다
-                "length_mm", min=min(1.5 * d, s.tunnel_max_length_mm),
-                reason_ko="터널 길이는 내경의 1.5배 이상이어야 합니다",
+                "length_mm", min=min(shape_min, max_len), reason_ko=min_reason,
             ),
             ParamConstraint(
-                # [근거] DTSchB: 플라스틱 튜브는 몸길이의 2배 이하일 때만 받아들일 수 있다 (환기·사용 설명 조건과 함께)
-                "length_mm", max=s.tunnel_max_length_mm, source="species",
-                reason_ko=(f"{s.display_name} 터널은 몸길이의 2배인 {s.tunnel_max_length_mm:g}mm 이하여야 합니다 "
-                           "(독일 동물보호연맹 기준)"),
+                # [근거] DTSchB: 플라스틱 튜브는 몸길이의 2배 이하일 때만 받아들일 수 있다 (환기·사용 설명 조건과 함께).
+                # 값(mm)은 species.yaml 이 이 크기 구분에서 가장 작은 개체 몸길이로 정한다.
+                # 나중에 더한 기준이라 그 전에 저장된 버전은 막지 않고 경고만 한다 (blocking=False)
+                "length_mm", max=max_len, source="species", blocking=False,
+                reason_ko=(f"터널 최대 길이는 {max_len:g}mm 입니다 (독일 동물보호연맹: 플라스틱 튜브는 몸길이의 2배 이하. "
+                           "이 크기 구분에서 가장 작은 개체 기준)"),
             ),
             ParamConstraint(
                 # 중심선 굽힘 반경 ≥ 내경 → 안쪽 벽이 겹치지 않고 몸이 돌아 나갈 수 있음
-                "bend_angle_deg", max=math.degrees(p.length_mm / d),
-                reason_ko="굽힘이 너무 급하면 몸이 돌아 나가기 어려워 휘는 각도를 줄였습니다",
+                "bend_angle_deg", max=bend_max, reason_ko=bend_reason,
             ),
         ]
 

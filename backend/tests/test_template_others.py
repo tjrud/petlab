@@ -108,10 +108,40 @@ def test_tunnel_max_length_rule(rules, size):
     assert any(i.code == "param_adjusted" and i.details["field"] == "length_mm" and "2배" in i.message_ko for i in issues)
     assert not [i for i in issues if i.code == "param_conflict"]
 
-    # 저장된 버전은 고치지 않고 '지금 기준 범위 밖'으로만 알린다
+    # 나중에 더한 기준이라 저장된 버전은 막지 않는다: 다시 검증해도 error 가 아닌 rule_changed 경고
     stored = constraint_violations(TUNNEL, too_long, c)
-    assert [i.details["field"] for i in stored] == ["length_mm"]
+    assert [(i.code, i.severity.value, i.details["field"]) for i in stored] == [("rule_changed", "warning", "length_mm")]
     assert stored[0].details["max"] == pytest.approx(max_len)
+    assert "그대로 내려받을 수 있" in stored[0].message_ko
+
+
+def test_dwarf_u_tunnel_reason_names_max_length(rules):
+    """드워프는 최대 길이 때문에 U자가 안 된다: 휨 각도를 줄일 때 까닭(최대 길이)을 밝힌다."""
+    from app.templates.tunnel import end_side
+    from app.validation.autofix import clamp_params
+
+    c = ctx(rules, "dwarf")
+    p = TUNNEL.default_params(c).model_copy(update={"bend_angle_deg": 180})
+    fixed, issues = clamp_params(TUNNEL, p, c)
+    assert fixed.bend_angle_deg < 180 and end_side(fixed.bend_angle_deg) != "front"
+    bend = [i for i in issues if i.details.get("field") == "bend_angle_deg"]
+    assert bend and "U자" in bend[0].message_ko and f"{c.size.tunnel_max_length_mm:g}mm" in bend[0].message_ko
+    # 골든은 최대 길이 250mm 라 내경 70~75 에서 U자가 된다
+    cs = ctx(rules, "syrian")
+    u = TunnelParams(length_mm=250, inner_diameter_mm=75, bend_angle_deg=180, wall_thickness_mm=3)
+    assert violated(TUNNEL, u, cs) == set()
+
+
+def test_min_length_reason_when_max_wins(rules):
+    """아주 넓은 드워프 터널: 내경 1.5배 대신 최대 길이까지만 요구하고, 메시지도 그렇게 말한다."""
+    from app.validation.autofix import clamp_params
+
+    c = ctx(rules, "dwarf")
+    p = TunnelParams(length_mm=80, inner_diameter_mm=120, bend_angle_deg=0, wall_thickness_mm=3)
+    fixed, issues = clamp_params(TUNNEL, p, c)
+    assert fixed.length_mm == pytest.approx(c.size.tunnel_max_length_mm)
+    msg = next(i.message_ko for i in issues if i.details.get("field") == "length_mm")
+    assert "까지만 요구합니다" in msg
 
 
 @pytest.mark.parametrize("size", ["dwarf", "syrian"])

@@ -167,12 +167,16 @@ def test_golden_engine_placements(rules):
         1: Placement(83.91197723675813, 416.0880232367581, 90),
         2: Placement(719.9538057742676, 460.0, 270)}
 
-    # 드워프 터널은 종별 최대 길이(몸길이 2배, species.yaml)로 기본 길이가 짧아진다
+    # 드워프 터널은 종별 최대 길이(몸길이 2배, species.yaml)로 기본 길이가 100mm 로 짧아지고,
+    # 그 길이로는 U자(180°)가 안 돼 휨 각도가 약 104° 로 줄어든다 (끝 출입구가 앞→옆)
     c = ctx(rules, Cage(600, 400, 300), size="dwarf", count=2)
     pair = [ItemSpec("hideout", _defaults("hideout", c), PlacementHint(zone="back_left")),
             ItemSpec("tunnel", _defaults("tunnel", c, bend_angle_deg=180), PlacementHint(zone="front")),
             ItemSpec("sand_bath", _defaults("sand_bath", c))]
-    assert _placements(run_engine(pair, c, measure_thickness=False).items) == {
+    pair_res = run_engine(pair, c, measure_thickness=False)
+    assert pair_res.items[1].params.length_mm == 100
+    assert pair_res.items[1].params.bend_angle_deg == pytest.approx(104.17, abs=0.05)
+    assert _placements(pair_res.items) == {
         0: Placement(70.0, 294.5, 0), 1: Placement(299.9999996557871, 42.74673735506598, 180),
         2: Placement(492.0, 242.0, 270)}
 

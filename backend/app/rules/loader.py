@@ -14,6 +14,10 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 
 PositiveMM = Annotated[float, Field(gt=0)]
 
+# 터널 템플릿 length_mm 의 하한 (app/templates/tunnel.py TunnelParams). 템플릿을 import 하면 순환하므로 값만 둔다.
+# 둘이 같은지는 tests/test_rules.py 가 확인한다
+TUNNEL_LENGTH_FIELD_MIN_MM = 80.0
+
 
 class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -73,9 +77,11 @@ class SizeRules(_Strict):
 
     @model_validator(mode="after")
     def _check_tunnel_length(self) -> "SizeRules":
-        # 최소 내경보다 짧은 터널은 터널이 아니다 (값 오타를 기동 때 잡는다)
-        if self.tunnel_max_length_mm < self.tunnel_min_inner_diameter_mm:
-            raise ValueError("tunnel_max_length_mm 는 tunnel_min_inner_diameter_mm 보다 짧을 수 없습니다")
+        # 최소 내경보다 짧은 터널은 터널이 아니고, 템플릿 길이 하한보다 짧으면 만들 수 없다 (값 오타를 기동 때 잡는다)
+        floor = max(self.tunnel_min_inner_diameter_mm, TUNNEL_LENGTH_FIELD_MIN_MM)
+        if self.tunnel_max_length_mm < floor:
+            raise ValueError(f"tunnel_max_length_mm 는 {floor:g} 이상이어야 합니다 "
+                             "(터널 최소 내경과 템플릿 길이 하한 중 큰 값)")
         return self
 
 

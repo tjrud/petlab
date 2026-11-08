@@ -41,6 +41,9 @@ class ParamConstraint:
     max: float | None = None
     source: Literal["species", "printing", "geometry"] = "geometry"
     reason_ko: str = ""
+    # False: 새 설계에서는 보정하지만, 이 기준이 생기기 전에 저장된 버전을 다시 검증할 때는 막지 않고 경고만 한다.
+    # 나중에 더한 복지 기준(예: 터널 최대 길이)용. 끼임·통과 폭처럼 안전에 바로 닿는 기준은 True 로 둔다.
+    blocking: bool = True
 
     def violates(self, value: float, eps: float = 1e-6) -> bool:
         return (self.min is not None and value < self.min - eps) or (
