@@ -42,6 +42,8 @@ export type CageAsset = {
   entranceMm?: number;
   /** 터널처럼 몸 전체가 지나가는 통로면 true (터널 최소 내경 기준으로 비교) */
   isTunnel?: boolean;
+  /** 터널 길이 mm: 종별 최대 길이(몸길이의 2배)와 비교해요 */
+  tunnelLengthMm?: number;
   /** 동물이 올라가는 높이 mm (플랫폼·경사로·다리·디딤돌): 종별 최대 높이와 비교해요 */
   climbHeightMm?: number;
   /** 넘어 들어가야 하는 턱 높이 mm (목욕통·땅굴 상자): 종별 최대 턱 높이와 비교해요 */
@@ -150,6 +152,7 @@ export const CAGE_ASSETS: CageAsset[] = [
     accessSides: ["left", "right"],
     entranceMm: 80,
     isTunnel: true,
+    tunnelLengthMm: 300,
   },
   {
     key: "dig_box",

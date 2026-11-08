@@ -35,6 +35,8 @@ def test_species_exposes_layout_rules(client):
     assert r["entrance_min_diameter_mm"] > 0 and r["max_climb_height_mm"] > 0
     assert r["hideout_min_entrances"] >= 1 and len(r["sand_bath_min_inner_mm"]) == 2
     assert r["enclosure_min_floor_mm"] == syrian["enclosure_min_floor_mm"]
+    # 터널 최대 길이(몸길이 2배): 가상 케이지의 터널 길이 경고에 쓴다
+    assert r["tunnel_max_length_mm"] >= r["tunnel_min_inner_diameter_mm"]
 
 
 def test_layouts_require_login(client):

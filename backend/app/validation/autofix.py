@@ -145,11 +145,16 @@ def constraint_violations(
     item_index: int | None = None,
     label_ko: str | None = None,
 ) -> list[Issue]:
-    """값을 고치지 않고 제약 위반만 error 로 알린다 (저장된 버전을 다시 검증할 때: 고치면 다른 설계가 된다)."""
+    """값을 고치지 않고 제약 위반만 error 로 알린다 (저장된 버전을 다시 검증할 때: 고치면 다른 설계가 된다).
+
+    막지 않는 제약(blocking=False, 나중에 더한 기준)은 error 대신 rule_changed 경고로 알린다."""
     cls = template.Params
     label = label_ko or template.display_name_ko
     out = []
     for c, v in _violations(template, params, ctx, extra):
+        if not c.blocking:
+            out.append(_rule_changed(cls, label, c, v, item_index))
+            continue
         out.append(Issue(
             code="param_out_of_range",
             severity=Severity.error,
@@ -159,6 +164,31 @@ def constraint_violations(
             details={"field": c.field, "value": v, "min": c.min, "max": c.max},
         ))
     return out
+
+
+def _rule_changed(cls: type[TemplateParams], label: str, c: ParamConstraint, v: Any, item_index: int | None) -> Issue:
+    return Issue(
+        code="rule_changed",
+        severity=Severity.warning,
+        item_index=item_index,
+        message_ko=(f"{label}: {_desc(cls, c.field)} {_fmt(v)} 이(가) 지금 기준을 넘습니다. {c.reason_ko.rstrip('.')}. "
+                    "이 기준은 이 버전을 저장한 뒤에 생겨 이 버전을 막지는 않으며, 설계를 수정하면 새 기준으로 맞춰집니다."),
+        details={"field": c.field, "value": v, "min": c.min, "max": c.max},
+    )
+
+
+def rule_change_notices(
+    template: Template,
+    params: TemplateParams,
+    ctx: RuleContext,
+    item_index: int | None = None,
+    label_ko: str | None = None,
+) -> list[Issue]:
+    """저장된 파라미터가 나중에 더한 기준(blocking=False)을 넘는지: 설계 화면에 경고로만 보여 준다."""
+    cls = template.Params
+    label = label_ko or template.display_name_ko
+    return [_rule_changed(cls, label, c, v, item_index)
+            for c, v in _violations(template, params, ctx, None) if not c.blocking]
 
 
 def _desc(cls: type[TemplateParams], name: str) -> str:

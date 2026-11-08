@@ -12,11 +12,19 @@
 #   TVT-Z  같은 협회, Merkblatt "Zwerghamster" (Phodopus: 정글리안·캠벨·로보로브스키)
 #   DTSchB Deutscher Tierschutzbund (독일 동물보호연맹), Positionspapier "Tierschutzwidriges Zubehör"
 #          (Stand 06/2024), 장 "Kleine Heimtiere"
+#   몸길이(머리·몸통, 꼬리 제외) — 터널 최대 길이 계산용
+#   K&V    Kryštufek & Vohralík (2009) Mammals of Turkey and Cyprus, Table 4: 골든 야생 개체(터키·시리아) 128–165mm
+#          (n=9, 나이 구분 없음. Handbook of the Mammals of the World vol.7, 2017 도 128–165mm)
+#   MS459  Ross (1994) Mammalian Species 459, Phodopus roborovskii: 몽골 67–76, 만주 53–60mm (각 n=4)
+#   MS595  Ross (1998) Mammalian Species 595, Phodopus sungorus(정글리안): 70–90mm
+#   MS503  Ross (1995) Mammalian Species 503, Phodopus campbelli(캠벨): 80–103mm
+#   WV     WikiVet "Hamster Breeds": 로보로브스키 성체 약 5cm (꼬리 포함 여부는 밝히지 않음)
+#   'Körperlänge'는 꼬리를 뺀 길이로 본다 (오스트리아 TSch-SV 부록 1: "L bezeichnet die Körperlänge des Tieres ohne Schwanz")
 #
 # 단위: 길이 mm, 각도 deg
 # 형식이 잘못되면(키 누락·오타·범위 오류) 서버가 기동하지 않고 오류를 알려줍니다.
 # ─────────────────────────────────────────────────────────────────────────────
-version: "0.2-draft"
+version: "0.3-draft"
 reviewed: false   # 전문가 검수 완료 시 true 로 변경
 
 species:
@@ -31,6 +39,13 @@ species:
         # 터널 최소 내경
         # [근거] TVT-Z: 출입구·통로(Röhren) 최소 5cm 폭
         tunnel_min_inner_diameter_mm: 50
+        # 터널 최대 길이 = 몸길이의 2배
+        # [근거] DTSchB: 플라스틱 튜브는 "höchstens die doppelte Körperlänge des Tieres"일 때만 받아들일 수 있다
+        #   몸길이는 이 구분에서 가장 작은 로보로브스키 기준 약 50mm (WV 약 5cm, MS459 최소 53mm) → 2 × 50.
+        #   mm 값 자체는 출처에 없고 위 몸길이로 계산한 값이다.
+        #   정글리안(70–90mm, MS595)·캠벨(80–103mm, MS503)만 키운다면 140mm 까지도 2배 안이지만, 크기 구분이 하나라 작은 쪽에 맞춘다.
+        #   이 길이에서는 굽힘 반경 ≥ 내경 조건 때문에 U자 터널(180°)은 만들 수 없다 (최소 내경 50mm 에서 최대 약 115°)
+        tunnel_max_length_mm: 100
         # 끼임 틈새 한계: safe_max < 틈 < passable_min 이면 끼임 위험으로 판정
         gap_trap:
           safe_max_mm: 4        # [임시] 발가락·발이 들어가지 않는 틈 (환기구 최대 지름도 이 값)
@@ -65,6 +80,9 @@ species:
         # [근거] TVT-G: 집·은신처·통로의 출입구는 최소 7cm 폭 (볼주머니가 찬 상태로도 지나가도록)
         entrance_min_diameter_mm: 70
         tunnel_min_inner_diameter_mm: 70    # [근거] TVT-G 같은 항목
+        # [근거] DTSchB 몸길이 2배. 몸길이는 야생 개체 최소 128mm (K&V) → 2 × 128 = 256, 10mm 단위로 내림 (mm 값은 계산값)
+        #   집·실험실 골든은 대개 이보다 크다 (MSD 수의 매뉴얼 170–180mm, 애완 골든 13cm 안팎이라는 자료도 있다)
+        tunnel_max_length_mm: 250
         gap_trap:
           safe_max_mm: 5                    # [임시]
           passable_min_mm: 70               # [근거] 출입구 최소 폭(TVT-G 7cm)과 같게 둔다

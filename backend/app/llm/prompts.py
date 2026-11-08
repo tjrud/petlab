@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import math
 
 from app.llm.base import InterpretRequest
 from app.templates.registry import all_templates
@@ -53,6 +54,9 @@ def build_user_message(req: InterpretRequest) -> str:
         "크기 구분": s.display_name,
         "출입구 최소 폭(mm)": s.entrance_min_diameter_mm,
         "터널 최소 내경(mm)": s.tunnel_min_inner_diameter_mm,
+        "터널 최대 길이(mm) — 이 크기 구분에서 가장 작은 개체 몸길이의 2배": s.tunnel_max_length_mm,
+        "터널 최대 휨 각도(도) — 최대 길이·최소 내경일 때 (굽힘 반경 ≥ 내경)": round(
+            min(180.0, math.degrees(s.tunnel_max_length_mm / s.tunnel_min_inner_diameter_mm)), 1),
         "끼임 안전 틈 최대(mm) — 환기구 지름 상한": s.gap_trap.safe_max_mm,
         "몸이 통과하는 최소 폭(mm)": s.gap_trap.passable_min_mm,
         "최소 벽 두께(mm)": req.min_wall_mm,

@@ -262,6 +262,16 @@ export function checkLayout(cage: Cage, items: LayoutItem[], rules: LayoutRules 
         );
       }
     }
+    if (asset.tunnelLengthMm !== undefined && rules.tunnel_max_length_mm !== undefined) {
+      if (asset.tunnelLengthMm > rules.tunnel_max_length_mm + TOL) {
+        add(
+          "warning",
+          `tunnellen:${item.id}`,
+          `${asset.name} 길이 ${fmt(asset.tunnelLengthMm)}가 터널 권장 최대 길이 ${fmt(rules.tunnel_max_length_mm)}보다 길어요. 독일 동물보호연맹은 플라스틱 튜브를 몸길이의 2배 이하로 권해요 (이 크기 구분에서 가장 작은 개체 기준).`,
+          item.id,
+        );
+      }
+    }
     if (asset.climbHeightMm !== undefined) {
       if (asset.climbHeightMm > rules.max_climb_height_mm + TOL) {
         add(

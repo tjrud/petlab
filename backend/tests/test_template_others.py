@@ -86,8 +86,85 @@ def test_tunnel_constraints(rules):
     c = ctx(rules)
     bad = TunnelParams(length_mm=100, inner_diameter_mm=50, bend_angle_deg=180, wall_thickness_mm=1.5)
     assert {"inner_diameter_mm", "wall_thickness_mm", "length_mm", "bend_angle_deg"} <= violated(TUNNEL, bad, c)
-    good = TunnelParams(length_mm=300, inner_diameter_mm=75, bend_angle_deg=90, wall_thickness_mm=3)
+    good = TunnelParams(length_mm=200, inner_diameter_mm=75, bend_angle_deg=90, wall_thickness_mm=3)
     assert violated(TUNNEL, good, c) == set()
+
+
+@pytest.mark.parametrize("size", ["dwarf", "syrian"])
+def test_tunnel_max_length_rule(rules, size):
+    """종별 최대 길이(몸길이 2배, DTSchB): 기본값은 그 안이고, 넘으면 위반·보정, 저장본은 범위 밖으로 알린다."""
+    from app.validation.autofix import clamp_params, constraint_violations
+
+    c = ctx(rules, size)
+    max_len = c.size.tunnel_max_length_mm
+    d = TUNNEL.default_params(c)
+    assert d.length_mm <= max_len
+    assert violated(TUNNEL, d, c) == set()
+
+    too_long = d.model_copy(update={"length_mm": max_len + 50})
+    assert "length_mm" in violated(TUNNEL, too_long, c)
+    fixed, issues = clamp_params(TUNNEL, too_long, c)
+    assert fixed.length_mm == pytest.approx(max_len)
+    assert any(i.code == "param_adjusted" and i.details["field"] == "length_mm" and "2배" in i.message_ko for i in issues)
+    assert not [i for i in issues if i.code == "param_conflict"]
+
+    # 나중에 더한 기준이라 저장된 버전은 막지 않는다: 다시 검증해도 error 가 아닌 rule_changed 경고
+    stored = constraint_violations(TUNNEL, too_long, c)
+    assert [(i.code, i.severity.value, i.details["field"]) for i in stored] == [("rule_changed", "warning", "length_mm")]
+    assert stored[0].details["max"] == pytest.approx(max_len)
+    assert "막지는 않" in stored[0].message_ko and "내려받을 수 있" not in stored[0].message_ko
+    assert "). 이 기준은" in stored[0].message_ko  # 까닭과 안내 사이에 마침표
+
+
+def test_dwarf_u_tunnel_reason_names_max_length(rules):
+    """드워프는 최대 길이 때문에 U자가 안 된다: 휨 각도를 줄일 때 까닭(최대 길이)을 밝힌다."""
+    from app.templates.tunnel import end_side
+    from app.validation.autofix import clamp_params
+
+    c = ctx(rules, "dwarf")
+    p = TUNNEL.default_params(c).model_copy(update={"bend_angle_deg": 180})
+    fixed, issues = clamp_params(TUNNEL, p, c)
+    assert fixed.bend_angle_deg < 180 and end_side(fixed.bend_angle_deg) != "front"
+    bend = [i for i in issues if i.details.get("field") == "bend_angle_deg"]
+    assert bend and "U자" in bend[0].message_ko and f"{c.size.tunnel_max_length_mm:g}mm" in bend[0].message_ko
+    # 최대 길이보다 짧은 터널에서 U자를 요청해도(예: '작은 U자 터널') 까닭을 밝힌다
+    short = TunnelParams(length_mm=85, inner_diameter_mm=55, bend_angle_deg=180, wall_thickness_mm=3)
+    _, issues2 = clamp_params(TUNNEL, short, c)
+    msg = next(i.message_ko for i in issues2 if i.details.get("field") == "bend_angle_deg")
+    assert "U자" in msg and "지금 길이로는" in msg
+    # 최대 길이 안에서 닿는 각도면 일반 문구 (U자 언급 없음)
+    reachable = TunnelParams(length_mm=85, inner_diameter_mm=55, bend_angle_deg=100, wall_thickness_mm=3)
+    _, issues3 = clamp_params(TUNNEL, reachable, c)
+    assert all("U자" not in i.message_ko for i in issues3)
+    # 골든은 최대 길이 250mm 라 내경 70~75 에서 U자가 된다
+    cs = ctx(rules, "syrian")
+    u = TunnelParams(length_mm=250, inner_diameter_mm=75, bend_angle_deg=180, wall_thickness_mm=3)
+    assert violated(TUNNEL, u, cs) == set()
+
+
+def test_min_length_reason_when_max_wins(rules):
+    """아주 넓은 드워프 터널: 내경 1.5배 대신 최대 길이까지만 요구하고, 메시지도 그렇게 말한다."""
+    from app.validation.autofix import clamp_params
+
+    c = ctx(rules, "dwarf")
+    p = TunnelParams(length_mm=80, inner_diameter_mm=120, bend_angle_deg=0, wall_thickness_mm=3)
+    fixed, issues = clamp_params(TUNNEL, p, c)
+    assert fixed.length_mm == pytest.approx(c.size.tunnel_max_length_mm)
+    msg = next(i.message_ko for i in issues if i.details.get("field") == "length_mm")
+    assert "까지만 요구합니다" in msg
+
+
+@pytest.mark.parametrize("size", ["dwarf", "syrian"])
+def test_tunnel_wide_and_short_has_no_conflict(rules, size):
+    """아주 넓은 터널이라도 '내경 1.5배 이상' 모양 기준이 최대 길이를 넘어서 요구하지 않는다 (복지 기준이 우선)."""
+    from app.validation.autofix import clamp_params
+
+    c = ctx(rules, size)
+    p = TunnelParams(length_mm=600, inner_diameter_mm=130, bend_angle_deg=0, wall_thickness_mm=c.default_wall_mm)
+    fixed, issues = clamp_params(TUNNEL, p, c)
+    assert not [i for i in issues if i.code == "param_conflict"]
+    assert fixed.length_mm <= c.size.tunnel_max_length_mm + 1e-6
+    assert violated(TUNNEL, fixed, c) == set()
 
 
 # ── 램프 / 계단 ────────────────────────────────────────────
