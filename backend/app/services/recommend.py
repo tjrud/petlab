@@ -32,6 +32,13 @@ def _iga(word: str) -> str:
     return word + ("이" if 0xAC00 <= code <= 0xD7A3 and (code - 0xAC00) % 28 else "가")
 
 
+def _in_layouts(name: str) -> str:
+    # 영어 카탈로그가 찾을 수 있게 조사를 문장 틀에 둔다 (이름 뒤에 붙이지 않고)
+    if _iga(name).endswith("이"):
+        return f"내 배치안에 {name}이 있어요"
+    return f"내 배치안에 {name}가 있어요"
+
+
 def asset_category(key: str) -> str | None:
     """가상 케이지 에셋 키 → 탐색 분류"""
     if key.startswith("hideout_") or key == "toilet_corner":
@@ -149,7 +156,7 @@ def recommend(db: Session, user: User | None, limit: int = 12) -> list[tuple[Mar
                 name = CATEGORY_NAME.get(it.category, it.category)
                 reason = {
                     "designs": f"내 설계에 {name} 구조물이 있어요",
-                    "layouts": "내 가상 케이지 배치와 비슷해요" if it.category == "layout" else f"내 배치안에 {_iga(name)} 있어요",
+                    "layouts": "내 가상 케이지 배치와 비슷해요" if it.category == "layout" else _in_layouts(name),
                     "events": f"자주 본 {name} 분류예요",
                     "pets": "내 반려동물과 같은 종·크기의 배치예요" if lay else "반려동물 케이지에 맞는 작품이에요",
                 }[best]

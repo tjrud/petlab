@@ -1,10 +1,12 @@
 // 가상 케이지 배치 예시를 위에서 본 그림 (탐색 작품 보기·올리기). 앞(관찰 면)이 아래쪽
 
+import { useT } from "@/i18n/client";
 import { fileIdOf, getAsset, isFloorLayer } from "@/lib/cageAssets";
 import { footprint } from "@/lib/cageLayout";
 import type { LayoutSnapshot } from "@/lib/types";
 
 export default function LayoutPreview({ layout, className = "" }: { layout: Pick<LayoutSnapshot, "cage" | "items">; className?: string }) {
+  const t = useT();
   const { width_mm: W, depth_mm: D } = layout.cage;
   const pad = Math.max(W, D) * 0.03;
   const bedding = layout.items.map((it) => getAsset(it.asset)).find((a) => isFloorLayer(a));
@@ -15,7 +17,11 @@ export default function LayoutPreview({ layout, className = "" }: { layout: Pick
       viewBox={`${-pad} ${-pad} ${W + pad * 2} ${D + pad * 2}`}
       className={className}
       role="img"
-      aria-label={`케이지 ${W}×${D}mm 배치를 위에서 본 그림, 구조물 ${layout.items.filter((it) => !isFloorLayer(getAsset(it.asset))).length}개`}
+      aria-label={t("케이지 {w}×{d}mm 배치를 위에서 본 그림, 구조물 {n}개", {
+        w: W,
+        d: D,
+        n: layout.items.filter((it) => !isFloorLayer(getAsset(it.asset))).length,
+      })}
     >
       <rect x={0} y={0} width={W} height={D} fill={bedding?.color ?? "#f6ead3"} stroke="#6b8fb5" strokeWidth={Math.max(W, D) * 0.004} />
       <rect x={0} y={D - Math.max(4, D * 0.012)} width={W} height={Math.max(4, D * 0.012)} fill="#f59e0b" />

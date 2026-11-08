@@ -1,6 +1,6 @@
 "use client";
 
-import { Link } from "@/i18n/client";
+import { Link, useT } from "@/i18n/client";
 import { useEffect, useEffectEvent, useRef } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
@@ -67,13 +67,15 @@ export function useDraftBackup<T>(key: string, draft: T | null, keep: boolean, r
   }, [key, userId]);
 }
 
-/** 로그인이 풀렸지만 쓰던 내용이 있어 폼을 그대로 둘 때의 안내 (다시 로그인하면 이 화면으로 돌아와 내용을 되살린다) */
+/** 로그인이 풀렸지만 쓰던 내용이 있어 폼을 그대로 둘 때의 안내 (다시 로그인하면 이 화면으로 돌아와 내용을 되살린다).
+ *  message 는 이미 보여 줄 문구(서버 오류 등)라 번역하지 않는다 */
 export function ReloginNotice({ next, message }: { next: string; message?: string }) {
+  const t = useT();
   return (
     <p role="alert" className={ui.error}>
-      {message ?? "로그인이 풀렸어요."} 쓰던 내용은 그대로 두었어요. 다시 로그인하고 돌아오면 이어서 쓸 수 있어요.{" "}
+      {message ?? t("로그인이 풀렸어요.")} {t("쓰던 내용은 그대로 두었어요. 다시 로그인하고 돌아오면 이어서 쓸 수 있어요.")}{" "}
       <Link href={withNext("/login", next)} className="font-semibold underline underline-offset-2">
-        다시 로그인하기
+        {t("다시 로그인하기")}
       </Link>
     </p>
   );

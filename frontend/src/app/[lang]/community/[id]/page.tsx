@@ -3,8 +3,12 @@ import { Suspense } from "react";
 
 import PostDetail, { PostPlaceholder } from "@/components/community/PostDetail";
 import Header from "@/components/Header";
+import { getT } from "@/i18n/server";
 
-export const metadata: Metadata = { title: "커뮤니티 글" };
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getT();
+  return { title: t("커뮤니티 글") };
+}
 
 export default function CommunityPostPage({ params }: { params: Promise<{ id: string }> }) {
   return (

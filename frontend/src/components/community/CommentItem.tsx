@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { useT } from "@/i18n/client";
 import { AuthorName, errorText } from "@/components/community/common";
 import { api, ApiError } from "@/lib/api";
 import type { Comment } from "@/lib/types";
@@ -9,11 +10,14 @@ import { formatDateTime, ui } from "@/lib/ui";
 
 /** 댓글 하나 (작성자·관리자는 지울 수 있다). 본문은 일반 텍스트로 보여 준다 */
 export default function CommentItem({ comment: c, onRemoved }: { comment: Comment; onRemoved: (id: string) => void }) {
+  const t = useT();
+  // 화면 낭독기용 "댓글" (한국어는 버튼 글자 앞, 영어는 뒤에 붙는다)
+  const [srBefore, srAfter = ""] = t("댓글 {action}").split("{action}");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function remove() {
-    if (!window.confirm("이 댓글을 삭제할까요?")) return;
+    if (!window.confirm(t("이 댓글을 삭제할까요?"))) return;
     setBusy(true);
     setError(null);
     try {
@@ -24,7 +28,7 @@ export default function CommentItem({ comment: c, onRemoved }: { comment: Commen
         onRemoved(c.id); // 이미 지워진 댓글
         return;
       }
-      setError(errorText(e, "댓글을 삭제하지 못했어요. 다시 시도해 주세요."));
+      setError(errorText(e, t("댓글을 삭제하지 못했어요. 다시 시도해 주세요.")));
       setBusy(false);
     }
   }
@@ -45,8 +49,9 @@ export default function CommentItem({ comment: c, onRemoved }: { comment: Commen
             disabled={busy}
             onClick={remove}
           >
-            <span className="sr-only">댓글 </span>
-            {busy ? "삭제 중…" : "삭제"}
+            <span className="sr-only">{srBefore}</span>
+            {busy ? t("삭제 중…") : t("삭제")}
+            {srAfter && <span className="sr-only">{srAfter}</span>}
           </button>
         )}
       </div>

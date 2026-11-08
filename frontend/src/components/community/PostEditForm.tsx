@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { useT } from "@/i18n/client";
 import { useAuth } from "@/components/AuthProvider";
 import { checkPost, errorText } from "@/components/community/common";
 import ImagePicker from "@/components/community/ImagePicker";
@@ -20,6 +21,7 @@ export default function PostEditForm({
   onSaved: (p: Post) => void;
   onCancel: () => void;
 }) {
+  const t = useT();
   const [title, setTitle] = useState(post.title);
   const [body, setBody] = useState(post.body);
   const [images, setImages] = useState<PostImage[]>(post.images ?? []);
@@ -39,7 +41,7 @@ export default function PostEditForm({
     e.preventDefault();
     setError(null);
     setTried(true);
-    const invalid = checkPost(title, body);
+    const invalid = checkPost(title, body, t);
     if (invalid) {
       setError(invalid);
       return;
@@ -57,13 +59,13 @@ export default function PostEditForm({
     try {
       onSaved(await api.updatePost(post.id, patch));
     } catch (err) {
-      setError(errorText(err, "글을 수정하지 못했어요. 다시 시도해 주세요."));
+      setError(errorText(err, t("글을 수정하지 못했어요. 다시 시도해 주세요.")));
       setSaving(false);
     }
   }
 
   return (
-    <form onSubmit={save} noValidate aria-label="글 수정" className="space-y-4">
+    <form onSubmit={save} noValidate aria-label={t("글 수정")} className="space-y-4">
       <PostFields
         idPrefix="edit"
         title={title}
@@ -82,10 +84,10 @@ export default function PostEditForm({
       )}
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         <button type="button" className={ui.btnSecondary} onClick={onCancel} disabled={saving}>
-          취소
+          {t("취소")}
         </button>
         <button type="submit" className={ui.btnPrimary} disabled={saving}>
-          {saving ? "저장 중…" : "저장"}
+          {saving ? t("저장 중…") : t("저장")}
         </button>
       </div>
     </form>

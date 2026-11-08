@@ -1,6 +1,6 @@
 "use client";
 
-import { Link } from "@/i18n/client";
+import { Link, useT } from "@/i18n/client";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -37,11 +37,13 @@ type Result =
   | { key: string; kind: "error"; message: string };
 
 export function MarketListPlaceholder() {
-  return <Placeholder rows={3} label="작품 목록을 불러오는 중이에요" rowClassName="h-40" />;
+  const t = useT();
+  return <Placeholder rows={3} label={t("작품 목록을 불러오는 중이에요")} rowClassName="h-40" />;
 }
 
 /** 탐색 (누구나): 추천(기본)·전체·분류별. 분류·페이지는 주소(?category=&page=)로 */
 export default function MarketList() {
+  const t = useT();
   const params = useSearchParams();
   const { user, status } = useAuth();
   const rawCat = params.get("category");
@@ -60,7 +62,7 @@ export default function MarketList() {
 
   useEffect(() => {
     let alive = true;
-    const fail = (e: unknown) => alive && setResult({ key, kind: "error", message: errorText(e, "작품 목록을 불러오지 못했어요.") });
+    const fail = (e: unknown) => alive && setResult({ key, kind: "error", message: errorText(e, t("작품 목록을 불러오지 못했어요.")) });
     if (category === null) {
       api.marketRecommended(PAGE_SIZE).then((items) => alive && setResult({ key, kind: "recommended", items }), fail);
     } else {
@@ -71,11 +73,11 @@ export default function MarketList() {
     return () => {
       alive = false;
     };
-  }, [page, category, key]);
+  }, [page, category, key, t]);
 
   const r = result?.key === key ? result : null;
   const chips = (
-    <nav aria-label="분류" className="mb-5 flex flex-wrap gap-1.5">
+    <nav aria-label={t("분류")} className="mb-5 flex flex-wrap gap-1.5">
       {[{ key: null, label: "추천" }, { key: ALL, label: "전체" }, ...MARKET_CATEGORIES].map((c) => {
         const on = category === c.key;
         return (
@@ -87,7 +89,7 @@ export default function MarketList() {
               on ? "border-amber-500 bg-amber-100 font-semibold text-amber-900" : "border-stone-300 text-stone-600 hover:bg-stone-50"
             }`}
           >
-            {c.label}
+            {t(c.label)}
           </Link>
         );
       })}
@@ -104,7 +106,7 @@ export default function MarketList() {
   const empty = (msg: string) => (
     <div className={`${ui.card} py-12 text-center`}>
       <p className="text-lg font-semibold">{msg}</p>
-      <p className="mt-1 text-sm text-stone-600">SKP·3MF·STL 파일이나 가상 케이지 배치를 올려 주세요.</p>
+      <p className="mt-1 text-sm text-stone-600">{t("SKP·3MF·STL 파일이나 가상 케이지 배치를 올려 주세요.")}</p>
     </div>
   );
 
@@ -116,12 +118,12 @@ export default function MarketList() {
         {chips}
         <p className={`${ui.muted} mb-3`}>
           {status === null
-            ? "3D로 바로 볼 수 있는 작품과 많이 내려받은 작품, 새 작품을 골랐어요."
+            ? t("3D로 바로 볼 수 있는 작품과 많이 내려받은 작품, 새 작품을 골랐어요.")
             : user
-              ? "내 설계·가상 케이지 배치안·반려동물·최근에 본 작품을 바탕으로 골랐어요."
-              : "3D로 바로 볼 수 있는 작품, 많이 내려받은 작품, 새 작품 순이에요. 로그인하면 내 설계와 반려동물에 맞춘 추천이 보여요."}
+              ? t("내 설계·가상 케이지 배치안·반려동물·최근에 본 작품을 바탕으로 골랐어요.")
+              : t("3D로 바로 볼 수 있는 작품, 많이 내려받은 작품, 새 작품 순이에요. 로그인하면 내 설계와 반려동물에 맞춘 추천이 보여요.")}
         </p>
-        {r.items.length === 0 ? empty("아직 추천할 작품이 없어요.") : grid(r.items)}
+        {r.items.length === 0 ? empty(t("아직 추천할 작품이 없어요.")) : grid(r.items)}
       </>
     );
   }
@@ -130,10 +132,10 @@ export default function MarketList() {
     <>
       {chips}
       {total === 0 ? (
-        empty(category === ALL ? "아직 올라온 작품이 없어요." : "이 분류에는 아직 작품이 없어요.")
+        empty(category === ALL ? t("아직 올라온 작품이 없어요.") : t("이 분류에는 아직 작품이 없어요."))
       ) : (
         <>
-          <p className={`${ui.muted} mb-3`}>작품 {total}개</p>
+          <p className={`${ui.muted} mb-3`}>{t("작품 {n}개", { n: total })}</p>
           {grid(items)}
           {total > page_size && (
             <Pagination page={page} totalPages={Math.ceil(total / page_size)} hrefFor={(p) => listHref(category, p)} />

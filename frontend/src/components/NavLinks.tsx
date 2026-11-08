@@ -1,7 +1,6 @@
 "use client";
 
-import { Link } from "@/i18n/client";
-import { usePathname } from "@/i18n/client";
+import { Link, usePathname, useT } from "@/i18n/client";
 import { useEffect, useRef, useState } from "react";
 
 export const NAV = [
@@ -25,6 +24,7 @@ function isActive(pathname: string, href: string): boolean {
  * 좁은 화면은 헤더 아래 줄에 모두(all) 가로로 보인다.
  */
 export default function NavLinks({ className = "", part = "all" }: { className?: string; part?: "main" | "me" | "all" }) {
+  const t = useT();
   const pathname = usePathname() ?? "/";
   const items = part === "main" ? NAV : part === "me" ? [ME_NAV] : [...NAV, ME_NAV];
   const list = useRef<HTMLUListElement>(null);
@@ -69,7 +69,7 @@ export default function NavLinks({ className = "", part = "all" }: { className?:
         : "";
 
   return (
-    <nav aria-label={part === "me" ? "내 정보 메뉴" : "주 메뉴"} className={className}>
+    <nav aria-label={part === "me" ? t("내 정보 메뉴") : t("주 메뉴")} className={className}>
       <ul
         ref={list}
         className={`flex items-center gap-1 overflow-x-auto text-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${fade}`}
@@ -85,7 +85,7 @@ export default function NavLinks({ className = "", part = "all" }: { className?:
                   active ? "bg-amber-100 font-semibold text-amber-900" : "text-stone-600 hover:bg-stone-100"
                 }`}
               >
-                {n.label}
+                {t(n.label)}
               </Link>
             </li>
           );

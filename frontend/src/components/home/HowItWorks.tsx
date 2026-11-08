@@ -1,4 +1,5 @@
 import { IconChevronRight, IconCube, IconPencil, IconSparkle } from "@/components/home/icons";
+import { getT } from "@/i18n/server";
 
 const STEPS = [
   {
@@ -18,24 +19,25 @@ const STEPS = [
   },
 ];
 
-export default function HowItWorks() {
+export default async function HowItWorks() {
+  const t = await getT();
   return (
     <section aria-labelledby="how-title" className="mt-12">
       <h2 id="how-title" className="text-xl font-bold sm:text-2xl">
-        이렇게 만들어요
+        {t("이렇게 만들어요")}
       </h2>
-      <p className="mt-1 text-sm text-stone-600">세 단계로 진행돼요.</p>
+      <p className="mt-1 text-sm text-stone-600">{t("세 단계로 진행돼요.")}</p>
       <ol className="mt-5 grid gap-3 md:grid-cols-3 md:gap-8">
         {STEPS.map(({ title, body, Icon }, i) => (
           <li key={title} className="relative rounded-2xl border border-amber-200 bg-white p-5 shadow-sm">
             <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold text-amber-700">{i + 1}단계</span>
+              <span className="text-sm font-semibold text-amber-700">{t("{n}단계", { n: i + 1 })}</span>
               <span className="grid h-10 w-10 place-items-center rounded-xl bg-teal-50 text-teal-800">
                 <Icon className="h-5 w-5" />
               </span>
             </div>
-            <h3 className="mt-2 font-semibold sm:text-lg">{title}</h3>
-            <p className="mt-1 text-sm leading-relaxed text-stone-600">{body}</p>
+            <h3 className="mt-2 font-semibold sm:text-lg">{t(title)}</h3>
+            <p className="mt-1 text-sm leading-relaxed text-stone-600">{t(body)}</p>
             {i < STEPS.length - 1 && (
               <IconChevronRight className="absolute -right-6 top-1/2 hidden h-4 w-4 -translate-y-1/2 text-amber-400 md:block" />
             )}

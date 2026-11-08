@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import math
 
+from app.i18n import catalog
 from app.llm.base import InterpretRequest
 from app.templates.registry import all_templates
 
@@ -30,7 +31,8 @@ SYSTEM_PROMPT = """\
 - 요구사항에 없는 구조물을 임의로 추가하지 마세요. 요청이 모호하면 은신처 1개처럼 무난한 구성을 고르세요.
 - 지원하지 않는 구조물을 요청받으면 notes_ko 에 그 사실을 적고 가능한 템플릿으로만 설계하세요.
 - 설계 수정 요청이면 직전 설계를 바탕으로, 요청된 부분만 바꾼 전체 설계를 다시 출력하세요.
-- summary_ko 와 reason_ko 는 보호자가 읽기 쉬운 한국어로 씁니다.
+- summary_ko, reason_ko, notes_ko 는 보호자가 읽기 쉬운 한국어로 씁니다. 단, 사용자 메시지에 "응답 언어" 지시가 있으면
+  그 언어로 씁니다 (필드 이름은 언어와 상관없이 그대로 둡니다).
 """
 
 
@@ -90,8 +92,28 @@ def build_user_message(req: InterpretRequest) -> str:
         ]
     else:
         parts += ["## 보호자 요구사항", req.prompt]
+    if req.language == "en":
+        parts += ["## 응답 언어 (Output language)", english_instruction(req)]
     parts.append("위 내용을 바탕으로 설계 JSON 을 출력하세요.")
     return "\n\n".join(parts)
+
+
+# 영어 설명에 쓸 용어 (사이트 영어 화면과 같은 말)
+ENGLISH_TERMS = "cage, hideout, tunnel, ramp, stairs, sand bath, wheel, bedding, food bowl, water bottle, layout, design"
+
+
+def english_instruction(req: InterpretRequest) -> str:
+    """영어 페이지에서 온 요청: 설명 필드를 영어로 쓰게 한다. 시스템 프롬프트는 고정(캐시)이라 사용자 메시지에 넣는다."""
+    cat = catalog()
+    pet = f"{cat.translate(req.size_rules.display_name)} {cat.translate(req.habitat.species_name_ko).lower()}"
+    return (
+        "The owner is using the English site. Write summary_ko, every reason_ko and every notes_ko entry in natural, "
+        "concise US English for hamster owners (friendly, not chatty). Do not write Korean in these fields. "
+        "Keep every JSON field name exactly as defined (summary_ko, reason_ko, notes_ko stay as they are). "
+        "The owner's request may be in English or Korean; follow it either way.\n"
+        f"Preferred terms: {ENGLISH_TERMS}. Use mm for sizes and ° for angles. "
+        f"Call the pet a {pet}."
+    )
 
 
 def build_retry_message(errors: str) -> str:

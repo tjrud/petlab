@@ -1,6 +1,6 @@
 "use client";
 
-import { Link } from "@/i18n/client";
+import { Link, useT } from "@/i18n/client";
 import { useEffect, useState } from "react";
 
 import { ApiError, errorText } from "@/lib/api";
@@ -70,16 +70,17 @@ export function LoadError({
   needsLogin: boolean;
   onRetry: () => void;
 }) {
+  const t = useT();
   return (
     <div role="alert" className={`${ui.error} flex flex-wrap items-center justify-between gap-2`}>
       <span>{message}</span>
       {needsLogin ? (
         <Link href="/login" className="font-semibold underline underline-offset-2">
-          다시 로그인하기
+          {t("다시 로그인하기")}
         </Link>
       ) : (
         <button type="button" onClick={onRetry} className="font-semibold underline underline-offset-2">
-          다시 불러오기
+          {t("다시 불러오기")}
         </button>
       )}
     </div>

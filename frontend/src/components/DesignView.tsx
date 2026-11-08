@@ -1,7 +1,6 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useRouter } from "@/i18n/client";
 import { useEffect, useState } from "react";
 
 import DesignLoadError from "@/components/designs/DesignLoadError";
@@ -13,20 +12,27 @@ import LoginRequired from "@/components/LoginRequired";
 import RevisePanel from "@/components/RevisePanel";
 import ValidationPanel from "@/components/ValidationPanel";
 import VersionList from "@/components/VersionList";
+import { useRouter, useT } from "@/i18n/client";
 import { api, ApiError, errorText, isAuthError, isEmailUnverified } from "@/lib/api";
 import type { Design } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
 const CageViewer = dynamic(() => import("@/components/CageViewer"), {
   ssr: false,
-  loading: () => <div className="grid h-full place-items-center text-sm text-stone-500">3D 뷰어 준비 중…</div>,
+  loading: () => <ViewerLoading />,
 });
+
+function ViewerLoading() {
+  const t = useT();
+  return <div className="grid h-full place-items-center text-sm text-stone-500">{t("3D 뷰어 준비 중…")}</div>;
+}
 
 /**
  * 설계 화면. 내 설계는 수정·공유할 수 있고, 남의 설계는 읽기 전용으로 보여 준다
  * (다른 사람에게는 커뮤니티 글에 첨부된 버전만 오고, 관리자도 남의 설계는 고치거나 공유하지 못한다).
  */
 export default function DesignView({ id, initialVersion }: { id: string; initialVersion?: number }) {
+  const t = useT();
   const router = useRouter();
   const [design, setDesign] = useState<Design | null>(null);
   /** 이 설계를 지웠다. 화면이 숨겨진 채 남았다가(뒤로 가기 등) 다시 보여도 지운 설계를 다루지 못하게 한다 */
@@ -55,13 +61,13 @@ export default function DesignView({ id, initialVersion }: { id: string; initial
           setLoadError(
             e instanceof ApiError
               ? { status: e.status, message: e.messageKo }
-              : { status: 0, message: "설계를 불러오지 못했어요." },
+              : { status: 0, message: t("설계를 불러오지 못했어요.") },
           );
       });
     return () => {
       alive = false;
     };
-  }, [id, initialVersion]);
+  }, [id, initialVersion, t]);
 
   async function pickVersion(v: number) {
     setBusy(true);
@@ -71,7 +77,7 @@ export default function DesignView({ id, initialVersion }: { id: string; initial
       setSelected(null);
     } catch (e) {
       if (isAuthError(e)) setAuthError(e);
-      else setActionError(errorText(e, "버전을 불러오지 못했어요."));
+      else setActionError(errorText(e, t("버전을 불러오지 못했어요.")));
     } finally {
       setBusy(false);
     }
@@ -91,7 +97,7 @@ export default function DesignView({ id, initialVersion }: { id: string; initial
       // 화면 전체를 로그인 안내로 바꾸지 않는다: 쓰던 수정 요청이 사라지지 않게
       if (isAuthError(e)) setReviseNeedsLogin(true);
       else if (isEmailUnverified(e)) setReviseEmailBlocked(true);
-      else setActionError(errorText(e, "수정 중 문제가 생겼어요. 다시 시도해 주세요."));
+      else setActionError(errorText(e, t("수정 중 문제가 생겼어요. 다시 시도해 주세요.")));
       return false;
     } finally {
       setBusy(false);
@@ -112,13 +118,13 @@ export default function DesignView({ id, initialVersion }: { id: string; initial
     );
   }
   if (deleted) {
-    return <div className="py-20 text-center text-stone-500">지운 설계예요.</div>;
+    return <div className="py-20 text-center text-stone-500">{t("지운 설계예요.")}</div>;
   }
   if (loadError && !design) {
     return <DesignLoadError status={loadError.status} message={loadError.message} />;
   }
   if (!design) {
-    return <div className="py-20 text-center text-stone-500">설계를 불러오는 중…</div>;
+    return <div className="py-20 text-center text-stone-500">{t("설계를 불러오는 중…")}</div>;
   }
 
   const cur = design.current;
@@ -145,11 +151,13 @@ export default function DesignView({ id, initialVersion }: { id: string; initial
             onSelect={setSelected}
           />
         </div>
-        <p className="text-xs text-stone-500">드래그로 회전, 휠로 확대·축소, 구조물을 누르면 상세 정보를 볼 수 있어요.</p>
+        <p className="text-xs text-stone-500">
+          {t("드래그로 회전, 휠로 확대·축소, 구조물을 누르면 상세 정보를 볼 수 있어요.")}
+        </p>
         <div className="rounded-2xl border border-stone-200 bg-white p-4">
-          <p className="text-xs font-medium text-stone-500">요청</p>
+          <p className="text-xs font-medium text-stone-500">{t("요청")}</p>
           <p className="mt-1 whitespace-pre-wrap break-words">{cur.prompt}</p>
-          <p className="mt-3 text-xs font-medium text-stone-500">설계 설명</p>
+          <p className="mt-3 text-xs font-medium text-stone-500">{t("설계 설명")}</p>
           <p className="mt-1 leading-relaxed">{cur.summary_ko}</p>
           {cur.notes_ko.length > 0 && (
             <ul className="mt-2 list-disc pl-5 text-sm text-stone-600">

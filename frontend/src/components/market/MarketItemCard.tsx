@@ -1,14 +1,16 @@
 /* eslint-disable @next/next/no-img-element -- 미리보기는 Blob 공개 주소(외부)에서 바로 받는다 */
-import { Link } from "@/i18n/client";
+import { Link, useLang, useT } from "@/i18n/client";
 
 import { AuthorName } from "@/components/community/common";
-import { FormatChips, imageSrc, marketHref, NoPreview } from "@/components/market/common";
+import { FormatChips, imageSrc, marketHref, NoPreview, reasonText } from "@/components/market/common";
 import type { MarketItemSummary } from "@/lib/types";
 import { formatDate } from "@/lib/ui";
 
 /** 탐색 목록의 작품 카드 */
 /** eager: 첫 줄 카드는 이미지를 미리 받는다 (나머지는 화면에 들어올 때) */
 export default function MarketItemCard({ item, eager = false }: { item: MarketItemSummary; eager?: boolean }) {
+  const t = useT();
+  const lang = useLang();
   return (
     <li>
       <Link
@@ -29,16 +31,16 @@ export default function MarketItemCard({ item, eager = false }: { item: MarketIt
           )}
         </div>
         <div className="flex flex-1 flex-col gap-2 p-4">
-          <p className="text-xs font-medium text-amber-800">{item.category_name_ko}</p>
+          <p className="text-xs font-medium text-amber-800">{t(item.category_name_ko)}</p>
           <h2 className="break-words font-semibold leading-snug">{item.title}</h2>
           <FormatChips formats={item.formats} />
-          {item.reason_ko && <p className="text-xs text-teal-800">{item.reason_ko}</p>}
+          {item.reason_ko && <p className="text-xs text-teal-800">{reasonText(item.reason_ko, lang, t)}</p>}
           <p className="mt-auto flex flex-wrap items-center gap-x-2 gap-y-1 pt-1 text-xs text-stone-500">
             <AuthorName author={item.author} />
             <span aria-hidden>·</span>
             <time dateTime={item.created_at}>{formatDate(item.created_at)}</time>
             <span aria-hidden>·</span>
-            <span>내려받기 {item.download_count}</span>
+            <span>{t("내려받기 {n}", { n: item.download_count })}</span>
           </p>
         </div>
       </Link>

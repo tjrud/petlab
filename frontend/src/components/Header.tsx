@@ -6,15 +6,17 @@ import AuthMenu from "@/components/AuthMenu";
 import LangSwitch from "@/components/LangSwitch";
 import { EmailVerifyBanner } from "@/components/EmailVerification";
 import NavLinks from "@/components/NavLinks";
+import { getT } from "@/i18n/server";
 
-export default function Header() {
+export default async function Header() {
+  const t = await getT();
   return (
     <>
       <header className="sticky top-0 z-20 border-b border-amber-200/70 bg-white/80 backdrop-blur">
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4 py-3">
           {/* 로고 쪽은 줄어들지 않게: 좁은 화면(320px)에서 닉네임이 로고 위로 겹치지 않고 닉네임이 줄어든다 */}
           <div className="flex shrink-0 items-center gap-4 lg:gap-6">
-            <Link href="/" className="flex shrink-0 items-center" aria-label="NestForge 홈">
+            <Link href="/" className="flex shrink-0 items-center" aria-label={t("NestForge 홈")}>
               {/* 로고는 글자까지 도형으로 된 SVG (brand/README.md). 비율을 바꾸지 않도록 높이만 지정한다 */}
               <Image
                 src="/logo/logo-on-light.svg"

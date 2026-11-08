@@ -4,6 +4,8 @@ import { useId, useLayoutEffect, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
 import { ResendVerification } from "@/components/EmailVerification";
+import { useT } from "@/i18n/client";
+import type { TFunction } from "@/i18n/translate";
 import { api, ApiError, errorText, isAuthError } from "@/lib/api";
 import { isPlausibleEmail } from "@/lib/email";
 import type { User } from "@/lib/types";
@@ -14,13 +16,13 @@ import { Field } from "./common";
 type Key = "email" | "password";
 type Errors = Partial<Record<Key, string>>;
 
-function validate(email: string, password: string, current: string | null): Errors {
+function validate(email: string, password: string, current: string | null, t: TFunction): Errors {
   const errors: Errors = {};
   const v = email.trim();
-  if (!v) errors.email = "새 이메일 주소를 입력해 주세요.";
-  else if (!isPlausibleEmail(v)) errors.email = "이메일 주소를 확인해 주세요.";
-  else if (current && v.toLowerCase() === current.toLowerCase()) errors.email = "지금 쓰고 있는 이메일과 같아요.";
-  if (!password) errors.password = "본인 확인을 위해 지금 쓰는 비밀번호를 입력해 주세요.";
+  if (!v) errors.email = t("새 이메일 주소를 입력해 주세요.");
+  else if (!isPlausibleEmail(v)) errors.email = t("이메일 주소를 확인해 주세요.");
+  else if (current && v.toLowerCase() === current.toLowerCase()) errors.email = t("지금 쓰고 있는 이메일과 같아요.");
+  if (!password) errors.password = t("본인 확인을 위해 지금 쓰는 비밀번호를 입력해 주세요.");
   return errors;
 }
 
@@ -30,6 +32,7 @@ function validate(email: string, password: string, current: string | null): Erro
  */
 export default function EmailForm({ user, onAuthError }: { user: User; onAuthError: (e: ApiError) => void }) {
   const { status, setStatus } = useAuth();
+  const t = useT();
   const verificationOn = !!status?.email_verification;
   const uid = useId();
   const fieldId = (k: Key) => `${uid}-${k}`;
@@ -54,14 +57,14 @@ export default function EmailForm({ user, onAuthError }: { user: User; onAuthErr
   if (!verificationOn && !user.email) return null;
 
   const showForm = open || !user.email;
-  const errors = submitted ? validate(email, password, user.email) : {};
+  const errors = submitted ? validate(email, password, user.email, t) : {};
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setDone(null);
     setSubmitted(true);
-    const problems = validate(email, password, user.email);
+    const problems = validate(email, password, user.email, t);
     const first = (["email", "password"] as const).find((k) => problems[k]);
     if (first) {
       document.getElementById(fieldId(first))?.focus();
@@ -75,10 +78,10 @@ export default function EmailForm({ user, onAuthError }: { user: User; onAuthErr
       const addr = auth.user?.email ?? email.trim();
       setDone(
         sent === true
-          ? `새 주소로 인증 메일을 보냈어요 (${addr}). 메일의 링크를 눌러 인증을 마쳐 주세요.`
+          ? t("새 주소로 인증 메일을 보냈어요 ({email}). 메일의 링크를 눌러 인증을 마쳐 주세요.", { email: addr })
           : sent === false
-            ? "이메일을 바꿨지만 인증 메일을 보내지 못했어요. 잠시 뒤 인증 메일을 다시 보내 주세요."
-            : "이메일을 바꿨어요.",
+            ? t("이메일을 바꿨지만 인증 메일을 보내지 못했어요. 잠시 뒤 인증 메일을 다시 보내 주세요.")
+            : t("이메일을 바꿨어요."),
       );
       setEmail("");
       setPassword("");
@@ -90,8 +93,8 @@ export default function EmailForm({ user, onAuthError }: { user: User; onAuthErr
         return;
       }
       const code = err instanceof ApiError ? err.code : undefined;
-      if (code === "validation_error") setError("이메일 주소를 확인해 주세요.");
-      else setError(errorText(err, "이메일을 바꾸지 못했어요. 잠시 뒤 다시 시도해 주세요."));
+      if (code === "validation_error") setError(t("이메일 주소를 확인해 주세요."));
+      else setError(errorText(err, t("이메일을 바꾸지 못했어요. 잠시 뒤 다시 시도해 주세요.")));
       if (code === "invalid_credentials") {
         setPassword("");
         document.getElementById(fieldId("password"))?.focus();
@@ -106,26 +109,26 @@ export default function EmailForm({ user, onAuthError }: { user: User; onAuthErr
   return (
     <div id="email" aria-labelledby={`${uid}-title`} role="group" className="scroll-mt-32 space-y-3">
       <h3 id={`${uid}-title`} className="font-semibold">
-        이메일
+        {t("이메일")}
       </h3>
       {user.email ? (
         <p className="flex flex-wrap items-center gap-2 text-sm">
           <span className="break-all font-medium text-stone-800">{user.email}</span>
           {verificationOn &&
             (user.email_verified ? (
-              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">인증됨</span>
+              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">{t("인증됨")}</span>
             ) : (
-              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">인증 전</span>
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">{t("인증 전")}</span>
             ))}
         </p>
       ) : (
         <p className="text-sm text-stone-600">
-          아직 등록한 이메일이 없어요. 이메일을 등록하고 인증하면 설계·글쓰기·댓글을 쓸 수 있어요.
+          {t("아직 등록한 이메일이 없어요. 이메일을 등록하고 인증하면 설계·글쓰기·댓글을 쓸 수 있어요.")}
         </p>
       )}
       {verificationOn && user.email && !user.email_verified && (
         <div className="rounded-lg bg-amber-50 p-3 text-sm text-amber-950">
-          <p>메일함에서 인증 링크를 눌러 주세요. 메일이 없다면 다시 보낼 수 있어요.</p>
+          <p>{t("메일함에서 인증 링크를 눌러 주세요. 메일이 없다면 다시 보낼 수 있어요.")}</p>
           <ResendVerification className="mt-1" />
         </div>
       )}
@@ -136,13 +139,13 @@ export default function EmailForm({ user, onAuthError }: { user: User; onAuthErr
       )}
 
       {showForm ? (
-        <form onSubmit={submit} noValidate aria-label={user.email ? "이메일 바꾸기" : "이메일 등록"} className="space-y-3">
+        <form onSubmit={submit} noValidate aria-label={user.email ? t("이메일 바꾸기") : t("이메일 등록")} className="space-y-3">
           {/* 비밀번호 관리 프로그램이 어느 계정의 비밀번호인지 알 수 있게 아이디를 함께 둔다 */}
           <input type="text" name="username" autoComplete="username" value={user.username} readOnly hidden />
           <Field
             id={fieldId("email")}
-            label={user.email ? "새 이메일" : "이메일"}
-            hint={verificationOn ? "새 주소로 인증 메일을 보내요. 인증을 마칠 때까지는 인증 전 상태가 돼요." : undefined}
+            label={user.email ? t("새 이메일") : t("이메일")}
+            hint={verificationOn ? t("새 주소로 인증 메일을 보내요. 인증을 마칠 때까지는 인증 전 상태가 돼요.") : undefined}
             error={errors.email}
             type="email"
             inputMode="email"
@@ -159,7 +162,7 @@ export default function EmailForm({ user, onAuthError }: { user: User; onAuthErr
           />
           <Field
             id={fieldId("password")}
-            label="비밀번호 (본인 확인)"
+            label={t("비밀번호 (본인 확인)")}
             error={errors.password}
             type="password"
             autoComplete="current-password"
@@ -177,7 +180,7 @@ export default function EmailForm({ user, onAuthError }: { user: User; onAuthErr
           )}
           <div className="flex flex-wrap gap-2">
             <button type="submit" disabled={submitting} className={ui.btnSecondary}>
-              {submitting ? "바꾸는 중…" : user.email ? "이메일 변경" : "이메일 등록"}
+              {submitting ? t("바꾸는 중…") : user.email ? t("이메일 변경") : t("이메일 등록")}
             </button>
             {user.email && (
               <button
@@ -192,7 +195,7 @@ export default function EmailForm({ user, onAuthError }: { user: User; onAuthErr
                   setError(null);
                 }}
               >
-                취소
+                {t("취소")}
               </button>
             )}
           </div>
@@ -206,7 +209,7 @@ export default function EmailForm({ user, onAuthError }: { user: User; onAuthErr
             setDone(null);
           }}
         >
-          이메일 바꾸기
+          {t("이메일 바꾸기")}
         </button>
       )}
     </div>

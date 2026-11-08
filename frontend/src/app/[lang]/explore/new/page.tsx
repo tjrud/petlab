@@ -3,22 +3,28 @@ import { Link } from "@/i18n/client";
 import { Suspense } from "react";
 
 import Header from "@/components/Header";
+import { getT } from "@/i18n/server";
 import { MARKET_PATH } from "@/components/market/common";
 import MarketNewForm, { MarketNewPlaceholder } from "@/components/market/MarketNewForm";
 import { ui } from "@/lib/ui";
 
-export const metadata: Metadata = { title: "작품 올리기 · 탐색" };
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getT();
+  return { title: t("작품 올리기 · 탐색") };
+}
 
-export default function MarketNewPage() {
+export default async function MarketNewPage() {
+  const t = await getT();
   return (
     <>
       <Header />
       <main className="mx-auto w-full max-w-6xl px-4 py-8">
         <div className="mx-auto max-w-3xl">
           <Link href={MARKET_PATH} className={`${ui.link} text-sm font-medium`}>
-            <span aria-hidden>← </span>탐색
+            <span aria-hidden>← </span>
+            {t("탐색")}
           </Link>
-          <h1 className={`${ui.h1} mb-6 mt-2`}>작품 올리기</h1>
+          <h1 className={`${ui.h1} mb-6 mt-2`}>{t("작품 올리기")}</h1>
           <Suspense fallback={<MarketNewPlaceholder />}>
             <MarketNewForm />
           </Suspense>

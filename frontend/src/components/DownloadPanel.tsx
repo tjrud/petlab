@@ -1,8 +1,8 @@
 "use client";
 
-import { Link } from "@/i18n/client";
 import { useState, type MouseEvent } from "react";
 
+import { Link, useLang, useT } from "@/i18n/client";
 import { api, errorFrom } from "@/lib/api";
 
 const NETWORK_ERROR = "파일을 받지 못했어요. 잠시 후 다시 시도해 주세요.";
@@ -33,6 +33,8 @@ export default function DownloadPanel({
   allowed: boolean;
   partCount: number;
 }) {
+  const t = useT();
+  const lang = useLang();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -45,7 +47,8 @@ export default function DownloadPanel({
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(url, { credentials: "include" });
+      // 오류 문구를 지금 화면 언어로 받는다 (api.ts 의 요청과 같은 X-Lang 헤더)
+      const res = await fetch(url, { credentials: "include", headers: { "X-Lang": lang } });
       if (!res.ok) {
         setError((await errorFrom(res)).messageKo);
         return;
@@ -61,7 +64,7 @@ export default function DownloadPanel({
       setTimeout(() => URL.revokeObjectURL(href), 30_000);
     } catch {
       // 요청 자체가 실패했거나(네트워크) 응답을 읽지 못한 경우
-      setError(NETWORK_ERROR);
+      setError(t(NETWORK_ERROR));
     } finally {
       setBusy(false);
     }
@@ -74,7 +77,7 @@ export default function DownloadPanel({
   return (
     <section aria-labelledby="download-title" className="space-y-3">
       <h2 id="download-title" className="font-bold">
-        받기
+        {t("받기")}
       </h2>
       {allowed ? (
         <>
@@ -85,7 +88,7 @@ export default function DownloadPanel({
               className={`${btn} bg-amber-500 text-white hover:bg-amber-600 ${busy ? "opacity-60" : ""}`}
               download
             >
-              STL{partCount > 1 ? " (zip)" : ""} 받기
+              {partCount > 1 ? t("STL (zip) 받기") : t("STL 받기")}
             </a>
             <a
               href={threeMfUrl}
@@ -93,7 +96,7 @@ export default function DownloadPanel({
               className={`${btn} border border-amber-500 text-amber-700 hover:bg-amber-50 ${busy ? "opacity-60" : ""}`}
               download
             >
-              3MF 받기
+              {t("3MF 받기")}
             </a>
           </div>
           {error && (
@@ -104,16 +107,18 @@ export default function DownloadPanel({
         </>
       ) : (
         <p className="rounded-xl bg-stone-100 p-3 text-sm text-stone-600">
-          검증 문제를 해결해야 파일을 내려받을 수 있어요. 위의 수정 요청란에 바꿀 내용을 적어 다시 설계하면 돼요.
+          {t("검증 문제를 해결해야 파일을 내려받을 수 있어요. 위의 수정 요청란에 바꿀 내용을 적어 다시 설계하면 돼요.")}
         </p>
       )}
       <Link
         href={`/order?design=${designId}&version=${version}`}
         className="block rounded-xl border border-stone-300 px-4 py-3 text-center font-medium hover:bg-stone-50"
       >
-        제작·배송 신청하기
+        {t("제작·배송 신청하기")}
       </Link>
-      <p className="text-xs text-stone-500">파일은 mm 단위이며, 서포트 없이 출력할 수 있는 자세로 놓여 있어요.</p>
+      <p className="text-xs text-stone-500">
+        {t("파일은 mm 단위이며, 서포트 없이 출력할 수 있는 자세로 놓여 있어요.")}
+      </p>
     </section>
   );
 }

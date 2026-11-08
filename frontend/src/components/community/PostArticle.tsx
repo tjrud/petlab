@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { useT } from "@/i18n/client";
 import { AuthorName, errorText, wasEdited } from "@/components/community/common";
 import PostEditForm from "@/components/community/PostEditForm";
 import PostImages from "@/components/community/PostImages";
@@ -20,12 +21,13 @@ export default function PostArticle({
   onUpdated: (p: Post) => void;
   onDeleted: () => void;
 }) {
+  const t = useT();
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function remove() {
-    if (!window.confirm("이 글을 삭제할까요? 달린 댓글도 함께 지워지고 되돌릴 수 없어요.")) return;
+    if (!window.confirm(t("이 글을 삭제할까요? 달린 댓글도 함께 지워지고 되돌릴 수 없어요."))) return;
     setDeleting(true);
     setError(null);
     try {
@@ -33,7 +35,7 @@ export default function PostArticle({
       setDeleting(false);
       onDeleted();
     } catch (e) {
-      setError(errorText(e, "글을 삭제하지 못했어요. 다시 시도해 주세요."));
+      setError(errorText(e, t("글을 삭제하지 못했어요. 다시 시도해 주세요.")));
       setDeleting(false);
     }
   }
@@ -45,7 +47,7 @@ export default function PostArticle({
       {editing ? (
         <>
           <h1 className="sr-only">{post.title}</h1>
-          <h2 className={`${ui.h2} mb-4`}>글 수정</h2>
+          <h2 className={`${ui.h2} mb-4`}>{t("글 수정")}</h2>
           <PostEditForm
             post={post}
             onCancel={() => setEditing(false)}
@@ -64,7 +66,7 @@ export default function PostArticle({
                 <AuthorName author={post.author} />
                 <span aria-hidden>·</span>
                 <time dateTime={post.created_at}>{formatDateTime(post.created_at)}</time>
-                {edited && <span title={`${formatDateTime(post.updated_at)} 수정`}>(수정됨)</span>}
+                {edited && <span title={t("{date} 수정", { date: formatDateTime(post.updated_at) })}>{t("(수정됨)")}</span>}
               </p>
               {(post.can_edit || post.can_delete) && (
                 <div className="flex shrink-0 gap-2">
@@ -78,12 +80,12 @@ export default function PostArticle({
                         setEditing(true);
                       }}
                     >
-                      수정
+                      {t("수정")}
                     </button>
                   )}
                   {post.can_delete && (
                     <button type="button" className={ui.btnDanger} disabled={deleting} onClick={remove}>
-                      {deleting ? "삭제 중…" : "삭제"}
+                      {deleting ? t("삭제 중…") : t("삭제")}
                     </button>
                   )}
                 </div>

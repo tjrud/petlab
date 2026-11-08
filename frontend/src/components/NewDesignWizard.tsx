@@ -1,8 +1,6 @@
 "use client";
 
-import { Link } from "@/i18n/client";
 import { useSearchParams } from "next/navigation";
-import { useRouter } from "@/i18n/client";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
@@ -10,6 +8,7 @@ import { clearDraft, ReloginNotice, useDraftBackup } from "@/components/DraftRel
 import { EmailUnverifiedNotice, useEmailBlocked } from "@/components/EmailVerification";
 import LoginRequired from "@/components/LoginRequired";
 import { CAGE_DIMS, CAGE_LIMITS, CAGE_PRESETS, cageDimError } from "@/components/me/common";
+import { Link, useRouter, useT } from "@/i18n/client";
 import { api, ApiError, errorText, isAuthError, isEmailUnverified } from "@/lib/api";
 import type { Me, Pet, SpeciesResponse } from "@/lib/types";
 
@@ -36,10 +35,11 @@ const DRAFT_KEY = "design:new";
 
 /** 로그인 상태를 확인하는 동안(그리고 페이지의 Suspense 대기 중) 보여 주는 자리 */
 export function WizardSkeleton() {
+  const t = useT();
   return (
     <div className="rounded-2xl border border-amber-200 bg-white p-5 shadow-sm sm:p-8">
       <p role="status" className="py-10 text-center text-sm text-stone-500">
-        설계 화면을 준비하고 있어요…
+        {t("설계 화면을 준비하고 있어요…")}
       </p>
     </div>
   );
@@ -54,15 +54,20 @@ function cageBelowRecommended(cage: { w: number; d: number }, min: [number, numb
 
 /** 최근 24시간 설계 횟수를 모두 쓴 경우의 안내 */
 function QuotaExhausted({ limit }: { limit: number | null }) {
+  const t = useT();
   return (
     <p role="status" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
-      최근 24시간 동안 쓸 수 있는 설계 횟수{limit !== null ? `(${limit}회)` : ""}를 모두 썼어요. 시간이 조금 지나면 다시
-      설계할 수 있어요.
+      {limit !== null
+        ? t("최근 24시간 동안 쓸 수 있는 설계 횟수({limit}회)를 모두 썼어요. 시간이 조금 지나면 다시 설계할 수 있어요.", {
+            limit,
+          })
+        : t("최근 24시간 동안 쓸 수 있는 설계 횟수를 모두 썼어요. 시간이 조금 지나면 다시 설계할 수 있어요.")}
     </p>
   );
 }
 
 export default function NewDesignWizard() {
+  const t = useT();
   const router = useRouter();
   // 링크·router.push 로 새로 들어올 때마다 바뀌고, 뒤로·앞으로 가기로 돌아오면 그대로인 값
   const { bfcacheId } = router;
@@ -159,12 +164,12 @@ export default function NewDesignWizard() {
       .catch((e: unknown) => {
         if (!alive) return;
         if (isAuthError(e)) setAuthError(e);
-        else setMetaError(errorText(e, "정보를 불러오지 못했어요."));
+        else setMetaError(errorText(e, t("정보를 불러오지 못했어요.")));
       });
     return () => {
       alive = false;
     };
-  }, []);
+  }, [t]);
 
   const applyPet = useCallback((p: Pet) => {
     setPetId(p.id);
@@ -194,13 +199,13 @@ export default function NewDesignWizard() {
           else {
             setPetId(null);
             setHabitatId(null);
-            setPetNotice("선택한 반려동물 정보를 찾지 못했어요. 직접 입력해 주세요.");
+            setPetNotice(t("선택한 반려동물 정보를 찾지 못했어요. 직접 입력해 주세요."));
           }
         } else if (petIdRef.current && !list.some((x) => x.id === petIdRef.current)) {
           // 골라 둔 반려동물이 그사이 삭제됐다: 연결만 끊고 입력해 둔 값은 그대로 둔다
           setPetId(null);
           setHabitatId(null);
-          setPetNotice("골라 둔 반려동물 정보가 없어져서 연결을 해제했어요. 아래 값을 확인해 주세요.");
+          setPetNotice(t("골라 둔 반려동물 정보가 없어져서 연결을 해제했어요. 아래 값을 확인해 주세요."));
         }
       })
       .catch((e: unknown) => {
@@ -216,7 +221,7 @@ export default function NewDesignWizard() {
     return () => {
       alive = false;
     };
-  }, [userId, wantedPet, bfcacheId, applyPet]);
+  }, [userId, wantedPet, bfcacheId, applyPet, t]);
 
   const speciesOpt = meta?.species.find((s) => s.key === species);
   const sizeOpt = speciesOpt?.sizes.find((s) => s.key === size);
@@ -227,13 +232,16 @@ export default function NewDesignWizard() {
     const errs: string[] = [];
     // 가로·세로·높이 순서로 확인한 뒤 마릿수를 본다 (안내 순서도 같다)
     for (const [k, label] of CAGE_DIMS) {
-      const e = cageDimError(k, cage[k], label);
-      if (e) errs.push(e);
+      // 안내 문구는 cageDimError 와 같은 원문을 번역해 보인다 (한국어는 그대로)
+      if (cageDimError(k, cage[k], label))
+        errs.push(
+          t("{label}는 {lo}~{hi}mm 사이로 입력해 주세요.", { label: t(label), lo: CAGE_LIMITS[k][0], hi: CAGE_LIMITS[k][1] }),
+        );
     }
     if (!Number.isInteger(count) || count < LIMITS.count[0] || count > LIMITS.count[1])
-      errs.push(`마릿수는 ${LIMITS.count[0]}~${LIMITS.count[1]} 사이로 입력해 주세요.`);
+      errs.push(t("마릿수는 {min}~{max} 사이로 입력해 주세요.", { min: LIMITS.count[0], max: LIMITS.count[1] }));
     return errs;
-  }, [cage, count]);
+  }, [cage, count, t]);
 
   // 사육 환경이 바뀌면 이전에 등록한 환경을 다시 쓰지 않는다
   const resetHabitat = () => setHabitatId(null);
@@ -242,7 +250,7 @@ export default function NewDesignWizard() {
     if (submittingRef.current || opening) return; // 이미 설계 중이거나 결과 화면으로 이동 중
     setError(null);
     if (!prompt.trim()) {
-      setError("원하는 구조물이나 배치를 적어 주세요.");
+      setError(t("원하는 구조물이나 배치를 적어 주세요."));
       return;
     }
     submittingRef.current = true;
@@ -277,7 +285,7 @@ export default function NewDesignWizard() {
       else if (e instanceof ApiError && e.code === "design_quota_exceeded" && quota && quota.limit !== null)
         setQuota({ ...quota, used: Math.max(quota.used, quota.limit), remaining: 0 }); // 아래 안내로 알려 준다
       else {
-        setError(errorText(e, "설계 중 문제가 생겼어요. 다시 시도해 주세요."));
+        setError(errorText(e, t("설계 중 문제가 생겼어요. 다시 시도해 주세요.")));
         // 실패한 요청도 횟수에 들어가므로 남은 횟수를 다시 불러온다
         api
           .me()
@@ -316,7 +324,7 @@ export default function NewDesignWizard() {
           <EmailUnverifiedNotice action="맞춤 설계를 받을" />
         </div>
       )}
-      <ol className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm" aria-label="진행 단계">
+      <ol className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm" aria-label={t("진행 단계")}>
         {(["사육 환경", "요구사항"] as const).map((label, i) => {
           const n = (i + 1) as Step;
           const active = step === n;
@@ -329,14 +337,14 @@ export default function NewDesignWizard() {
               >
                 {n}
               </span>
-              <span className={active ? "font-semibold" : "text-stone-500"}>{label}</span>
+              <span className={active ? "font-semibold" : "text-stone-500"}>{t(label)}</span>
               {i === 0 && <span className="mx-1 h-px w-8 bg-stone-300" aria-hidden />}
             </li>
           );
         })}
         {meta?.llm_provider === "mock" && (
           <li className="ml-auto whitespace-nowrap rounded-full bg-sky-100 px-3 py-1 text-xs font-medium text-sky-800">
-            개발용 모의 해석기
+            {t("개발용 모의 해석기")}
           </li>
         )}
       </ol>
@@ -344,29 +352,32 @@ export default function NewDesignWizard() {
       {metaError && <p className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{metaError}</p>}
       {meta && !meta.storage_persistent && (
         <p role="status" className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
-          지금은 임시 저장소로 운영 중이에요. 만든 설계가 잠시 뒤 사라지거나 다시 열리지 않을 수 있으니, 필요한 파일은 바로
-          내려받아 주세요.
+          {t(
+            "지금은 임시 저장소로 운영 중이에요. 만든 설계가 잠시 뒤 사라지거나 다시 열리지 않을 수 있으니, 필요한 파일은 바로 내려받아 주세요.",
+          )}
         </p>
       )}
 
       {step === 1 && (
         <section aria-labelledby="habitat-title" className="space-y-6">
           <h2 id="habitat-title" className="text-xl font-bold">
-            사육 환경을 알려 주세요
+            {t("사육 환경을 알려 주세요")}
           </h2>
 
           {carriedPrompt && prompt.trim() === carriedPrompt && (
             <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 text-sm">
-              <p className="font-medium text-stone-800">적어 주신 요청</p>
+              <p className="font-medium text-stone-800">{t("적어 주신 요청")}</p>
               <p className="mt-1 whitespace-pre-wrap break-words text-stone-700">{carriedPrompt}</p>
-              <p className="mt-2 text-xs text-stone-500">케이지 정보를 확인하고 다음을 누르면 이 요청으로 설계해요. 다음 단계에서 고칠 수 있어요.</p>
+              <p className="mt-2 text-xs text-stone-500">
+                {t("케이지 정보를 확인하고 다음을 누르면 이 요청으로 설계해요. 다음 단계에서 고칠 수 있어요.")}
+              </p>
             </div>
           )}
 
           {pets && pets.length > 0 && (
             <div className="rounded-xl bg-amber-50 p-4">
               <label htmlFor={petSelectId} className="mb-1 block text-sm font-medium">
-                내 반려동물
+                {t("내 반려동물")}
               </label>
               <select
                 id={petSelectId}
@@ -381,7 +392,7 @@ export default function NewDesignWizard() {
                   }
                 }}
               >
-                <option value="">직접 입력</option>
+                <option value="">{t("직접 입력")}</option>
                 {pets.map((p) => (
                   <option key={p.id} value={p.id}>
                     {`${p.name} · ${p.size_name_ko}`}
@@ -390,15 +401,15 @@ export default function NewDesignWizard() {
               </select>
               <p className="mt-1.5 text-xs text-stone-600">
                 {selectedPet && !selectedPet.cage
-                  ? "등록된 케이지 치수가 없어서 종·크기만 채웠어요. 아래 치수를 확인해 주세요."
-                  : "고르면 종·크기와 케이지 치수가 채워져요. 채운 뒤에도 고칠 수 있어요."}
+                  ? t("등록된 케이지 치수가 없어서 종·크기만 채웠어요. 아래 치수를 확인해 주세요.")
+                  : t("고르면 종·크기와 케이지 치수가 채워져요. 채운 뒤에도 고칠 수 있어요.")}
               </p>
             </div>
           )}
           {pets && pets.length === 0 && (
             <p className="text-sm">
-                            <Link href="/me#pets" className="text-amber-700 underline-offset-2 hover:underline">
-                내 정보에서 반려동물을 등록하면 다음부터 자동으로 채워져요
+              <Link href="/me#pets" className="text-amber-700 underline-offset-2 hover:underline">
+                {t("내 정보에서 반려동물을 등록하면 다음부터 자동으로 채워져요")}
               </Link>
             </p>
           )}
@@ -410,7 +421,7 @@ export default function NewDesignWizard() {
 
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="block">
-              <span className="mb-1 block text-sm font-medium">종</span>
+              <span className="mb-1 block text-sm font-medium">{t("종")}</span>
               <select
                 className="w-full rounded-lg border border-stone-300 bg-white px-3 py-2"
                 value={species}
@@ -419,7 +430,7 @@ export default function NewDesignWizard() {
                   resetHabitat();
                 }}
               >
-                {(meta?.species ?? [{ key: "hamster", display_name: "햄스터", sizes: [] }]).map((s) => (
+                {(meta?.species ?? [{ key: "hamster", display_name: t("햄스터"), sizes: [] }]).map((s) => (
                   <option key={s.key} value={s.key}>
                     {s.display_name}
                   </option>
@@ -427,7 +438,7 @@ export default function NewDesignWizard() {
               </select>
             </label>
             <label className="block">
-              <span className="mb-1 block text-sm font-medium">마릿수</span>
+              <span className="mb-1 block text-sm font-medium">{t("마릿수")}</span>
               <input
                 type="number"
                 min={LIMITS.count[0]}
@@ -443,7 +454,7 @@ export default function NewDesignWizard() {
           </div>
 
           <fieldset>
-            <legend className="mb-2 text-sm font-medium">크기</legend>
+            <legend className="mb-2 text-sm font-medium">{t("크기")}</legend>
             <div className="grid gap-3 sm:grid-cols-2">
               {(speciesOpt?.sizes ?? []).map((s) => (
                 <label
@@ -473,7 +484,7 @@ export default function NewDesignWizard() {
           </fieldset>
 
           <fieldset>
-            <legend className="mb-2 text-sm font-medium">케이지 내부 치수 (mm)</legend>
+            <legend className="mb-2 text-sm font-medium">{t("케이지 내부 치수 (mm)")}</legend>
             <div className="mb-3 flex flex-wrap gap-2">
               {CAGE_PRESETS.map((p) => (
                 <button
@@ -489,18 +500,18 @@ export default function NewDesignWizard() {
                       : "border-stone-300 hover:bg-stone-50"
                   }`}
                 >
-                  {p.label}
+                  {t(p.label)}
                 </button>
               ))}
             </div>
             <div className="grid grid-cols-3 gap-3">
               {CAGE_DIMS.map(([k, label]) => (
                 <label key={k} className="block">
-                  <span className="mb-1 block text-xs text-stone-500">{label}</span>
+                  <span className="mb-1 block text-xs text-stone-500">{t(label)}</span>
                   <input
                     type="number"
                     inputMode="numeric"
-                    aria-label={`케이지 ${label} (mm)`}
+                    aria-label={t("케이지 {label} (mm)", { label: t(label) })}
                     className="w-full rounded-lg border border-stone-300 px-3 py-2"
                     value={cage[k]}
                     onChange={(e) => {
@@ -511,11 +522,13 @@ export default function NewDesignWizard() {
                 </label>
               ))}
             </div>
-            <p className="mt-2 text-xs text-stone-500">바닥재를 깐 상태의 내부 공간 기준으로 재 주세요.</p>
+            <p className="mt-2 text-xs text-stone-500">{t("바닥재를 깐 상태의 내부 공간 기준으로 재 주세요.")}</p>
             {sizeOpt && cageBelowRecommended(cage, sizeOpt.enclosure_min_floor_mm) && (
               <p className="mt-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
-                사육장 바닥 최소 기준은 {sizeOpt.enclosure_min_floor_mm[0] / 10}×
-                {sizeOpt.enclosure_min_floor_mm[1] / 10}cm예요. 설계는 할 수 있지만 더 넓은 사육장을 권장해요.
+                {t("사육장 바닥 최소 기준은 {w}×{d}cm예요. 설계는 할 수 있지만 더 넓은 사육장을 권장해요.", {
+                  w: sizeOpt.enclosure_min_floor_mm[0] / 10,
+                  d: sizeOpt.enclosure_min_floor_mm[1] / 10,
+                })}
               </p>
             )}
           </fieldset>
@@ -537,7 +550,7 @@ export default function NewDesignWizard() {
               onClick={() => setStep(2)}
               className="rounded-xl bg-amber-500 px-6 py-3 font-semibold text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:bg-stone-300"
             >
-              다음
+              {t("다음")}
             </button>
           </div>
         </section>
@@ -546,17 +559,24 @@ export default function NewDesignWizard() {
       {step === 2 && (
         <section aria-labelledby="prompt-title" className="space-y-5">
           <h2 id="prompt-title" className="text-xl font-bold">
-            원하는 구조물을 적어 주세요
+            {t("원하는 구조물을 적어 주세요")}
           </h2>
           <p className="break-words text-sm text-stone-600">
             {selectedPet && <span className="font-medium text-stone-800">{selectedPet.name} · </span>}
-            {speciesOpt?.display_name} {sizeOpt?.display_name} · {count}마리 · 케이지 {cage.w}×{cage.d}×{cage.h}mm
+            {t("{species} {size} · {count}마리 · 케이지 {w}×{d}×{h}mm", {
+              species: speciesOpt?.display_name ?? "",
+              size: sizeOpt?.display_name ?? "",
+              count,
+              w: cage.w,
+              d: cage.d,
+              h: cage.h,
+            })}
           </p>
           <textarea
-            aria-label="요구사항"
+            aria-label={t("요구사항")}
             rows={5}
             maxLength={2000}
-            placeholder="예: 환기구가 있는 은신처를 만들어 주세요"
+            placeholder={t("예: 환기구가 있는 은신처를 만들어 주세요")}
             className="w-full rounded-xl border border-stone-300 p-4 leading-relaxed"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
@@ -566,10 +586,10 @@ export default function NewDesignWizard() {
               <button
                 key={p}
                 type="button"
-                onClick={() => setPrompt(p)}
+                onClick={() => setPrompt(t(p))}
                 className="rounded-full bg-stone-100 px-3 py-1 text-sm text-stone-700 hover:bg-stone-200"
               >
-                {p}
+                {t(p)}
               </button>
             ))}
           </div>
@@ -588,7 +608,7 @@ export default function NewDesignWizard() {
               disabled={submitting || opening}
               className="rounded-xl border border-stone-300 px-5 py-3 font-medium hover:bg-stone-50"
             >
-              이전
+              {t("이전")}
             </button>
             <button
               type="button"
@@ -598,16 +618,18 @@ export default function NewDesignWizard() {
                 submitting || opening ? "disabled:cursor-wait" : "disabled:cursor-not-allowed"
               }`}
             >
-              {opening ? "결과 화면을 여는 중…" : submitting ? "설계하는 중…" : "맞춤 설계 받기"}
+              {opening ? t("결과 화면을 여는 중…") : submitting ? t("설계하는 중…") : t("맞춤 설계 받기")}
             </button>
           </div>
           {quota && quota.remaining !== null && !submitting && !opening && (
             <p className={`text-right text-xs ${quotaExhausted ? "font-medium text-red-700" : "text-stone-500"}`}>
-              최근 24시간 남은 설계 횟수: {quota.remaining}회 · 실패한 요청도 횟수에 포함돼요.
+              {t("최근 24시간 남은 설계 횟수: {n}회 · 실패한 요청도 횟수에 포함돼요.", { n: quota.remaining })}
             </p>
           )}
           {submitting && !opening && (
-            <p className="text-right text-xs text-stone-500">요구사항 해석 → 구조물 생성 → 안전 검증까지 최대 1분 정도 걸려요.</p>
+            <p className="text-right text-xs text-stone-500">
+              {t("요구사항 해석 → 구조물 생성 → 안전 검증까지 최대 1분 정도 걸려요.")}
+            </p>
           )}
         </section>
       )}

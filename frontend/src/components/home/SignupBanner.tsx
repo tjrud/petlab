@@ -1,4 +1,4 @@
-import { Link } from "@/i18n/client";
+import { Link, useT } from "@/i18n/client";
 
 import { IconCheck } from "@/components/home/icons";
 
@@ -10,6 +10,7 @@ const BENEFITS = [
 
 /** 로그인하지 않은 방문자에게 보여 주는 가입 안내 */
 export default function SignupBanner({ signupEnabled, emailRequired }: { signupEnabled: boolean; emailRequired: boolean }) {
+  const t = useT();
   return (
     <section
       aria-labelledby="join-title"
@@ -18,20 +19,20 @@ export default function SignupBanner({ signupEnabled, emailRequired }: { signupE
       <div className="grid gap-6 md:grid-cols-[minmax(0,1.4fr)_auto] md:items-center">
         <div>
           <h2 id="join-title" className="text-balance text-xl font-bold sm:text-2xl">
-            {signupEnabled ? "가입하면 설계를 저장하고 공유할 수 있어요" : "로그인하면 설계를 저장하고 공유할 수 있어요"}
+            {signupEnabled ? t("가입하면 설계를 저장하고 공유할 수 있어요") : t("로그인하면 설계를 저장하고 공유할 수 있어요")}
           </h2>
           <p className="mt-2 text-sm text-teal-50/90 sm:text-base">
-            설계 만들기는 회원만 할 수 있어요.
+            {t("설계 만들기는 회원만 할 수 있어요.")}
             {signupEnabled &&
               (emailRequired
-                ? " 가입은 무료이고, 아이디·닉네임·이메일만 있으면 돼요."
-                : " 가입은 무료이고, 아이디와 닉네임만 있으면 돼요.")}
+                ? ` ${t("가입은 무료이고, 아이디·닉네임·이메일만 있으면 돼요.")}`
+                : ` ${t("가입은 무료이고, 아이디와 닉네임만 있으면 돼요.")}`)}
           </p>
           <ul className="mt-5 space-y-2 text-sm text-teal-50">
             {BENEFITS.map((b) => (
               <li key={b} className="flex items-start gap-2">
                 <IconCheck className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
-                {b}
+                {t(b)}
               </li>
             ))}
           </ul>
@@ -42,14 +43,14 @@ export default function SignupBanner({ signupEnabled, emailRequired }: { signupE
               href="/signup"
               className="inline-flex items-center justify-center rounded-xl bg-amber-500 px-6 py-3 font-semibold text-white hover:bg-amber-600"
             >
-              회원가입
+              {t("회원가입")}
             </Link>
           )}
           <Link
             href="/login"
             className="inline-flex items-center justify-center rounded-xl border border-white/40 px-6 py-3 font-semibold text-white hover:bg-white/10"
           >
-            로그인
+            {t("로그인")}
           </Link>
         </div>
       </div>

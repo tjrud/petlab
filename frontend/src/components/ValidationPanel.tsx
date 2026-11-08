@@ -1,3 +1,4 @@
+import { useT } from "@/i18n/client";
 import type { Issue, Item, Validation } from "@/lib/types";
 
 const GROUPS = [
@@ -20,23 +21,26 @@ export default function ValidationPanel({
   items: Item[];
   onSelect: (i: number | null) => void;
 }) {
+  const t = useT();
   const labelOf = (idx: number | null) => items.find((it) => it.index === idx)?.label_ko;
   return (
     <section aria-labelledby="validation-title" className="space-y-3">
       <div className="flex items-center justify-between">
         <h2 id="validation-title" className="font-bold">
-          안전·출력 검증
+          {t("안전·출력 검증")}
         </h2>
         {validation.passed ? (
-          <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">통과</span>
+          <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">{t("통과")}</span>
         ) : (
           <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-800">
-            문제 {validation.summary.errors}건
+            {t("문제 {n}건", { n: validation.summary.errors })}
           </span>
         )}
       </div>
       {validation.issues.length === 0 && (
-        <p className="text-sm text-stone-600">케이지 적합, 겹침, 끼임 틈새, 벽 두께, 서포트 없는 출력을 모두 확인했어요.</p>
+        <p className="text-sm text-stone-600">
+          {t("케이지 적합, 겹침, 끼임 틈새, 벽 두께, 서포트 없는 출력을 모두 확인했어요.")}
+        </p>
       )}
       {GROUPS.map((g) => {
         const list = validation.issues.filter((i) => groupOf(i) === g.key);
@@ -44,7 +48,7 @@ export default function ValidationPanel({
         return (
           <div key={g.key} className={`rounded-xl border p-3 ${g.tone}`}>
             <h3 className="mb-2 text-sm font-semibold">
-              {g.title} ({list.length})
+              {t(g.title)} ({list.length})
             </h3>
             <ul className="space-y-1.5 text-sm">
               {list.map((i, n) => (

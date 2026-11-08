@@ -1,6 +1,6 @@
 "use client";
 
-import { Link } from "@/i18n/client";
+import { Link, useLang, useT } from "@/i18n/client";
 import { useId, useState } from "react";
 
 import { IconPaw } from "@/components/home/icons";
@@ -27,10 +27,15 @@ export default function PetCard({
   disabled?: boolean;
 }) {
   const uid = useId();
+  const t = useT();
+  const lang = useLang();
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const age = pet.birth_date ? petAge(pet.birth_date) : null;
+  const age = pet.birth_date ? petAge(pet.birth_date, t) : null;
+
+  // 이름을 굵게 보이려고 번역한 문장을 {name} 자리에서 나눈다
+  const [confirmBefore, confirmAfter = ""] = t("{name} 정보를 삭제할까요? 이 아이로 만든 설계는 그대로 남아요.").split("{name}");
 
   async function remove() {
     setDeleting(true);
@@ -42,7 +47,7 @@ export default function PetCard({
       setDeleting(false);
       if (isAuthError(err)) onAuthError(err);
       else if (err instanceof ApiError && err.status === 404) onDeleted(pet.id); // 이미 지워진 경우
-      else setError(errorText(err, "삭제하지 못했어요. 잠시 뒤 다시 시도해 주세요."));
+      else setError(errorText(err, t("삭제하지 못했어요. 잠시 뒤 다시 시도해 주세요.")));
     }
   }
 
@@ -57,28 +62,28 @@ export default function PetCard({
             {pet.name}
           </h3>
           <p className="mt-0.5 text-sm text-stone-600">
-            {pet.species_name_ko} · {pet.size_name_ko}
+            {t(pet.species_name_ko)} · {t(pet.size_name_ko)}
           </p>
         </div>
       </div>
 
       <dl className="mt-3 space-y-1 text-sm">
         <div className="flex gap-2">
-          <dt className="w-14 shrink-0 text-stone-500">성별</dt>
-          <dd>{SEX_LABEL[pet.sex] ?? "모름"}</dd>
+          <dt className="w-14 shrink-0 text-stone-500">{t("성별")}</dt>
+          <dd>{t(SEX_LABEL[pet.sex] ?? "모름")}</dd>
         </div>
         {pet.birth_date && (
           <div className="flex gap-2">
-            <dt className="w-14 shrink-0 text-stone-500">생일</dt>
+            <dt className="w-14 shrink-0 text-stone-500">{t("생일")}</dt>
             <dd>
-              {formatYmd(pet.birth_date)}
+              {formatYmd(pet.birth_date, lang)}
               {age && <span className="text-stone-500"> ({age})</span>}
             </dd>
           </div>
         )}
         {pet.cage && (
           <div className="flex gap-2">
-            <dt className="w-14 shrink-0 text-stone-500">케이지</dt>
+            <dt className="w-14 shrink-0 text-stone-500">{t("케이지")}</dt>
             <dd>{formatCage(pet.cage)}</dd>
           </div>
         )}
@@ -95,10 +100,11 @@ export default function PetCard({
 
       <div className="mt-auto pt-4">
         {confirming ? (
-          <div role="group" aria-label="삭제 확인" className="rounded-xl border border-red-200 bg-red-50 p-3">
+          <div role="group" aria-label={t("삭제 확인")} className="rounded-xl border border-red-200 bg-red-50 p-3">
             <p className="text-sm text-red-800">
-              <span className="break-words font-semibold">{pet.name}</span> 정보를 삭제할까요? 이 아이로 만든 설계는
-              그대로 남아요.
+              {confirmBefore}
+              <span className="break-words font-semibold">{pet.name}</span>
+              {confirmAfter}
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
               <button
@@ -107,20 +113,20 @@ export default function PetCard({
                 disabled={deleting}
                 className="inline-flex items-center justify-center rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
               >
-                {deleting ? "삭제하는 중…" : "네, 삭제할게요"}
+                {deleting ? t("삭제하는 중…") : t("네, 삭제할게요")}
               </button>
               <button type="button" onClick={() => setConfirming(false)} disabled={deleting} className={ui.btnSecondary}>
-                아니요
+                {t("아니요")}
               </button>
             </div>
           </div>
         ) : (
           <div className="flex flex-wrap items-center gap-2">
             <Link href={`/design?pet=${encodeURIComponent(pet.id)}`} className={btnPrimarySm}>
-              이 아이로 설계하기
+              {t("이 아이로 설계하기")}
             </Link>
             <button type="button" onClick={onEdit} disabled={disabled || !onEdit} className={ui.btnSecondary}>
-              수정
+              {t("수정")}
             </button>
             <button
               type="button"
@@ -131,7 +137,7 @@ export default function PetCard({
               disabled={disabled}
               className={ui.btnDanger}
             >
-              삭제
+              {t("삭제")}
             </button>
           </div>
         )}

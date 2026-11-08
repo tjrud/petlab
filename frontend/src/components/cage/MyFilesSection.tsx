@@ -1,6 +1,6 @@
 "use client";
 
-import { Link } from "@/i18n/client";
+import { Link, useHref, useT } from "@/i18n/client";
 import { useRef, useState } from "react";
 
 import { getAsset, fileAssetKey, type CageAsset } from "@/lib/cageAssets";
@@ -27,6 +27,8 @@ export default function MyFilesSection({
   onUpload: (file: File, onProgress: (pct: number) => void) => Promise<void>;
   onDelete: (file: MarketFile) => Promise<void>;
 }) {
+  const t = useT();
+  const href = useHref();
   const input = useRef<HTMLInputElement>(null);
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -34,10 +36,10 @@ export default function MyFilesSection({
   if (!loggedIn) {
     return (
       <p className="mt-3 text-sm text-stone-600">
-        <Link href="/login?next=%2Fcage" className={ui.link}>
-          로그인
+        <Link href={`/login?next=${encodeURIComponent(href("/cage"))}`} className={ui.link}>
+          {t("로그인")}
         </Link>
-        하면 내가 올린 STL·3MF 파일을 케이지에 놓아 볼 수 있어요.
+        {t("하면 내가 올린 STL·3MF 파일을 케이지에 놓아 볼 수 있어요.")}
       </p>
     );
   }
@@ -49,19 +51,19 @@ export default function MyFilesSection({
     try {
       await onUpload(f, setProgress);
     } catch (e) {
-      setError(errorText(e, "올리지 못했어요."));
+      setError(errorText(e, t("올리지 못했어요.")));
     } finally {
       setProgress(null);
     }
   }
 
   async function remove(f: MarketFile) {
-    if (!window.confirm(`"${f.filename}" 파일을 지울까요? 이 파일을 놓아 둔 배치안에서도 보이지 않게 돼요.`)) return;
+    if (!window.confirm(t('"{name}" 파일을 지울까요? 이 파일을 놓아 둔 배치안에서도 보이지 않게 돼요.', { name: f.filename }))) return;
     setError(null);
     try {
       await onDelete(f);
     } catch (e) {
-      setError(errorText(e, "지우지 못했어요."));
+      setError(errorText(e, t("지우지 못했어요.")));
     }
   }
 
@@ -73,31 +75,31 @@ export default function MyFilesSection({
           type="file"
           accept=".stl,.3mf"
           className="sr-only"
-          aria-label="케이지에 놓을 파일 올리기"
+          aria-label={t("케이지에 놓을 파일 올리기")}
           onChange={(e) => {
             void pick(e.target.files?.[0]);
             e.target.value = "";
           }}
         />
         <button type="button" className={ui.btnSecondary} onClick={() => input.current?.click()} disabled={progress !== null}>
-          {progress !== null ? `올리는 중 ${progress}%` : "STL·3MF 올리기"}
+          {progress !== null ? t("올리는 중 {pct}%", { pct: progress }) : t("STL·3MF 올리기")}
         </button>
-        <span className="text-xs text-stone-500">단위는 mm로 봐요.</span>
+        <span className="text-xs text-stone-500">{t("단위는 mm로 봐요.")}</span>
       </div>
       {error && <p className={ui.error}>{error}</p>}
       {files === null ? (
-        <p className="text-sm text-stone-500">불러오는 중…</p>
+        <p className="text-sm text-stone-500">{t("불러오는 중…")}</p>
       ) : files.length === 0 ? (
-        <p className="text-sm text-stone-500">아직 올린 파일이 없어요.</p>
+        <p className="text-sm text-stone-500">{t("아직 올린 파일이 없어요.")}</p>
       ) : (
         <ul className="space-y-1.5">
           {files.map((f) => {
             const asset = getAsset(fileAssetKey(f.id));
             const reason =
               f.format === "skp"
-                ? "SketchUp 파일은 3D로 볼 수 없어요. SketchUp에서 STL로 내보내 올려 주세요."
+                ? t("SketchUp 파일은 3D로 볼 수 없어요. SketchUp에서 STL로 내보내 올려 주세요.")
                 : !asset
-                  ? "크기를 읽지 못한 파일이에요."
+                  ? t("크기를 읽지 못한 파일이에요.")
                   : null;
             return (
               <li key={f.id} className="flex items-center gap-1.5">
@@ -105,7 +107,7 @@ export default function MyFilesSection({
                   type="button"
                   disabled={!asset}
                   onClick={() => asset && onAdd(asset)}
-                  aria-label={`${f.filename} ${asset ? "놓기" : "놓을 수 없음"}`}
+                  aria-label={`${f.filename} ${asset ? t("놓기") : t("놓을 수 없음")}`}
                   className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-stone-200 bg-white p-2 text-left hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-stone-200"
                 >
                   <span className="grid h-10 w-12 shrink-0 place-items-center rounded-lg bg-violet-50 text-[11px] font-bold text-violet-800">
@@ -122,10 +124,10 @@ export default function MyFilesSection({
                   <button
                     type="button"
                     onClick={() => void remove(f)}
-                    aria-label={`${f.filename} 지우기`}
+                    aria-label={`${f.filename} ${t("지우기")}`}
                     className="shrink-0 rounded-lg px-2 py-1 text-xs text-stone-500 hover:bg-red-50 hover:text-red-700"
                   >
-                    지우기
+                    {t("지우기")}
                   </button>
                 )}
               </li>

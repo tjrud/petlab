@@ -13,6 +13,7 @@ import { Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } f
 import * as THREE from "three";
 
 import { formatBytes } from "@/components/market/common";
+import { useT } from "@/i18n/client";
 import { keepOnlyPreview, LoadedMesh, MeshErrorBoundary, type MeshFormat, type MeshPart } from "@/components/three/FileMesh";
 import { api } from "@/lib/api";
 import { AUTO_3D_BYTES, canDecodeNfm } from "@/lib/meshUrl";
@@ -90,6 +91,7 @@ export default function ModelPreview({
   /** 이 브라우저에서 3D 를 그릴 수 없을 때 (WebGL 없음) */
   onUnavailable?: () => void;
 }) {
+  const t = useT();
   const [active, setActive] = useState(false);
   const [glFailed, setGlFailed] = useState(false);
   const [state, setState] = useState<{ url: string; status: "loading" | "ok" | "error" }>({ url: "", status: "loading" });
@@ -147,7 +149,7 @@ export default function ModelPreview({
   if (!url) return null;
   const unavailable = (
     <p className="grid h-full place-items-center p-6 text-center text-sm text-stone-600">
-      이 브라우저에서는 3D 미리보기를 볼 수 없어요. 파일을 내려받아 확인해 주세요.
+      {t("이 브라우저에서는 3D 미리보기를 볼 수 없어요. 파일을 내려받아 확인해 주세요.")}
     </p>
   );
   // 카메라는 오른쪽 앞에서 본다. 주광은 왼쪽 앞 위에서 비춰 그림자가 보이는 쪽(오른쪽 뒤) 바닥에 떨어지게 하고,
@@ -179,7 +181,7 @@ export default function ModelPreview({
           shadows="percentage"
           camera={{ fov: 35, position: [S, S, S] }}
           className="h-full w-full"
-          aria-label={`${file.filename} 3D 미리보기`}
+          aria-label={t("{name} 3D 미리보기", { name: file.filename })}
         >
           <color attach="background" args={[PREVIEW_BG]} />
           <hemisphereLight args={["#ffffff", "#d9c9b4", 1.1]} />
@@ -270,13 +272,13 @@ export default function ModelPreview({
       {askOriginal && (
         <div className="absolute inset-0 grid place-items-center p-6 text-center">
           <div className="space-y-2">
-            <p className="text-sm text-stone-600">가벼운 미리보기를 불러오지 못했어요.</p>
+            <p className="text-sm text-stone-600">{t("가벼운 미리보기를 불러오지 못했어요.")}</p>
             <button
               type="button"
               className="rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm shadow-sm hover:bg-stone-50"
               onClick={() => setOriginalOk(true)}
             >
-              원본 3D 파일로 보기 ({formatBytes(file.size)})
+              {t("원본 3D 파일로 보기 ({size})", { size: formatBytes(file.size) })}
             </button>
           </div>
         </div>
@@ -289,14 +291,16 @@ export default function ModelPreview({
           }`}
         >
           {status === "error"
-            ? "3D 파일을 불러오지 못했어요. 내려받아 확인해 주세요."
-            : `3D 파일을 불러오는 중이에요 (${formatBytes(previewUrl && file.preview_size ? file.preview_size : file.size)})`}
+            ? t("3D 파일을 불러오지 못했어요. 내려받아 확인해 주세요.")
+            : t("3D 파일을 불러오는 중이에요 ({size})", {
+                size: formatBytes(previewUrl && file.preview_size ? file.preview_size : file.size),
+              })}
         </p>
       )}
       {!glFailed && status === "ok" && (
         <p className="pointer-events-none absolute left-3 top-3 rounded-lg bg-white/90 px-2.5 py-1 text-xs text-stone-600 shadow-sm">
           {file.dims_mm ? `${cm(w)}×${cm(d)}×${cm(h)}cm · ` : ""}
-          {active ? "끌어서 돌리고, 확대·축소할 수 있어요" : "끌어서 돌려 볼 수 있어요"}
+          {active ? t("끌어서 돌리고, 확대·축소할 수 있어요") : t("끌어서 돌려 볼 수 있어요")}
         </p>
       )}
     </div>

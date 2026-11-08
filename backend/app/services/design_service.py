@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.errors import InvalidInputError, NotFoundError
 from app.geometry.fingerprint import file_digest
+from app.i18n import get_lang
 from app.llm.base import HabitatInfo, Interpreter, InterpretRequest, InterpretResult
 from app.models import (
     Design,
@@ -444,6 +445,7 @@ class DesignService:
             size_rules=size_rules,
             min_wall_mm=ctx.min_wall_mm,
             previous=previous,
+            language=get_lang(),  # 영어 페이지에서 만들면 설명(summary_ko 등)도 영어로
         )
         result = self._interpreter().interpret(req)
         engine_result = run_engine(to_item_specs(result.spec), ctx)

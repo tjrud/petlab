@@ -49,7 +49,7 @@ def _item_model(template) -> type[BaseModel]:
         template=(Literal[template.key], Field(description=f"{template.display_name_ko}: {template.description_ko}")),
         params=(template.Params, ...),
         placement=(LLMPlacement, ...),
-        reason_ko=(str, Field(description="이 구조물과 값을 고른 이유 (한국어 한두 문장)")),
+        reason_ko=(str, Field(description="이 구조물과 값을 고른 이유 (응답 언어로 한두 문장, 지정이 없으면 한국어)")),
     )
 
 
@@ -66,10 +66,10 @@ def design_spec_model() -> type[BaseModel]:
     return create_model(
         "DesignSpec",
         __config__=ConfigDict(extra="forbid"),
-        summary_ko=(str, Field(description="설계 요약 (한국어, 보호자에게 보여줄 2~4문장)")),
+        summary_ko=(str, Field(description="설계 요약 (보호자에게 보여줄 2~4문장, 응답 언어로. 지정이 없으면 한국어)")),
         items=(list[item_union()], Field(min_length=1, max_length=MAX_ITEMS,  # type: ignore[valid-type]
                                          description=f"구조물 목록 (1~{MAX_ITEMS}개)")),
-        notes_ko=(list[str], Field(description="주의사항·추가 안내 (없으면 빈 배열)")),
+        notes_ko=(list[str], Field(description="주의사항·추가 안내 (응답 언어로, 없으면 빈 배열)")),
     )
 
 

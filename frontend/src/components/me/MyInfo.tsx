@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
+import { useT } from "@/i18n/client";
 import LoginRequired, { AuthChecking } from "@/components/LoginRequired";
 import { api, ApiError, errorText, isAuthError } from "@/lib/api";
 import type { Me, Pet, SpeciesOption, SpeciesResponse } from "@/lib/types";
@@ -17,6 +18,7 @@ import ProfileCard from "./ProfileCard";
 /** 내 정보: 프로필·활동 요약·설계 사용량, 내 반려동물, 계정 설정 (회원 전용) */
 export default function MyInfo() {
   const { status, user } = useAuth();
+  const t = useT();
   const userId = user?.id ?? null;
   const [authError, setAuthError] = useState<ApiError | null>(null);
   const [me, setMe] = useState<Me | null>(null);
@@ -42,17 +44,17 @@ export default function MyInfo() {
         set(v);
         setErr(null);
       };
-    api.me().then(ok(setMe, setMeError)).catch(fail(setMeError, "내 정보를 불러오지 못했어요."));
-    api.pets().then(ok(setPets, setPetsError)).catch(fail(setPetsError, "반려동물 정보를 불러오지 못했어요."));
+    api.me().then(ok(setMe, setMeError)).catch(fail(setMeError, t("내 정보를 불러오지 못했어요.")));
+    api.pets().then(ok(setPets, setPetsError)).catch(fail(setPetsError, t("반려동물 정보를 불러오지 못했어요.")));
     // 종 목록은 로그인 문제로 실패해도 내 정보 화면 전체를 로그인 안내로 바꾸지 않는다 (fail 대신 그 자리 안내만)
     api
       .species()
       .then(ok((s: SpeciesResponse) => setSpecies(s.species), setSpeciesError))
-      .catch((e: unknown) => alive && setSpeciesError(errorText(e, "잠시 뒤 다시 시도해 주세요.")));
+      .catch((e: unknown) => alive && setSpeciesError(errorText(e, t("잠시 뒤 다시 시도해 주세요."))));
     return () => {
       alive = false;
     };
-  }, [userId]);
+  }, [userId, t]);
 
   // /me#pets·/me#email 로 들어온 경우: 내용을 불러온 뒤에 그 영역으로 스크롤한다 (처음에는 그 영역이 아직 없다)
   const ready = (me !== null || meError !== null) && (pets !== null || petsError !== null);
@@ -90,7 +92,7 @@ export default function MyInfo() {
 
       <section aria-labelledby="account-title" className={`${ui.card} lg:col-start-1 lg:row-start-2`}>
         <h2 id="account-title" className={ui.h2}>
-          계정 설정
+          {t("계정 설정")}
         </h2>
         <div className="mt-4 space-y-6 divide-y divide-stone-200 [&>*+*]:pt-6">
           <NicknameForm user={user} onAuthError={onAuthError} />

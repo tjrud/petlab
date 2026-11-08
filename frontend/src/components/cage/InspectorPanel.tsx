@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+import { assetDescription, assetName } from "@/components/cage/CatalogPanel";
+import { useLang, useT } from "@/i18n/client";
 import { CATEGORIES, type CageAsset } from "@/lib/cageAssets";
 import { footprint, rotatedExtent, round1, TOL, wallGaps, type LayoutIssue } from "@/lib/cageLayout";
 import type { Cage, LayoutItem } from "@/lib/types";
@@ -75,57 +77,61 @@ export default function InspectorPanel({
   onDuplicate: () => void;
   onRemove: () => void;
 }) {
+  const t = useT();
+  const lang = useLang();
   const gaps = wallGaps(footprint(item, asset), cage);
   const ext = rotatedExtent(asset, item.rotation_deg);
-  const category = CATEGORIES.find((c) => c.key === asset.category)?.label;
-  const gap = (v: number) => (v < -TOL ? <span className="text-red-600">밖으로 {Math.round(-v)}</span> : Math.round(Math.max(0, v)));
+  const categoryKo = CATEGORIES.find((c) => c.key === asset.category)?.label;
+  const category = categoryKo && t(categoryKo);
+  const gap = (v: number) =>
+    v < -TOL ? <span className="text-red-600">{t("밖으로 {n}", { n: Math.round(-v) })}</span> : Math.round(Math.max(0, v));
   return (
-    <section aria-label="선택한 구조물" className="space-y-3">
+    <section aria-label={t("선택한 구조물")} className="space-y-3">
       <div className="flex items-start justify-between gap-2">
         <div>
           <p className="text-xs text-stone-500">{category}</p>
-          <h3 className="text-base font-semibold">{asset.name}</h3>
+          <h3 className="text-base font-semibold">{assetName(asset, t)}</h3>
           <p className="text-xs text-stone-500">
-            {asset.size[0]}×{asset.size[1]}×{asset.size[2]}mm · 바닥 {Math.round(ext.w)}×{Math.round(ext.d)}mm
+            {asset.size[0]}×{asset.size[1]}×{asset.size[2]}mm · {t("바닥 {w}×{d}mm", { w: Math.round(ext.w), d: Math.round(ext.d) })}
           </p>
         </div>
         <div className="flex shrink-0 gap-1">
-          <button type="button" onClick={onDuplicate} className={ui.btnSecondary} title="복제 (Ctrl+D)">
-            복제
+          <button type="button" onClick={onDuplicate} className={ui.btnSecondary} title={t("복제 (Ctrl+D)")}>
+            {t("복제")}
           </button>
-          <button type="button" onClick={onRemove} className={ui.btnDanger} title="삭제 (Delete)">
-            삭제
+          <button type="button" onClick={onRemove} className={ui.btnDanger} title={t("삭제 (Delete)")}>
+            {t("삭제")}
           </button>
         </div>
       </div>
 
       <div className="grid grid-cols-2 gap-2">
-        <NumField label="가로 위치" unit="mm" value={item.x_mm} onCommit={(v) => onMove(v, item.y_mm)} />
-        <NumField label="세로 위치" unit="mm" value={item.y_mm} onCommit={(v) => onMove(item.x_mm, v)} />
+        <NumField label={t("가로 위치")} unit="mm" value={item.x_mm} onCommit={(v) => onMove(v, item.y_mm)} />
+        <NumField label={t("세로 위치")} unit="mm" value={item.y_mm} onCommit={(v) => onMove(item.x_mm, v)} />
       </div>
 
       <div>
         <div className="flex items-end gap-2">
           <div className="w-24">
-            <NumField label="회전" unit="°" value={item.rotation_deg} onCommit={onRotateTo} />
+            <NumField label={t("회전")} unit="°" value={item.rotation_deg} onCommit={onRotateTo} />
           </div>
           <div className="flex flex-wrap gap-1">
             {/* 회전 각도는 위에서 볼 때 반시계 방향이 + */}
-            <button type="button" className={ui.btnSecondary} onClick={() => onRotate(15)} title="반시계 15° (Q)" aria-label="반시계 방향으로 15° 돌리기">
+            <button type="button" className={ui.btnSecondary} onClick={() => onRotate(15)} title={t("반시계 15° (Q)")} aria-label={t("반시계 방향으로 15° 돌리기")}>
               ⟲ 15°
             </button>
-            <button type="button" className={ui.btnSecondary} onClick={() => onRotate(-15)} title="시계 15° (E)" aria-label="시계 방향으로 15° 돌리기">
+            <button type="button" className={ui.btnSecondary} onClick={() => onRotate(-15)} title={t("시계 15° (E)")} aria-label={t("시계 방향으로 15° 돌리기")}>
               ⟳ 15°
             </button>
             <button type="button" className={ui.btnSecondary} onClick={() => onRotate(90)} title="R">
-              90° 돌리기
+              {t("90° 돌리기")}
             </button>
           </div>
         </div>
       </div>
 
       <div>
-        <p className="mb-1 text-xs font-medium text-stone-600">벽까지 거리 (mm)</p>
+        <p className="mb-1 text-xs font-medium text-stone-600">{t("벽까지 거리 (mm)")}</p>
         <dl className="grid grid-cols-4 gap-1 text-center text-xs">
           {(
             [
@@ -136,7 +142,7 @@ export default function InspectorPanel({
             ] as const
           ).map(([k, v]) => (
             <div key={k} className="rounded-lg bg-stone-50 px-1 py-1.5">
-              <dt className="text-stone-500">{k}</dt>
+              <dt className="text-stone-500">{t(k)}</dt>
               <dd className="font-semibold tabular-nums">{gap(v)}</dd>
             </div>
           ))}
@@ -147,13 +153,13 @@ export default function InspectorPanel({
         <ul className="space-y-1 text-xs">
           {issues.map((i) => (
             <li key={i.key} className={i.severity === "error" ? "text-red-700" : "text-amber-800"}>
-              <span className="mr-1 font-semibold">{i.severity === "error" ? "오류" : "경고"}</span>
-              {i.message}
+              <span className="mr-1 font-semibold">{i.severity === "error" ? t("오류") : t("경고")}</span>
+              {i.text(t, lang)}
             </li>
           ))}
         </ul>
       )}
-      <p className="text-[11px] text-stone-400">{asset.description}</p>
+      <p className="text-[11px] text-stone-400">{assetDescription(asset, t)}</p>
     </section>
   );
 }

@@ -2,6 +2,7 @@
 
 import type { Ref } from "react";
 
+import { useT } from "@/i18n/client";
 import { CharCount, LIMITS, oneLine } from "@/components/community/common";
 import { ui } from "@/lib/ui";
 
@@ -25,6 +26,7 @@ export default function PostFields({
   invalid?: boolean;
   titleRef?: Ref<HTMLInputElement>;
 }) {
+  const t = useT();
   const titleId = `${idPrefix}-title`;
   const bodyId = `${idPrefix}-body`;
   const countId = `${idPrefix}-body-count`;
@@ -32,7 +34,7 @@ export default function PostFields({
     <>
       <div>
         <label htmlFor={titleId} className={ui.label}>
-          제목
+          {t("제목")}
         </label>
         <input
           ref={titleRef}
@@ -57,7 +59,7 @@ export default function PostFields({
       </div>
       <div>
         <label htmlFor={bodyId} className={ui.label}>
-          내용
+          {t("내용")}
         </label>
         <textarea
           id={bodyId}

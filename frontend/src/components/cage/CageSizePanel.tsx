@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 
-import { CAGE_LIMITS, cageDimError } from "@/components/me/common";
+import { CAGE_LIMITS } from "@/components/me/common";
+import { useT } from "@/i18n/client";
+import type { TFunction } from "@/i18n/translate";
 import type { Cage, Pet } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
@@ -25,16 +27,15 @@ type Draft = { w: string; d: string; h: string };
 
 const toDraft = (c: Cage): Draft => ({ w: String(c.width_mm), d: String(c.depth_mm), h: String(c.height_mm) });
 
-/** 입력 오류 목록 (서버 CageIn 과 같은 범위) */
-function errorsOf(draft: Draft): string[] {
+/** 입력 오류 목록 (서버 CageIn 과 같은 범위, me/common 의 cageDimError 와 같은 문구) */
+function errorsOf(draft: Draft, t: TFunction): string[] {
   const errs: string[] = [];
-  for (const [k, label] of DIMS) {
+  for (const [k, ko] of DIMS) {
+    const label = t(ko);
     const v = Number(draft[k]);
-    if (draft[k].trim() === "" || !Number.isFinite(v)) errs.push(`${label}를 숫자로 입력해 주세요.`);
-    else {
-      const e = cageDimError(k, v, label);
-      if (e) errs.push(e);
-    }
+    const [lo, hi] = CAGE_LIMITS[k];
+    if (draft[k].trim() === "" || !Number.isFinite(v)) errs.push(t("{label}를 숫자로 입력해 주세요.", { label }));
+    else if (v < lo || v > hi) errs.push(t("{label}는 {lo}~{hi}mm 사이로 입력해 주세요.", { label, lo, hi }));
   }
   return errs;
 }
@@ -54,6 +55,7 @@ export default function CageSizePanel({
   outsideCount: number;
   onPullInside: () => void;
 }) {
+  const t = useT();
   const [draft, setDraft] = useState<Draft>(() => toDraft(cage));
   // 되돌리기·불러오기·프리셋 등으로 바깥에서 케이지가 바뀌면 입력 칸도 맞춰요 (렌더 중 이전 값과 비교)
   const [shown, setShown] = useState(cage);
@@ -61,7 +63,7 @@ export default function CageSizePanel({
     setShown(cage);
     setDraft(toDraft(cage));
   }
-  const errors = errorsOf(draft);
+  const errors = errorsOf(draft, t);
   const changed = draft.w !== String(cage.width_mm) || draft.d !== String(cage.depth_mm) || draft.h !== String(cage.height_mm);
   const apply = () => {
     if (errors.length) return;
@@ -72,7 +74,7 @@ export default function CageSizePanel({
   return (
     <div className="space-y-4">
       <div>
-        <p className="mb-2 text-sm font-medium">자주 쓰는 크기 (cm)</p>
+        <p className="mb-2 text-sm font-medium">{t("자주 쓰는 크기 (cm)")}</p>
         <div className="flex flex-wrap gap-1.5">
           {PLANNER_PRESETS.map((p) => {
             const on = cage.width_mm === p.w && cage.depth_mm === p.d && cage.height_mm === p.h;
@@ -84,7 +86,7 @@ export default function CageSizePanel({
                 onClick={() => onApply({ width_mm: p.w, depth_mm: p.d, height_mm: p.h })}
                 className={`rounded-full border px-3 py-1 text-xs ${on ? "border-amber-500 bg-amber-100 font-semibold" : "border-stone-300 hover:bg-stone-50"}`}
               >
-                {p.label}
+                {t(p.label)}
               </button>
             );
           })}
@@ -93,7 +95,7 @@ export default function CageSizePanel({
 
       {petCages.length > 0 && (
         <div>
-          <p className="mb-2 text-sm font-medium">내 반려동물 케이지</p>
+          <p className="mb-2 text-sm font-medium">{t("내 반려동물 케이지")}</p>
           <div className="flex flex-wrap gap-1.5">
             {petCages.map((p) => (
               <button
@@ -115,18 +117,18 @@ export default function CageSizePanel({
           apply();
         }}
       >
-        <p className="mb-2 text-sm font-medium">직접 입력 (내부 치수, mm)</p>
+        <p className="mb-2 text-sm font-medium">{t("직접 입력 (내부 치수, mm)")}</p>
         <div className="grid grid-cols-3 gap-2">
           {DIMS.map(([k, label]) => (
             <label key={k} className="block">
-              <span className="mb-1 block text-xs text-stone-500">{label}</span>
+              <span className="mb-1 block text-xs text-stone-500">{t(label)}</span>
               <input
                 type="number"
                 inputMode="numeric"
                 min={CAGE_LIMITS[k][0]}
                 max={CAGE_LIMITS[k][1]}
                 step={1}
-                aria-label={`케이지 ${label} (mm)`}
+                aria-label={t("케이지 {label} (mm)", { label: t(label) })}
                 className={ui.input}
                 value={draft[k]}
                 onChange={(e) => setDraft({ ...draft, [k]: e.target.value })}
@@ -143,18 +145,18 @@ export default function CageSizePanel({
         )}
         <div className="mt-3 flex items-center gap-2">
           <button type="submit" disabled={!changed || errors.length > 0} className={ui.btnSecondary}>
-            크기 적용
+            {t("크기 적용")}
           </button>
-          {changed && errors.length === 0 && <span className="text-xs text-stone-500">적용하면 3D 화면이 바뀌어요.</span>}
+          {changed && errors.length === 0 && <span className="text-xs text-stone-500">{t("적용하면 3D 화면이 바뀌어요.")}</span>}
         </div>
-        <p className="mt-2 text-xs text-stone-500">바닥재를 깐 상태의 안쪽 공간을 재 주세요. 가로·세로 200~2000mm, 높이 100~1000mm.</p>
+        <p className="mt-2 text-xs text-stone-500">{t("바닥재를 깐 상태의 안쪽 공간을 재 주세요. 가로·세로 200~2000mm, 높이 100~1000mm.")}</p>
       </form>
 
       {outsideCount > 0 && (
         <div className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
-          <p>구조물 {outsideCount}개가 케이지 밖으로 나가 있어요.</p>
+          <p>{t("구조물 {n}개가 케이지 밖으로 나가 있어요.", { n: outsideCount })}</p>
           <button type="button" onClick={onPullInside} className="mt-2 font-semibold text-amber-800 underline-offset-2 hover:underline">
-            벽 안쪽으로 모두 옮기기
+            {t("벽 안쪽으로 모두 옮기기")}
           </button>
         </div>
       )}

@@ -1,4 +1,7 @@
 // 구조물 종류별 표시 정보 (뷰어 색상, 파라미터 이름)
+// 파라미터 이름은 한국어 원문으로 두고, 보여 줄 때 t(PARAM_LABELS[k]) 로 번역한다
+
+import type { TFunction } from "@/i18n/translate";
 
 export const TEMPLATE_COLORS: Record<string, string> = {
   hideout: "#d9a066",
@@ -25,11 +28,11 @@ export const PARAM_LABELS: Record<string, string> = {
   basin_depth_mm: "안쪽 깊이",
 };
 
-export function formatParam(key: string, value: number): string {
+export function formatParam(key: string, value: number, t: TFunction): string {
   const v = Number.isInteger(value) ? value.toString() : value.toFixed(1);
   if (key.endsWith("_mm")) return `${v}mm`;
   if (key.endsWith("_deg")) return `${v}°`;
-  if (key === "steps") return value === 0 ? "경사로" : `${v}단`;
-  if (key.endsWith("_count")) return `${v}개`;
+  if (key === "steps") return value === 0 ? t("경사로") : t("{n}단", { n: v });
+  if (key.endsWith("_count")) return t("{n}개", { n: v });
   return v;
 }

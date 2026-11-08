@@ -3,6 +3,7 @@
 import { useId, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
+import { useT } from "@/i18n/client";
 import { api, ApiError, errorText, isAuthError } from "@/lib/api";
 import { NICKNAME_HINT, nicknameError, normalizeNickname } from "@/lib/nickname";
 import type { User } from "@/lib/types";
@@ -21,6 +22,7 @@ function validateNickname(value: string, current: string): string | undefined {
 /** 닉네임 변경 (관리자는 바꿀 수 없다) */
 export default function NicknameForm({ user, onAuthError }: { user: User; onAuthError: (e: ApiError) => void }) {
   const { setStatus } = useAuth();
+  const t = useT();
   const uid = useId();
   const inputId = `${uid}-nickname`;
   const [value, setValue] = useState(user.nickname);
@@ -32,13 +34,15 @@ export default function NicknameForm({ user, onAuthError }: { user: User; onAuth
   if (user.role === "admin") {
     return (
       <div>
-        <h3 className="font-semibold">닉네임 바꾸기</h3>
-        <p className="mt-1 text-sm text-stone-600">관리자 닉네임은 바꿀 수 없어요.</p>
+        <h3 className="font-semibold">{t("닉네임 바꾸기")}</h3>
+        <p className="mt-1 text-sm text-stone-600">{t("관리자 닉네임은 바꿀 수 없어요.")}</p>
       </div>
     );
   }
 
-  const fieldError = submitted ? validateNickname(value, user.nickname) : undefined;
+  // 확인 문구는 한국어 원문이라 보여 줄 때 번역한다
+  const fieldProblem = submitted ? validateNickname(value, user.nickname) : undefined;
+  const fieldError = fieldProblem && t(fieldProblem);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -55,10 +59,10 @@ export default function NicknameForm({ user, onAuthError }: { user: User; onAuth
       setStatus(status); // 헤더의 닉네임도 바로 바뀐다
       setValue(status.user?.nickname ?? value.trim());
       setSubmitted(false);
-      setDone("닉네임을 바꿨어요.");
+      setDone(t("닉네임을 바꿨어요."));
     } catch (err) {
       if (isAuthError(err)) onAuthError(err);
-      else setError(errorText(err, "닉네임을 바꾸지 못했어요. 잠시 뒤 다시 시도해 주세요."));
+      else setError(errorText(err, t("닉네임을 바꾸지 못했어요. 잠시 뒤 다시 시도해 주세요.")));
     } finally {
       setSubmitting(false);
     }
@@ -67,11 +71,11 @@ export default function NicknameForm({ user, onAuthError }: { user: User; onAuth
   return (
     <form onSubmit={submit} noValidate aria-labelledby={`${uid}-title`} className="space-y-3">
       <h3 id={`${uid}-title`} className="font-semibold">
-        닉네임 바꾸기
+        {t("닉네임 바꾸기")}
       </h3>
       <Field
         id={inputId}
-        label="닉네임"
+        label={t("닉네임")}
         name="nickname"
         autoComplete="nickname"
         required
@@ -81,7 +85,7 @@ export default function NicknameForm({ user, onAuthError }: { user: User; onAuth
           setError(null);
           setDone(null);
         }}
-        hint={NICKNAME_HINT}
+        hint={t(NICKNAME_HINT)}
         error={fieldError}
       />
       {error && (
@@ -95,7 +99,7 @@ export default function NicknameForm({ user, onAuthError }: { user: User; onAuth
         </p>
       )}
       <button type="submit" disabled={submitting} className={ui.btnSecondary}>
-        {submitting ? "바꾸는 중…" : "닉네임 변경"}
+        {submitting ? t("바꾸는 중…") : t("닉네임 변경")}
       </button>
     </form>
   );

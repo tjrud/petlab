@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 
+import { useT } from "@/i18n/client";
 import { COMMUNITY_IMAGES } from "@/lib/communityImages";
 import type { PostImage } from "@/lib/types";
 
@@ -27,6 +28,7 @@ export default function ImagePicker({
   onChange: (v: PostImage[]) => void;
   disabled?: boolean;
 }) {
+  const t = useT();
   const chosen = new Map(value.map((v, i) => [v.src, i]));
   const groups = [...new Set(COMMUNITY_IMAGES.map((i) => i.group))];
   // 목록에서 빠진 옛 사진도 고른 상태로 보이게 (빼기만 할 수 있다)
@@ -45,7 +47,7 @@ export default function ImagePicker({
         <button
           type="button"
           aria-pressed={on}
-          aria-label={`${img.alt}${on ? ` (${order + 1}번째)` : ""}`}
+          aria-label={`${t(img.alt)}${on ? ` ${t("({n}번째)", { n: order + 1 })}` : ""}`}
           disabled={disabled || (!on && value.length >= MAX_IMAGES)}
           onClick={() => toggle(img)}
           className={`relative block w-full overflow-hidden rounded-lg border-2 disabled:opacity-40 ${
@@ -66,21 +68,24 @@ export default function ImagePicker({
   return (
     <fieldset disabled={disabled}>
       <legend className="mb-1 block text-sm font-medium">
-        사진 <span className="font-normal text-stone-500">(운영팀만 · 최대 {MAX_IMAGES}장, 고른 순서대로 보여요)</span>
+        {t("사진")}{" "}
+        <span className="font-normal text-stone-500">
+          {t("(운영팀만 · 최대 {n}장, 고른 순서대로 보여요)", { n: MAX_IMAGES })}
+        </span>
       </legend>
       {COMMUNITY_IMAGES.length === 0 && orphans.length === 0 ? (
-        <p className="text-sm text-stone-500">넣을 수 있는 사진이 아직 없어요.</p>
+        <p className="text-sm text-stone-500">{t("넣을 수 있는 사진이 아직 없어요.")}</p>
       ) : (
         <div className="max-h-80 space-y-3 overflow-y-auto rounded-lg border border-stone-200 p-3">
           {orphans.length > 0 && (
             <div>
-              <p className="mb-1 text-xs font-semibold text-stone-600">목록에 없는 사진</p>
+              <p className="mb-1 text-xs font-semibold text-stone-600">{t("목록에 없는 사진")}</p>
               <ul className="grid grid-cols-3 gap-2 sm:grid-cols-4">{orphans.map(tile)}</ul>
             </div>
           )}
           {groups.map((g) => (
             <div key={g}>
-              <p className="mb-1 text-xs font-semibold text-stone-600">{g}</p>
+              <p className="mb-1 text-xs font-semibold text-stone-600">{t(g)}</p>
               <ul className="grid grid-cols-3 gap-2 sm:grid-cols-4">{COMMUNITY_IMAGES.filter((i) => i.group === g).map(tile)}</ul>
             </div>
           ))}

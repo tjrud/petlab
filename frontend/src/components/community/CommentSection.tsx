@@ -1,5 +1,6 @@
 "use client";
 
+import { useT } from "@/i18n/client";
 import CommentForm from "@/components/community/CommentForm";
 import CommentItem from "@/components/community/CommentItem";
 import type { Comment } from "@/lib/types";
@@ -19,16 +20,17 @@ export default function CommentSection({
   onAdded: (c: Comment) => void;
   onRemoved: (id: string) => void;
 }) {
+  const t = useT();
   return (
     <section aria-labelledby="comments-title" className={ui.card}>
       <h2 id="comments-title" className={ui.h2}>
-        댓글 {total}
+        {t("댓글 {n}", { n: total })}
       </h2>
       {total > comments.length && (
-        <p className={`${ui.muted} mt-1`}>댓글이 많아서 최근 {comments.length}개만 보여요.</p>
+        <p className={`${ui.muted} mt-1`}>{t("댓글이 많아서 최근 {n}개만 보여요.", { n: comments.length })}</p>
       )}
       {comments.length === 0 ? (
-        <p className={`${ui.muted} mt-3`}>아직 댓글이 없어요.</p>
+        <p className={`${ui.muted} mt-3`}>{t("아직 댓글이 없어요.")}</p>
       ) : (
         <ul className="mt-1 divide-y divide-stone-100">
           {comments.map((c) => (

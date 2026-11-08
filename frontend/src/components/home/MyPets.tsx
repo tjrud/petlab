@@ -1,6 +1,6 @@
 "use client";
 
-import { Link } from "@/i18n/client";
+import { Link, useT } from "@/i18n/client";
 import { useId } from "react";
 
 import { IconPaw } from "@/components/home/icons";
@@ -13,6 +13,7 @@ const loadPets = () => api.pets();
 const SHOW = 4; // 메인 화면에는 몇 마리만 보여 주고 나머지는 내 정보에서
 
 function PetRow({ pet }: { pet: Pet }) {
+  const t = useT();
   const nameId = useId();
   return (
     <li className="flex flex-wrap items-center gap-3 rounded-xl border border-stone-200 p-3">
@@ -24,11 +25,12 @@ function PetRow({ pet }: { pet: Pet }) {
           {pet.name}
         </p>
         <p className="truncate text-sm text-stone-600">
-          {pet.species_name_ko} · {pet.size_name_ko}
+          {t(pet.species_name_ko)} · {t(pet.size_name_ko)}
           {pet.cage && (
             <>
               {" "}
-              · 케이지 {pet.cage.width_mm}×{pet.cage.depth_mm}×{pet.cage.height_mm}mm
+              ·{" "}
+              {t("케이지 {w}×{d}×{h}mm", { w: pet.cage.width_mm, d: pet.cage.depth_mm, h: pet.cage.height_mm })}
             </>
           )}
         </p>
@@ -39,7 +41,7 @@ function PetRow({ pet }: { pet: Pet }) {
         aria-describedby={nameId}
         className="shrink-0 rounded-lg bg-amber-500 px-3 py-1.5 text-sm font-semibold text-white hover:bg-amber-600"
       >
-        이 아이로 설계하기
+        {t("이 아이로 설계하기")}
       </Link>
     </li>
   );
@@ -47,30 +49,31 @@ function PetRow({ pet }: { pet: Pet }) {
 
 /** 메인 화면: 내 반려동물 (등록한 아이로 바로 설계 시작) */
 export default function MyPets() {
-  const { state, retry } = useLoad(loadPets, "반려동물 정보를 불러오지 못했어요.");
+  const t = useT();
+  const { state, retry } = useLoad(loadPets, t("반려동물 정보를 불러오지 못했어요."));
 
   return (
     <section aria-labelledby="my-pets-title" className={`${ui.card} flex flex-col`}>
       <div className="mb-4 flex items-center justify-between gap-2">
         <h3 id="my-pets-title" className={ui.h2}>
-          내 반려동물
+          {t("내 반려동물")}
         </h3>
         <Link href="/me#pets" className={`${ui.link} shrink-0 text-sm font-medium`}>
-          관리하기
+          {t("관리하기")}
         </Link>
       </div>
 
-      {state.kind === "loading" && <Skeleton rows={2} label="반려동물 정보를 불러오는 중이에요" />}
+      {state.kind === "loading" && <Skeleton rows={2} label={t("반려동물 정보를 불러오는 중이에요")} />}
       {state.kind === "error" && <LoadError message={state.message} needsLogin={state.needsLogin} onRetry={retry} />}
       {state.kind === "ok" &&
         (state.data.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center rounded-xl bg-amber-50/70 p-6 text-center">
-            <p className="font-medium">등록된 반려동물이 없어요.</p>
+            <p className="font-medium">{t("등록된 반려동물이 없어요.")}</p>
             <p className="mt-1 text-sm text-stone-600">
-              아이와 케이지 정보를 등록해 두면 다음 설계 때 바로 불러올 수 있어요.
+              {t("아이와 케이지 정보를 등록해 두면 다음 설계 때 바로 불러올 수 있어요.")}
             </p>
             <Link href="/me#pets" className={`${ui.btnPrimary} mt-4`}>
-              반려동물 등록하기
+              {t("반려동물 등록하기")}
             </Link>
           </div>
         ) : (
@@ -82,9 +85,9 @@ export default function MyPets() {
             </ul>
             {state.data.length > SHOW && (
               <p className="mt-3 text-sm text-stone-600">
-                그 밖에 {state.data.length - SHOW}마리가 더 있어요.{" "}
+                {t("그 밖에 {n}마리가 더 있어요.", { n: state.data.length - SHOW })}{" "}
                 <Link href="/me#pets" className={`${ui.link} font-medium`}>
-                  모두 보기
+                  {t("모두 보기")}
                 </Link>
               </p>
             )}

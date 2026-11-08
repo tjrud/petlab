@@ -1,14 +1,16 @@
 import Image from "next/image";
 
+import { useT } from "@/i18n/client";
 import type { PostImage } from "@/lib/types";
 
 /** 사진 아래 출처 표시 (CC 라이선스: 촬영자·라이선스·원본 링크) */
 export function ImageCredit({ img }: { img: PostImage }) {
+  const t = useT();
   return (
     <>
-      사진: {img.credit} ·{" "}
+      {t("사진: {credit}", { credit: img.credit })} ·{" "}
       <a href={img.source_url} target="_blank" rel="noopener noreferrer nofollow" className="underline-offset-2 hover:underline">
-        {img.license}
+        {t(img.license)}
       </a>
     </>
   );
@@ -33,11 +35,13 @@ export default function PostImages({ images }: { images: PostImage[] }) {
 }
 
 function Figure({ img, priority = false }: { img: PostImage; priority?: boolean }) {
+  const t = useT();
+  const alt = t(img.alt);
   return (
     <figure>
       <Image
         src={img.src}
-        alt={img.alt}
+        alt={alt}
         width={img.width}
         height={img.height}
         unoptimized
@@ -45,7 +49,7 @@ function Figure({ img, priority = false }: { img: PostImage; priority?: boolean 
         className="h-auto max-h-[28rem] w-full rounded-xl bg-stone-100 object-cover"
       />
       <figcaption className="mt-1 text-xs text-stone-500">
-        <span className="text-stone-600">{img.alt}</span>
+        <span className="text-stone-600">{alt}</span>
         <span aria-hidden> · </span>
         <ImageCredit img={img} />
       </figcaption>

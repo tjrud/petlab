@@ -1,6 +1,6 @@
 "use client";
 
-import { Link } from "@/i18n/client";
+import { Link, useT } from "@/i18n/client";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -28,11 +28,13 @@ type Result =
   | { key: string; kind: "error"; message: string };
 
 export function PostListPlaceholder() {
-  return <Placeholder rows={5} label="글 목록을 불러오는 중이에요" />;
+  const t = useT();
+  return <Placeholder rows={5} label={t("글 목록을 불러오는 중이에요")} />;
 }
 
 /** 커뮤니티 글 목록 (누구나 볼 수 있음). 주소의 페이지가 바뀌면 다시 불러온다 */
 export default function PostList() {
+  const t = useT();
   const params = useSearchParams();
   const page = parsePage(params.get("page"));
   const [attempt, setAttempt] = useState(0);
@@ -47,13 +49,13 @@ export default function PostList() {
         if (alive) setResult({ key, kind: "ok", data });
       },
       (e: unknown) => {
-        if (alive) setResult({ key, kind: "error", message: errorText(e, "글 목록을 불러오지 못했어요.") });
+        if (alive) setResult({ key, kind: "error", message: errorText(e, t("글 목록을 불러오지 못했어요.")) });
       },
     );
     return () => {
       alive = false;
     };
-  }, [page, key]);
+  }, [page, key, t]);
 
   const r = result?.key === key ? result : null;
   if (!r) return <PostListPlaceholder />;
@@ -66,8 +68,8 @@ export default function PostList() {
   if (total === 0) {
     return (
       <div className={`${ui.card} flex flex-col items-center py-12 text-center`}>
-        <p className="text-lg font-semibold">아직 글이 없어요.</p>
-        <p className="mt-1 text-sm text-stone-600">케이지 설계나 사육 경험을 올려 주세요.</p>
+        <p className="text-lg font-semibold">{t("아직 글이 없어요.")}</p>
+        <p className="mt-1 text-sm text-stone-600">{t("케이지 설계나 사육 경험을 올려 주세요.")}</p>
       </div>
     );
   }
@@ -76,9 +78,9 @@ export default function PostList() {
     // 주소의 페이지 번호가 전체 페이지 수보다 큰 경우
     return (
       <div className={`${ui.card} text-center`}>
-        <p className="font-medium">이 페이지에는 글이 없어요.</p>
+        <p className="font-medium">{t("이 페이지에는 글이 없어요.")}</p>
         <Link href={pageHref(1)} className={`${ui.btnSecondary} mt-4`}>
-          첫 페이지로
+          {t("첫 페이지로")}
         </Link>
       </div>
     );
@@ -86,7 +88,7 @@ export default function PostList() {
 
   return (
     <div>
-      <p className={`${ui.muted} mb-3`}>총 {total}개의 글</p>
+      <p className={`${ui.muted} mb-3`}>{t("총 {n}개의 글", { n: total })}</p>
       <ul className="divide-y divide-amber-100 overflow-hidden rounded-2xl border border-amber-200 bg-white shadow-sm">
         {items.map((p) => (
           <PostListItem key={p.id} post={p} />
