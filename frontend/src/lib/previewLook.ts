@@ -9,7 +9,7 @@ export const MODEL_COLOR = "#c8874e";
 /** 꺾인 모서리만 얇고 진하게 (곡면의 잔 삼각형 경계는 빼려고 25° 이상 꺾인 곳만) */
 export const EDGE_STYLE = { color: "#3b2716", opacity: 0.55, thresholdDeg: 25 } as const;
 /** 바깥 윤곽선 (화면 픽셀 두께) */
-export const OUTLINE_STYLE = { color: "#3b2716", thickness: 1.6 } as const;
+export const OUTLINE_STYLE = { color: "#3b2716", thickness: 1.6 } as const; // CSS 픽셀
 /** 위에서 내려다보는 각도와 오른쪽으로 돌린 각도 */
 export const ELEVATION_DEG = 32;
 export const AZIMUTH_DEG = 35;
@@ -21,7 +21,7 @@ export function viewDirection(): THREE.Vector3 {
   return new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));
 }
 
-const SAMPLE_POINTS = 30_000;
+const SAMPLE_POINTS = 8_000; // 화면 맞춤에는 이 정도면 충분하다 (이분 탐색마다 모두 투영하므로 적게)
 
 /** 형상의 꼭짓점을 고르게 골라(최대 SAMPLE_POINTS 개) 월드 좌표(Y-up)로. toWorld 는 각 메시의 월드 행렬 */
 export function samplePoints(parts: { geometry: THREE.BufferGeometry; toWorld: THREE.Matrix4 }[]): THREE.Vector3[] {
@@ -73,7 +73,7 @@ export function fitCamera(camera: THREE.PerspectiveCamera, points: THREE.Vector3
   const search = () => {
     let lo = radius * 0.3;
     let hi = radius * 40;
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < 40 && (hi - lo) / hi > 1e-3; i++) {
       const mid = (lo + hi) / 2;
       if (measure(mid).half > fill) lo = mid;
       else hi = mid;

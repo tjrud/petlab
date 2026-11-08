@@ -5,7 +5,15 @@ import * as THREE from "three";
 import { ThreeMFLoader } from "three/examples/jsm/loaders/3MFLoader.js";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 
-import { centered, EDGE_MAX_TRIANGLES, outlineGeometry, partsOf3mf, type MeshFormat, type MeshPart } from "@/components/three/FileMesh";
+import {
+  centered,
+  EDGE_MAX_TRIANGLES,
+  outlineGeometry,
+  partsOf3mf,
+  triangleCount,
+  type MeshFormat,
+  type MeshPart,
+} from "@/components/three/FileMesh";
 import { EDGE_STYLE, fitCamera, MODEL_COLOR, OUTLINE_STYLE, PREVIEW_BG, samplePoints } from "@/lib/previewLook";
 
 const W = 960;
@@ -42,7 +50,7 @@ export async function renderMeshThumbnail(buffer: ArrayBuffer, format: MeshForma
     // 3D 미리보기(@react-three/fiber 기본값)와 같은 색 처리·부드러운 그림자
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = THREE.PCFShadowMap; // three 0.187 에서 PCFSoft 는 없어졌다 (shadow.radius 로 부드럽게)
     const scene = new THREE.Scene();
     // 파일은 Z-up(mm) 이고 three.js 는 Y-up 이라 X 축으로 -90° 돌린다
     const model = new THREE.Group();
@@ -59,7 +67,7 @@ export async function renderMeshThumbnail(buffer: ArrayBuffer, format: MeshForma
       polygonOffsetUnits: 10,
     });
     const owned: { dispose: () => void }[] = [material, lineMaterial, outlineMaterial];
-    const triangleCount = parts.reduce((n, p) => n + p.geometry.attributes.position.count / 3, 0);
+    const withEdges = triangleCount(parts) <= EDGE_MAX_TRIANGLES;
     const meshes: THREE.Mesh[] = [];
     for (const p of parts) {
       const mesh = new THREE.Mesh(p.geometry, material);
@@ -68,7 +76,7 @@ export async function renderMeshThumbnail(buffer: ArrayBuffer, format: MeshForma
       mesh.castShadow = true; // 바닥에만 그림자 (자기 그림자는 큰 메시에서 얼룩처럼 보인다)
       model.add(mesh);
       meshes.push(mesh);
-      if (triangleCount <= EDGE_MAX_TRIANGLES) {
+      if (withEdges) {
         const edges = new THREE.EdgesGeometry(p.geometry, EDGE_STYLE.thresholdDeg);
         owned.push(edges);
         const lines = new THREE.LineSegments(edges, lineMaterial);
@@ -88,16 +96,20 @@ export async function renderMeshThumbnail(buffer: ArrayBuffer, format: MeshForma
     // 윤곽선 두께: 화면에서 약 1.5px 이 되도록 카메라 거리로 정한다
     const pxWorld = (2 * camera.position.distanceTo(box.getCenter(new THREE.Vector3())) * Math.tan(THREE.MathUtils.degToRad(35 / 2))) / H;
     const thickness = pxWorld * OUTLINE_STYLE.thickness;
-    outlineMaterial.onBeforeCompile = (shader) => {
-      shader.vertexShader = shader.vertexShader.replace(
-        "#include <begin_vertex>",
-        `vec3 transformed = vec3( position ) + normalize( normal ) * ${thickness.toFixed(4)};`,
-      );
-    };
     for (const m of meshes) {
       const smooth = outlineGeometry(m.geometry);
-      owned.push(smooth);
-      const hull = new THREE.Mesh(smooth, outlineMaterial);
+      // 3MF 부품 변환에 배율이 있으면 그만큼 나눠 화면 두께를 맞춘다 (두께는 부품마다 다른 uniform)
+      const t = thickness / Math.max(m.matrix.getMaxScaleOnAxis(), 1e-6);
+      const hullMaterial = outlineMaterial.clone();
+      hullMaterial.onBeforeCompile = (shader) => {
+        shader.uniforms.outlineT = { value: t };
+        shader.vertexShader = `uniform float outlineT;\n${shader.vertexShader}`.replace(
+          "#include <begin_vertex>",
+          "vec3 transformed = vec3( position ) + normalize( normal ) * outlineT;",
+        );
+      };
+      owned.push(smooth, hullMaterial);
+      const hull = new THREE.Mesh(smooth, hullMaterial);
       hull.matrixAutoUpdate = false;
       hull.matrix.copy(m.matrix);
       model.add(hull);
@@ -108,7 +120,8 @@ export async function renderMeshThumbnail(buffer: ArrayBuffer, format: MeshForma
     scene.add(new THREE.HemisphereLight("#ffffff", "#d9c9b4", 1.1));
     scene.add(new THREE.AmbientLight("#ffffff", 0.25));
     const key = new THREE.DirectionalLight("#ffffff", 2.2);
-    key.position.set(radius * 1.3, box.min.y + radius * 2.4, radius * 1.7);
+    // 카메라(오른쪽 앞)와 반대쪽인 왼쪽 앞 위에서 비춰 그림자가 보이는 쪽 바닥에 떨어지게
+    key.position.set(-radius * 1.3, box.min.y + radius * 2.4, radius * 1.4);
     key.castShadow = true;
     key.shadow.mapSize.set(2048, 2048);
     key.shadow.bias = -0.0004;
@@ -118,11 +131,11 @@ export async function renderMeshThumbnail(buffer: ArrayBuffer, format: MeshForma
     Object.assign(key.shadow.camera, { left: -sh, right: sh, top: sh, bottom: -sh, near: radius * 0.1, far: radius * 8 });
     key.shadow.camera.updateProjectionMatrix();
     scene.add(key);
-    const fill = new THREE.DirectionalLight("#ffffff", 0.6);
-    fill.position.set(-radius * 2, radius * 0.9, radius * 0.6);
+    const fill = new THREE.DirectionalLight("#ffffff", 0.55);
+    fill.position.set(radius * 2, radius * 0.9, radius * 0.8);
     scene.add(fill);
     const rim = new THREE.DirectionalLight("#ffffff", 0.75);
-    rim.position.set(-radius * 0.5, radius * 1.4, -radius * 2.2);
+    rim.position.set(radius * 0.4, radius * 1.4, -radius * 2.2);
     scene.add(rim);
     // 그림자를 받는 투명 바닥
     const floorGeo = new THREE.PlaneGeometry(radius * 10, radius * 10);
@@ -133,6 +146,28 @@ export async function renderMeshThumbnail(buffer: ArrayBuffer, format: MeshForma
     floor.position.y = box.min.y + 0.05;
     floor.receiveShadow = true;
     scene.add(floor);
+    // 바닥에 닿는 곳의 옅은 접촉 그림자 (발자국 크기의 흐린 타원)
+    const spot = document.createElement("canvas");
+    spot.width = spot.height = 128;
+    const ctx = spot.getContext("2d");
+    if (ctx) {
+      const g = ctx.createRadialGradient(64, 64, 8, 64, 64, 64);
+      g.addColorStop(0, "rgba(43,33,24,0.55)");
+      g.addColorStop(0.6, "rgba(43,33,24,0.25)");
+      g.addColorStop(1, "rgba(43,33,24,0)");
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, 128, 128);
+      const tex = new THREE.CanvasTexture(spot);
+      const size = box.getSize(new THREE.Vector3());
+      const contactGeo = new THREE.PlaneGeometry(size.x * 1.35, size.z * 1.35);
+      const contactMat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, toneMapped: false });
+      owned.push(tex, contactGeo, contactMat);
+      const contact = new THREE.Mesh(contactGeo, contactMat);
+      contact.rotation.x = -Math.PI / 2;
+      contact.position.set((box.min.x + box.max.x) / 2, box.min.y + 0.1, (box.min.z + box.max.z) / 2);
+      contact.renderOrder = -1;
+      scene.add(contact);
+    }
 
     renderer.render(scene, camera);
     const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/webp", 0.88));

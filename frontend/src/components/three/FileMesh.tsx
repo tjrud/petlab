@@ -4,7 +4,7 @@
 // 형상은 바닥 가운데로 옮겨요: 가로·세로 가운데가 0, 바닥이 z=0 (Z-up, 단위 mm).
 
 import { Outlines } from "@react-three/drei";
-import { useLoader } from "@react-three/fiber";
+import { useLoader, useThree } from "@react-three/fiber";
 import { Component, useEffect, useMemo, useState, type ReactNode } from "react";
 import * as THREE from "three";
 import { ThreeMFLoader } from "three/examples/jsm/loaders/3MFLoader.js";
@@ -41,7 +41,7 @@ export function partsOf3mf(group: THREE.Object3D): MeshPart[] {
 
 /** 모서리 선: 이웃한 면이 이 각도(°) 이상 꺾이는 곳만 그린다 (곡면의 잔 삼각형 경계는 빼고) */
 export type EdgeStyle = { color: string; opacity: number; thresholdDeg: number };
-/** 바깥 윤곽선 (살짝 부풀린 뒷면을 진한 색으로: 둥근 모서리 모델도 실루엣이 또렷해진다). thickness 는 화면 픽셀 */
+/** 바깥 윤곽선 (살짝 부풀린 뒷면을 진한 색으로: 둥근 모서리 모델도 실루엣이 또렷해진다). thickness 는 CSS 픽셀 */
 export type OutlineStyle = { color: string; thickness: number };
 type PartsOptions = {
   material: () => ReactNode;
@@ -55,7 +55,7 @@ type PartsOptions = {
 
 /** 꺾인 모서리 선은 이보다 작은 메시에만 (수십만 삼각형이면 계산이 몇 초 걸리고 잔 선이 너무 많아진다) */
 export const EDGE_MAX_TRIANGLES = 150_000;
-const triangles = (parts: MeshPart[]) =>
+export const triangleCount = (parts: MeshPart[]) =>
   parts.reduce((n, p) => n + (p.geometry.index ? p.geometry.index.count : p.geometry.attributes.position.count) / 3, 0);
 
 function StlParts({ url, ...opts }: { url: string } & PartsOptions) {
@@ -76,7 +76,7 @@ function ThreeMfParts({ url, ...opts }: { url: string } & PartsOptions) {
 /** 모서리 선 형상. 큰 메시(수십만 삼각형)는 계산이 1초 가까이 걸리므로 형상을 먼저 보여 준 뒤 다음 차례에 만든다 */
 function useEdgeGeometries(parts: MeshPart[], style: EdgeStyle | undefined) {
   const [result, setResult] = useState<{ parts: MeshPart[]; lines: THREE.EdgesGeometry[] } | null>(null);
-  const threshold = style && triangles(parts) <= EDGE_MAX_TRIANGLES ? style.thresholdDeg : undefined;
+  const threshold = style && triangleCount(parts) <= EDGE_MAX_TRIANGLES ? style.thresholdDeg : undefined;
   useEffect(() => {
     if (threshold === undefined) return;
     let made: THREE.EdgesGeometry[] = [];
@@ -92,26 +92,48 @@ function useEdgeGeometries(parts: MeshPart[], style: EdgeStyle | undefined) {
   return result && result.parts === parts ? result.lines : null;
 }
 
-/** 윤곽선용 형상: 위치는 원본과 함께 쓰고 법선만 매끈하게 따로 만든다.
+/** 윤곽선용 형상: 위치(와 인덱스)는 원본과 함께 쓰고 법선만 매끈하게 따로 만든다.
  * toCreasedNormals 는 인덱스 없는 형상(STL)을 받으면 복사하지 않고 원본의 법선을 덮어쓰므로, 원본에 직접 쓰면
- * 모델 면이 물결처럼 보인다 */
+ * 모델 면이 물결처럼 보인다. 인덱스가 있는 형상(3MF)은 꼭짓점을 이미 함께 쓰므로 법선 평균만 낸다 */
 export function outlineGeometry(source: THREE.BufferGeometry): THREE.BufferGeometry {
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", source.attributes.position);
-  if (source.index) g.setIndex(source.index);
+  if (source.index) {
+    g.setIndex(source.index);
+    g.computeVertexNormals();
+    return g;
+  }
   return toCreasedNormals(g, Math.PI);
 }
 
-/** 바깥 윤곽선: 보이지 않는 형상(매끈한 법선)에 Outlines 를 붙인다 */
+/** 바깥 윤곽선: 보이지 않는 형상(매끈한 법선)에 Outlines 를 붙인다.
+ * 법선 계산은 큰 메시에서 수백 ms 걸리므로 형상을 먼저 보여 준 뒤 다음 차례에 만든다 */
 function OutlineParts({ parts, style }: { parts: MeshPart[]; style: OutlineStyle }) {
-  const hulls = useMemo(() => parts.map((p) => outlineGeometry(p.geometry)), [parts]);
+  const dpr = useThree((s) => s.viewport.dpr);
+  const [built, setBuilt] = useState<{ parts: MeshPart[]; hulls: THREE.BufferGeometry[] } | null>(null);
+  useEffect(() => {
+    let made: THREE.BufferGeometry[] = [];
+    const t = window.setTimeout(() => {
+      made = parts.map((p) => outlineGeometry(p.geometry));
+      setBuilt({ parts, hulls: made });
+    }, 0);
+    return () => {
+      window.clearTimeout(t);
+      // 위치 속성은 원본과 함께 쓰므로, 이 형상을 버리면 원본의 위치 버퍼도 GPU 에서 내려간다.
+      // 미리보기는 파일마다 새로 붙으므로(원본도 함께 내려감) 그대로 버려 법선 버퍼가 남지 않게 한다
+      made.forEach((g) => g.dispose());
+    };
+  }, [parts]);
+  const hulls = built && built.parts === parts ? built.hulls : null;
+  if (!hulls) return null;
   return (
     <>
       {parts.map((p, i) => (
         <mesh key={i} geometry={hulls[i]} matrix={p.matrix} matrixAutoUpdate={false}>
-          <meshBasicMaterial colorWrite={false} depthWrite={false} />
-          {/* 깊이를 뒤로 밀어, 얇은 곳에서 부풀린 면이 앞면을 뚫고 보이지 않게 */}
-          <Outlines screenspace angle={0} thickness={style.thickness} color={style.color} polygonOffset polygonOffsetFactor={10} />
+          {/* 이 형상 자체는 그리지 않고 윤곽선만 */}
+          <meshBasicMaterial visible={false} />
+          {/* 두께는 그리기 버퍼 픽셀 단위라 기기 픽셀 비율을 곱한다. 깊이를 뒤로 밀어 얇은 곳에서 앞면을 뚫지 않게 */}
+          <Outlines angle={0} thickness={style.thickness * dpr} color={style.color} polygonOffset polygonOffsetFactor={10} />
         </mesh>
       ))}
     </>

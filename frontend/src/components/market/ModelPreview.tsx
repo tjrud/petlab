@@ -8,7 +8,7 @@
 // 화면이 바뀔 때만 다시 그린다 (돌고 있을 때만 매 프레임). WebGL 을 쓸 수 없으면 안내 문구로 바꾼다.
 
 import { ContactShadows, Grid, OrbitControls } from "@react-three/drei";
-import { Canvas, useThree } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import * as THREE from "three";
 
@@ -24,6 +24,23 @@ const Z_UP_TO_Y_UP: [number, number, number] = [-Math.PI / 2, 0, 0];
 /** 외곽 상자가 화면(가로·세로 중 좁은 쪽)에서 차지하는 비율 */
 const FILL = 0.66;
 const AUTO_ROTATE_MS = 3500;
+/** 자동 회전 속도: 시간 기준이라 화면 주사율과 관계없이 3.5초에 약 35° */
+const AUTO_ROTATE_RAD_PER_S = THREE.MathUtils.degToRad(10);
+const UP = new THREE.Vector3(0, 1, 0);
+
+/** 돌려 보는 기준점을 축으로 카메라를 천천히 돌린다 (프레임 수가 아니라 흐른 시간만큼) */
+function AutoRotate({ on }: { on: boolean }) {
+  const offset = useRef(new THREE.Vector3());
+  useFrame((state, dt) => {
+    const controls = state.controls as unknown as { target: THREE.Vector3; update: () => void } | null;
+    if (!on || !controls) return;
+    const cam = state.camera;
+    offset.current.copy(cam.position).sub(controls.target).applyAxisAngle(UP, AUTO_ROTATE_RAD_PER_S * Math.min(dt, 0.1));
+    cam.position.copy(controls.target).add(offset.current);
+    controls.update();
+  });
+  return null;
+}
 
 const cm = (mm: number) => (mm / 10).toFixed(mm % 10 === 0 ? 0 : 1);
 
@@ -123,9 +140,11 @@ export default function ModelPreview({
       이 브라우저에서는 3D 미리보기를 볼 수 없어요. 파일을 내려받아 확인해 주세요.
     </p>
   );
-  // 주광은 오른쪽 앞 위에서, 보조광은 왼쪽에서 약하게, 역광은 뒤에서 윤곽을 살린다
-  const key: [number, number, number] = [radius * 1.3, radius * 2.4, radius * 1.7];
+  // 카메라는 오른쪽 앞에서 본다. 주광은 왼쪽 앞 위에서 비춰 그림자가 보이는 쪽(오른쪽 뒤) 바닥에 떨어지게 하고,
+  // 보조광은 오른쪽에서 약하게, 역광은 뒤에서 윤곽을 살린다
+  const key: [number, number, number] = [-radius * 1.3, radius * 2.4, radius * 1.4];
   const sh = radius * 1.6;
+  const footprint = Math.max(Math.hypot(w, d), 10);
   return (
     <div
       className={`relative overflow-hidden rounded-xl ${className}`}
@@ -147,7 +166,7 @@ export default function ModelPreview({
         <Canvas
           frameloop={rotating ? "always" : "demand"}
           dpr={[1, 1.5]}
-          shadows="soft"
+          shadows="percentage"
           camera={{ fov: 35, position: [S, S, S] }}
           className="h-full w-full"
           aria-label={`${file.filename} 3D 미리보기`}
@@ -170,8 +189,8 @@ export default function ModelPreview({
             shadow-camera-near={radius * 0.1}
             shadow-camera-far={radius * 8}
           />
-          <directionalLight position={[-radius * 2, radius * 0.9, radius * 0.6]} intensity={0.6} />
-          <directionalLight position={[-radius * 0.5, radius * 1.4, -radius * 2.2]} intensity={0.75} />
+          <directionalLight position={[radius * 2, radius * 0.9, radius * 0.8]} intensity={0.55} />
+          <directionalLight position={[radius * 0.4, radius * 1.4, -radius * 2.2]} intensity={0.75} />
 
           <MeshErrorBoundary key={url} fallback={null} onError={() => setState({ url, status: "error" })}>
             <Suspense fallback={null}>
@@ -186,13 +205,14 @@ export default function ModelPreview({
                   material={() => <meshStandardMaterial color={MODEL_COLOR} roughness={0.62} metalness={0} />}
                 />
               </group>
-              {/* 바닥에 닿는 곳의 진한 그림자 (형상이 들어온 뒤 한 번만 그린다) */}
+              {/* 바닥에 닿는 곳의 진한 그림자. 한 번만 그리되, 형상이 화면에 들어온 뒤(꼭짓점을 받은 뒤) 다시 그린다 */}
               <ContactShadows
+                key={points ? "ready" : "init"}
                 position={[0, 0.2, 0]}
-                scale={radius * 4}
-                far={Math.max(h * 0.4, 5)}
-                blur={2}
-                opacity={0.65}
+                scale={footprint * 2.4}
+                far={Math.max(h * 0.5, 5)}
+                blur={3}
+                opacity={0.6}
                 resolution={1024}
                 frames={1}
                 color="#2b2118"
@@ -220,12 +240,11 @@ export default function ModelPreview({
             fadeFrom={0}
           />
           <FitCamera size={[w, d, h]} points={points} touched={touched} />
+          <AutoRotate on={rotating} />
           {/* 휠 확대는 미리보기를 한 번 누른 뒤에만 (그 전에는 휠로 페이지가 내려가게) */}
           <OrbitControls
             makeDefault
             enableZoom={active}
-            autoRotate={rotating}
-            autoRotateSpeed={1.4}
             dampingFactor={0.12}
             onStart={stopAuto}
             minDistance={radius * 0.6}
