@@ -539,6 +539,7 @@ class DesignService:
             db.execute(delete(MarketEvent).where(MarketEvent.item_id == item.id))
             db.delete(item)
         db.execute(update(WaitlistEntry).where(WaitlistEntry.design_id == did).values(design_id=None, version=None))
+        db.flush()  # 위의 작품 변경을 설계 행을 지우기 전에 DB 에 반영한다 (아래 delete 문은 자동으로 flush 하지 않는다)
         # 버전은 잠금을 잡은 뒤에 지운다 (잠금을 기다리는 사이 커밋된 새 버전까지)
         db.execute(delete(DesignVersion).where(DesignVersion.design_id == did))
         db.expunge(d)
