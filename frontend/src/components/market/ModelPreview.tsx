@@ -15,6 +15,7 @@ import * as THREE from "three";
 import { formatBytes } from "@/components/market/common";
 import { keepOnlyPreview, LoadedMesh, MeshErrorBoundary, type MeshFormat, type MeshPart } from "@/components/three/FileMesh";
 import { api } from "@/lib/api";
+import { canDecodeNfm } from "@/lib/meshUrl";
 import { boxCorners, EDGE_STYLE, fitCamera, MODEL_COLOR, OUTLINE_STYLE, PREVIEW_BG, samplePoints } from "@/lib/previewLook";
 import type { MarketFile } from "@/lib/types";
 
@@ -102,14 +103,17 @@ export default function ModelPreview({
   /** 사용자가 한 번이라도 돌려 봤는지 (그 뒤로는 카메라를 다시 맞추지 않는다) */
   const touched = useRef(false);
   const url = file.mesh_url ? api.marketUrl(file.mesh_url) : "";
+  // 가벼운 미리보기 메시가 있으면 그것을 받는다 (원본의 수십 분의 일)
+  const previewUrl = file.preview_url && canDecodeNfm() ? api.marketUrl(file.preview_url) : null;
   const status = state.url === url ? state.status : "loading";
   const [w, d, h] = file.dims_mm ?? [100, 100, 100];
   const radius = Math.max(Math.hypot(w, d, h) / 2, 5);
   const S = Math.max(w, d, h, 10);
 
   useEffect(() => {
-    if (url) keepOnlyPreview(url, file.format as MeshFormat);
-  }, [url, file.format]);
+    if (previewUrl) keepOnlyPreview(previewUrl, "nfm");
+    else if (url) keepOnlyPreview(url, file.format as MeshFormat);
+  }, [url, previewUrl, file.format]);
 
   // 처음 불러오면 잠깐 천천히 돈다 (형상이 들어온 때에 한 번)
   const rotateTimer = useRef<number | null>(null);
@@ -197,6 +201,7 @@ export default function ModelPreview({
               <group rotation={Z_UP_TO_Y_UP}>
                 <LoadedMesh
                   url={url}
+                  previewUrl={previewUrl}
                   format={file.format as MeshFormat}
                   edges={EDGE_STYLE}
                   outline={OUTLINE_STYLE}
@@ -262,7 +267,7 @@ export default function ModelPreview({
         >
           {status === "error"
             ? "3D 파일을 불러오지 못했어요. 내려받아 확인해 주세요."
-            : `3D 파일을 불러오는 중이에요 (${formatBytes(file.size)})`}
+            : `3D 파일을 불러오는 중이에요 (${formatBytes(previewUrl && file.preview_size ? file.preview_size : file.size)})`}
         </p>
       )}
       {!glFailed && status === "ok" && (

@@ -14,10 +14,9 @@ import { fileIdOf, getAsset, registerFileAsset } from "@/lib/cageAssets";
 import { readDraft, writeDraft } from "@/lib/cagePlannerDoc";
 import { FORMAT_HINT, FORMAT_LABEL, formatBytes, FormatChips, imageSrc, MARKET_PATH } from "@/components/market/common";
 import RetryAlert from "@/components/RetryAlert";
-import { needsCredentials } from "@/components/three/FileMesh";
+import { canDecodeNfm, isMeshFormat, needsCredentials } from "@/lib/meshUrl";
 import { api, ApiError } from "@/lib/api";
 import { uploadMarketFile } from "@/lib/marketUpload";
-import { isMeshFormat, renderMeshThumbnail, thumbnailFile } from "@/lib/meshThumbnail";
 import type { MarketFile, MarketItem } from "@/lib/types";
 import { formatDateTime, ui } from "@/lib/ui";
 
@@ -111,7 +110,9 @@ export default function MarketItemDetail({ id }: { id: string }) {
   const meshFiles = it.files.filter(previewable);
   const preview = meshFiles.find((f) => f.id === previewId) ?? meshFiles[0] ?? null;
   const hasSkp = it.files.some((f) => f.format === "skp");
-  const show3d = !!preview && (opened3d || (preview.size <= AUTO_3D_BYTES && !saveData()));
+  // 받을 크기: 가벼운 미리보기 메시가 있으면 그 크기 (보통 1MB 안팎이라 바로 보여 준다)
+  const loadBytes = preview ? (preview.preview_size && canDecodeNfm() ? preview.preview_size : preview.size) : 0;
+  const show3d = !!preview && (opened3d || (loadBytes <= AUTO_3D_BYTES && !saveData()));
 
   /** 3D 모습을 그려 대표 이미지로 (이미지 없이 올린 작품. 올린 사람만) */
   async function makeImage(f: MarketFile) {
@@ -119,7 +120,10 @@ export default function MarketItemDetail({ id }: { id: string }) {
     setThumbBusy(true);
     setActionError(null);
     try {
-      const url = api.marketUrl(f.mesh_url);
+      // 3D 그리기 코드(three.js)는 이 버튼을 누를 때 받는다 (상세 화면 첫 로딩을 가볍게)
+      const { renderMeshThumbnail, thumbnailFile } = await import("@/lib/meshThumbnail");
+      const usePreview = !!f.preview_url && canDecodeNfm();
+      const url = api.marketUrl(usePreview ? f.preview_url! : f.mesh_url);
       let buffer: ArrayBuffer;
       try {
         const res = await fetch(url, { credentials: needsCredentials(url) ? "include" : "omit" });
@@ -130,7 +134,7 @@ export default function MarketItemDetail({ id }: { id: string }) {
       }
       let blob: Blob | null;
       try {
-        blob = await renderMeshThumbnail(buffer, f.format);
+        blob = await renderMeshThumbnail(buffer, usePreview ? "nfm" : f.format);
       } catch {
         blob = null;
       }
@@ -192,7 +196,7 @@ export default function MarketItemDetail({ id }: { id: string }) {
     <div className="space-y-5">
       <article className={`${ui.card} space-y-4`}>
         {it.image && (
-          <img src={imageSrc(it.image)} alt={`${it.title} 미리보기`} className="max-h-[28rem] w-full rounded-xl bg-stone-100 object-contain" />
+          <img src={imageSrc(it.image)} alt={`${it.title} 미리보기`} fetchPriority="high" className="max-h-[28rem] w-full rounded-xl bg-stone-100 object-contain" />
         )}
         <header className="space-y-2">
           <p className="text-sm font-medium text-amber-800">{it.category_name_ko}</p>
@@ -243,7 +247,7 @@ export default function MarketItemDetail({ id }: { id: string }) {
                   <img src={imageSrc(it.image)} alt="" className="absolute inset-0 h-full w-full object-contain opacity-60" />
                 )}
                 <button type="button" className={`${ui.btnSecondary} relative`} onClick={() => setOpened3d(true)}>
-                  3D로 보기 ({formatBytes(preview.size)})
+                  3D로 보기 ({formatBytes(loadBytes)})
                 </button>
               </div>
             )}

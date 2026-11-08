@@ -477,6 +477,9 @@ class MarketFileOut(BaseModel):
     # STL·3MF: 외곽 크기 [x, y, z] mm 와 3D 로 불러올 주소 (가상 케이지에 놓을 때). SKP 는 없음
     dims_mm: list[float] | None = None
     mesh_url: str | None = None
+    # 3D 미리보기용 가벼운 메시 (NFM1, gzip). 있으면 화면은 mesh_url 대신 이것을 받는다
+    preview_url: str | None = None
+    preview_size: int | None = None
     attached: bool = False  # 작품에 붙었거나 공유한 배치에 들어 있어 누구나 볼 수 있는지
 
 

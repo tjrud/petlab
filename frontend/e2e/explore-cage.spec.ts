@@ -113,9 +113,16 @@ test("탐색: STL 을 올리면 미리보기 이미지를 자동으로 만들고
   const detailUrl = page.url();
   await expect(page.getByRole("img", { name: "둥근 집 STL 미리보기" })).toBeVisible();
 
-  // 3D 미리보기
+  // 3D 미리보기: 원본 STL 이 아니라 서버가 만든 가벼운 미리보기 메시(NFM1)를 받는다
+  const meshRequests: string[] = [];
+  page.on("request", (rq) => {
+    if (/\/market\/files\/[0-9a-f]{32}\/(mesh|preview)$/.test(rq.url())) meshRequests.push(new URL(rq.url()).pathname.split("/").pop()!);
+  });
+  await page.reload();
   await expect(page.getByRole("heading", { level: 2, name: "3D 미리보기" })).toBeVisible();
   await expect(page.getByText(/9×9×9cm · 끌어서 돌려 볼 수 있어요/)).toBeVisible({ timeout: 30_000 });
+  expect(meshRequests).toContain("preview");
+  expect(meshRequests).not.toContain("mesh");
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/explore-3d-preview.png`, fullPage: true });
 
   // 가상 케이지에 놓아 보기 → 빈 자리에 놓이고 주소의 add 는 지워진다

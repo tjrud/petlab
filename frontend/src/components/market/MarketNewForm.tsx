@@ -12,7 +12,7 @@ import { FORMAT_HINT, formatBytes, imageSrc, MARKET_CATEGORIES, marketHref } fro
 import LayoutPreview from "@/components/market/LayoutPreview";
 import { api, isEmailUnverified } from "@/lib/api";
 import { uploadMarketFile } from "@/lib/marketUpload";
-import { isMeshFormat, renderMeshThumbnail, thumbnailFile } from "@/lib/meshThumbnail";
+import { isMeshFormat } from "@/lib/meshUrl";
 import type { CageLayout, MarketCategory, MarketConfig, MarketFile } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
@@ -132,15 +132,19 @@ export default function MarketNewForm() {
     const token = ++autoToken.current;
     setAutoRendering(true);
     let blob: Blob | null = null;
+    let thumbnailFile: ((b: Blob, name: string) => File) | null = null;
     try {
-      blob = await renderMeshThumbnail(await file.arrayBuffer(), uploaded.format);
+      // 3D 그리기 코드(three.js)는 필요할 때 받는다 (올리기 화면 첫 로딩을 가볍게)
+      const mod = await import("@/lib/meshThumbnail");
+      thumbnailFile = mod.thumbnailFile;
+      blob = await mod.renderMeshThumbnail(await file.arrayBuffer(), uploaded.format);
     } catch {
       blob = null;
     } finally {
       setAutoRendering(false);
     }
     if (token !== autoToken.current) return; // 그사이 이미지를 직접 골랐거나 등록을 시작했다
-    if (!blob) {
+    if (!blob || !thumbnailFile) {
       imageTaken.current = false;
       return;
     }

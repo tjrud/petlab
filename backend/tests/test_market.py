@@ -470,3 +470,71 @@ def test_owner_can_replace_preview_image(client):
     assert client.patch(f"/market/items/{item['id']}", json={"image_file_id": other["id"]}).status_code == 404
     use(client, b)
     assert client.patch(f"/market/items/{item['id']}", json={"image_file_id": other["id"]}).status_code == 403
+
+
+def big_stl(target_tris: int = 120_000) -> bytes:
+    """삼각형이 많은 닫힌 구 (바이너리 STL)"""
+    import trimesh
+
+    m = trimesh.creation.icosphere(subdivisions=7, radius=40.0)  # 약 33만 삼각형
+    m = trimesh.Trimesh(m.vertices, m.faces[:target_tris] if target_tris < len(m.faces) else m.faces, process=False)
+    buf = io.BytesIO()
+    m.export(buf, file_type="stl")
+    return buf.getvalue()
+
+
+def test_upload_builds_light_3d_preview_and_cleans_it_up(client):
+    from app.mesh_preview import PREVIEW_MAX_TRIS, read_preview
+
+    signup(client, "maker_a")
+    data = big_stl()
+    f = upload(client, "ball.stl", data)
+    assert f["preview_url"] == f"/market/files/{f['id']}/preview" and 0 < f["preview_size"] < len(data) / 5
+    blob = client.get(f["preview_url"]).content
+    assert len(blob) == f["preview_size"]
+    verts, tris = read_preview(blob)
+    assert len(tris) <= PREVIEW_MAX_TRIS and tris.max() < len(verts)
+    # 줄여도 외곽 크기는 그대로 (좌표 한 칸 정도 오차)
+    assert all(abs(a - b) < 0.5 for a, b in zip(verts.max(0) - verts.min(0), f["dims_mm"]))
+
+    # 작은 파일·SKP 도 미리보기가 있거나(그대로 묶음) 없다
+    small = upload(client, "tetra.stl", tetra_stl(50))
+    assert read_preview(client.get(small["preview_url"]).content)[1].shape == (4, 3)
+    skp = upload(client, "a.skp", skp_bytes(2048))
+    assert skp["preview_url"] is None and skp["preview_size"] is None
+
+    # 파일을 지우면 미리보기도 저장소에서 지운다
+    root = client.app.state.market_storage.root
+    assert (root / f"market/{f['id']}/{f['id']}.preview.nfm").exists()
+    assert client.delete(f"/market/files/{f['id']}").status_code == 204
+    assert not (root / f"market/{f['id']}").exists() or not any((root / f"market/{f['id']}").iterdir())
+
+
+def test_preview_failure_does_not_block_upload(client, monkeypatch):
+    import app.api.market as market_api
+
+    monkeypatch.setattr(market_api, "build_preview", lambda fmt, data: None)
+    signup(client, "maker_a")
+    f = upload(client, "a.stl", tetra_stl(60))
+    assert f["preview_url"] is None and f["mesh_url"]
+
+
+def test_admin_backfills_missing_previews(client, monkeypatch):
+    import app.api.market as market_api
+    from app.models import MarketFile
+
+    signup(client, "maker_a")
+    real = market_api.build_preview
+    monkeypatch.setattr(market_api, "build_preview", lambda fmt, data: None)
+    f = upload(client, "old.stl", tetra_stl(60))
+    with client.app.state.session_factory() as db:  # 예전 파일처럼 표시 없음으로
+        db.get(MarketFile, f["id"]).preview_size = None
+        db.commit()
+    monkeypatch.setattr(market_api, "build_preview", real)
+    assert client.post("/market/files/previews/backfill").status_code == 403
+    admin_login(client)
+    r = client.post("/market/files/previews/backfill")
+    assert r.status_code == 200 and r.json() == {"done": 1, "failed": 0, "remaining": 0}
+    with client.app.state.session_factory() as db:  # 올린 사람만 볼 수 있는 파일이라 DB 로 확인
+        assert db.get(MarketFile, f["id"]).preview_size > 0
+    assert client.post("/market/files/previews/backfill").json()["done"] == 0
