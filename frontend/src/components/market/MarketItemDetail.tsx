@@ -238,7 +238,7 @@ export default function MarketItemDetail({ id }: { id: string }) {
             {show3d ? (
               <ModelPreview key={preview.id} file={preview} className="h-80 sm:h-96" onUnavailable={() => setGlUnavailable(true)} />
             ) : (
-              <div className="relative grid h-80 place-items-center overflow-hidden rounded-xl bg-[#f5efe6] sm:h-96">
+              <div className="relative grid h-80 place-items-center overflow-hidden rounded-xl bg-[#eef1f4] sm:h-96">
                 {it.image && (
                   <img src={imageSrc(it.image)} alt="" className="absolute inset-0 h-full w-full object-contain opacity-60" />
                 )}
