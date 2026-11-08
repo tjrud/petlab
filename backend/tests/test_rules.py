@@ -91,6 +91,9 @@ def test_sourced_values(rules):
         assert s.max_recommended_count == 1
     assert rules.size_rules("hamster", "dwarf").entrance_min_diameter_mm == 50
     assert rules.size_rules("hamster", "syrian").entrance_min_diameter_mm == 70
+    # DTSchB: 플라스틱 튜브는 몸길이의 2배 이하 (드워프는 가장 작은 로보로브스키 약 5cm, 골든은 야생 성체 최소 128mm)
+    assert rules.size_rules("hamster", "dwarf").tunnel_max_length_mm == 100
+    assert rules.size_rules("hamster", "syrian").tunnel_max_length_mm == 250
 
 
 def test_tunnel_max_shorter_than_min_diameter_rejected(rules_copy):
