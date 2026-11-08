@@ -568,3 +568,36 @@ def test_3mf_gets_dims_and_preview_from_one_read(client):
     assert f["dims_mm"] == [40.0, 30.0, 20.0] and f["preview_size"]
     verts, tris = read_preview(client.get(f["preview_url"]).content)
     assert len(tris) == 12 and all(abs(a - b) < 0.01 for a, b in zip(verts.max(0) - verts.min(0), [40, 30, 20]))
+
+
+def test_delete_design_attached_to_market_items(client):
+    signup(client, "maker_a")
+    only = make_design(client)
+    both = make_design(client, prompt="터널")
+    bare = client.post("/market/items", json=item_body(design_id=only["id"])).json()
+    f = upload(client, "은신처.skp", skp_bytes())
+    with_file = client.post("/market/items", json=item_body(design_id=both["id"], file_ids=[f["id"]])).json()
+
+    assert client.delete(f"/designs/{only['id']}").status_code == 204
+    assert client.delete(f"/designs/{both['id']}").status_code == 204
+    # 설계만 담았던 작품은 빈 작품이 되므로 함께 지우고, 소개 글은 남긴다
+    assert client.get(f"/market/items/{bare['id']}").status_code == 404
+    assert client.get(f"/community/posts/{bare['post_id']}").status_code == 200
+    # 파일이 있는 작품은 남고 설계 연결만 끊긴다
+    after = client.get(f"/market/items/{with_file['id']}").json()
+    assert after["design"] is None and [x["id"] for x in after["files"]] == [f["id"]]
+
+
+
+def test_delete_design_removes_item_left_with_only_an_image(client, tmp_path):
+    signup(client, "maker_a")
+    d = make_design(client)
+    img = upload(client, "cover.png", PNG, kind="image")
+    item = client.post("/market/items", json=item_body(design_id=d["id"], image_file_id=img["id"])).json()
+    stored = list((tmp_path / "market").rglob("*"))
+    assert any(p.is_file() for p in stored)
+    assert client.delete(f"/designs/{d['id']}").status_code == 204
+    # 대표 이미지만 남는 빈 작품은 지우고, 저장소의 이미지 파일도 지운다
+    assert client.get(f"/market/items/{item['id']}").status_code == 404
+    assert client.get(f"/market/files/{img['id']}/view").status_code == 404
+    assert not any(p.is_file() for p in (tmp_path / "market").rglob("*"))
