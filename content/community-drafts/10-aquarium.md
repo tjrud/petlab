@@ -1,4 +1,4 @@
-<!-- 상태: 검수 반영 초안 (조사 6갈래 + 출처 대조 검증 3갈래 + 4관점 검수·반박 검증 반영). 근거자료: 10-aquarium-evidence.md -->
+<!-- 상태: 게시 완료 (조사 6갈래 + 출처 대조 검증 3갈래 + 4관점 검수 + 재검수 반영). 커뮤니티 글 id: 4f64bf7ac33d43e89d5d034a93ca2760. 근거자료: 10-aquarium-evidence.md -->
 # [가이드] 어항에 3D 출력물, 수질 면에서 써도 될까요
 
 ■ 한눈에 보기
@@ -7,7 +7,7 @@
 ■ 연구로 알게 된 것
 - 레진: 레진 출력물을 우린 물에서 물벼룩은 72시간 안에 모두 죽었고, 물고기 배아의 24시간 생존율은 0~10%였어요(Zhu 2015). UV 후경화로 독성이 크게 줄었지만 다 없어지진 않았고(Oskui 2016), 에탄올로 씻어도 배아가 모두 죽은 레진이 있었어요(Macdonald 2016).
 - PLA·ABS: 우린 물에서 물고기 배아는 72시간, 윤충·물벼룩류는 24시간 시험에서 괜찮았어요(Zhu 2015). 투명 PLA 그릇에 배아를 직접 넣어도 7일 생존율이 대조군과 같았어요(Pérez-Davila 2022). 하지만 같은 우린 물이 민물 미세조류 성장을 50% 가까이 억제했고(Zhu 2015), 산업용 ABS 출력물에 배아가 직접 닿자 심장 부종이 늘었어요(Oskui 2016).
-- 해수: PETG와 비슷한 코폴리에스터, PLA/PHA, 스테인리스 가루 PLA로 출력해 해수에 1주 길들인 타일에서 산호 유생이 정착해 12주 동안 소재 간 차이 없이 자랐고, 크로미스 행동도 그대로였어요(Ruhl·Dixson 2019). 수질은 재지 않았고 산호는 출력물끼리만 비교했어요.
+- 해수: PETG와 비슷한 코폴리에스터, PLA/PHA, 스테인리스 가루 PLA로 출력해 해수에 1주 길들인 타일에서 산호 유생이 정착해 12주 동안 소재 간 차이 없이 자랐지만 다른 연구의 석회암 타일보다 절반 넘게 느렸고, 크로미스 행동도 그대로였어요(Ruhl·Dixson 2019). 수질은 재지 않았고 산호는 출력물끼리만 비교했어요.
 - 한계: 대부분 물에 비해 출력물이 아주 많은 진한 조건의 며칠~12주 시험이에요. PETG 자체, 관상 새우, 1년 넘는 어항 시험은 없어요. 사람 세포 시험에선 PETG 1종이 세포 대사를 크게 떨어뜨렸어요(Dejmek 2026).
 
 ■ 물속에서 소재는
@@ -23,7 +23,7 @@
 
 ■ 실제로 쓰는 곳
 - 해외 리프 용품 업체는 대체로 PETG로 출력해요. PLA도 괜찮다는 업체도 있어요. "reef-safe"는 시험 자료를 공개하지 않은 판매자 주장이에요.
-- 담수 어항에 PLA 은신처를 1년쯤 넣었는데 처음처럼 튼튼하다는 경험담이 있어요(MakerBot 사용자 모임). 수질 측정은 없어요.
+- 담수 어항에 PLA 은신처를 1년쯤 넣었는데 처음처럼 튼튼하다는 경험담이 있어요(MakerBot 모임). 수질 측정은 없어요.
 
 ■ 조건: 이렇게 쓰면 위험을 낮출 수 있어요
 - 소재: 무착색 PETG가 1순위예요. 담수이고 수온이 25°C 안팎이면 무착색 PLA도 돼요. 오래 둘 물건·여과기 속 부품은 PETG로 해요. 레진, 나일론, 우드·금속·카본·실크·반짝이·야광·형광 필라멘트는 빼고 ABS·ASA도 기본 추천에서 빼요.
@@ -60,7 +60,7 @@
 - Dejmek 2026: https://pubmed.ncbi.nlm.nih.gov/42324277/
 - Rindelaub 2019: https://pmc.ncbi.nlm.nih.gov/articles/PMC6530847/
 - 업체: https://reefbuilders.com/2023/10/24/charterhouse-aquatics-provides-3d-printed-product-solutions · https://reefbuilders.com/2023/02/10/faqs-on-3d-printing/
-- MakerBot 사용자 모임: https://groups.google.com/g/makerbot-users/c/sY9javWl7iA
+- MakerBot 모임: https://groups.google.com/g/makerbot-users/c/sY9javWl7iA
 - Prusa: https://help.prusa3d.com/article/watertight-prints_112324 · https://help.prusa3d.com/article/_112313
 - 속 빈 장식: https://www.monsterfishkeepers.com/forums/threads/be-carefull-sealing-up-aquarium-decorations.181229/
 - sera: https://www.sera.de/en/service/faq/faq-detail/gluing-rocks-and-decoration-with-silicone

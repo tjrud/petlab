@@ -1,4 +1,4 @@
-<!-- 상태: 근거자료 (커뮤니티 글 10 「어항에 3D 출력물, 수질 면에서 써도 될까요」 용). 조사·확인일 2026-11-08 -->
+<!-- 상태: 근거자료 (커뮤니티 글 10 「어항에 3D 출력물, 수질 면에서 써도 될까요」 용, 게시 id 4f64bf7ac33d43e89d5d034a93ca2760). 조사·확인일 2026-11-08 -->
 # 근거자료: 「어항에 3D 출력물, 수질 면에서 써도 될까요」
 
 이 문서는 커뮤니티 글 `10-aquarium.md`의 문장마다 어떤 자료가 뒷받침하는지 정리한 것이다. 인용문은 원문 그대로 옮기고 줄바꿈만 공백으로 바꿨으며, 영어 인용에는 한국어 뜻을 붙였다.
@@ -127,7 +127,7 @@
 
 ### 2-3. 해수
 
-- **글**: "PETG와 비슷한 코폴리에스터, PLA/PHA, 스테인리스 가루 PLA로 출력해 해수에 1주 길들인 타일에서 산호 유생이 정착해 12주 동안 소재 간 차이 없이 자랐고, 크로미스 행동도 그대로였어요(Ruhl·Dixson 2019). 수질은 재지 않았고 산호는 출력물끼리만 비교했어요."
+- **글**: "PETG와 비슷한 코폴리에스터, PLA/PHA, 스테인리스 가루 PLA로 출력해 해수에 1주 길들인 타일에서 산호 유생이 정착해 12주 동안 소재 간 차이 없이 자랐지만 다른 연구의 석회암 타일보다 절반 넘게 느렸고, 크로미스 행동도 그대로였어요(Ruhl·Dixson 2019). 수질은 재지 않았고 산호는 출력물끼리만 비교했어요."
   - Ruhl & Dixson 2019 (PLOS ONE), https://doi.org/10.1371/journal.pone.0221157 · https://pmc.ncbi.nlm.nih.gov/articles/PMC6697346/
     - "Two Colorfabb co-polyester based filaments were chosen for their durability (hereafter nGen and XT); a Colorfabb PLA/PHA filament … and a Proto-Pasta PLA filament … incorporation of stainless-steel shavings … All 3D printed models were conditioned in seawater for one-week prior to use."
       - 뜻: colorFabb 코폴리에스터 2종(nGen, XT), colorFabb PLA/PHA, 스테인리스 가루가 든 Proto-Pasta PLA를 썼고, 모두 해수에 1주일 길들인 뒤 사용했다.
@@ -137,12 +137,15 @@
       - 뜻: 출력 소재가 달라도 산호의 성장률과 사망률에 유의한 차이가 없었다.
     - "no treatments containing non-3D printed materials were included."
       - 뜻: 출력하지 않은 소재는 비교군에 넣지 않았다.
+    - "However, the mean growth rates of spat on the 3D printed tile treatments were more than 50% lower than P. astreoides settled onto pre-conditioned limestone tiles. As spat growth rate has been shown to be inversely proportional to mortality risk [32], a slow growth rate could have significant implications for juvenile survivorship."
+      - 뜻: 출력 타일 위 산호의 평균 성장 속도는 미리 길들인 석회암 타일(다른 연구)보다 50% 넘게 느렸다. 성장이 느리면 어린 산호가 살아남는 데 크게 불리할 수 있다.
     - "As rates of degradation or chemical leaching of 3D printed models has not been well documented under environmental conditions"
       - 뜻: 실제 환경에서 출력물이 분해되거나 물질이 우러나는 속도는 잘 밝혀지지 않았다.
   - 강도: **중간~약함**.
   - 한계:
     - 12주 생존율은 21%(nGen)~48%(SS)였다. 금속(스테인리스 가루)이 든 PLA도 다른 소재와 차이가 없었다. 글은 금속 필라멘트를 빼라고 하지만, 이는 구리 함량(Beard 2026)과 자료 부족에 따른 예방이다. 이 연구 결과를 숨기지 않으려고 글에 소재를 모두 적었다.
     - 크로미스 시험은 출력물과 진짜 산호 골격을 비교했고, 산호 정착 시험만 출력물끼리 비교했다.
+    - 성장 비교는 다른 연구의 석회암 타일과 한 것이다. 출력 타일은 생물막을 미리 입히지 않았고("not pre-conditioned with a surface biofilm"), 저자들은 생물막과 소재의 영향을 가리려면 출력 타일도 미리 길들여 시험하라고 했다. 그래서 글에는 원인을 쓰지 않았다.
     - 정착 단계는 인공해수 200 mL에 타일 하나를 넣고 14일 동안 진행했다. 성장 단계는 380 L 수조였다.
     - 물고기는 수 분~하루 동안의 서식처 선택만 봤고, 건강이나 독성 지표는 재지 않았다.
     - SPS 같은 민감한 산호와 새우는 다루지 않았다.
@@ -162,7 +165,7 @@
     - "Our findings reveal severe, material-specific metabolic disruptions in specific commercial formulations of widely used polymers, such as the tested FLEX, PETG, PC, and PP filaments."
       - 뜻: 시험한 FLEX, PETG, PC, PP 필라멘트 일부 제품에서 심한 대사 교란이 나타났다.
     - 시험한 PETG는 16종 가운데 1종(P2)이었고, 7일째 결과는 "PETG (P2; −27.6%)"였다. 그래서 글에 "PETG 1종"이라고 썼다.
-  - 강도: **중간**. 사람 피부 섬유모세포를 배양액을 거쳐 간접 노출한 시험이고, 수생생물 시험이 아니다. 초록으로 확인했다.
+  - 강도: **중간**. 사람 피부 섬유모세포를 배양액을 거쳐 간접 노출한 시험이고, 수생생물 시험이 아니다. PETG 1종(P2)과 −27.6%(레사주린 대사로 잰 7일째 생존율)는 초록에 없어 본문(https://www.nature.com/articles/s41598-026-56283-1)으로 확인했다. −27.6%는 이 연구가 따른 ISO 10993-5 독성 기준(생존율 30% 이상 감소)에는 못 미친다. 저자들은 이런 기본 생존율 기준이 놓치는 세포 하나하나의 대사 저하를 '숨은 세포독성'이라고 불렀다.
   - 왜 넣었나: PETG를 1순위로 권하면서 이미 09 글에 실은 PETG 반대 근거를 빼면 두 글이 설명 없이 어긋난다.
 
 ---
@@ -320,8 +323,8 @@
       - 뜻: 수조 ICP-MS 검사를 포함해 1년 넘게 시험했고 이상 용출이 없었다. PETG만 쓰라.
       - 수치, 브랜드, 대조군은 공개하지 않았다. 사업상 이해관계("My company, 3DReefing")가 있다.
       - 글자 수 때문에 글에서는 뺐다. '넣기 전후 ICP 검사 비교' 권고는 이 사례와 산호의 구리 민감성에서 끌어냈다.
-- **글**: "담수 어항에 PLA 은신처를 1년쯤 넣었는데 처음처럼 튼튼하다는 경험담이 있어요(MakerBot 사용자 모임). 수질 측정은 없어요."
-  - MakerBot 사용자 모임(2015), https://groups.google.com/g/makerbot-users/c/sY9javWl7iA
+- **글**: "담수 어항에 PLA 은신처를 1년쯤 넣었는데 처음처럼 튼튼하다는 경험담이 있어요(MakerBot 모임). 수질 측정은 없어요."
+  - MakerBot 모임(2015, makerbot-users 구글 그룹), https://groups.google.com/g/makerbot-users/c/sY9javWl7iA
     - "I've had PLA fish houses and other things in my freshwater aquarium for about a year now and it seems just as strong as it was when I put it in."
       - 뜻: 담수 어항에 PLA 물고기 집 같은 것들을 1년쯤 넣어 두었는데, 넣을 때만큼 튼튼해 보인다.
     - 코팅 이야기는 없다. 같은 스레드의 질문자는 해수 수조에서는 PLA가 걱정된다고 했다.
@@ -395,7 +398,7 @@
 - 한국어 커뮤니티(네이버 카페 등)의 어항 출력물 사례를 찾지 못했다.
 - 원문 확인의 한계:
   - Oskui 2016은 ACS 원문이 막혀 초록, 같은 데이터의 미국 특허, 보도자료로 확인했다.
-  - Walpitagama 2019, Zhao 2024, Uribe-Echeverría 2022, Banjo 2022, Duan 2022, Zimmermann 2020, Brix 2011, Ballentine 2023, Bergstedt 2022, Bedi 2026, Stevens(50°C PLA), Dejmek 2026, 산호 PLA 미세입자 연구(2026)는 초록만 확인했다.
+  - Walpitagama 2019, Zhao 2024, Uribe-Echeverría 2022, Banjo 2022, Duan 2022, Zimmermann 2020, Brix 2011, Ballentine 2023, Bergstedt 2022, Bedi 2026, Islam 2026, Stevens(50°C PLA), 산호 PLA 미세입자 연구(2026)는 초록만 확인했다. Dejmek 2026은 본문까지 확인했다.
   - Reddit·Reef2Reef·Aquarium Co-Op의 경험담은 봇 차단 때문에 원문을 열지 못해 제외했다.
 
 ---
@@ -408,7 +411,7 @@
 | "PLA는 물속에서 몇 달이면 녹는다" | 25°C 물에서 1년 동안 거의 분해되지 않았다(Bagheri 2017) |
 | "PLA는 생분해되니 무해하다" | PLA 미세입자가 물고기와 물벼룩에 해로웠다. 우린 물이 미세조류 성장을 억제했다 |
 | "리프의 알칼리성 물이 PLA를 두 배 빨리 녹인다" | 근거가 37°C, pH 10 실험이다. 40°C 시험에서는 해수 쪽이 더 느렸다 |
-| "무착색이면 구리가 없다" | 투명 필라멘트도 압출 뒤 구리가 나왔다(Beard 2026) |
+| "무착색이면 구리가 없다" | 투명 필라멘트도 압출 뒤 구리가 들어 있었다(Beard 2026, 필라멘트 속 함량) |
 | "레진도 충분히 경화하면 괜찮다" | 후경화 효과가 레진마다 달랐고, 같은 처리로도 치명적인 레진이 있었다 |
 | "의료용·식품용 인증이면 어항에도 안전" | USP Class VI 레진도 배아에 독했다. 식품 접촉 규정(EU 10/2011)은 사람 음식 기준이다 |
 | "reef-safe / fish-safe 라벨이면 믿어도 된다" | 시험 자료를 공개한 판매자는 없다 |
