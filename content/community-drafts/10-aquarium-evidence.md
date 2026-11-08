@@ -23,8 +23,8 @@
 
 햄스터 글(08·09)과의 관계:
 - 08·09의 출발 조건은 같다. 무착색 PLA·PETG, 스테인리스 노즐, 두꺼운 벽과 100% 채움, 점검이다.
-- 어항에서는 출력물이 24시간 물에 잠긴다. 그래서 조건이 더 붙는다. 레진을 빼고, PETG를 우선하고, 넣기 전에 물에 담가 두고, 수질을 지켜본다.
-- 세척도 다르다. 08은 햄스터 용품 소독에 락스를 권했지만, 어항용 출력물은 물로만 씻으라고 했다. 층 사이 홈에 세제가 스며들었다가 나중에 나올 수 있기 때문이다(Prusa). 소독제 잔류가 수생생물에 미치는 영향은 따로 확인하지 않았다.
+- 어항에서는 출력물이 24시간 물에 잠긴다. 그래서 조건이 더 붙는다. PETG를 우선하고, 넣기 전에 물에 담가 두고, 수질을 지켜본다. 레진은 08·09에서도 이미 뺐다.
+- 세척도 다르다. 08·09는 햄스터 용품을 세제로 씻으라고 했고 08은 락스 소독도 권했지만, 어항용 출력물은 물로만 씻으라고 했다. 글에도 "햄스터 용품과 달리"라고 이유와 함께 밝혔다. 층 사이 홈에 세제가 스며들었다가 나중에 나올 수 있기 때문이다(Prusa). 소독제 잔류가 수생생물에 미치는 영향은 따로 확인하지 않았다.
 
 ---
 
@@ -32,8 +32,9 @@
 
 | 글 문장 | 근거 | 강도 |
 |---|---|---|
+| 물을 덜 먹고 덜 상하는 무착색 PETG가 가장 낫고 | PETG를 1순위로 두는 근거는 독성 자료가 아니라 물 흡수·물성이다. PETG 자체를 수생생물로 시험한 연구는 없다. 근거: Moreno Nieto 2021(0.3% 대 2.5%), Islam 2026(PETG 젖은 상태 강도 유지), 업계 관행(5절) | 중간 |
 | 어항 수질에 안전하다고 증명된 3D 출력 소재는 없어요 | 아래 7절 "아직 모르는 것" 전체. PETG 자체의 수생 독성 시험, 관상 새우 시험, 1년 넘는 어항 시험, 출력물에서 어항 물로 녹아 나오는 금속을 잰 자료가 모두 없다 | 강함(부재 확인) |
-| FDM 출력물 때문에 생물이 죽었다고 확인된 사례도, 오래 넣어 두고 무해함을 측정한 사례도 찾지 못했어요 | 조사 6갈래에서 찾지 못했다. Reddit·Reef2Reef 등의 사망 일화는 봇 차단 때문에 원문을 열지 못해 제외했다. 수조 ICP 검사 주장(3DReefing)은 수치가 공개되지 않았다(5절) | 중간(검색의 한계가 있음) |
+| FDM 출력물 때문에 생물이 죽었다고 확인된 사례도(포럼 글 일부는 원문을 못 열었어요), 오래 넣어 두고 무해함을 측정한 사례도 찾지 못했어요 | 조사 6갈래에서 찾지 못했다. Reddit·Reef2Reef 등의 사망 일화는 봇 차단 때문에 원문을 열지 못해 제외했다. 수조 ICP 검사 주장(3DReefing)은 수치가 공개되지 않았다(5절) | 중간(검색의 한계가 있음) |
 
 ---
 
@@ -52,12 +53,12 @@
     - 2015년 무렵의 산업·연구용 레진이다.
     - 22°C 어둠 속에서 최대 72시간 우려낸 실험실 추출액이다.
     - VisiJet Crystal은 SLA가 아니라 MJM 방식 레진이다.
-- **글**: "굳지 않은 광개시제가 첫 24시간에 최대 200 mg/L 녹아 나왔어요(Walpitagama 2019)."
+- **참고(검수 뒤 글자 수 때문에 글에서 뺐다)**: Walpitagama 2019 — 굳지 않은 광개시제 용출
   - https://pubmed.ncbi.nlm.nih.gov/31226596/
     - "Migration of unpolymerized photoinitiator, 1-hydroxycyclohexyl phenyl ketone (1-HCHPK) from a plastic solid phase to aqueous media at up to 200 mg/L in the first 24 h was detected … Both plastic extracts (LC50 22.25% v/v) and 1-HCHPK (LC50 60 mg/L) induced mortality and teratogenicity within 48 h of exposure."
       - 뜻: 굳지 않은 광개시제가 첫 24시간에 최대 200 mg/L까지 물로 옮겨 갔다. 추출액과 광개시제 모두 48시간 안에 배아를 죽이거나 기형을 만들었다.
   - 강도: **중간~강함**. 초록으로만 확인했다.
-- **글**: "UV 후경화로 독성이 크게 줄었다는 연구도 있지만(Oskui 2016), 에탄올로 씻어도 배아가 모두 죽은 레진이 있었어요(Macdonald 2016)."
+- **글**: "UV 후경화로 독성이 크게 줄었지만 다 없어지진 않았고(Oskui 2016), 에탄올로 씻어도 배아가 모두 죽은 레진이 있었어요(Macdonald 2016)."
   - Oskui 2016 (Environ Sci Technol Lett), https://doi.org/10.1021/acs.estlett.5b00249 (초록은 OpenAlex로 확인)
     - "We also developed a simple post-printing treatment (exposure to ultraviolet light) that largely mitigates the toxicity of the STL-printed parts."
       - 뜻: 출력 뒤 자외선을 쬐는 간단한 처리로 STL(레진) 출력물의 독성을 크게 줄였다.
@@ -74,16 +75,16 @@
     - 가정의 짧은 IPA 세척이나 경화기와는 다르다.
   - 참고(글에서는 뺐다):
     - 의료용 생체적합 인증 레진(USP Class VI인 VisiJet Crystal, 의료기기 Class IIa인 E-Shell 300)도 배아에 독했다(Macdonald 2016; https://pmc.ncbi.nlm.nih.gov/articles/PMC9031839/).
-    - E-Shell 300은 우린 물에서는 독성이 거의 없었다. 그런데 배아가 표면에 직접 닿으면 최대 79%가 죽었다. 우린 물만 검사하면 표면 접촉 독성을 놓칠 수 있다는 뜻이다.
+    - E-Shell 300은 우린 물에서는 독성이 거의 없었다. 그런데 배아가 표면에 직접 닿으면 처리 안 한 시료는 48시간에 모두 죽었고, 증류수에 2×24시간 우린 시료도 96시간에 79%가 죽었다. 우린 물만 검사하면 표면 접촉 독성을 놓칠 수 있다는 뜻이다.
 
 ### 2-2. PLA·ABS
 
-- **글**: "우린 물에서 물고기 배아·치어는 72시간, 윤충·물벼룩류는 24시간 시험에서 괜찮았어요(Zhu 2015)."
+- **글**: "우린 물에서 물고기 배아는 72시간, 윤충·물벼룩류는 24시간 시험에서 괜찮았어요(Zhu 2015)."
   - https://pmc.ncbi.nlm.nih.gov/articles/PMC4691254/
     - "100% of zebrafish embryos exposed to ABS and PLA extracts survived and developed normally for up to 72 h"
       - 뜻: ABS·PLA 추출액에 노출된 배아는 72시간까지 모두 살아 정상 발달했다.
     - "Leachates from ABS and PLA did not induce any behavioural abnormalities"
-      - 뜻: 치어의 행동에도 이상이 없었다.
+      - 뜻: 치어의 행동에도 이상이 없었다(5분 노출 행동 시험이라 72시간 시험이 아니다. 그래서 글에서는 치어를 뺐다).
     - "Acute toxicity tests with the rotifer Brachionus calyciflorus revealed 100% mortality in response to all leachates apart from PLA, ABS, and VisiJet Crystal. The latter were not toxic to rotifers over the standard exposure time of 24 h"
       - 뜻: 윤충은 PLA·ABS(그리고 VisiJet Crystal)를 뺀 모든 추출액에서 죽었다. PLA·ABS는 24시간 시험에서 독성이 없었다.
     - "Acute toxicity tests over 24 h with the freshwater crustacean Ceriodaphnia dubia provided statistically similar results to those obtained on rotifers"
@@ -103,8 +104,8 @@
       - 뜻: 배아를 PLA 시료에 직접 닿게 넣었다.
     - "the survival larvae determined after 178 h (7 days)"
       - 뜻: 생존은 7일째에 쟀다.
-    - 시료: "Infill density 100%", "Ingeo™ PLA 3D850 by NatureWorks, was purchased from Smart Materials 3D", "The material turned from transparent to white in the PLA SS samples"
-      - 뜻: 채움 100%로 출력했고, 필라멘트는 NatureWorks의 Ingeo 3D850 수지로 만든 Smart Materials 3D 제품이다. 원래 투명했다(멸균 처리한 시료만 하얗게 변했다).
+    - 시료: "Infill density 100%", "Ingeo™ PLA 3D850 by NatureWorks, was purchased from Smart Materials 3D", "The material turned from transparent to white in the PLA SS samples, and to a lesser extent with PLA SCCO"
+      - 뜻: 채움 100%로 출력했고, 필라멘트는 NatureWorks의 Ingeo 3D850 수지로 만든 Smart Materials 3D 제품이다. 원래 투명했다(증기 멸균한 SS 시료는 하얗게 변했고, CO₂ 멸균한 SCCO 시료도 조금 그랬다).
   - 강도: **중간**.
   - 한계:
     - PLA 한 제품, 배아·치어 단계만 봤고, 몸 모양은 72시간째까지만 봤다.
@@ -126,7 +127,7 @@
 
 ### 2-3. 해수
 
-- **글**: "PETG와 비슷한 코폴리에스터, PLA/PHA로 출력해 해수에 1주 길들인 타일에서 산호 유생이 정착해 12주 동안 소재 간 차이 없이 자랐고, 크로미스 행동도 그대로였어요(Ruhl·Dixson 2019). 출력물끼리만 비교했고 수질은 재지 않았어요."
+- **글**: "PETG와 비슷한 코폴리에스터, PLA/PHA, 스테인리스 가루 PLA로 출력해 해수에 1주 길들인 타일에서 산호 유생이 정착해 12주 동안 소재 간 차이 없이 자랐고, 크로미스 행동도 그대로였어요(Ruhl·Dixson 2019). 수질은 재지 않았고 산호는 출력물끼리만 비교했어요."
   - Ruhl & Dixson 2019 (PLOS ONE), https://doi.org/10.1371/journal.pone.0221157 · https://pmc.ncbi.nlm.nih.gov/articles/PMC6697346/
     - "Two Colorfabb co-polyester based filaments were chosen for their durability (hereafter nGen and XT); a Colorfabb PLA/PHA filament … and a Proto-Pasta PLA filament … incorporation of stainless-steel shavings … All 3D printed models were conditioned in seawater for one-week prior to use."
       - 뜻: colorFabb 코폴리에스터 2종(nGen, XT), colorFabb PLA/PHA, 스테인리스 가루가 든 Proto-Pasta PLA를 썼고, 모두 해수에 1주일 길들인 뒤 사용했다.
@@ -140,7 +141,8 @@
       - 뜻: 실제 환경에서 출력물이 분해되거나 물질이 우러나는 속도는 잘 밝혀지지 않았다.
   - 강도: **중간~약함**.
   - 한계:
-    - 12주 생존율은 21%(nGen)~48%(SS)였다.
+    - 12주 생존율은 21%(nGen)~48%(SS)였다. 금속(스테인리스 가루)이 든 PLA도 다른 소재와 차이가 없었다. 글은 금속 필라멘트를 빼라고 하지만, 이는 구리 함량(Beard 2026)과 자료 부족에 따른 예방이다. 이 연구 결과를 숨기지 않으려고 글에 소재를 모두 적었다.
+    - 크로미스 시험은 출력물과 진짜 산호 골격을 비교했고, 산호 정착 시험만 출력물끼리 비교했다.
     - 정착 단계는 인공해수 200 mL에 타일 하나를 넣고 14일 동안 진행했다. 성장 단계는 380 L 수조였다.
     - 물고기는 수 분~하루 동안의 서식처 선택만 봤고, 건강이나 독성 지표는 재지 않았다.
     - SPS 같은 민감한 산호와 새우는 다루지 않았다.
@@ -155,6 +157,13 @@
   - 조건은 위 인용 참고: Zhu 2015는 표면 25,000 mm²에 물 500 mL를 썼고, Oskui 2016은 원판 하나에 물 45 mL를 썼다.
   - 시험 기간은 대부분 24시간~7일이고, 가장 긴 것이 산호 12주다.
   - "없다"는 7절에 정리했다.
+- **글**: "사람 세포 시험에선 PETG 1종이 세포 대사를 크게 떨어뜨렸어요(Dejmek 2026)."
+  - Dejmek & Jedlička 2026 (Sci Rep), https://pubmed.ncbi.nlm.nih.gov/42324277/ (09 글에서 이미 인용한 연구)
+    - "Our findings reveal severe, material-specific metabolic disruptions in specific commercial formulations of widely used polymers, such as the tested FLEX, PETG, PC, and PP filaments."
+      - 뜻: 시험한 FLEX, PETG, PC, PP 필라멘트 일부 제품에서 심한 대사 교란이 나타났다.
+    - 시험한 PETG는 16종 가운데 1종(P2)이었고, 7일째 결과는 "PETG (P2; −27.6%)"였다. 그래서 글에 "PETG 1종"이라고 썼다.
+  - 강도: **중간**. 사람 피부 섬유모세포를 배양액을 거쳐 간접 노출한 시험이고, 수생생물 시험이 아니다. 초록으로 확인했다.
+  - 왜 넣었나: PETG를 1순위로 권하면서 이미 09 글에 실은 PETG 반대 근거를 빼면 두 글이 설명 없이 어긋난다.
 
 ---
 
@@ -198,7 +207,7 @@
   - 한계:
     - 재활용 필라멘트를 썼다.
     - 세 용액은 증류수, 포화 소금물, 포화 설탕물이었고, 해수는 아니었다.
-    - 다른 연구(Bedi 2026)에서는 측정 방법과 채움에 따라 흡수율이 5~39%까지 달랐다.
+    - 다른 연구(Bedi 2026)에서는 흡수율이 5.2%(그래핀 0.04% 복합재, 채움 100%, 증류수)에서 39%(순수 PETG, 채움 50%, 포화 소금물)까지 소재·채움·용액에 따라 크게 달랐다. 순수 PETG도 채움이 낮으면 물을 많이 먹을 수 있다는 뜻이다.
 - **글**: "나일론·우드 PLA는 물을 많이 먹고 크게 약해졌어요(Banjo 2022, Islam 2026)."
   - Banjo 2022 (Composites Part C), https://doi.org/10.1016/j.jcomc.2022.100243
     - "the nylon-based materials absorbed up to 10 times more water than PLA … with the flexural modulus of nylon decreasing by as much as 60% after 7 days of immersion."
@@ -222,7 +231,7 @@
   - 반대 방향 자료:
     - 산호(Pocillopora damicornis)는 PLA 미세입자 5~50 mg/L에 72시간 노출돼도 죽거나 백화되지 않았다(https://pubmed.ncbi.nlm.nih.gov/41980291/, 2026).
     - 최고 농도에서는 항산화 효소만 늘었다.
-- **글**: "\"해수의 알칼리성이 PLA를 빨리 녹인다\"는 근거가 약해요. 40°C 시험에선 해수 쪽이 오히려 느렸어요(Deroine 2014). 그래도 칼크바서 같은 강알칼리 용액에 닿는 부품엔 PLA를 쓰지 않는 게 안전해요."
+- **글**: "\"해수의 알칼리성이 PLA를 빨리 녹인다\"는 근거가 약해요. 40°C 시험에선 해수 쪽이 오히려 느렸어요(Deroine 2014). 칼크바서 같은 강알칼리 용액에 닿는 부품엔 PLA를 피하는 게 안전해요."
   - Deroine 2014
     - "At 40°C, the stress at break of PLA decreases significantly after 6 months' immersion but with a larger reduction in distilled water (85% versus 70% in seawater)."
       - 뜻: 40°C에서 파단 강도는 증류수에서 85%, 해수에서 70% 줄었다.
@@ -235,7 +244,7 @@
   - 강알칼리에서는 실제로 빠르다:
     - 0.1 M 수산화나트륨에서는 PLA 표면이 6일 만에 깎여 나갔다(https://pmc.ncbi.nlm.nih.gov/articles/PMC9890945/).
     - pH 10에서는 25일 동안 질량 감소가 계속 늘었다(https://pmc.ncbi.nlm.nih.gov/articles/PMC8706057/).
-  - 칼크바서 권고는 직접 시험한 자료가 없는 예방 차원의 추론이다. 글에서도 "쓰지 않는 게 안전해요"로 썼다.
+  - 칼크바서 권고는 직접 시험한 자료가 없는 예방 차원의 추론이다. 글에서도 "피하는 게 안전해요"로 썼다.
   - 강도: **중간**.
 
 ---
@@ -258,7 +267,7 @@
     - 산호 Acropora aspera는 구리 5.8 µg/L에서 수정 성공률이 10% 떨어졌다(https://pubmed.ncbi.nlm.nih.gov/28704691/).
     - Seachem 구리 치료제 안내: "Remove all invertebrates - these are extremely sensitive to copper"(https://www.seachem.com/cupramine.php)
       - 뜻: 무척추동물은 구리에 매우 민감하므로 모두 빼라.
-- **글**: "필라멘트 속 금속량은 색·브랜드마다 달랐고, 투명 필라멘트도 출력 뒤엔 구리가 나왔어요(Beard 2026). 무착색은 정체 모를 안료·첨가제를 줄이는 예방책이지 구리가 없다는 보증은 아니에요."
+- **글**: "필라멘트 속 금속량은 색·브랜드마다 달랐고, 투명 필라멘트도 압출 뒤엔 구리가 들어 있었어요(Beard 2026). 무착색은 정체 모를 안료·첨가제를 줄이는 예방책이지 구리가 없다는 보증은 아니에요."
   - Beard 2026, https://pmc.ncbi.nlm.nih.gov/articles/PMC13488613/
     - "Six metals (aluminum, magnesium, manganese, chromium, iron, and copper) were found in nonmetal filaments depending on polymer type, color, and brand"
       - 뜻: 금속을 넣지 않은 필라멘트에서도 금속 6종이 검출됐고, 그 양은 소재, 색, 브랜드에 따라 달랐다.
@@ -267,14 +276,14 @@
     - "Natural/pure PETG-filament without any color, would be your best bet, but it's hard to say exactly what is in it."
       - 뜻: 색을 넣지 않은 순수 PETG가 가장 낫지만, 그 안에 무엇이 들었는지는 정확히 말하기 어렵다.
   - 강도: **중간**(함량 측정).
-  - 한계: 필라멘트 속 함량만 쟀고, 물로 녹아 나오는 양은 재지 않았다. 검증자가 원래 주장("무착색이면 구리가 적다")을 표 1의 수치로 반박했고, 그래서 글을 "보증은 아니에요"로 고쳤다.
+  - 한계: 필라멘트를 산으로 녹여 속 함량만 쟀고("Filaments collected before and after extrusion were digested for ICP-MS analysis"), 물로 녹아 나오는 양은 재지 않았다. 그래서 글에 "나왔어요"가 아니라 "들어 있었어요"라고 썼다. 검증자가 원래 주장("무착색이면 구리가 적다")을 표 1의 수치로 반박했고, 그래서 글을 "보증은 아니에요"로 고쳤다.
 - **글**: "황동 노즐 출력물을 50°C 물에 우리면 강철 노즐보다 납이 7~12배 나왔지만, 1 g당 1~1.5 ng으로 아주 적었고 구리는 검출되지 않았어요(Rindelaub 2019)."
   - Rindelaub 2019 (PLOS ONE), https://pmc.ncbi.nlm.nih.gov/articles/PMC6530847/
     - "The devices printed using the brass nozzle had 7–12 times greater concentrations of Pb compared to those printed using a steel nozzle."
       - 뜻: 황동 노즐로 뽑은 출력물은 강철 노즐로 뽑은 것보다 납 농도가 7~12배 높았다.
     - 표: 황동 노즐 출력물의 납은 1.46, 0.98, 1.08 ng/g이었다(FDA PLA, 열처리한 FDA PLA, PC). 강철 노즐 출력물은 0.13, 0.11 ng/g이었다(PLA, PETG).
     - "Of the 15 elements targeted by ICP/MS analysis …, only lead (Pb) was observed in the printed device extracts."
-      - 뜻: 대상 원소 15종 가운데 추출액에서 나온 것은 납뿐이었다(구리 포함).
+      - 뜻: 대상 원소 15종(구리 포함) 가운데 출력물의 물 추출액에서 나온 것은 납뿐이었다.
     - 추출 조건: ">72 hours at 50°C, as recommended by ISO 10993–12"
       - 뜻: ISO 10993-12 권고에 따라 50°C에서 72시간 넘게 우렸다.
   - 강도: **중간**.
@@ -282,19 +291,20 @@
     - 노즐마다 다른 소재와 색을 썼다(황동: 빨강 FDA PLA·투명 PC, 강철: 흰 PLA·노랑 PETG). 그래서 완전한 비교가 아니다.
     - 구리 검출 한계는 본문에서 확인하지 못했다.
     - 어항 조건이 아니라 의료기기 추출 조건이다.
+    - 전자현미경으로 본 IPA 추출액 입자 일부에는 노즐에서 온 철이나 구리·아연이 있었다(FDA PLA 시료에서 입자의 2%). 물 추출액은 입자 수가 의미 있게 많지 않았다("In all cases, extraction with water did not lead to significant particle number counts").
 
 ---
 
 ## 5. 실제로 쓰는 곳
 
-- **글**: "해외 리프 용품 업체는 대체로 PETG로 출력해요(Charterhouse는 40여 종 전부). PLA도 괜찮다는 업체도 있어요. \"reef-safe\"는 시험 자료를 공개하지 않은 판매자 주장이에요."
+- **글**: "해외 리프 용품 업체는 대체로 PETG로 출력해요. PLA도 괜찮다는 업체도 있어요. \"reef-safe\"는 시험 자료를 공개하지 않은 판매자 주장이에요."
   - Reef Builders, https://reefbuilders.com/2023/10/24/charterhouse-aquatics-provides-3d-printed-product-solutions
     - "It already lists over 40 own-branded products … and all are made from reef-safe PETG plastic."
       - 뜻: 자체 브랜드 제품 40종 넘게가 모두 PETG로 만들어졌다.
   - 같은 방향의 업체:
     - Clear Choice Aquatics: 프래그 플러그를 속을 꽉 채운 PETG로 출력한다.
     - Copper Coast: 낮은 흡수율과 내화학성을 이유로 PETG를 쓴다.
-    - Rhino's Reef: "For anything that lives in your tank we use PETG, never PLA or resin"
+    - Rhino's Reef(https://www.rhinosreef.com/): "For anything that lives in your tank we use PETG, never PLA or resin"
       - 뜻: 수조 안에 들어가는 것에는 PETG만 쓰고, PLA나 레진은 절대 쓰지 않는다.
       - 그런데 같은 페이지에서 '색소 없음'과 '색상 선택'을 함께 내세운다.
   - 다른 의견: Aqua Print UK 인터뷰, https://reefbuilders.com/2023/02/10/faqs-on-3d-printing/
@@ -310,20 +320,23 @@
       - 뜻: 수조 ICP-MS 검사를 포함해 1년 넘게 시험했고 이상 용출이 없었다. PETG만 쓰라.
       - 수치, 브랜드, 대조군은 공개하지 않았다. 사업상 이해관계("My company, 3DReefing")가 있다.
       - 글자 수 때문에 글에서는 뺐다. '넣기 전후 ICP 검사 비교' 권고는 이 사례와 산호의 구리 민감성에서 끌어냈다.
-- **글**: "380 L 담수 수조에 코팅한 PLA와 PETG 출력물을 7개월 넣었는데 PLA가 멀쩡했다는 경험담이 있어요(Prusa 포럼). 수질 측정은 없어요."
+- **글**: "담수 어항에 PLA 은신처를 1년쯤 넣었는데 처음처럼 튼튼하다는 경험담이 있어요(MakerBot 사용자 모임). 수질 측정은 없어요."
+  - MakerBot 사용자 모임(2015), https://groups.google.com/g/makerbot-users/c/sY9javWl7iA
+    - "I've had PLA fish houses and other things in my freshwater aquarium for about a year now and it seems just as strong as it was when I put it in."
+      - 뜻: 담수 어항에 PLA 물고기 집 같은 것들을 1년쯤 넣어 두었는데, 넣을 때만큼 튼튼해 보인다.
+    - 코팅 이야기는 없다. 같은 스레드의 질문자는 해수 수조에서는 PLA가 걱정된다고 했다.
+  - 강도: **약함**(개인 경험담).
+  - 참고(검수 뒤 글에서 뺐다): Prusa 포럼 경험담. 코팅제(Mod Podge, Plasti Dip)가 어항용 제품이 아니라서, 글의 "어항용이라고 적힌 제품만" 조건과 맞지 않아 뺐다.
   - https://forum.prusa3d.com/forum/english-forum-general-discussion-announcements-and-releases/which-plastic-for-aquarium-use/
     - "I have a 100 gallon freshwater setup. I used PLA and PETG and coated the former with either Modge Podge Matt sealer or Plasti Dip spray. … I have had no degradation of my PLA pieces since October 2019 when they were installed."
       - 뜻: 100갤런 담수 수조에 PLA와 PETG를 썼고, PLA는 Mod Podge나 Plasti Dip으로 코팅했다. 2019년 10월에 넣은 뒤로 PLA는 열화되지 않았다.
     - 글은 2020년 5월에 올라왔으므로 약 7개월이다. 100 US갤런은 약 378.5 L다.
-  - 같은 방향의 경험담: makerbot-users 그룹(2015) "PLA fish houses … in my freshwater aquarium for about a year now and it seems just as strong"(https://groups.google.com/g/makerbot-users/c/sY9javWl7iA)
-    - 뜻: 담수 어항에 PLA 은신처를 약 1년 넣어 두었는데 처음처럼 튼튼하다.
-  - 강도: **약함**(개인 경험담).
-- **글**: "레진 회사 Formlabs 직원은 물고기 수조엔 자사 레진을 권하지 않았어요."
+- **참고(검수 뒤 글자 수 때문에 글에서 뺐다)**: Formlabs 직원 포럼 답변
   - https://forum.formlabs.com/t/materials-for-water/40323
     - "while our resins are watertight, I wouldn't recommend using them to print an aquarium that houses fish. Any 3D printed resins can leach chemicals over time"
       - 뜻: 우리 레진은 물이 새지 않지만, 물고기가 사는 수조를 출력하는 데는 권하지 않는다. 3D 출력한 레진은 시간이 지나며 화학물질이 우러날 수 있다.
   - 답변자의 직함은 'Formlabs Marketing Manager, Form Now'다. 소재 전문가는 아니다.
-  - Formlabs Clear V4.1 안전보건자료(경화 전): "H411 Toxic to aquatic life with long lasting effects"
+  - Formlabs Clear V4.1 안전보건자료(경화 전, https://makerspaces.northeastern.edu/wp-content/uploads/2026/01/FormLabs_Clearv4_1_SDS.pdf): "H411 Toxic to aquatic life with long lasting effects"
     - 뜻: 장기적 영향으로 수생생물에 유독하다.
   - 강도: **중간**. 자기 회사 제품 사용을 말리는 발언이다.
   - 참고(글에서는 뺐다):
@@ -340,17 +353,17 @@
 
 | 글의 조건 | 근거 | 강도 |
 |---|---|---|
-| 무착색 PETG 1순위 | 물 흡수가 적다(Moreno Nieto 2021). 업계 관행이다(5절). 비슷한 코폴리에스터로 한 산호 12주 시험(Ruhl·Dixson 2019). 색소·첨가제를 줄인다(Prusa, Beard 2026) | 중간. PETG 자체의 수생 독성 시험은 없다 |
+| 무착색 PETG 1순위 | 물 흡수가 적다(Moreno Nieto 2021). 업계 관행이다(5절). 비슷한 코폴리에스터로 한 산호 12주 시험(Ruhl·Dixson 2019). 색소·첨가제를 줄인다(Prusa). 단, 투명 필라멘트도 압출 뒤 구리가 적지 않았다(Beard 2026). 사람 세포 시험에서 PETG 1종이 대사를 떨어뜨렸다(Dejmek 2026) | 중간. PETG 자체의 수생 독성 시험은 없다 |
 | 담수 25°C 안팎이면 무착색 PLA도 | 우린 물이 배아·윤충·물벼룩류에 무해했다(Zhu 2015). 직접 접촉 7일(Pérez-Davila 2022). 25°C에서 1년(Bagheri 2017). 30°C 이상에서는 열화가 빨라진다(Deroine 2014) | 중간 |
-| 오래 둘 물건·여과기 속 부품은 PETG | PLA가 세균의 탄소원이 됐다(Zhao 2024). PETG는 물 흡수가 적다. 취미 설계자도 오래 둘 물건은 PETG로 하라고 권한다(Printables 96362: "I recommend printing in PETG long term") | 중간(추론 포함). 여과기 연구에서 PETG를 시험하지는 않았다 |
+| 오래 둘 물건·여과기 속 부품은 PETG | PLA가 세균의 탄소원이 됐다(Zhao 2024). PETG는 물 흡수가 적다. 취미 설계자도 오래 둘 물건은 PETG로 하라고 권한다(Printables 96362, https://www.printables.com/model/96362-aquarium-decoration-textured-rock-cave-medium: "I recommend printing in PETG long term") | 중간(추론 포함). 여과기 연구에서 PETG를 시험하지는 않았다 |
 | 레진 빼기 | 2-1절 | 강함 |
 | 나일론·우드 빼기 | 3절(Banjo 2022, Islam 2026) | 강함(물성) |
-| 금속·카본·실크·야광·형광 빼기 | 물속 자료가 없다(7절). 색·첨가제에 따라 금속 함량이 다르다(Beard 2026) | 약함(자료 부재에 따른 예방) |
+| 금속·카본·실크·반짝이·야광·형광 빼기 | 물속 자료가 거의 없다(7절). 색·첨가제에 따라 금속 함량이 다르다(Beard 2026). 08·09도 같은 소재를 뺐다. 예외로, 스테인리스 가루 PLA는 산호 12주 시험에서 다른 소재와 차이가 없었다(Ruhl·Dixson 2019) | 약함(자료 부족에 따른 예방) |
 | ABS·ASA 기본 추천에서 빼기 | ABS는 근거가 엇갈린다. 우린 물은 무해했지만(Zhu 2015) 직접 닿으면 독성이 있었다(Oskui 2016). ASA는 수생 시험이 없다. 08 글은 스타이렌 계열이라는 이유로 동물용에서 뺀다 | 중간 |
-| 노즐 스테인리스·티타늄 | Rindelaub 2019(납 7~12배). Prusa: "You would need a stainless-steel or a titanium nozzle if you are even considering printing with food in mind."(음식용으로 출력할 생각이라면 스테인리스나 티타늄 노즐이 필요하다) | 중간(양은 아주 적다) |
-| 채움 100%, 외벽 3~4줄 이상 | Prusa 수밀 출력, https://help.prusa3d.com/article/watertight-prints_112324: "You want to go with at least 3-4 perimeters for a single wall."(벽 하나에 둘레선을 최소 3~4줄 넣어라) 같은 글: "may leak into the void between the inner and outer walls, creating a place where all kinds of nasty stuff can grow."(안쪽 벽과 바깥 벽 사이 빈 공간으로 물이 새어 온갖 것이 자라는 곳이 될 수 있다) PETG는 채움 100%의 흡수율이 가장 낮았다(https://doi.org/10.1108/rpj-08-2025-0386) | 중간 |
+| 노즐 스테인리스·티타늄 | Rindelaub 2019(납 7~12배). Prusa(https://help.prusa3d.com/article/food-safe-fdm-printing_112313): "You would need a stainless-steel or a titanium nozzle if you are even considering printing with food in mind."(음식용으로 출력할 생각이라면 스테인리스나 티타늄 노즐이 필요하다) | 중간(양은 아주 적다) |
+| 외벽 3~4줄 이상(Prusa), 채움 100% | 글의 '(Prusa)'는 외벽 3~4줄에만 붙는다. Prusa 수밀 출력, https://help.prusa3d.com/article/watertight-prints_112324: "You want to go with at least 3-4 perimeters for a single wall."(벽 하나에 둘레선을 최소 3~4줄 넣어라) 같은 글: "may leak into the void between the inner and outer walls, creating a place where all kinds of nasty stuff can grow."(안쪽 벽과 바깥 벽 사이 빈 공간으로 물이 새어 온갖 것이 자라는 곳이 될 수 있다) PETG는 채움 100%의 흡수율이 가장 낮았다(https://doi.org/10.1108/rpj-08-2025-0386) | 중간 |
 | 작은 틈만 난 속 빈 공간 금지 | MonsterFishKeepers 2008, https://www.monsterfishkeepers.com/forums/threads/be-carefull-sealing-up-aquarium-decorations.181229/: 모래를 넣고 핫글루로 막았지만 작은 구멍 몇 개를 남긴 시판 그루터기 장식이다. "No sooner was that smelly stump out of the water- it was mere hours before all my fish looked much better"(냄새 나는 그루터기를 빼자 몇 시간 만에 물고기들이 훨씬 나아 보였다). 해수 양식에서 황화수소는 낮은 농도에서도 떼죽음을 일으킬 수 있다(Bergstedt 2022, https://pubmed.ncbi.nlm.nih.gov/35917668/) | 약함. 3D 출력물이 아닌 1건이고, 황화수소를 재지 않았다. 예방 차원이다 |
-| 세제·소독제 없이 물로만 | Prusa: "The same goes for soap and detergent … The layer lines can absorb these chemicals, which later can be released"(비누와 세제도 마찬가지다. 층 사이 홈이 이런 화학물질을 흡수했다가 나중에 내놓을 수 있다) | 약함. 음식 기준의 경고이고, 소독제까지 넓힌 것은 추론이다 |
+| 세제·소독제 없이 물로만(햄스터 용품과 달리) | Prusa(https://help.prusa3d.com/article/food-safe-fdm-printing_112313): "The same goes for soap and detergent if you think you can just wash it. The layer lines can absorb these chemicals, which later can be released into something you want to consume."(비누와 세제도 마찬가지다. 층 사이 홈이 이런 화학물질을 흡수했다가 나중에 먹을 것으로 내놓을 수 있다). 글은 세제만 Prusa에 붙이고, 소독제는 08의 Vaňková 2020("성분이 틈에 남고")과 같은 방향의 예방으로 넣었다 | 약함. 음식 기준의 경고이고, 소독제까지 넓힌 것은 추론이다 |
 | 생물 없는 물에 며칠 담갔다가 버리기 | 레진에서 용출은 처음 24시간에 많다(https://pmc.ncbi.nlm.nih.gov/articles/PMC6187525/: "leaching of compounds from plastic parts is relatively high in the first 24 h"). 산호 연구도 출력물을 해수에 1주 길들여 썼다(Ruhl·Dixson 2019) | 약함. 며칠이면 충분한지 검증한 기준은 없다. 글에도 그렇게 썼다 |
 | 하나씩 넣고 관찰, 리프는 넣기 전후 ICP 비교 | 출력물에서 어항 물로 녹아 나오는 금속을 잰 자료가 없어(7절) 직접 확인하는 것이 유일한 방법이다. 산호는 구리 µg/L 수준에도 반응한다(4절) | 예방 차원 |
 | 히터에 닿지 않게 | Fluval 설명서와 PLA의 온도 의존 열화(3절) | 중간 |
@@ -358,10 +371,10 @@
 | 어항용 실리콘만, 식초 냄새 ≠ 어항용 | sera FAQ, https://www.sera.de/en/service/faq/faq-detail/gluing-rocks-and-decoration-with-silicone: "Construction or household silicone may contain fungicides that can lead to terrible consequences in an aquarium"(건축·가정용 실리콘에는 어항에서 끔찍한 결과를 부를 수 있는 곰팡이 방지제가 들었을 수 있다). "silicones that cure by releasing acetic acid are automatically suitable for aquariums. This is simply wrong"(아세트산을 내며 굳는 실리콘이면 자동으로 어항용이라는 말은 틀렸다). 같은 회사 제품이라도 어항용 여부가 제품마다 다르다(Smooth-On FAQ 196) | 중간(어항 업체들의 공통 안내) |
 | 산호 연구에서 순간접착제 젤로 붙여 키움 | Forsman 2015(Mote 해양연구소), https://pmc.ncbi.nlm.nih.gov/articles/PMC4614846/: "Fragments were attached to tiles using cyanoacrylate gel"(산호 조각을 순간접착제 젤로 타일에 붙였다). 생존율은 92~99%였다. AIMS 연구도 Gorilla 순간접착제 젤을 썼다(https://pmc.ncbi.nlm.nih.gov/articles/PMC12228731/) | 중간. 접착제 자체의 수생 독성 시험은 없다. '새우에 안전'하다는 근거는 판매자 주장과 경험담뿐이라 글에 넣지 않았다 |
 | 코팅한 출력물을 생물로 시험한 자료 없음 | 에폭시, 플라스티딥, 아크릴 도료를 입힌 출력물을 물고기·새우·산호로 시험한 연구는 찾지 못했다. 관련 자료는 이렇다. 레진에 남은 서포트 왁스는 배아 사망을 약 40시간 늦췄을 뿐이다(Macdonald 2016). 파릴렌-C 코팅 보고는 동료심사를 거치지 않은 프리프린트다. 다 굳은 수도관용 에폭시에서도 BPA가 나왔다(https://pubmed.ncbi.nlm.nih.gov/27448038/). 어항용 에폭시의 경화 대기 시간은 24시간(Pond Shield)에서 7일(TAP)까지 다르다 | 약함(자료 부재) |
-| 액상 레진·세척 IPA는 어항 근처 X, 하수구 X | Ballentine 2023, https://pubmed.ncbi.nlm.nih.gov/36792856/: "Two-day acute toxicity (LC50) ranged from 2.6 to 33 mg/L … use of isopropyl alcohol increases miscibility"(이틀 급성 반수치사농도는 2.6~33 mg/L였고, IPA를 쓰면 레진이 물에 더 잘 섞인다). 시험 생물은 Ceriodaphnia dubia다. Formlabs 폐기 안내: "Do not pour solvent (IPA, TPM) that contains dissolved resin into drains"(레진이 녹은 용제를 하수구에 버리지 마라) | 강함 |
+| 액상 레진·세척 IPA는 어항 근처 X, 하수구 X ("레진 프린터를 쓴다면": 출력물을 넣으라는 뜻이 아니라 작업 공간 이야기다) | Ballentine 2023, https://pubmed.ncbi.nlm.nih.gov/36792856/: "Two-day acute toxicity (LC50) ranged from 2.6 to 33 mg/L … use of isopropyl alcohol increases miscibility"(이틀 급성 반수치사농도는 2.6~33 mg/L였고, IPA를 쓰면 레진이 물에 더 잘 섞인다). 시험 생물은 Ceriodaphnia dubia다. 2.6~33 mg/L는 액상 레진 6종의 반수치사농도 범위라서, 글에 "종류에 따라"를 붙였다. Formlabs 폐기 안내(https://formlabs.com/global/support/Disposing-of-resin/): "Do not pour solvent (IPA, TPM) that contains dissolved resin into drains"(레진이 녹은 용제를 하수구에 버리지 마라) | 강함 |
 | 칼크바서 부품엔 PLA X | 3절 | 예방 차원(직접 시험 없음) |
-| 새우·달팽이: 무착색 PETG + 스테인리스 노즐만 | 무척추동물의 구리 민감성(4절). 관상 새우 시험이 없다(7절) | 예방 차원 |
-| 해수·리프: 무착색 PETG, 금속 필라멘트·황동 노즐 X | 업계 관행(5절). 산호와 해수 생물의 구리 민감성(4절) | 중간 |
+| 새우·달팽이: 무착색 PETG + 스테인리스·티타늄 노즐만 | 무척추동물의 구리 민감성(4절). 관상 새우 시험이 없다(7절). 글에도 "예방 차원"이라고 밝혔다 | 예방 차원 |
+| 해수·리프: 무착색 PETG, 금속 필라멘트·황동 노즐 X | 업계 관행(5절). 산호와 해수 생물의 구리 민감성(4절). 해수가 PLA를 더 빨리 상하게 한다는 근거는 약하다(3절). 그래서 글에 "업체 관행을 따른 예방"이라고 썼다. 구리 민감성은 PLA와 PETG를 가르는 근거가 아니다(금속 함량은 고분자보다 색·브랜드를 따른다) | 중간(관행), 예방 |
 
 ---
 
@@ -382,7 +395,7 @@
 - 한국어 커뮤니티(네이버 카페 등)의 어항 출력물 사례를 찾지 못했다.
 - 원문 확인의 한계:
   - Oskui 2016은 ACS 원문이 막혀 초록, 같은 데이터의 미국 특허, 보도자료로 확인했다.
-  - Walpitagama 2019, Zhao 2024, Uribe-Echeverría 2022, Banjo 2022는 초록만 확인했다.
+  - Walpitagama 2019, Zhao 2024, Uribe-Echeverría 2022, Banjo 2022, Duan 2022, Zimmermann 2020, Brix 2011, Ballentine 2023, Bergstedt 2022, Bedi 2026, Stevens(50°C PLA), Dejmek 2026, 산호 PLA 미세입자 연구(2026)는 초록만 확인했다.
   - Reddit·Reef2Reef·Aquarium Co-Op의 경험담은 봇 차단 때문에 원문을 열지 못해 제외했다.
 
 ---
@@ -402,4 +415,6 @@
 | "식초 냄새 나는 실리콘은 어항용" | 건축·욕실용 실리콘도 대개 아세트산을 내며 굳는다(sera) |
 | "코팅하면 안전해진다" | 코팅한 출력물을 생물로 시험한 자료가 없다 |
 | "물고기보다 새우가 구리에 100배 약하다" 같은 수치 비교 | 인용한 새우 논문은 물고기와 비교하지 않았다. 시험 조건이 달라 거친 비교만 가능하다 |
+| "레진은 2.6~33 mg/L면 물벼룩 절반이 죽는다" | 2.6~33 mg/L는 액상 레진 6종의 반수치사농도 범위다. 어느 농도에서나 절반이 죽는다는 뜻이 아니다 |
+| "필라멘트에서 구리가 나온다(녹아 나온다)" | Beard 2026은 필라멘트 속 함량을 쟀다. 물로 녹아 나오는지는 재지 않았다 |
 | "3D 출력물 때문에 물고기가 죽은 사례가 있다" | 원문으로 확인한 사례가 없다(사망 일화는 원문을 열지 못해 제외했다) |
