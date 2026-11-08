@@ -18,5 +18,6 @@
  "안쪽 깊이 (바닥판 위 벽 높이)": "inner depth (wall height above the base)",
  "출입 홈의 턱 높이 (바깥 바닥 기준)": "entry notch lip height (from the outside floor)",
  "벽·바닥 두께": "wall/floor thickness",
- "{0} #{1}": "{0} #{1}"
+ "{0} #{1}": "{0} #{1}",
+ "[탐색]": "[Explore]"
 }

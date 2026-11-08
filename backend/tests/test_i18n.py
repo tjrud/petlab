@@ -279,3 +279,12 @@ def test_english_catalog_entries_keep_placeholders():
         for ko, en in json.loads(f.read_text(encoding="utf-8")).items():
             assert sorted(ph.findall(ko)) == sorted(ph.findall(en)), (f.name, ko, en)
             assert not hangul.search(en) or "가-힣" in ko, (f.name, ko, en)
+
+
+def test_catalog_tries_other_splits_when_placeholders_touch():
+    from app.i18n import Catalog
+
+    c = Catalog({"{0}: {1} {2} → {3} 로 보정했습니다.": "{0}: adjusted {1} from {2} to {3}.",
+                 "외형 높이(Z)": "outer height (Z)", "은신처": "Hideout", "{0} #{1}": "{0} #{1}"})
+    assert c.translate("은신처 #1: 외형 높이(Z) 115.2 → 50 로 보정했습니다.") == \
+        "Hideout #1: adjusted outer height (Z) from 115.2 to 50."

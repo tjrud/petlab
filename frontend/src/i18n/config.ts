@@ -13,11 +13,15 @@ export function isLang(v: unknown): v is Lang {
 
 /** 주소 앞의 /en 을 뗀 경로와 언어 ("/en/design?x=1" → ["en", "/design?x=1"]) */
 export function splitLang(path: string): [Lang, string] {
-  if (path === "/en" || path.startsWith("/en/") || path.startsWith("/en?") || path.startsWith("/en#")) {
-    const rest = path.slice(3);
-    return ["en", rest === "" || rest[0] !== "/" ? `/${rest}` : rest];
+  // 한국어 화면은 proxy 가 /ko/... 로 이어 주므로 안쪽 경로(usePathname 등)에는 /ko 가 붙어 있을 수 있다
+  for (const lang of LANGS) {
+    const p = `/${lang}`;
+    if (path === p || path.startsWith(`${p}/`) || path.startsWith(`${p}?`) || path.startsWith(`${p}#`)) {
+      const rest = path.slice(p.length);
+      return [lang, rest === "" || rest[0] !== "/" ? `/${rest}` : rest];
+    }
   }
-  return ["ko", path];
+  return [DEFAULT_LANG, path];
 }
 
 /** 경로에서 언어 접두어를 뗀다 (활성 메뉴 비교 등) */

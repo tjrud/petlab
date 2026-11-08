@@ -63,19 +63,30 @@ class Catalog:
                 self.exact[ko] = en
                 continue
             parts = _PLACEHOLDER.split(ko)  # [글, 번호, 글, 번호, …, 글]
-            pattern, order = "", []
-            for i, part in enumerate(parts):
-                if i % 2 == 0:
-                    pattern += re.escape(part)
-                else:
-                    order.append(int(part))
-                    pattern += f"(?P<p{part}_{len(order)}>.+?)"
-            rx = re.compile(pattern, re.DOTALL)
             head = parts[0][:1]
-            self.templates.setdefault(head, []).append((rx, en))
+            self.templates.setdefault(head, []).append((self._compile(parts, ()), en, parts))
         # 글자가 긴(구체적인) 틀부터 맞춘다
         for k in self.templates:
             self.templates[k].sort(key=lambda t: -len(_PLACEHOLDER.sub("", t[0].pattern)))
+
+    @staticmethod
+    def _compile(parts: list[str], greedy: tuple[int, ...]) -> re.Pattern[str]:
+        """자리표시는 기본으로 가장 짧게 잡는다. greedy 에 든 순번의 자리표시는 가장 길게."""
+        pattern, n = "", 0
+        for i, part in enumerate(parts):
+            if i % 2 == 0:
+                pattern += re.escape(part)
+            else:
+                n += 1
+                pattern += f"(?P<p{part}_{n}>.+{'' if n in greedy else '?'})"
+        return re.compile(pattern, re.DOTALL)
+
+    def _fill(self, m: re.Match[str], en: str, depth: int) -> str:
+        values: dict[str, str] = {}
+        for name, val in m.groupdict().items():
+            idx = name[1:].split("_")[0]
+            values.setdefault(idx, self.translate(val, depth + 1))
+        return _PLACEHOLDER.sub(lambda mm: values.get(mm.group(1), mm.group(0)), en)
 
     def translate(self, s: str, depth: int = 0) -> str:
         if not s or not HANGUL.search(s) or depth > 4:
@@ -87,15 +98,25 @@ class Catalog:
         if stripped != s and stripped in self.exact:
             return s.replace(stripped, self.exact[stripped])
         for head in (s[:1], ""):
-            for rx, en in self.templates.get(head, ()):
+            for rx, en, parts in self.templates.get(head, ()):
                 m = rx.fullmatch(s)
                 if m is None:
                     continue
-                values: dict[str, str] = {}
-                for name, val in m.groupdict().items():
-                    idx = name[1:].split("_")[0]
-                    values.setdefault(idx, self.translate(val, depth + 1))
-                return _PLACEHOLDER.sub(lambda mm: values.get(mm.group(1), mm.group(0)), en)
+                best = self._fill(m, en, depth)
+                # 자리표시 둘이 빈칸 하나로만 나뉘면("{1} {2}") 어디서 끊을지 모호하다: 한국어가 남으면 다른 끊기도 해 본다
+                n = (len(parts) - 1) // 2
+                if HANGUL.search(best) and 1 < n <= 6:
+                    for mask in range(1, 2 ** n):
+                        greedy = tuple(i + 1 for i in range(n) if mask >> i & 1)
+                        alt = self._compile(parts, greedy).fullmatch(s)
+                        if alt is None:
+                            continue
+                        cand = self._fill(alt, en, depth)
+                        if len(HANGUL.findall(cand)) < len(HANGUL.findall(best)):
+                            best = cand
+                            if not HANGUL.search(best):
+                                break
+                return best
         # "A, B" 처럼 이어 붙인 목록
         for sep in (", ", " · ", "\n"):
             if sep in s:
