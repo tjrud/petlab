@@ -7,12 +7,28 @@ import { RoundedBox } from "@react-three/drei";
 import { Suspense, useMemo } from "react";
 import * as THREE from "three";
 
-import { LoadedMesh, MeshErrorBoundary } from "@/components/three/FileMesh";
+import { LoadedMesh, MeshErrorBoundary, type OutlineStyle } from "@/components/three/FileMesh";
+import SafeOutlines from "@/components/three/SafeOutlines";
 import type { CageAsset } from "@/lib/cageAssets";
 
-type MatProps = { color: string; emissive: string; emissiveIntensity: number };
+/** outline: 바깥 윤곽선 (없으면 null). 고른 구조물은 주황으로 굵게 */
+type MatProps = { color: string; emissive: string; emissiveIntensity: number; outline: OutlineStyle | null };
 
-function Mat({ color, emissive, emissiveIntensity, ...rest }: MatProps & { side?: THREE.Side; opacity?: number }) {
+function Mat({ color, emissive, emissiveIntensity, outline, ...rest }: MatProps & { side?: THREE.Side; opacity?: number }) {
+  return (
+    <>
+      <MeshMaterial color={color} emissive={emissive} emissiveIntensity={emissiveIntensity} {...rest} />
+      {outline && rest.opacity === undefined && <SafeOutlines color={outline.color} thickness={outline.thickness} />}
+    </>
+  );
+}
+
+function MeshMaterial({
+  color,
+  emissive,
+  emissiveIntensity,
+  ...rest
+}: Omit<MatProps, "outline"> & { side?: THREE.Side; opacity?: number }) {
   return (
     <meshStandardMaterial
       color={color}
@@ -364,7 +380,13 @@ function FileMesh({ asset, m }: { asset: CageAsset; m: MatProps }) {
   return (
     <MeshErrorBoundary key={asset.mesh.url} fallback={fallback}>
       <Suspense fallback={fallback}>
-        <LoadedMesh url={asset.mesh.url} format={asset.mesh.format} material={() => <Mat {...m} />} />
+        {/* 큰 메시는 윤곽선 준비에 시간이 걸려 LoadedMesh 가 형상을 먼저 보여 준 뒤 붙인다 */}
+        <LoadedMesh
+          url={asset.mesh.url}
+          format={asset.mesh.format}
+          outline={m.outline ?? undefined}
+          material={() => <Mat {...m} outline={null} />}
+        />
       </Suspense>
     </MeshErrorBoundary>
   );
@@ -390,12 +412,19 @@ const SHAPES = {
   mesh: FileMesh,
 } satisfies Record<CageAsset["shape"], (p: { asset: CageAsset; m: MatProps }) => React.ReactNode>;
 
+const OUTLINES: Record<"none" | "selected" | "hover", OutlineStyle> = {
+  none: { color: "#3b2716", thickness: 1.2 },
+  hover: { color: "#b45309", thickness: 1.6 },
+  selected: { color: "#d97706", thickness: 2.4 },
+};
+
 export default function AssetModel({ asset, highlight }: { asset: CageAsset; highlight: "none" | "selected" | "hover" }) {
   const Shape = SHAPES[asset.shape];
   const m: MatProps = {
     color: asset.color,
     emissive: highlight === "none" ? "#000000" : "#ffb347",
     emissiveIntensity: highlight === "selected" ? 0.35 : highlight === "hover" ? 0.15 : 0,
+    outline: OUTLINES[highlight],
   };
   return <Shape asset={asset} m={m} />;
 }

@@ -18,7 +18,7 @@ import PlannerHeader from "@/components/cage/PlannerHeader";
 import ReviewPanel from "@/components/cage/ReviewPanel";
 import SceneOverlay from "@/components/cage/SceneOverlay";
 import { usePlannerShortcuts } from "@/components/cage/usePlannerShortcuts";
-import type { CameraView } from "@/components/cage/PlannerScene";
+import type { CameraView, SceneInsets } from "@/components/cage/PlannerScene";
 import { api, ApiError, isAuthError } from "@/lib/api";
 import { fileIdOf, getAsset, isFloorLayer, registerFileAsset, type CageAsset } from "@/lib/cageAssets";
 import {
@@ -33,6 +33,7 @@ import {
 } from "@/lib/cageLayout";
 import { histReducer, metaOf, readDraft, snapshotOf, writeDraft, type Doc, type Meta } from "@/lib/cagePlannerDoc";
 import { withNext } from "@/lib/safeNext";
+import { PREVIEW_BG } from "@/lib/previewLook";
 import { uploadMarketFile } from "@/lib/marketUpload";
 import type { Cage, CageLayout, CageLayoutInput, CageLayoutSummary, LayoutItem, LayoutRules, MarketFile, Pet, SpeciesResponse } from "@/lib/types";
 import { ui } from "@/lib/ui";
@@ -45,7 +46,7 @@ const PlannerScene = dynamic(() => import("@/components/cage/PlannerScene"), {
 // 처음 크기는 종 규칙의 사육장 최소 기준(100×50×50cm, species.yaml enclosure_min_floor_mm)에 맞춰요
 const DEFAULT_CAGE: Cage = { width_mm: 1000, depth_mm: 500, height_mm: 500 };
 const DEFAULT_NAME = "새 배치안";
-const DEFAULT_BG = "#fbf7f0";
+const DEFAULT_BG = PREVIEW_BG; // 밝은 쿨그레이 (나무색 구조물과 확실히 구분되게)
 const BG_KEY = "nestforge:cage-bg";
 
 /** 지금 화면에 붙어 있는 플래너의 번호. 가려졌다 다시 보일 때(Activity)는 그대로이고,
@@ -105,6 +106,8 @@ export default function CagePlanner() {
   const requestedFiles = useRef(new Set<string>());
   /** 3D 화면 배경색 (이 브라우저에 기억) */
   const [background, setBackground] = useState(DEFAULT_BG);
+  /** 3D 화면 위·아래를 가리는 도구 모음·안내 상자 높이 (카메라를 그 사이에 맞춘다) */
+  const [sceneInsets, setSceneInsets] = useState<SceneInsets>({ top: 0, bottom: 0 });
 
   // ── 규칙·내 정보 불러오기 ──
 
@@ -744,6 +747,7 @@ export default function CagePlanner() {
           >
             <PlannerScene
               background={background}
+              insets={sceneInsets}
               cage={cage}
               items={items}
               selectedId={selectedId}
@@ -774,6 +778,7 @@ export default function CagePlanner() {
               itemCount={structureCount}
               background={background}
               onBackground={changeBackground}
+              onInsets={setSceneInsets}
             />
           </div>
 

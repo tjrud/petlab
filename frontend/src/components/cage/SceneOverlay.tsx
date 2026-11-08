@@ -1,10 +1,13 @@
 "use client";
 
+import { useEffect, useRef } from "react";
+
 import type { CameraView } from "@/components/cage/PlannerScene";
 import type { Cage } from "@/lib/types";
 
 const BACKGROUNDS = [
-  { label: "크림 (기본)", color: "#fbf7f0" },
+  { label: "쿨그레이 (기본)", color: "#eef1f4" },
+  { label: "크림", color: "#fbf7f0" },
   { label: "흰색", color: "#ffffff" },
   { label: "하늘", color: "#e6eef6" },
   { label: "연두", color: "#eef4e4" },
@@ -29,6 +32,7 @@ export default function SceneOverlay({
   itemCount,
   background,
   onBackground,
+  onInsets,
 }: {
   view: CameraView;
   onView: (v: CameraView) => void;
@@ -44,10 +48,35 @@ export default function SceneOverlay({
   itemCount: number;
   background: string;
   onBackground: (color: string) => void;
+  /** 3D 화면 위·아래를 가리는 높이(px): 위쪽 도구 모음, 아래쪽 안내 상자. 카메라를 그 사이 공간에 맞춰요 */
+  onInsets?: (insets: { top: number; bottom: number }) => void;
 }) {
+  const toolbar = useRef<HTMLDivElement>(null);
+  const card = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const bar = toolbar.current;
+    const info = card.current;
+    const box = bar?.offsetParent as HTMLElement | null;
+    if (!bar || !info || !box || !onInsets) return;
+    let last = "";
+    const report = () => {
+      const top = bar.offsetTop + bar.offsetHeight;
+      const bottom = box.clientHeight - info.offsetTop;
+      const key = `${top}|${bottom}`;
+      if (key !== last) {
+        last = key;
+        onInsets({ top, bottom });
+      }
+    };
+    report();
+    const ro = new ResizeObserver(report);
+    [bar, info, box].forEach((el) => ro.observe(el));
+    return () => ro.disconnect();
+  }, [onInsets]);
   return (
     <>
-      <div className="absolute left-3 top-3 flex flex-wrap gap-1.5">
+      {/* 위쪽 도구 모음: 화면이 좁으면 줄을 바꿔 겹치지 않아요. 되돌리기·다시 하기는 오른쪽 끝(좁은 화면에서는 화살표만) */}
+      <div ref={toolbar} className="pointer-events-none absolute inset-x-3 top-3 flex flex-wrap items-start gap-1.5 *:pointer-events-auto">
         <div className="flex overflow-hidden rounded-lg border border-stone-200 bg-white/90 text-xs shadow-sm" role="group" aria-label="시점">
           {(
             [
@@ -107,16 +136,16 @@ export default function SceneOverlay({
             </label>
           </div>
         </details>
-      </div>
-      <div className="absolute right-3 top-3 flex gap-1.5">
+      <div className="ml-auto flex gap-1.5">
         <button
           type="button"
           className="rounded-lg border border-stone-200 bg-white/90 px-2.5 py-1.5 text-xs shadow-sm disabled:opacity-40"
           onClick={onUndo}
           disabled={!canUndo}
           title="되돌리기 (Ctrl+Z)"
+          aria-label="↶ 되돌리기"
         >
-          ↶ 되돌리기
+          ↶<span className="hidden sm:inline"> 되돌리기</span>
         </button>
         <button
           type="button"
@@ -124,11 +153,13 @@ export default function SceneOverlay({
           onClick={onRedo}
           disabled={!canRedo}
           title="다시 하기 (Ctrl+Shift+Z)"
+          aria-label="↷ 다시 하기"
         >
-          ↷ 다시 하기
+          ↷<span className="hidden sm:inline"> 다시 하기</span>
         </button>
       </div>
-      <div className="pointer-events-none absolute bottom-3 right-3 max-w-[calc(100%-1.5rem)] rounded-lg bg-white/85 px-3 py-2 text-right text-[11px] leading-relaxed text-stone-600 shadow-sm">
+      </div>
+      <div ref={card} className="pointer-events-none absolute bottom-3 right-3 max-w-[calc(100%-1.5rem)] rounded-lg bg-white/85 px-3 py-2 text-right text-[11px] leading-relaxed text-stone-600 shadow-sm">
         <p className="font-semibold text-stone-800">
           케이지 {cage.width_mm}×{cage.depth_mm}×{cage.height_mm}mm · 구조물 {itemCount}개
         </p>
