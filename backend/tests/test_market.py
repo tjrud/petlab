@@ -587,3 +587,17 @@ def test_delete_design_attached_to_market_items(client):
     after = client.get(f"/market/items/{with_file['id']}").json()
     assert after["design"] is None and [x["id"] for x in after["files"]] == [f["id"]]
 
+
+
+def test_delete_design_removes_item_left_with_only_an_image(client, tmp_path):
+    signup(client, "maker_a")
+    d = make_design(client)
+    img = upload(client, "cover.png", PNG, kind="image")
+    item = client.post("/market/items", json=item_body(design_id=d["id"], image_file_id=img["id"])).json()
+    stored = list((tmp_path / "market").rglob("*"))
+    assert any(p.is_file() for p in stored)
+    assert client.delete(f"/designs/{d['id']}").status_code == 204
+    # 대표 이미지만 남는 빈 작품은 지우고, 저장소의 이미지 파일도 지운다
+    assert client.get(f"/market/items/{item['id']}").status_code == 404
+    assert client.get(f"/market/files/{img['id']}/view").status_code == 404
+    assert not any(p.is_file() for p in (tmp_path / "market").rglob("*"))

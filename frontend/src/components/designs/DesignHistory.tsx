@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
@@ -31,6 +31,7 @@ type Result =
 
 /** "내 설계" 목록 (회원 전용). 페이지·로그인 상태가 바뀌면 다시 불러온다. */
 export default function DesignHistory() {
+  const router = useRouter();
   const params = useSearchParams();
   const page = parsePage(params.get("page"));
   const { status, user } = useAuth();
@@ -80,6 +81,11 @@ export default function DesignHistory() {
   }
 
   const { items, total, page_size } = r.data;
+  // 이 쪽의 마지막 설계를 지웠으면 앞쪽으로 간다 (빈 쪽 안내 대신). 아니면 이 쪽을 다시 불러온다
+  const onDeleted = () => {
+    if (items.length === 1 && page > 1) router.replace(pageHref(page - 1));
+    else setAttempt((n) => n + 1);
+  };
   const totalPages = Math.max(1, Math.ceil(total / page_size));
 
   if (total === 0) {
@@ -111,7 +117,7 @@ export default function DesignHistory() {
       <p className={`${ui.muted} mb-3`}>총 {total}개</p>
       <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {items.map((d) => (
-          <DesignCard key={d.id} design={d} onDeleted={() => setAttempt((n) => n + 1)} />
+          <DesignCard key={d.id} design={d} onDeleted={onDeleted} />
         ))}
       </ul>
       {total > page_size && <Pagination page={page} totalPages={totalPages} hrefFor={pageHref} />}

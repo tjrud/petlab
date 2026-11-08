@@ -52,9 +52,12 @@ def revise_design(design_id: str, data: DesignReviseIn, request: Request, db: Se
 
 @router.delete("/{design_id}", status_code=status.HTTP_204_NO_CONTENT,
                summary="설계 삭제 (모든 버전, 소유자만). 첨부된 커뮤니티 글·탐색 작품에서는 연결만 끊는다")
-def delete_design(design_id: str, db: Session = Depends(get_db), svc: DesignService = Depends(get_service),
-                  user: User = Depends(get_current_user)):
-    svc.delete_design(db, design_id, user)
+def delete_design(design_id: str, request: Request, db: Session = Depends(get_db),
+                  svc: DesignService = Depends(get_service), user: User = Depends(get_current_user)):
+    stored = svc.delete_design(db, design_id, user)
+    storage = request.app.state.market_storage
+    if stored and storage is not None:
+        storage.delete(stored)  # 설계와 함께 지운 빈 탐색 작품의 대표 이미지
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

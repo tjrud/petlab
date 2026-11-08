@@ -29,6 +29,8 @@ const CageViewer = dynamic(() => import("@/components/CageViewer"), {
 export default function DesignView({ id, initialVersion }: { id: string; initialVersion?: number }) {
   const router = useRouter();
   const [design, setDesign] = useState<Design | null>(null);
+  /** 이 설계를 지웠다. 화면이 숨겨진 채 남았다가(뒤로 가기 등) 다시 보여도 지운 설계를 다루지 못하게 한다 */
+  const [deleted, setDeleted] = useState(false);
   const [loadError, setLoadError] = useState<{ status: number; message: string } | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
@@ -109,6 +111,9 @@ export default function DesignView({ id, initialVersion }: { id: string; initial
       </div>
     );
   }
+  if (deleted) {
+    return <div className="py-20 text-center text-stone-500">지운 설계예요.</div>;
+  }
   if (loadError && !design) {
     return <DesignLoadError status={loadError.status} message={loadError.message} />;
   }
@@ -121,7 +126,13 @@ export default function DesignView({ id, initialVersion }: { id: string; initial
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
       <div className="min-w-0 space-y-3">
-        <DesignTitleBar design={design} onDeleted={() => router.replace("/designs")} />
+        <DesignTitleBar
+          design={design}
+          onDeleted={() => {
+            setDeleted(true);
+            router.replace("/designs");
+          }}
+        />
         <div
           data-testid="viewer"
           className="h-[420px] overflow-hidden rounded-2xl border border-amber-200 bg-white sm:h-[560px]"

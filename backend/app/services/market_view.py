@@ -3,8 +3,18 @@
 from __future__ import annotations
 
 from app.market_formats import MESH_FORMATS
+from app.mesh_preview import preview_key
 from app.models import MarketFile, MarketItem
 from app.schemas import MarketFileOut
+from app.storage import Stored
+
+
+def stored_blobs(f: MarketFile) -> list[Stored]:
+    """파일을 지울 때 저장소에서 함께 지울 것 (원본과 3D 미리보기 메시)"""
+    out = [Stored(key=f.storage_key, url=f.url)]
+    if f.preview_size:
+        out.append(Stored(key=preview_key(f.id), url=f.preview_url))
+    return out
 
 
 def file_out(f: MarketFile) -> MarketFileOut:

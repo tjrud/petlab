@@ -560,3 +560,25 @@ def test_revise_after_delete_does_not_resurrect(client, monkeypatch):
     assert r.status_code == 404
     with client.app.state.session_factory() as db:
         assert db.scalar(select(DesignVersion).where(DesignVersion.design_id == d["id"])) is None
+
+
+@pytest.mark.skipif(bool(PG_URL), reason="Postgres 는 행 잠금으로 막아 한 스레드에서 흉내 내면 교착된다")
+def test_delete_while_saving_revision_is_not_attached(client, tmp_path, monkeypatch):
+    import app.services.design_service as ds
+
+    signup(client, "user_a")
+    d = make_design(client)
+    real = ds._cache_files
+
+    def delete_then_build(items):
+        # 저장 직전(확인과 쓰기 사이)에 다른 요청이 지운 것과 같다
+        with client.app.state.session_factory() as db:
+            db.delete(db.get(Design, d["id"]))
+            db.commit()
+        return real(items)
+
+    monkeypatch.setattr(ds, "_cache_files", delete_then_build)
+    assert client.post(f"/designs/{d['id']}/revise", json={"prompt": "더 크게"}).status_code == 404
+    with client.app.state.session_factory() as db:
+        assert db.scalar(select(DesignVersion).where(DesignVersion.design_id == d["id"])) is None
+    assert not (tmp_path / "meshes" / d["id"] / "v2").exists()
