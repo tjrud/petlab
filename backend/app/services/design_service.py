@@ -15,18 +15,15 @@ import uuid
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-import trimesh
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.errors import InvalidInputError, NotFoundError
-from app.domain import BuiltItem, Cage, Placement, PlacementHint
-from app.geometry.export import ExportFile, ExportPart, export_parts
-from app.geometry.fingerprint import file_digest, geometry_fingerprint
+from app.geometry.fingerprint import file_digest
 from app.llm.base import HabitatInfo, Interpreter, InterpretRequest, InterpretResult
-from app.llm.spec import parse_spec, to_item_specs
 from app.models import Design, DesignVersion, Habitat, Pet, Post, User
 from app.rules.loader import RuleBook
 from app.schemas import (
@@ -44,15 +41,57 @@ from app.schemas import (
     VersionSummary,
 )
 from app.services import usage
-from app.services.engine import (
-    EngineContext,
-    EngineResult,
-    build_item,
-    revalidate,
-    run_engine,
-)
-from app.templates.registry import get_template
-from app.validation.autofix import rule_change_notices
+
+if TYPE_CHECKING:  # 형상 커널(build123d/OCP)·trimesh 는 설계 생성·메시·내려받기 요청에서만 불러온다
+    from app.domain import BuiltItem, Cage
+    from app.geometry.export import ExportFile
+    from app.services.engine import EngineContext, EngineResult
+
+
+# ── 무거운 모듈을 처음 쓸 때 불러오는 얇은 함수 (테스트가 모듈 속성으로 바꿔 끼울 수 있게 이름을 유지) ──
+def run_engine(*a, **k):
+    from app.services.engine import run_engine as f
+    return f(*a, **k)
+
+
+def build_item(*a, **k):
+    from app.services.engine import build_item as f
+    return f(*a, **k)
+
+
+def revalidate(*a, **k):
+    from app.services.engine import revalidate as f
+    return f(*a, **k)
+
+
+def get_template(*a, **k):
+    from app.templates.registry import get_template as f
+    return f(*a, **k)
+
+
+def rule_change_notices(*a, **k):
+    from app.validation.autofix import rule_change_notices as f
+    return f(*a, **k)
+
+
+def parse_spec(*a, **k):
+    from app.llm.spec import parse_spec as f
+    return f(*a, **k)
+
+
+def to_item_specs(*a, **k):
+    from app.llm.spec import to_item_specs as f
+    return f(*a, **k)
+
+
+def geometry_fingerprint(*a, **k):
+    from app.geometry.fingerprint import geometry_fingerprint as f
+    return f(*a, **k)
+
+
+def export_parts(*a, **k):
+    from app.geometry.export import export_parts as f
+    return f(*a, **k)
 
 log = logging.getLogger(__name__)
 
@@ -290,9 +329,11 @@ class DesignService:
 
     @staticmethod
     def _cage(h: Habitat) -> Cage:
+        from app.domain import Cage
         return Cage(h.cage_width_mm, h.cage_depth_mm, h.cage_height_mm)
 
     def _engine_ctx(self, h: Habitat) -> EngineContext:
+        from app.services.engine import EngineContext
         return EngineContext(cage=self._cage(h), species=h.species, size=h.size, count=h.count, rules=self.rules)
 
     # ── 설계 생성 / 수정 ─────────────────────────────────────
@@ -595,6 +636,7 @@ class DesignService:
 
     def _rebuild(self, design: Design, v: DesignVersion, it: dict) -> BuiltItem:
         """저장된 최종 파라미터·배치로 구조물 하나를 다시 만든다."""
+        from app.domain import Placement, PlacementHint
         try:
             t = get_template(it["template"])
             built = build_item(it["index"], t, t.load_stored_params(it["params"]), PlacementHint(),
@@ -691,6 +733,9 @@ class DesignService:
         return self._ensure_meshes(design, v) / _world_name(index)
 
     def export(self, db: Session, design_id: str, version: int | None, fmt: str, user: User | None) -> ExportFile:
+        import trimesh
+
+        from app.geometry.export import ExportPart
         design, allowed = self.get_visible(db, design_id, user)
         v = self.get_version(db, design, version, allowed)
         if not _exportable(v):

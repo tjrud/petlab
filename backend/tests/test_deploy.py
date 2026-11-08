@@ -237,3 +237,39 @@ def test_postgres_url_env_is_used_when_database_url_missing(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgres://neon/db")
     assert Settings(_env_file=None).database_url == "postgres://neon/db"  # DATABASE_URL 이 우선
     assert Settings(database_url="sqlite://", _env_file=None).database_url == "sqlite://"  # 이름으로도 지정 가능
+
+
+_LIGHT_PATHS_SCRIPT = """
+import sys, tempfile
+from pathlib import Path
+from fastapi.testclient import TestClient
+from tests.api_helpers import make_settings
+from app.main import create_app
+HEAVY = ("build123d", "OCP", "anthropic", "trimesh", "sklearn")
+with TestClient(create_app(make_settings(Path(tempfile.mkdtemp())))) as c:
+    for p in ("/health", "/species", "/market/config", "/market/items", "/market/recommended",
+              "/community/posts", "/auth/me", "/me", "/layouts", "/designs"):
+        c.get(p)
+print("heavy=" + ",".join(h for h in HEAVY if h in sys.modules))
+"""
+
+
+def test_light_requests_do_not_load_the_geometry_kernel_or_llm_sdk():
+    """서버 기동과 탐색·커뮤니티·로그인 같은 가벼운 요청은 형상 커널(build123d/OCP)·trimesh·Anthropic SDK 를
+    불러오지 않는다 (콜드 스타트 수 초). 설계 생성·메시·내려받기 요청에서만 불러온다"""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    backend = Path(__file__).resolve().parents[1]
+    out = subprocess.run([sys.executable, "-c", _LIGHT_PATHS_SCRIPT], cwd=backend, capture_output=True, text=True,
+                         timeout=120)
+    assert out.returncode == 0, out.stderr[-2000:]
+    assert out.stdout.strip().splitlines()[-1] == "heavy=", f"불러온 무거운 모듈: {out.stdout.strip()}"
+
+
+def test_template_key_map_matches_registry():
+    from app.templates.keys import TEMPLATE_MODULES
+    from app.templates.registry import all_templates
+
+    assert TEMPLATE_MODULES == {t.key: type(t).__module__ for t in all_templates()}
