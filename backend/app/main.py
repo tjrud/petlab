@@ -6,6 +6,7 @@ import json
 import logging
 from contextlib import asynccontextmanager
 
+import anyio
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -177,7 +178,9 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
         except ValueError:
             new = body
         else:
-            new = json.dumps(translate_json(data), ensure_ascii=False, separators=(",", ":")).encode()
+            # 번역(정규식)은 이벤트 루프 밖에서 (긴 응답이 다른 요청을 막지 않게)
+            translated = await anyio.to_thread.run_sync(translate_json, data)
+            new = json.dumps(translated, ensure_ascii=False, separators=(",", ":")).encode()
         out = Response(content=new, status_code=response.status_code)
         out.raw_headers = [(k, v) for k, v in response.raw_headers if k.lower() != b"content-length"]
         out.raw_headers.append((b"content-length", str(len(new)).encode()))

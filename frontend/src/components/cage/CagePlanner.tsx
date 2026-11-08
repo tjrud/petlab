@@ -7,6 +7,7 @@
 import dynamic from "next/dynamic";
 import { Link, useHref, useRouter, useT } from "@/i18n/client";
 import { stripLang } from "@/i18n/config";
+import { EN } from "@/i18n/en";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 
@@ -52,6 +53,8 @@ const PlannerScene = dynamic(() => import("@/components/cage/PlannerScene"), {
 // 처음 크기는 종 규칙의 사육장 최소 기준(100×50×50cm, species.yaml enclosure_min_floor_mm)에 맞춰요
 const DEFAULT_CAGE: Cage = { width_mm: 1000, depth_mm: 500, height_mm: 500 };
 const DEFAULT_NAME = "새 배치안";
+/** 어느 언어든 새 배치안의 기본 이름인지 */
+const isDefaultName = (name: string) => name === DEFAULT_NAME || name === EN[DEFAULT_NAME];
 const DEFAULT_BG = PREVIEW_BG; // 밝은 쿨그레이 (나무색 구조물과 확실히 구분되게)
 const BG_KEY = "nestforge:cage-bg";
 
@@ -357,7 +360,8 @@ export default function CagePlanner() {
     if (!wantedLayout) {
       const d = readDraft();
       if (d && !ready) {
-        const m: Meta = { name: d.name || defaultName, species: d.species, size: d.size, petId: d.petId, layoutId: d.layoutId };
+        // 기본 이름은 지금 화면 언어로 (한국어 화면에서 만든 임시 저장을 영어 화면에서 열면 "New layout")
+        const m: Meta = { name: !d.name || isDefaultName(d.name) ? defaultName : d.name, species: d.species, size: d.size, petId: d.petId, layoutId: d.layoutId };
         setMeta(m);
         const valid = (i: LayoutItem) =>
           typeof i?.id === "string" && typeof i.asset === "string" &&
@@ -384,7 +388,7 @@ export default function CagePlanner() {
   // 작업 중인 배치를 이 브라우저에 남겨요 (불러오기를 마친 뒤부터)
   useEffect(() => {
     if (!ready) return;
-    const empty = items.length === 0 && !meta.layoutId && (meta.name === DEFAULT_NAME || meta.name === defaultName);
+    const empty = items.length === 0 && !meta.layoutId && isDefaultName(meta.name);
     writeDraft(empty ? null : { ...meta, cage, items });
   }, [ready, meta, cage, items, defaultName]);
 

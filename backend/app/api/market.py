@@ -377,7 +377,7 @@ def _layout_snapshot(lay: CageLayout) -> dict:
 
 def _layout_from_snapshot(snap: dict, owner: User) -> CageLayout:
     cage = snap["cage"]
-    return CageLayout(owner_id=owner.id, name=f"{snap['name']} (탐색)"[:40], species=snap["species"],
+    return CageLayout(owner_id=owner.id, name=f"{snap['name']} {tr('(탐색)')}"[:40], species=snap["species"],
                       size=snap["size"], cage_width_mm=cage["width_mm"], cage_depth_mm=cage["depth_mm"],
                       cage_height_mm=cage["height_mm"], items=list(snap["items"]))
 

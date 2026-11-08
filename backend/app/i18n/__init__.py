@@ -51,44 +51,86 @@ def parse_lang(header: str | None, cookie: str | None) -> Lang:
     return DEFAULT_LANG
 
 
+# 이보다 긴 문구는 틀에 맞춰 보지 않는다 (LLM 이 쓴 설명 같은 자유 글: 틀에 맞을 일이 없고, 길면 정규식이 느리다)
+MAX_TEMPLATE_INPUT = 600
+
+
+class _Template:
+    __slots__ = ("parts", "literals", "en", "rx", "literal_len", "starts_with_literal", "ends_with_literal")
+
+    def __init__(self, ko: str, en: str):
+        self.parts = _PLACEHOLDER.split(ko)  # [글, 번호, 글, 번호, …, 글]
+        self.literals = [p for i, p in enumerate(self.parts) if i % 2 == 0]
+        self.en = en
+        self.rx = _compile(self.parts, ())
+        self.literal_len = sum(len(p) for p in self.literals)
+        self.starts_with_literal = bool(self.parts[0])
+        self.ends_with_literal = bool(self.parts[-1])
+
+    def anchor(self, s: str) -> int | None:
+        """글 조각이 차례대로 다 들어 있으면 첫 글 조각의 위치 (없으면 None). 정규식보다 훨씬 싸게 걸러낸다."""
+        if self.starts_with_literal and not s.startswith(self.parts[0]):
+            return None
+        if self.ends_with_literal and not s.endswith(self.parts[-1]):
+            return None
+        pos, first = 0, None
+        for lit in self.literals:
+            if not lit:
+                continue
+            i = s.find(lit, pos)
+            if i < 0:
+                return None
+            if first is None:
+                first = i
+            pos = i + len(lit)
+        return first if first is not None else 0
+
+
+def _compile(parts: list[str], greedy: tuple[int, ...]) -> re.Pattern[str]:
+    """자리표시는 기본으로 가장 짧게 잡는다. greedy 에 든 순번의 자리표시는 가장 길게."""
+    pattern, n = "", 0
+    for i, part in enumerate(parts):
+        if i % 2 == 0:
+            pattern += re.escape(part)
+        else:
+            n += 1
+            pattern += f"(?P<p{part}_{n}>.+{'' if n in greedy else '?'})"
+    return re.compile(pattern, re.DOTALL)
+
+
 class Catalog:
-    """한국어 원문(자리표시 포함) → 영어. 자리표시가 없는 문구는 사전으로, 있는 문구는 정규식으로 찾는다."""
+    """한국어 원문(자리표시 포함) → 영어. 자리표시가 없는 문구는 사전으로, 있는 문구는 틀(정규식)로 찾는다.
+
+    여러 틀이 맞으면 바깥 문장 틀을 고른다: 첫 글 조각이 가장 앞에 나오는 틀(자리표시가 다른 문장을 품는 경우
+    "{0}: {1} … 보정했습니다. {4}" 처럼 바깥 틀의 글이 먼저 나온다), 같으면 글 조각이 긴 틀."""
 
     def __init__(self, entries: dict[str, str]):
         self.exact: dict[str, str] = {}
-        # 첫 글자가 같은 것끼리 묶어 맞춰 볼 후보를 줄인다 (첫 조각이 자리표시면 "" 묶음)
-        self.templates: dict[str, list[tuple[re.Pattern[str], str]]] = {}
+        self.templates: list[_Template] = []
         for ko, en in entries.items():
-            if not _PLACEHOLDER.search(ko):
-                self.exact[ko] = en
-                continue
-            parts = _PLACEHOLDER.split(ko)  # [글, 번호, 글, 번호, …, 글]
-            head = parts[0][:1]
-            self.templates.setdefault(head, []).append((self._compile(parts, ()), en, parts))
-        # 글자가 긴(구체적인) 틀부터 맞춘다
-        for k in self.templates:
-            self.templates[k].sort(key=lambda t: -len(_PLACEHOLDER.sub("", t[0].pattern)))
-
-    @staticmethod
-    def _compile(parts: list[str], greedy: tuple[int, ...]) -> re.Pattern[str]:
-        """자리표시는 기본으로 가장 짧게 잡는다. greedy 에 든 순번의 자리표시는 가장 길게."""
-        pattern, n = "", 0
-        for i, part in enumerate(parts):
-            if i % 2 == 0:
-                pattern += re.escape(part)
+            if _PLACEHOLDER.search(ko):
+                self.templates.append(_Template(ko, en))
             else:
-                n += 1
-                pattern += f"(?P<p{part}_{n}>.+{'' if n in greedy else '?'})"
-        return re.compile(pattern, re.DOTALL)
+                self.exact[ko] = en
+        self._cache: dict[str, str] = {}
+
+    def translate(self, s: str) -> str:
+        hit = self._cache.get(s)
+        if hit is None:
+            hit = self._translate(s, 0)
+            if len(self._cache) > 20_000:
+                self._cache.clear()
+            self._cache[s] = hit
+        return hit
 
     def _fill(self, m: re.Match[str], en: str, depth: int) -> str:
         values: dict[str, str] = {}
         for name, val in m.groupdict().items():
             idx = name[1:].split("_")[0]
-            values.setdefault(idx, self.translate(val, depth + 1))
+            values.setdefault(idx, self._translate(val, depth + 1))
         return _PLACEHOLDER.sub(lambda mm: values.get(mm.group(1), mm.group(0)), en)
 
-    def translate(self, s: str, depth: int = 0) -> str:
+    def _translate(self, s: str, depth: int) -> str:
         if not s or not HANGUL.search(s) or depth > 4:
             return s
         hit = self.exact.get(s)
@@ -97,34 +139,43 @@ class Catalog:
         stripped = s.strip()
         if stripped != s and stripped in self.exact:
             return s.replace(stripped, self.exact[stripped])
-        for head in (s[:1], ""):
-            for rx, en, parts in self.templates.get(head, ()):
-                m = rx.fullmatch(s)
+        if len(s) <= MAX_TEMPLATE_INPUT:
+            cands = []
+            for t in self.templates:
+                a = t.anchor(s)
+                if a is not None:
+                    cands.append((a, -t.literal_len, t))
+            cands.sort(key=lambda c: (c[0], c[1]))
+            for _, _, t in cands:
+                m = t.rx.fullmatch(s)
                 if m is None:
                     continue
-                best = self._fill(m, en, depth)
-                # 자리표시 둘이 빈칸 하나로만 나뉘면("{1} {2}") 어디서 끊을지 모호하다: 한국어가 남으면 다른 끊기도 해 본다
-                n = (len(parts) - 1) // 2
-                if HANGUL.search(best) and 1 < n <= 6:
-                    for mask in range(1, 2 ** n):
-                        greedy = tuple(i + 1 for i in range(n) if mask >> i & 1)
-                        alt = self._compile(parts, greedy).fullmatch(s)
-                        if alt is None:
-                            continue
-                        cand = self._fill(alt, en, depth)
-                        if len(HANGUL.findall(cand)) < len(HANGUL.findall(best)):
-                            best = cand
-                            if not HANGUL.search(best):
-                                break
-                return best
+                return self._best_split(t, s, self._fill(m, t.en, depth), depth)
         # "A, B" 처럼 이어 붙인 목록
         for sep in (", ", " · ", "\n"):
             if sep in s:
                 parts = s.split(sep)
-                out = [self.translate(p, depth + 1) for p in parts]
+                out = [self._translate(p, depth + 1) for p in parts]
                 if out != parts:
                     return sep.join(out)
         return s
+
+    def _best_split(self, t: _Template, s: str, best: str, depth: int) -> str:
+        """자리표시 둘이 빈칸 하나로만 나뉘면("{1} {2}") 어디서 끊을지 모호하다: 한국어가 남으면 다른 끊기도 해 본다."""
+        n = (len(t.parts) - 1) // 2
+        if not HANGUL.search(best) or not 1 < n <= 6:
+            return best
+        for mask in range(1, 2 ** n):
+            greedy = tuple(i + 1 for i in range(n) if mask >> i & 1)
+            alt = _compile(t.parts, greedy).fullmatch(s)
+            if alt is None:
+                continue
+            cand = self._fill(alt, t.en, depth)
+            if len(HANGUL.findall(cand)) < len(HANGUL.findall(best)):
+                best = cand
+                if not HANGUL.search(best):
+                    break
+        return best
 
 
 _CATALOG_DIR = Path(__file__).parent / "en"

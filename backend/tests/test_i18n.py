@@ -288,3 +288,27 @@ def test_catalog_tries_other_splits_when_placeholders_touch():
                  "외형 높이(Z)": "outer height (Z)", "은신처": "Hideout", "{0} #{1}": "{0} #{1}"})
     assert c.translate("은신처 #1: 외형 높이(Z) 115.2 → 50 로 보정했습니다.") == \
         "Hideout #1: adjusted outer height (Z) from 115.2 to 50."
+
+
+def test_outer_template_wins_over_reason_template_inside(client_factory=None):
+    """자동 보정 문구("{0}: {1} {2} → {3} 로 보정했습니다. {4}")의 {4} 에 든 까닭 문장 틀이 바깥 문장을 삼키지 않는다."""
+    from app.i18n import catalog
+
+    c = catalog()
+    s = ("모래목욕통 #1: 외형 가로(X) 183.6 → 206 로 보정했습니다. 드워프 (정글리안·캠벨·로보로브스키)이(가) 뒹굴 수 있도록 "
+         "안쪽 가로를 200mm 이상, 출입 홈을 50mm 이상으로 맞췄습니다")
+    out = c.translate(s)
+    assert out.startswith("Sand bath #1: adjusted outer width (X) from 183.6 to 206."), out
+    assert not HANGUL.search(out), out
+
+
+def test_long_free_text_is_fast():
+    import time
+
+    from app.i18n import catalog
+
+    c = catalog()
+    for s in ("가: " * 1000, "은신처 #1 는 출입구가 두 개라서, 터널 #2 와 이어져요. " * 30):
+        t0 = time.perf_counter()
+        c.translate(s)
+        assert time.perf_counter() - t0 < 0.5

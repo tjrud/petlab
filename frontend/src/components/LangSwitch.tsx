@@ -1,6 +1,7 @@
 "use client";
 
-import { useRouter } from "@/i18n/client";
+// 언어를 바꾸는 이동이라 언어 접두어를 다시 붙이는 @/i18n/client 의 router 가 아니라 next 의 router 를 쓴다
+import { useRouter } from "next/navigation";
 
 import { LANG_COOKIE, type Lang, stripLang, withLang } from "@/i18n/config";
 import { useLang, useT } from "@/i18n/client";
