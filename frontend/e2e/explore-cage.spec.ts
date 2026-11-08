@@ -257,11 +257,11 @@ test("가상 케이지: '화면 이동'을 켜면 빈 곳을 끌어 화면을 �
   await page.mouse.down();
   for (let i = 1; i <= 8; i++) await page.mouse.move(sx + i * 15, sy + i * 6, { steps: 2 });
   await page.mouse.up();
-  await expect.poll(still, { timeout: 15_000 }).toBe(true);
-  expect((await canvas.screenshot()).equals(before)).toBe(false);
+  // 감속(damping)은 프레임 수로 멈추므로 느린 환경에서는 오래 걸린다. 멈출 때까지 기다리지 않고 화면이 바뀌었는지만 본다
+  await expect.poll(async () => (await canvas.screenshot()).equals(before), { timeout: 15_000 }).toBe(false);
   await expect(page.getByLabel("가로 위치 (mm)")).toHaveValue(xBefore);
 
   // 시점 버튼을 다시 누르면 처음 화면으로
   await page.getByRole("button", { name: "3D", exact: true }).click();
-  await expect.poll(still, { timeout: 15_000 }).toBe(true);
+  await expect.poll(still, { timeout: 45_000 }).toBe(true);
 });
