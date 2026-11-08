@@ -10,6 +10,7 @@ import copy
 import json
 import logging
 import os
+import shutil
 import threading
 import uuid
 from collections.abc import Callable, Iterable
@@ -18,13 +19,23 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from app.errors import InvalidInputError, NotFoundError
 from app.geometry.fingerprint import file_digest
 from app.llm.base import HabitatInfo, Interpreter, InterpretRequest, InterpretResult
-from app.models import Design, DesignVersion, Habitat, Pet, Post, User
+from app.models import (
+    Design,
+    DesignVersion,
+    Habitat,
+    MarketEvent,
+    MarketItem,
+    Pet,
+    Post,
+    User,
+    WaitlistEntry,
+)
 from app.rules.loader import RuleBook
 from app.schemas import (
     ID_RE,
@@ -41,6 +52,8 @@ from app.schemas import (
     VersionSummary,
 )
 from app.services import usage
+from app.services.market_view import item_models, stored_blobs
+from app.storage import Stored
 
 if TYPE_CHECKING:  # 형상 커널(build123d/OCP)·trimesh 는 설계 생성·메시·내려받기 요청에서만 불러온다
     from app.domain import BuiltItem, Cage
@@ -383,6 +396,10 @@ class DesignService:
         habitat = design.habitat
         self.reserve_quota(db, user, ip_key)  # 기록 후 커밋 (create_design 과 같은 이유)
         generated = self._generate(habitat, prompt, previous=previous)
+        # 해석하는 동안(최대 1분) 다른 창에서 설계를 지웠으면 새 버전을 붙이지 않는다.
+        # 행 잠금(Postgres)으로 저장이 끝날 때까지 삭제가 끼어들지 못하게 한다 (SQLite 는 저장 직후 다시 확인한다)
+        if db.scalar(select(Design.id).where(Design.id == design.id).with_for_update()) is None:
+            raise NotFoundError("설계가 삭제되었어요.")
         next_no = (db.scalar(select(func.max(DesignVersion.version)).where(DesignVersion.design_id == design.id)) or 0) + 1
         row = self._save_version(db, design, generated, next_no, user)
         db.commit()
@@ -454,6 +471,10 @@ class DesignService:
         )
         db.add(row)
         db.flush()
+        # 쓰기를 시작한 뒤(SQLite 는 이때부터 다른 쓰기를 막는다) 설계가 아직 있는지 확인한다: 그사이 지워졌으면
+        # 버전을 붙이지 않는다 (요청이 끝나면 세션이 되돌린다). 캐시도 쓰지 않는다
+        if db.scalar(select(Design.id).where(Design.id == design.id)) is None:
+            raise NotFoundError("설계가 삭제되었어요.")
         # 메시 캐시 저장 (뷰어용 배치 메시 + 출력 자세 메시)
         _write_cache(self._version_dir(design.id, version_no), files)
         return row
@@ -492,6 +513,41 @@ class DesignService:
         if not _can_edit(d, user):
             raise NotFoundError("설계를 찾을 수 없습니다.")
         return d
+
+    def delete_design(self, db: Session, design_id: str, user: User) -> list[Stored]:
+        """설계와 모든 버전을 지운다 (소유자만: 관리자도 회원의 설계는 지우지 못한다, _can_edit).
+        저장소(Blob)에서 지워야 할 파일을 돌려준다 (커밋한 뒤 호출하는 쪽이 지운다).
+
+        커뮤니티 글·탐색 작품·제작 신청에 첨부되어 있으면 연결만 끊는다 (글·작품은 남는다). 다만 이 설계만 담은
+        탐색 작품(3D 파일·배치 예시 없이 대표 이미지만 있을 수 있음)은 빈 작품이 되므로 함께 지운다
+        (소개 글은 작품을 지울 때처럼 남긴다).
+        사육 환경 행은 다른 설계나 설계 화면이 다시 쓸 수 있어 남긴다. 사용량 기록도 남는다
+        (지우고 다시 만들어 하루 상한을 피하지 못하게)."""
+        d = self.get_editable_design(db, design_id, user)
+        did = d.id
+        # 같은 설계에 대한 수정 요청과 차례를 정한다 (Postgres 행 잠금. revise_design 도 저장 전에 같은 잠금을 잡는다)
+        db.execute(select(Design.id).where(Design.id == did).with_for_update())
+        db.execute(update(Post).where(Post.design_id == did).values(design_id=None, design_version=None))
+        stored: list[Stored] = []
+        for item in db.scalars(select(MarketItem).where(MarketItem.design_id == did)):
+            if item_models(item) or item.layout:
+                item.design_id = item.design_version = None
+                continue
+            for f in list(item.files):  # 대표 이미지
+                stored += stored_blobs(f)
+                db.delete(f)
+            db.execute(delete(MarketEvent).where(MarketEvent.item_id == item.id))
+            db.delete(item)
+        db.execute(update(WaitlistEntry).where(WaitlistEntry.design_id == did).values(design_id=None, version=None))
+        db.flush()  # 위의 작품 변경을 설계 행을 지우기 전에 DB 에 반영한다 (아래 delete 문은 자동으로 flush 하지 않는다)
+        # 버전은 잠금을 잡은 뒤에 지운다 (잠금을 기다리는 사이 커밋된 새 버전까지)
+        db.execute(delete(DesignVersion).where(DesignVersion.design_id == did))
+        db.expunge(d)
+        db.execute(delete(Design).where(Design.id == did))
+        db.commit()
+        # 메시 캐시는 DB 에서 지운 뒤에 지운다 (캐시는 다시 만들 수 있어 지우다 실패해도 DB 와 어긋나지 않는다)
+        shutil.rmtree(self.mesh_dir / did, ignore_errors=True)
+        return stored
 
     def list_designs(self, db: Session, user: User, page: int, page_size: int) -> DesignListOut:
         """내 설계 목록 (최근 수정순). 관리자는 소유자가 없는 옛 설계도 함께 본다."""

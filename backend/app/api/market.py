@@ -55,7 +55,7 @@ from app.schemas import (
     UploadStartOut,
 )
 from app.services import recommend, usage
-from app.services.market_view import file_out, item_formats, item_image, item_models
+from app.services.market_view import file_out, item_formats, item_image, item_models, stored_blobs
 from app.services.design_service import DesignService
 from app.storage import LocalStorage, Storage, StorageError, Stored
 
@@ -293,14 +293,6 @@ def _store_preview(storage: Storage, f: MarketFile, blob: bytes | None) -> bool:
     return True
 
 
-def _stored(f: MarketFile) -> list[Stored]:
-    """파일을 지울 때 저장소에서 함께 지울 것 (원본과 3D 미리보기 메시)"""
-    out = [Stored(key=f.storage_key, url=f.url)]
-    if f.preview_size:
-        out.append(Stored(key=preview_key(f.id), url=f.preview_url))
-    return out
-
-
 # ── 작품 ──
 
 @router.get("/items", response_model=MarketListOut, summary="작품 목록 (최신순, 누구나)")
@@ -475,7 +467,7 @@ def delete_item(item_id: str, request: Request, db: Session = Depends(get_db), u
     item = _get_item(db, item_id)
     if not (user.id == item.owner_id or user.is_admin):
         raise ForbiddenError("내가 올린 작품만 지울 수 있어요.")
-    stored = [s for f in item.files for s in _stored(f)]
+    stored = [s for f in item.files for s in stored_blobs(f)]
     for f in list(item.files):
         db.delete(f)
     _unshare_layout_files(db, item)
@@ -566,7 +558,7 @@ def delete_file(file_id: str, request: Request, db: Session = Depends(get_db),
     if f.item_id is not None or f.shared:
         raise ConflictError("탐색에 올린 작품이나 공유한 배치에 들어 있는 파일이에요. 그 작품을 먼저 지워 주세요.",
                             code="file_in_use")
-    stored = _stored(f)
+    stored = stored_blobs(f)
     db.delete(f)
     db.commit()
     storage = request.app.state.market_storage
