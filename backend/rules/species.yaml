@@ -31,6 +31,7 @@ species:
         # 터널 최소 내경
         # [근거] TVT-Z: 출입구·통로(Röhren) 최소 5cm 폭
         tunnel_min_inner_diameter_mm: 50
+        tunnel_max_length_mm: 100   # PLACEHOLDER
         # 끼임 틈새 한계: safe_max < 틈 < passable_min 이면 끼임 위험으로 판정
         gap_trap:
           safe_max_mm: 4        # [임시] 발가락·발이 들어가지 않는 틈 (환기구 최대 지름도 이 값)
@@ -65,6 +66,7 @@ species:
         # [근거] TVT-G: 집·은신처·통로의 출입구는 최소 7cm 폭 (볼주머니가 찬 상태로도 지나가도록)
         entrance_min_diameter_mm: 70
         tunnel_min_inner_diameter_mm: 70    # [근거] TVT-G 같은 항목
+        tunnel_max_length_mm: 260   # PLACEHOLDER
         gap_trap:
           safe_max_mm: 5                    # [임시]
           passable_min_mm: 70               # [근거] 출입구 최소 폭(TVT-G 7cm)과 같게 둔다

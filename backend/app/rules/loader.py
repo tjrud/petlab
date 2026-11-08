@@ -48,6 +48,8 @@ class SizeRules(_Strict):
     display_name: str
     entrance_min_diameter_mm: PositiveMM
     tunnel_min_inner_diameter_mm: PositiveMM
+    # 터널(플라스틱 튜브) 최대 길이: 몸길이의 2배 이하 (DTSchB)
+    tunnel_max_length_mm: PositiveMM
     gap_trap: GapTrapRule
     min_wall_thickness_mm: PositiveMM
     max_ramp_angle_deg: Annotated[float, Field(gt=0, lt=90)]
@@ -67,6 +69,13 @@ class SizeRules(_Strict):
         long_side, short_side = self.enclosure_min_floor_mm
         if long_side < short_side:
             raise ValueError("enclosure_min_floor_mm 는 [긴 변, 짧은 변] 순서여야 합니다")
+        return self
+
+    @model_validator(mode="after")
+    def _check_tunnel_length(self) -> "SizeRules":
+        # 최소 내경보다 짧은 터널은 터널이 아니다 (값 오타를 기동 때 잡는다)
+        if self.tunnel_max_length_mm < self.tunnel_min_inner_diameter_mm:
+            raise ValueError("tunnel_max_length_mm 는 tunnel_min_inner_diameter_mm 보다 짧을 수 없습니다")
         return self
 
 

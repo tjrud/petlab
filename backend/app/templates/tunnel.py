@@ -30,7 +30,10 @@ _CUT = 1.0
 
 
 class TunnelParams(TemplateParams):
-    length_mm: float = Field(200, ge=80, le=600, description="터널 중심선 길이 mm. 일반 프린터(220mm)에 들어가려면 200mm 이하 권장")
+    length_mm: float = Field(
+        200, ge=80, le=600,
+        description="터널 중심선 길이 mm. 종별 최대 길이(몸길이의 2배) 이하. 일반 프린터(220mm)에 들어가려면 200mm 이하 권장",
+    )
     inner_diameter_mm: float = Field(
         60, ge=35, le=130, description="터널 안쪽 폭(=내경) mm. 종별 최소 내경 이상"
     )
@@ -100,7 +103,8 @@ class TunnelTemplate(Template):
         if ctx is None:
             return TunnelParams()
         return TunnelParams(
-            length_mm=200,
+            # 기본 200mm. 종별 최대 길이(몸길이 2배)가 더 짧으면 그 값
+            length_mm=min(200.0, ctx.size.tunnel_max_length_mm),
             inner_diameter_mm=float(math.ceil(ctx.size.tunnel_min_inner_diameter_mm + 5)),
             bend_angle_deg=0,
             wall_thickness_mm=ctx.default_wall_mm,
@@ -116,8 +120,15 @@ class TunnelTemplate(Template):
                 reason_ko=f"{s.display_name} 터널 내경은 최소 {s.tunnel_min_inner_diameter_mm:g}mm 이상이어야 합니다",
             ),
             ParamConstraint(
-                "length_mm", min=1.5 * d,
+                # 모양 기준(내경의 1.5배)보다 종별 최대 길이(동물 복지 기준)를 앞세운다: 둘이 부딪히면 최대 길이까지만 요구한다
+                "length_mm", min=min(1.5 * d, s.tunnel_max_length_mm),
                 reason_ko="터널 길이는 내경의 1.5배 이상이어야 합니다",
+            ),
+            ParamConstraint(
+                # [근거] DTSchB: 플라스틱 튜브는 몸길이의 2배 이하일 때만 받아들일 수 있다 (환기·사용 설명 조건과 함께)
+                "length_mm", max=s.tunnel_max_length_mm, source="species",
+                reason_ko=(f"{s.display_name} 터널은 몸길이의 2배인 {s.tunnel_max_length_mm:g}mm 이하여야 합니다 "
+                           "(독일 동물보호연맹 기준)"),
             ),
             ParamConstraint(
                 # 중심선 굽힘 반경 ≥ 내경 → 안쪽 벽이 겹치지 않고 몸이 돌아 나갈 수 있음

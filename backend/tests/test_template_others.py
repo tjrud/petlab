@@ -86,8 +86,45 @@ def test_tunnel_constraints(rules):
     c = ctx(rules)
     bad = TunnelParams(length_mm=100, inner_diameter_mm=50, bend_angle_deg=180, wall_thickness_mm=1.5)
     assert {"inner_diameter_mm", "wall_thickness_mm", "length_mm", "bend_angle_deg"} <= violated(TUNNEL, bad, c)
-    good = TunnelParams(length_mm=300, inner_diameter_mm=75, bend_angle_deg=90, wall_thickness_mm=3)
+    good = TunnelParams(length_mm=200, inner_diameter_mm=75, bend_angle_deg=90, wall_thickness_mm=3)
     assert violated(TUNNEL, good, c) == set()
+
+
+@pytest.mark.parametrize("size", ["dwarf", "syrian"])
+def test_tunnel_max_length_rule(rules, size):
+    """종별 최대 길이(몸길이 2배, DTSchB): 기본값은 그 안이고, 넘으면 위반·보정, 저장본은 범위 밖으로 알린다."""
+    from app.validation.autofix import clamp_params, constraint_violations
+
+    c = ctx(rules, size)
+    max_len = c.size.tunnel_max_length_mm
+    d = TUNNEL.default_params(c)
+    assert d.length_mm <= max_len
+    assert violated(TUNNEL, d, c) == set()
+
+    too_long = d.model_copy(update={"length_mm": max_len + 50})
+    assert "length_mm" in violated(TUNNEL, too_long, c)
+    fixed, issues = clamp_params(TUNNEL, too_long, c)
+    assert fixed.length_mm == pytest.approx(max_len)
+    assert any(i.code == "param_adjusted" and i.details["field"] == "length_mm" and "2배" in i.message_ko for i in issues)
+    assert not [i for i in issues if i.code == "param_conflict"]
+
+    # 저장된 버전은 고치지 않고 '지금 기준 범위 밖'으로만 알린다
+    stored = constraint_violations(TUNNEL, too_long, c)
+    assert [i.details["field"] for i in stored] == ["length_mm"]
+    assert stored[0].details["max"] == pytest.approx(max_len)
+
+
+@pytest.mark.parametrize("size", ["dwarf", "syrian"])
+def test_tunnel_wide_and_short_has_no_conflict(rules, size):
+    """아주 넓은 터널이라도 '내경 1.5배 이상' 모양 기준이 최대 길이를 넘어서 요구하지 않는다 (복지 기준이 우선)."""
+    from app.validation.autofix import clamp_params
+
+    c = ctx(rules, size)
+    p = TunnelParams(length_mm=600, inner_diameter_mm=130, bend_angle_deg=0, wall_thickness_mm=c.default_wall_mm)
+    fixed, issues = clamp_params(TUNNEL, p, c)
+    assert not [i for i in issues if i.code == "param_conflict"]
+    assert fixed.length_mm <= c.size.tunnel_max_length_mm + 1e-6
+    assert violated(TUNNEL, fixed, c) == set()
 
 
 # ── 램프 / 계단 ────────────────────────────────────────────

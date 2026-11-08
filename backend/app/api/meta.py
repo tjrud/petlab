@@ -53,6 +53,7 @@ def species(request: Request) -> dict:
                             "gap_passable_min_mm": s.gap_trap.passable_min_mm,
                             "entrance_min_diameter_mm": s.entrance_min_diameter_mm,
                             "tunnel_min_inner_diameter_mm": s.tunnel_min_inner_diameter_mm,
+                            "tunnel_max_length_mm": s.tunnel_max_length_mm,
                             "max_climb_height_mm": s.max_climb_height_mm,
                             "max_step_height_mm": s.max_step_height_mm,
                             # 혼자 키울 때 / 여러 마리를 함께 키울 때 은신처 출입구 최소 개수

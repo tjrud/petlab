@@ -262,6 +262,16 @@ export function checkLayout(cage: Cage, items: LayoutItem[], rules: LayoutRules 
         );
       }
     }
+    if (asset.tunnelLengthMm !== undefined && rules.tunnel_max_length_mm !== undefined) {
+      if (asset.tunnelLengthMm > rules.tunnel_max_length_mm + TOL) {
+        add(
+          "warning",
+          `tunnellen:${item.id}`,
+          `${asset.name} 길이 ${fmt(asset.tunnelLengthMm)}가 이 아이 몸길이의 2배(${fmt(rules.tunnel_max_length_mm)})보다 길어요. 플라스틱 터널은 짧게 쓰는 게 좋아요.`,
+          item.id,
+        );
+      }
+    }
     if (asset.climbHeightMm !== undefined) {
       if (asset.climbHeightMm > rules.max_climb_height_mm + TOL) {
         add(

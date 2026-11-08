@@ -58,6 +58,8 @@ export type LayoutRules = {
   gap_passable_min_mm: number;
   entrance_min_diameter_mm: number;
   tunnel_min_inner_diameter_mm: number;
+  /** 터널 최대 길이 mm (몸길이의 2배, 독일 동물보호연맹 기준). 옛 서버 응답에는 없을 수 있어요 */
+  tunnel_max_length_mm?: number;
   max_climb_height_mm: number;
   max_step_height_mm: number;
   /** 은신처 출입구 최소 개수 (혼자 키울 때) */

@@ -93,6 +93,21 @@ def test_sourced_values(rules):
     assert rules.size_rules("hamster", "syrian").entrance_min_diameter_mm == 70
 
 
+def test_tunnel_max_shorter_than_min_diameter_rejected(rules_copy):
+    _edit_species(
+        rules_copy,
+        lambda d: d["species"]["hamster"]["sizes"]["dwarf"].update(tunnel_max_length_mm=40),
+    )
+    with pytest.raises(RuleFileError, match="tunnel_max_length_mm"):
+        load_rules(rules_copy)
+
+
+def test_missing_tunnel_max_rejected(rules_copy):
+    _edit_species(rules_copy, lambda d: d["species"]["hamster"]["sizes"]["syrian"].pop("tunnel_max_length_mm"))
+    with pytest.raises(RuleFileError, match="tunnel_max_length_mm"):
+        load_rules(rules_copy)
+
+
 def test_reversed_enclosure_floor_rejected(rules_copy):
     _edit_species(
         rules_copy,
