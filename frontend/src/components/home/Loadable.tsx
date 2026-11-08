@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { Link } from "@/i18n/client";
 import { useEffect, useState } from "react";
 
 import { ApiError, errorText } from "@/lib/api";

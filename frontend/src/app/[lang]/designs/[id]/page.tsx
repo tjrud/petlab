@@ -9,7 +9,7 @@ function parseVersion(raw: string | string[] | undefined): number | undefined {
   return Number.isInteger(n) && n >= 1 && n <= 2 ** 31 - 1 ? n : undefined;
 }
 
-export default function DesignPage({ params, searchParams }: PageProps<"/designs/[id]">) {
+export default function DesignPage({ params, searchParams }: PageProps<"/[lang]/designs/[id]">) {
   return (
     <>
       <Header />

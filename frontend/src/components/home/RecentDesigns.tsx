@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { Link } from "@/i18n/client";
 
 import { LoadError, Skeleton, useLoad } from "@/components/home/Loadable";
 import { api } from "@/lib/api";

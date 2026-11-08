@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import { Link } from "@/i18n/client";
 import { Suspense } from "react";
 
 import NewPostForm, { NewPostPlaceholder } from "@/components/community/NewPostForm";

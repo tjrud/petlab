@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { Link } from "@/i18n/client";
 
 import { useAuth } from "@/components/AuthProvider";
 import { loginHref, NEW_POST_PATH } from "@/components/community/common";

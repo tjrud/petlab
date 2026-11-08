@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Link } from "@/i18n/client";
 
 import type { SharedDesign } from "@/lib/types";
 import { ui } from "@/lib/ui";

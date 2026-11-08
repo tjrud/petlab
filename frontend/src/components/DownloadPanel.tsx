@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { Link } from "@/i18n/client";
 import { useState, type MouseEvent } from "react";
 
 import { api, errorFrom } from "@/lib/api";

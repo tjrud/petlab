@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy.exc import DataError
 
 from app.api import auth as auth_api
@@ -23,6 +24,7 @@ from app.captcha import CaptchaVerifier, turnstile_verifier
 from app.config import Settings, get_settings
 from app.db import init_db, is_ephemeral_database, make_engine, make_session_factory
 from app.errors import AppError
+from app.i18n import LANG_COOKIE, LANG_HEADER, parse_lang, reset_lang, set_lang, translate_json
 from app.llm.base import Interpreter, LLMConfigError, LLMError
 from app.llm.interpreter import make_interpreter
 from app.mailer import Mailer, make_mailer
@@ -155,6 +157,31 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
             response.headers.setdefault("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; sandbox")
         response.headers.setdefault("Referrer-Policy", "no-referrer")
         return response
+
+    @app.middleware("http")
+    async def _language(request: Request, call_next):
+        # 요청 언어: X-Lang 헤더(프론트엔드 API 호출), 없으면 lang 쿠키(내려받기 링크 등). 영어면 응답 JSON 의
+        # 서버 문구(…_ko 열쇠 등)를 카탈로그로 바꾼다 (app/i18n)
+        lang = parse_lang(request.headers.get(LANG_HEADER), request.cookies.get(LANG_COOKIE))
+        token = set_lang(lang)
+        try:
+            response = await call_next(request)
+        finally:
+            reset_lang(token)
+        response.headers.add_vary_header("X-Lang")
+        if lang == "ko" or not response.headers.get("content-type", "").startswith("application/json"):
+            return response
+        body = b"".join([chunk async for chunk in response.body_iterator])
+        try:
+            data = json.loads(body)
+        except ValueError:
+            new = body
+        else:
+            new = json.dumps(translate_json(data), ensure_ascii=False, separators=(",", ":")).encode()
+        out = Response(content=new, status_code=response.status_code)
+        out.raw_headers = [(k, v) for k, v in response.raw_headers if k.lower() != b"content-length"]
+        out.raw_headers.append((b"content-length", str(len(new)).encode()))
+        return out
 
     @app.exception_handler(RequestValidationError)
     async def _validation_error(_: Request, e: RequestValidationError):

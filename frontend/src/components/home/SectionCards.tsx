@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Link } from "@/i18n/client";
 
 import { IconArrowRight, IconCage, IconChat, IconFolder, IconPaw, IconPencil } from "@/components/home/icons";
 

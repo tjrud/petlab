@@ -1,5 +1,5 @@
 import Image from "next/image";
-import Link from "next/link";
+import { Link } from "@/i18n/client";
 
 import { IconArrowRight, IconCheck, IconSearch } from "@/components/home/icons";
 import { TEMPLATE_COLORS } from "@/lib/templates";

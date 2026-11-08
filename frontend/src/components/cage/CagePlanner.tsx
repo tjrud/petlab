@@ -5,8 +5,9 @@
 // 로그인하지 않아도 쓸 수 있고, 작업 중인 배치는 이 브라우저에 임시로 남겨 둬요 (새로 고침·로그인 후 이어서).
 
 import dynamic from "next/dynamic";
-import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { Link } from "@/i18n/client";
+import { useSearchParams } from "next/navigation";
+import { useRouter } from "@/i18n/client";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";

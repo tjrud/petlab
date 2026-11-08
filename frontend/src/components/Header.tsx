@@ -1,8 +1,9 @@
 import Image from "next/image";
-import Link from "next/link";
+import { Link } from "@/i18n/client";
 import { Suspense } from "react";
 
 import AuthMenu from "@/components/AuthMenu";
+import LangSwitch from "@/components/LangSwitch";
 import { EmailVerifyBanner } from "@/components/EmailVerification";
 import NavLinks from "@/components/NavLinks";
 
@@ -34,6 +35,7 @@ export default function Header() {
               {/* 태블릿 너비(768~1023px)에서는 자리가 모자라 빼요. 로그인하면 닉네임이 내 정보로 가는 링크예요 */}
               <NavLinks part="me" className="hidden lg:block" />
             </Suspense>
+            <LangSwitch />
             <AuthMenu />
           </div>
         </div>

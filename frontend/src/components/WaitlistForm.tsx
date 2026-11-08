@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { Link } from "@/i18n/client";
 import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 

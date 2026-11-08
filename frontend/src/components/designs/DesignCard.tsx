@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Link } from "@/i18n/client";
 
 import DeleteDesignButton from "@/components/designs/DeleteDesignButton";
 import type { DesignListItem } from "@/lib/types";

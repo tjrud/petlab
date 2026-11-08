@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { Link } from "@/i18n/client";
 import { useCallback, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";

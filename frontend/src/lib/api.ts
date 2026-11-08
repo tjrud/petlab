@@ -26,6 +26,7 @@ import type {
   SpeciesResponse,
   VerifyEmailResult,
 } from "./types";
+import { DEFAULT_LANG, isLang, type Lang } from "@/i18n/config";
 
 export const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, "");
 
@@ -81,13 +82,20 @@ export async function errorFrom(res: Response): Promise<ApiError> {
   return new ApiError(res.status, FALLBACK_MESSAGE);
 }
 
+/** 지금 화면의 언어 (<html lang>). 서버가 오류·검증 문구를 이 언어로 답한다 */
+export function currentLang(): Lang {
+  if (typeof document === "undefined") return DEFAULT_LANG;
+  const l = document.documentElement.lang;
+  return isLang(l) ? l : DEFAULT_LANG;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`${API_BASE}${path}`, {
       ...init,
       credentials: "include", // 관리자 세션 쿠키 (로컬 개발처럼 출처가 달라도 전송)
-      headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+      headers: { "Content-Type": "application/json", "X-Lang": currentLang(), ...(init?.headers ?? {}) },
     });
   } catch {
     throw new ApiError(0, FALLBACK_MESSAGE);

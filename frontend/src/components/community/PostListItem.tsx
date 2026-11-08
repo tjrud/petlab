@@ -1,5 +1,5 @@
 import Image from "next/image";
-import Link from "next/link";
+import { Link } from "@/i18n/client";
 
 import { AuthorName, postHref } from "@/components/community/common";
 import type { PostSummary } from "@/lib/types";

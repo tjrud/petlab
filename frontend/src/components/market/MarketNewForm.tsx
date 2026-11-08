@@ -1,7 +1,8 @@
 "use client";
 /* eslint-disable @next/next/no-img-element -- 올린 미리보기 이미지는 Blob 공개 주소(외부)에서 바로 받는다 */
 
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
+import { useRouter } from "@/i18n/client";
 import { useEffect, useId, useRef, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";

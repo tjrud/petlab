@@ -1,5 +1,5 @@
 /* eslint-disable @next/next/no-img-element -- 미리보기는 Blob 공개 주소(외부)에서 바로 받는다 */
-import Link from "next/link";
+import { Link } from "@/i18n/client";
 
 import { FormatChips, imageSrc, marketHref, NoPreview } from "@/components/market/common";
 import type { MarketItemBrief } from "@/lib/types";

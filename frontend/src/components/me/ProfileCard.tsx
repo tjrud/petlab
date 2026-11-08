@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { Link } from "@/i18n/client";
 
 import { IconPaw } from "@/components/home/icons";
 import type { Me, User } from "@/lib/types";

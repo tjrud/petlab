@@ -43,6 +43,8 @@ const nextConfig: NextConfig = {
     return [
       { source: "/market", destination: "/explore", permanent: true },
       { source: "/market/:path*", destination: "/explore/:path*", permanent: true },
+      { source: "/en/market", destination: "/en/explore", permanent: true },
+      { source: "/en/market/:path*", destination: "/en/explore/:path*", permanent: true },
     ];
   },
   /* config options here */

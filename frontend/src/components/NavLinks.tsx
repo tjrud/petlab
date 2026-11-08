@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { Link } from "@/i18n/client";
+import { usePathname } from "@/i18n/client";
 import { useEffect, useRef, useState } from "react";
 
 export const NAV = [

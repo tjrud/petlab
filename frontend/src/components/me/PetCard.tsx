@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { Link } from "@/i18n/client";
 import { useId, useState } from "react";
 
 import { IconPaw } from "@/components/home/icons";

@@ -1,7 +1,8 @@
 "use client";
 
-import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { Link } from "@/i18n/client";
+import { useSearchParams } from "next/navigation";
+import { useRouter } from "@/i18n/client";
 import { useEffect, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";

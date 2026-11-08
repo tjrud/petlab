@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { Link } from "@/i18n/client";
 import { useState } from "react";
 
 import { useAuth, useLogout } from "@/components/AuthProvider";

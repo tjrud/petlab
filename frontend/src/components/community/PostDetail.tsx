@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { Link } from "@/i18n/client";
+import { useRouter } from "@/i18n/client";
 import { useEffect, useState } from "react";
 
 import CommentSection from "@/components/community/CommentSection";

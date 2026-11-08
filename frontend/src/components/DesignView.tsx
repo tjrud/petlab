@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/i18n/client";
 import { useEffect, useState } from "react";
 
 import DesignLoadError from "@/components/designs/DesignLoadError";

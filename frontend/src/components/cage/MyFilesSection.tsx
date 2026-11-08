@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { Link } from "@/i18n/client";
 import { useRef, useState } from "react";
 
 import { getAsset, fileAssetKey, type CageAsset } from "@/lib/cageAssets";
