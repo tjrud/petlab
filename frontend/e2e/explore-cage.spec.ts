@@ -150,3 +150,53 @@ test("탐색: 이미지 없이 올린 작품은 올린 사람이 3D 모습으로
   await expect(page.getByRole("img", { name: "이미지 없는 STL 미리보기" })).toBeVisible({ timeout: 30_000 });
   await expect(page.getByRole("button", { name: "이 3D 모습으로 대표 이미지 만들기" })).toHaveCount(0);
 });
+
+test("탐색 3D 미리보기: 처음 몇 초만 천천히 돌다 멈추고, 만지면 바로 멈춘다. 움직임 줄이기 설정이면 돌지 않는다", async ({ page, browser }) => {
+  await adminLogin(page, "/explore/new");
+  await page.getByLabel("완성 파일 고르기").setInputFiles({ name: "spin.stl", mimeType: "model/stl", buffer: tetraStl(80) });
+  await expect(page.getByRole("img", { name: "미리보기 이미지" })).toBeVisible({ timeout: 30_000 });
+  await page.getByLabel("제목", { exact: true }).fill("회전 확인");
+  await page.getByLabel("소개", { exact: true }).fill("자동 회전 확인용이에요.");
+  await page.getByRole("button", { name: "탐색에 올리기" }).click();
+  await page.waitForURL(/\/explore\/[0-9a-f]{32}$/);
+  const url = page.url();
+  const canvas = page.getByLabel("spin.stl 3D 미리보기");
+  const viewer = page.locator("[data-rotating]");
+  const ready = page.getByText(/끌어서 돌려 볼 수 있어요/);
+  /** 두 장을 잇달아 찍어 같은지 (그리는 속도가 느린 환경에서도 '멈췄는지'만 본다) */
+  const still = async () => {
+    const a = await canvas.screenshot();
+    await page.waitForTimeout(600);
+    return (await canvas.screenshot()).equals(a);
+  };
+
+  // 1) 처음에는 실제로 돌고, 3~4초 뒤 멈춘다
+  await expect(ready).toBeVisible({ timeout: 30_000 });
+  await expect(viewer).toHaveAttribute("data-rotating", "true");
+  expect(await still()).toBe(false);
+  await expect(viewer).toHaveAttribute("data-rotating", "false", { timeout: 10_000 });
+  await expect.poll(still, { timeout: 20_000 }).toBe(true);
+
+  // 2) 도는 중에 끌면 그 자리에서 멈춘다
+  await page.goto(url);
+  await expect(ready).toBeVisible({ timeout: 30_000 });
+  await expect(viewer).toHaveAttribute("data-rotating", "true");
+  await canvas.scrollIntoViewIfNeeded();
+  const box = (await canvas.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2, { steps: 4 });
+  await page.mouse.up();
+  await expect(viewer).toHaveAttribute("data-rotating", "false", { timeout: 1_000 });
+  await expect(page.getByText(/끌어서 돌리고, 확대·축소할 수 있어요/)).toBeVisible();
+  await expect.poll(still, { timeout: 20_000 }).toBe(true);
+
+  // 3) 움직임 줄이기 설정이면 처음부터 돌지 않는다
+  const reduced = await browser.newContext({ reducedMotion: "reduce" });
+  const r = await reduced.newPage();
+  await r.goto(url);
+  await expect(r.getByText(/끌어서 돌려 볼 수 있어요/)).toBeVisible({ timeout: 30_000 });
+  await r.waitForTimeout(500);
+  await expect(r.locator("[data-rotating]")).toHaveAttribute("data-rotating", "false");
+  await reduced.close();
+});
