@@ -106,7 +106,7 @@ export default function SceneOverlay({
           type="button"
           aria-pressed={panMode}
           onClick={() => onPanMode(!panMode)}
-          title="켜면 빈 곳을 끌어 화면을 옮겨요. 끄면 돌려요. 오른쪽 버튼이나 Shift를 누르고 끌어도 옮겨져요"
+          title="켜면 빈 곳을 끌어 화면을 옮겨요(Shift를 누르고 끌면 돌려요). 끄면 돌리고, 오른쪽 버튼이나 Shift를 누르고 끌면 옮겨요"
           className={`hidden rounded-lg border px-2.5 py-1.5 text-xs shadow-sm sm:block ${
             panMode ? "border-amber-400 bg-amber-100 font-semibold text-amber-900" : "border-stone-200 bg-white/90 text-stone-600 hover:bg-stone-50"
           }`}
@@ -182,7 +182,9 @@ export default function SceneOverlay({
         </p>
         <p className="hidden sm:block">구조물 끌기: 옮기기 · R 90° 회전 · Q/E 15° · 방향키 1cm(Shift 1mm) · Del 삭제</p>
         <p className="hidden sm:block">
-          빈 곳 끌기: {panMode ? "화면 이동" : "돌려 보기"} · 오른쪽 버튼·Shift 끌기: 화면 이동 · 휠: 확대
+          {panMode
+            ? "빈 곳 끌기: 화면 이동 · Shift 끌기: 돌려 보기 · 휠: 확대"
+            : "빈 곳 끌기: 돌려 보기 · 오른쪽 버튼·Shift 끌기: 화면 이동 · 휠: 확대"}
         </p>
         <p className="sm:hidden">구조물을 끌어서 옮기고, 두 손가락으로 화면을 옮기거나 확대해요</p>
       </div>

@@ -57,8 +57,9 @@ function PanLimit({ cage }: { cage: Cage }) {
     const controls = getState().controls as unknown as (Controls & THREE.EventDispatcher<{ change: object }>) | null;
     if (!controls) return;
     const m = Math.max(W, D, H) * 0.25;
-    const lo = new THREE.Vector3(-m, 0, -D - m);
-    const hi = new THREE.Vector3(W + m, H, m);
+    // 높이에도 여유를 둔다: 낮고 넓은 케이지는 화면 맞추기(CameraRig)가 기준점을 바닥 아래·천장 위로 옮기기도 한다
+    const lo = new THREE.Vector3(-m, -m, -D - m);
+    const hi = new THREE.Vector3(W + m, H + m, m);
     const camera = getState().camera;
     const onChange = () => {
       const t = controls.target;
@@ -518,7 +519,7 @@ export default function PlannerScene({
           MIDDLE: THREE.MOUSE.DOLLY,
           RIGHT: THREE.MOUSE.PAN,
         }}
-        touches={{ ONE: panMode ? THREE.TOUCH.PAN : THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN }}
+        touches={{ ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN }} // 화면 이동 버튼은 넓은 화면에만 있어 터치는 늘 한 손가락 회전·두 손가락 이동
         maxPolarAngle={Math.PI / 2.05}
         minDistance={S * 0.25}
         maxDistance={S * 4}
