@@ -108,6 +108,8 @@ export default function MarketItemDetail({ id }: { id: string }) {
   const meshFiles = it.files.filter(previewable);
   const preview = meshFiles.find((f) => f.id === previewId) ?? meshFiles[0] ?? null;
   const hasSkp = it.files.some((f) => f.format === "skp");
+  /** 3D 파일로 자동으로 만든 대표 이미지인지 (thumbnailFile 이 붙이는 이름) */
+  const autoImage = !!it.image && /-미리보기\.(webp|png|jpg)$/.test(it.image.filename);
   // 받을 크기: 가벼운 미리보기 메시가 있으면 그 크기 (보통 1MB 안팎이라 바로 보여 준다)
   const loadBytes = preview ? (preview.preview_size && canDecodeNfm() ? preview.preview_size : preview.size) : 0;
   const show3d = !!preview && (opened3d || (loadBytes <= AUTO_3D_BYTES && !saveData()));
@@ -259,9 +261,14 @@ export default function MarketItemDetail({ id }: { id: string }) {
             <p className="text-xs text-stone-500">
               가상 케이지에 놓으면 지금 작업 중인 케이지의 빈 자리에 실제 크기로 들어가요. 저장은 가상 케이지에서 해요.
             </p>
-            {it.can_edit && !it.image && !glUnavailable && (
+            {/* 대표 이미지가 없거나 3D 파일로 자동으로 만든 것이면, 올린 사람이 지금 3D 모습으로 (다시) 만들 수 있다 */}
+            {it.can_edit && (!it.image || autoImage) && !glUnavailable && (
               <button type="button" className={ui.btnSecondary} onClick={() => void makeImage(preview)} disabled={thumbBusy}>
-                {thumbBusy ? "대표 이미지 만드는 중…" : "이 3D 모습으로 대표 이미지 만들기"}
+                {thumbBusy
+                  ? "대표 이미지 만드는 중…"
+                  : it.image
+                    ? "이 3D 모습으로 대표 이미지 다시 만들기"
+                    : "이 3D 모습으로 대표 이미지 만들기"}
               </button>
             )}
           </section>

@@ -87,6 +87,7 @@ export default function CagePlanner() {
   const [viewNonce, setViewNonce] = useState(0);
   const [grid, setGrid] = useState(true);
   const [magnet, setMagnet] = useState(true);
+  const [panMode, setPanMode] = useState(false);
   const [tab, setTab] = useState<Tab>("catalog");
 
   const [species, setSpecies] = useState<SpeciesResponse | null>(null);
@@ -755,6 +756,7 @@ export default function CagePlanner() {
               rules={rules}
               view={view}
               viewNonce={viewNonce}
+              panMode={panMode}
               onSelect={setSelectedId}
               onDragStart={onDragStart}
               onDrag={onDrag}
@@ -770,6 +772,8 @@ export default function CagePlanner() {
               onGrid={setGrid}
               magnet={magnet}
               onMagnet={setMagnet}
+              panMode={panMode}
+              onPanMode={setPanMode}
               canUndo={hist.past.length > 0}
               canRedo={hist.future.length > 0}
               onUndo={() => dispatch({ type: "undo" })}
