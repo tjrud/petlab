@@ -68,7 +68,11 @@ export function fitCamera(
   points: THREE.Vector3[],
   fill: number,
   dir: THREE.Vector3 = viewDirection(),
+  /** fillY: 세로로 차지할 비율 (기본 fill과 같음), offsetY: 화면 세로 가운데에서 위로 올릴 정도 (-1~1, 화면 좌표) */
+  opts: { fillY?: number; offsetY?: number } = {},
 ): THREE.Vector3 {
+  const fillY = opts.fillY ?? fill;
+  const offsetY = opts.offsetY ?? 0;
   const box = new THREE.Box3().setFromPoints(points);
   const center = box.getCenter(new THREE.Vector3());
   const radius = Math.max(box.getSize(new THREE.Vector3()).length() / 2, 1);
@@ -76,7 +80,7 @@ export function fitCamera(
   camera.far = radius * 60;
   camera.updateProjectionMatrix();
   const p = new THREE.Vector3();
-  /** 화면에 비친 범위: 가로·세로 반폭(화면 비율로 맞춘 것 중 큰 쪽)과 가운데 */
+  /** 화면에 비친 범위가 정한 비율을 얼마나 넘는지(1 이면 딱 맞음)와 범위의 가운데 */
   const measure = (dist: number) => {
     camera.position.copy(center).addScaledVector(dir, dist);
     camera.lookAt(center);
@@ -89,19 +93,23 @@ export function fitCamera(
       minY = Math.min(minY, p.y);
       maxY = Math.max(maxY, p.y);
     }
-    return { half: Math.max((maxX - minX) / 2, (maxY - minY) / 2), cx: (minX + maxX) / 2, cy: (minY + maxY) / 2 };
+    return {
+      over: Math.max((maxX - minX) / 2 / fill, (maxY - minY) / 2 / fillY),
+      cx: (minX + maxX) / 2,
+      cy: (minY + maxY) / 2,
+    };
   };
   const search = () => {
     let lo = radius * 0.3;
     let hi = radius * 40;
     for (let i = 0; i < 40 && (hi - lo) / hi > 1e-3; i++) {
       const mid = (lo + hi) / 2;
-      if (measure(mid).half > fill) lo = mid;
+      if (measure(mid).over > 1) lo = mid;
       else hi = mid;
     }
     return hi;
   };
-  // 거리를 맞추고, 화면에서 치우친 만큼 기준점을 옮긴 뒤 한 번 더 맞춘다
+  // 거리를 맞추고, 화면에서 치우친 만큼(세로는 offsetY 기준) 기준점을 옮긴 뒤 한 번 더 맞춘다
   for (let pass = 0; pass < 2; pass++) {
     const dist = search();
     const m = measure(dist);
@@ -109,7 +117,7 @@ export function fitCamera(
     const halfW = halfH * camera.aspect;
     const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
     const up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
-    center.addScaledVector(right, m.cx * halfW).addScaledVector(up, m.cy * halfH);
+    center.addScaledVector(right, m.cx * halfW).addScaledVector(up, (m.cy - offsetY) * halfH);
   }
   measure(search());
   return center;

@@ -17,9 +17,13 @@ import type { Cage, LayoutItem, LayoutRules } from "@/lib/types";
 
 export type CameraView = "3d" | "top" | "front";
 
+export type SceneInsets = { top: number; bottom: number };
+
 type Props = {
   /** 3D 화면 배경색 */
   background?: string;
+  /** 화면 위·아래를 가리는 도구 모음·안내 상자의 높이(px). 케이지를 그 사이에 맞춰요 */
+  insets?: SceneInsets;
   cage: Cage;
   items: LayoutItem[];
   selectedId: string | null;
@@ -48,26 +52,52 @@ const VIEW_DIR: Record<CameraView, () => THREE.Vector3> = {
   top: () => new THREE.Vector3(0, 1, 0.002).normalize(), // 위에서 (화면 위쪽이 케이지 뒤)
   front: () => viewDirection(14, 0),
 };
-/** 케이지가 화면(가로·세로 중 좁은 쪽)에서 차지하는 비율. 위쪽 도구 모음·치수 글자 자리를 남긴다 */
-const CAGE_FILL = 0.84;
+/** 케이지가 가로로 차지하는 비율, 그리고 도구 모음과 안내 상자 사이 세로 공간에서 차지하는 비율 (치수 글자 자리를 남긴다) */
+const CAGE_FILL_X = 0.88;
+const CAGE_FILL_BAND = 0.9;
+const NO_INSETS: SceneInsets = { top: 0, bottom: 0 };
 
 /** 케이지 전체(외곽 상자)가 화면에 들어오도록 카메라를 맞춰요. 화면 비율까지 따지므로 모바일 세로 화면에서도
  * 좌우가 잘리지 않아요. 시점·케이지 크기·화면 크기가 바뀔 때, 같은 시점 버튼을 다시 눌렀을 때 다시 맞춰요 */
-function CameraRig({ cage, view, nonce }: { cage: Cage; view: CameraView; nonce: number }) {
+function CameraRig({ cage, view, nonce, insets }: { cage: Cage; view: CameraView; nonce: number; insets: SceneInsets }) {
   const getState = useThree((s) => s.get);
   // 컨트롤이 준비되면(makeDefault) 다시 맞추려고 구독만 해요. 값은 효과 안에서 getState() 로 읽어요
   const controlsReady = useThree((s) => s.controls !== null);
   const size = useThree((s) => s.size);
   const { width_mm: W, depth_mm: D, height_mm: H } = cage;
+  /** 마지막으로 맞춘 시점·케이지 크기, 그 뒤 사용자가 시점을 움직였는지 */
+  const fitted = useRef<string | null>(null);
+  const userMoved = useRef(false);
+  useEffect(() => {
+    const controls = getState().controls as unknown as (Controls & THREE.EventDispatcher<{ start: object }>) | null;
+    if (!controls) return;
+    const onStart = () => {
+      userMoved.current = true;
+    };
+    controls.addEventListener("start", onStart);
+    return () => controls.removeEventListener("start", onStart);
+  }, [getState, controlsReady]);
   useEffect(() => {
     const camera = getState().camera as THREE.PerspectiveCamera;
     const controls = getState().controls as unknown as Controls | null;
     if (size.width === 0 || size.height === 0) return;
+    const key = `${view}|${nonce}|${W}|${D}|${H}|${controlsReady}`;
+    // 화면 크기·가림 높이만 바뀌었으면, 사용자가 돌려 본 시점이나 끄는 중(회전 잠김)은 그대로 둬요
+    if (key === fitted.current && (userMoved.current || controls?.enabled === false)) return;
+    fitted.current = key;
+    userMoved.current = false;
     camera.aspect = size.width / size.height;
     // 케이지 외곽 상자의 꼭짓점 (three.js 월드: 가로 x, 높이 y, 깊이 -z)
     const corners: THREE.Vector3[] = [];
     for (const x of [0, W]) for (const y of [0, H]) for (const z of [0, -D]) corners.push(new THREE.Vector3(x, y, z));
-    const target = fitCamera(camera, corners, CAGE_FILL, VIEW_DIR[view]());
+    // 도구 모음(위)과 안내 상자(아래) 사이의 띠에 맞춰요 (화면 좌표: 세로 반폭 1 = 화면 높이의 절반)
+    const top = Math.min(insets.top, size.height * 0.45);
+    const bottom = Math.min(insets.bottom, size.height * 0.3);
+    const band = Math.max(size.height - top - bottom, size.height * 0.4);
+    const target = fitCamera(camera, corners, CAGE_FILL_X, VIEW_DIR[view](), {
+      fillY: (band / size.height) * CAGE_FILL_BAND,
+      offsetY: (bottom - top) / size.height,
+    });
     camera.far = Math.max(W, D, H) * 20;
     camera.updateProjectionMatrix();
     if (controls) {
@@ -76,7 +106,7 @@ function CameraRig({ cage, view, nonce }: { cage: Cage; view: CameraView; nonce:
     } else {
       camera.lookAt(target);
     }
-  }, [getState, controlsReady, size.width, size.height, W, D, H, view, nonce]);
+  }, [getState, controlsReady, size.width, size.height, W, D, H, view, nonce, insets.top, insets.bottom]);
   return null;
 }
 
@@ -198,14 +228,15 @@ function Bedding({ cage, asset }: { cage: Cage; asset: CageAsset }) {
   );
 }
 
-/** 구조물이 바닥에 닿는 곳의 흐린 그림자 (주광 그림자가 다른 쪽으로 떨어져도 바닥에 놓여 보이게) */
-function ContactBlob({ asset }: { asset: CageAsset }) {
+/** 구조물이 바닥에 닿는 곳의 흐린 그림자 (주광 그림자가 다른 쪽으로 떨어져도 바닥에 놓여 보이게).
+ * 벽에 붙인 구조물의 그림자가 케이지 밖 배경으로 번지지 않게 바닥 범위로 잘라요 */
+function ContactBlob({ asset, clip }: { asset: CageAsset; clip: THREE.Plane[] }) {
   const [w, d] = asset.size;
   const map = useMemo(() => contactShadowTexture(), []);
   return (
-    <mesh position={[0, 0, 0.5]} raycast={() => null}>
+    <mesh position={[0, 0, 0.5]} raycast={() => false as unknown as void}>
       <planeGeometry args={[w * 1.3, d * 1.3]} />
-      <meshBasicMaterial map={map} transparent depthWrite={false} toneMapped={false} />
+      <meshBasicMaterial map={map} transparent depthWrite={false} toneMapped={false} clippingPlanes={clip} />
     </mesh>
   );
 }
@@ -221,6 +252,7 @@ function Footprint({ asset, color, opacity }: { asset: CageAsset; color: string;
 }
 
 function PlacedItem({
+  floorClip,
   floorZ,
   item,
   asset,
@@ -231,6 +263,7 @@ function PlacedItem({
   onDrag,
   onDragEnd,
 }: {
+  floorClip: THREE.Plane[];
   floorZ: number;
   item: LayoutItem;
   asset: CageAsset;
@@ -308,7 +341,7 @@ function PlacedItem({
         onDragEnd(item.id);
       }}
     >
-      <ContactBlob asset={asset} />
+      <ContactBlob asset={asset} clip={floorClip} />
       <Footprint asset={asset} color={footColor} opacity={footOpacity} />
       <AssetModel asset={asset} highlight={selected ? "selected" : hover ? "hover" : "none"} />
       {selected && (
@@ -346,6 +379,7 @@ function AccessStrips({ item, asset, depth }: { item: LayoutItem; asset: CageAss
 
 export default function PlannerScene({
   background = PREVIEW_BG,
+  insets = NO_INSETS,
   cage,
   items,
   selectedId,
@@ -367,6 +401,16 @@ export default function PlannerScene({
   const bedding = items.map((it) => getAsset(it.asset)).find(isFloorLayer);
   // 주광은 케이지 가운데를 향해 왼쪽 앞 위에서 (카메라는 오른쪽 앞). 그림자가 보이는 쪽 바닥에 떨어져요
   const lightTarget = useMemo(() => new THREE.Object3D(), []);
+  // 케이지 바닥 범위 (three.js 월드: 가로 x 0~W, 깊이 z -D~0). 이 밖은 잘라요
+  const floorClip = useMemo(
+    () => [
+      new THREE.Plane(new THREE.Vector3(1, 0, 0), 0),
+      new THREE.Plane(new THREE.Vector3(-1, 0, 0), W),
+      new THREE.Plane(new THREE.Vector3(0, 0, -1), 0),
+      new THREE.Plane(new THREE.Vector3(0, 0, 1), D),
+    ],
+    [W, D],
+  );
   const center: [number, number, number] = [W / 2, 0, -D / 2];
 
   return (
@@ -378,6 +422,9 @@ export default function PlannerScene({
       }}
       className="h-full w-full touch-none"
       gl={{ preserveDrawingBuffer: true }}
+      onCreated={({ gl }) => {
+        gl.localClippingEnabled = true; // 접촉 그림자를 바닥 범위로 자르려고
+      }}
     >
       <color attach="background" args={[background]} />
       {/* 환경광 + 주광(부드러운 그림자) + 보조광 + 역광: 면마다 밝기가 달라 형태가 살고, 안쪽 면이 까맣게 죽지 않게 */}
@@ -412,6 +459,7 @@ export default function PlannerScene({
           return (
             <PlacedItem
               key={it.id}
+              floorClip={floorClip}
               floorZ={floorZ}
               item={it}
               asset={asset}
@@ -431,7 +479,7 @@ export default function PlannerScene({
         )}
       </group>
       <OrbitControls makeDefault maxPolarAngle={Math.PI / 2.05} minDistance={S * 0.25} maxDistance={S * 4} />
-      <CameraRig cage={cage} view={view} nonce={viewNonce} />
+      <CameraRig cage={cage} view={view} nonce={viewNonce} insets={insets} />
     </Canvas>
   );
 }

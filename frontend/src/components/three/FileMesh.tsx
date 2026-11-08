@@ -9,7 +9,7 @@ import { Component, useEffect, useMemo, useState, type ReactNode } from "react";
 import * as THREE from "three";
 import { ThreeMFLoader } from "three/examples/jsm/loaders/3MFLoader.js";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
-import { toCreasedNormals } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { mergeVertices, toCreasedNormals } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 export type MeshFormat = "stl" | "3mf";
 export type MeshPart = { geometry: THREE.BufferGeometry; matrix: THREE.Matrix4 };
@@ -92,19 +92,55 @@ function useEdgeGeometries(parts: MeshPart[], style: EdgeStyle | undefined) {
   return result && result.parts === parts ? result.lines : null;
 }
 
-/** 윤곽선용 형상: 위치(와 인덱스)는 원본과 함께 쓰고 법선만 매끈하게 따로 만든다.
- * toCreasedNormals 는 인덱스 없는 형상(STL)을 받으면 복사하지 않고 원본의 법선을 덮어쓰므로, 원본에 직접 쓰면
- * 모델 면이 물결처럼 보인다. 인덱스가 있는 형상(3MF)은 꼭짓점을 이미 함께 쓰므로 법선 평균만 낸다 */
+/** 윤곽선용 형상: 법선만 매끈하게 따로 가진 형상 (원본은 건드리지 않는다).
+ * - 인덱스 없는 형상(STL·RoundedBox·각기둥): 위치 속성을 원본과 함께 쓰고 toCreasedNormals 로 법선을 만든다.
+ *   toCreasedNormals 는 인덱스 없는 형상을 받으면 복사하지 않고 그 형상의 법선을 덮어쓰므로, 원본에 직접 쓰면 면이 물결처럼 보인다.
+ * - 인덱스 있는 형상(3MF·상자·원기둥): 모서리마다 꼭짓점을 따로 둔 경우가 많아 그대로 법선을 내면 윤곽선 모서리가 갈라진다.
+ *   위치가 같은 꼭짓점을 합친 새 형상으로 법선을 낸다 */
 export function outlineGeometry(source: THREE.BufferGeometry): THREE.BufferGeometry {
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", source.attributes.position);
   if (source.index) {
     g.setIndex(source.index);
-    g.computeVertexNormals();
-    return g;
+    const welded = mergeVertices(g);
+    welded.computeVertexNormals();
+    return welded;
   }
   return toCreasedNormals(g, Math.PI);
 }
+
+/** 윤곽선 형상을 버린다. 원본과 함께 쓰는 위치·인덱스 버퍼는 남기고 이 형상만의 버퍼만 GPU 에서 내린다
+ * (함께 쓰는 버퍼를 dispose 하면 같은 파일을 놓아 둔 다른 구조물의 버퍼까지 지워진다) */
+export function disposeOutlineGeometry(hull: THREE.BufferGeometry, source: THREE.BufferGeometry) {
+  if (hull.attributes.position === source.attributes.position) hull.deleteAttribute("position");
+  if (hull.index && hull.index === source.index) hull.setIndex(null);
+  hull.dispose();
+}
+
+/** 같은 원본 형상의 윤곽선 형상은 한 번만 만들어 함께 쓴다 (같은 STL 을 여러 개 놓아도 계산·메모리는 한 번) */
+const HULLS = new Map<THREE.BufferGeometry, { hull: THREE.BufferGeometry; refs: number }>();
+export function acquireOutlineGeometry(source: THREE.BufferGeometry): THREE.BufferGeometry {
+  const hit = HULLS.get(source);
+  if (hit) {
+    hit.refs += 1;
+    return hit.hull;
+  }
+  const hull = outlineGeometry(source);
+  HULLS.set(source, { hull, refs: 1 });
+  return hull;
+}
+export function releaseOutlineGeometry(source: THREE.BufferGeometry) {
+  const hit = HULLS.get(source);
+  if (!hit) return;
+  hit.refs -= 1;
+  if (hit.refs <= 0) {
+    HULLS.delete(source);
+    disposeOutlineGeometry(hit.hull, source);
+  }
+}
+
+/** 고르기·끌기 판정에서 이 메시와 그 아래(Outlines)를 모두 뺀다 (false 를 돌려줘야 자식까지 건너뛴다) */
+export const NO_RAYCAST = () => false as unknown as void;
 
 /** 바깥 윤곽선: 보이지 않는 형상(매끈한 법선)에 Outlines 를 붙인다.
  * 법선 계산은 큰 메시에서 수백 ms 걸리므로 형상을 먼저 보여 준 뒤 다음 차례에 만든다 */
@@ -112,16 +148,14 @@ function OutlineParts({ parts, style }: { parts: MeshPart[]; style: OutlineStyle
   const dpr = useThree((s) => s.viewport.dpr);
   const [built, setBuilt] = useState<{ parts: MeshPart[]; hulls: THREE.BufferGeometry[] } | null>(null);
   useEffect(() => {
-    let made: THREE.BufferGeometry[] = [];
+    let acquired: THREE.BufferGeometry[] = [];
     const t = window.setTimeout(() => {
-      made = parts.map((p) => outlineGeometry(p.geometry));
-      setBuilt({ parts, hulls: made });
+      acquired = parts.map((p) => p.geometry);
+      setBuilt({ parts, hulls: acquired.map(acquireOutlineGeometry) });
     }, 0);
     return () => {
       window.clearTimeout(t);
-      // 위치 속성은 원본과 함께 쓰므로, 이 형상을 버리면 원본의 위치 버퍼도 GPU 에서 내려간다.
-      // 미리보기는 파일마다 새로 붙으므로(원본도 함께 내려감) 그대로 버려 법선 버퍼가 남지 않게 한다
-      made.forEach((g) => g.dispose());
+      acquired.forEach(releaseOutlineGeometry);
     };
   }, [parts]);
   const hulls = built && built.parts === parts ? built.hulls : null;
@@ -129,7 +163,7 @@ function OutlineParts({ parts, style }: { parts: MeshPart[]; style: OutlineStyle
   return (
     <>
       {parts.map((p, i) => (
-        <mesh key={i} geometry={hulls[i]} matrix={p.matrix} matrixAutoUpdate={false}>
+        <mesh key={i} geometry={hulls[i]} matrix={p.matrix} matrixAutoUpdate={false} raycast={NO_RAYCAST}>
           {/* 이 형상 자체는 그리지 않고 윤곽선만 */}
           <meshBasicMaterial visible={false} />
           {/* 두께는 그리기 버퍼 픽셀 단위라 기기 픽셀 비율을 곱한다. 깊이를 뒤로 밀어 얇은 곳에서 앞면을 뚫지 않게 */}

@@ -18,7 +18,7 @@ import PlannerHeader from "@/components/cage/PlannerHeader";
 import ReviewPanel from "@/components/cage/ReviewPanel";
 import SceneOverlay from "@/components/cage/SceneOverlay";
 import { usePlannerShortcuts } from "@/components/cage/usePlannerShortcuts";
-import type { CameraView } from "@/components/cage/PlannerScene";
+import type { CameraView, SceneInsets } from "@/components/cage/PlannerScene";
 import { api, ApiError, isAuthError } from "@/lib/api";
 import { fileIdOf, getAsset, isFloorLayer, registerFileAsset, type CageAsset } from "@/lib/cageAssets";
 import {
@@ -106,6 +106,8 @@ export default function CagePlanner() {
   const requestedFiles = useRef(new Set<string>());
   /** 3D 화면 배경색 (이 브라우저에 기억) */
   const [background, setBackground] = useState(DEFAULT_BG);
+  /** 3D 화면 위·아래를 가리는 도구 모음·안내 상자 높이 (카메라를 그 사이에 맞춘다) */
+  const [sceneInsets, setSceneInsets] = useState<SceneInsets>({ top: 0, bottom: 0 });
 
   // ── 규칙·내 정보 불러오기 ──
 
@@ -745,6 +747,7 @@ export default function CagePlanner() {
           >
             <PlannerScene
               background={background}
+              insets={sceneInsets}
               cage={cage}
               items={items}
               selectedId={selectedId}
@@ -775,6 +778,7 @@ export default function CagePlanner() {
               itemCount={structureCount}
               background={background}
               onBackground={changeBackground}
+              onInsets={setSceneInsets}
             />
           </div>
 
