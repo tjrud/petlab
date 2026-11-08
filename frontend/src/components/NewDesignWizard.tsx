@@ -315,12 +315,12 @@ export default function NewDesignWizard() {
           <EmailUnverifiedNotice action="맞춤 설계를 받을" />
         </div>
       )}
-      <ol className="mb-6 flex items-center gap-3 text-sm" aria-label="진행 단계">
+      <ol className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm" aria-label="진행 단계">
         {(["사육 환경", "요구사항"] as const).map((label, i) => {
           const n = (i + 1) as Step;
           const active = step === n;
           return (
-            <li key={label} className="flex items-center gap-2">
+            <li key={label} className="flex items-center gap-2 whitespace-nowrap">
               <span
                 className={`grid h-7 w-7 place-items-center rounded-full font-semibold ${
                   active ? "bg-amber-500 text-white" : step > n ? "bg-amber-200 text-amber-900" : "bg-stone-200 text-stone-500"
@@ -334,7 +334,7 @@ export default function NewDesignWizard() {
           );
         })}
         {meta?.llm_provider === "mock" && (
-          <li className="ml-auto rounded-full bg-sky-100 px-3 py-1 text-xs font-medium text-sky-800">
+          <li className="ml-auto whitespace-nowrap rounded-full bg-sky-100 px-3 py-1 text-xs font-medium text-sky-800">
             개발용 모의 해석기
           </li>
         )}

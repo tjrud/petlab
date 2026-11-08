@@ -306,21 +306,24 @@ export default function MarketItemDetail({ id }: { id: string }) {
                   <span className="grid h-10 w-12 shrink-0 place-items-center rounded-lg bg-stone-100 text-xs font-bold text-stone-600">
                     {FORMAT_LABEL[f.format] ?? f.format.toUpperCase()}
                   </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium">{f.filename}</span>
+                  {/* 좁은 화면에서는 파일 이름·크기를 한 줄로 두고 버튼은 아래 줄에 나눠 놓는다 */}
+                  <span className="min-w-[10rem] flex-1">
+                    <span className="block break-all text-sm font-medium">{f.filename}</span>
                     <span className="block text-xs text-stone-500">
                       {formatBytes(f.size)}
                       {FORMAT_HINT[f.format] ? ` · ${FORMAT_HINT[f.format]}` : ""}
                     </span>
                   </span>
-                  {previewable(f) && (
-                    <Link href={cageAddHref(f.id)} className={ui.btnSecondary} aria-label={`${f.filename} 케이지에 놓기`}>
-                      케이지에 놓기
-                    </Link>
-                  )}
-                  <a href={api.marketUrl(f.download_url)} className={ui.btnPrimary} aria-label={`${f.filename} 내려받기`}>
-                    내려받기
-                  </a>
+                  <span className="flex w-full gap-2 *:flex-1 *:text-center sm:w-auto sm:*:flex-none">
+                    {previewable(f) && (
+                      <Link href={cageAddHref(f.id)} className={ui.btnSecondary} aria-label={`${f.filename} 케이지에 놓기`}>
+                        케이지에 놓기
+                      </Link>
+                    )}
+                    <a href={api.marketUrl(f.download_url)} className={ui.btnPrimary} aria-label={`${f.filename} 내려받기`}>
+                      내려받기
+                    </a>
+                  </span>
                 </li>
               ))}
             </ul>

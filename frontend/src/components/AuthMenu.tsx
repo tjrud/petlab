@@ -56,10 +56,13 @@ export default function AuthMenu() {
     <div className="relative flex min-w-0 items-center gap-2 text-sm">
       <Link
         href="/me"
-        className="min-w-0 max-w-[5rem] truncate text-stone-600 hover:text-stone-900 sm:max-w-[9rem]"
+        className="min-w-0 max-w-[7.5rem] truncate text-stone-600 hover:text-stone-900 sm:max-w-[9rem]"
         title="내 정보"
       >
-        {user.role === "admin" && <span className="mr-1 rounded bg-stone-800 px-1.5 py-0.5 text-xs text-white">관리자</span>}
+        {/* 좁은 화면에서는 이름표가 닉네임 자리를 다 차지해 "N…" 만 보이므로 빼고, 닉네임을 보인다 (내 정보에 관리자 표시가 있다) */}
+        {user.role === "admin" && (
+          <span className="mr-1 hidden rounded bg-stone-800 px-1.5 py-0.5 text-xs text-white sm:inline">관리자</span>
+        )}
         {user.nickname}
       </Link>
       <button
