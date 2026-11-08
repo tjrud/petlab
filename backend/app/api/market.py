@@ -36,10 +36,9 @@ from app.market_formats import (
     MODEL_FORMATS,
     content_matches,
     format_of,
-    mesh_dims,
 )
 from app.lookup import get_or_404
-from app.mesh_preview import PREVIEW_CONTENT_TYPE, build_preview, preview_key
+from app.mesh_preview import PREVIEW_CONTENT_TYPE, build_preview, measure_and_preview, preview_key
 from app.models import CageLayout, MarketEvent, MarketFile, MarketItem, MarketUpload, MarketUploadChunk, Post, User
 from app.schemas import (
     ID_RE,
@@ -263,13 +262,13 @@ def complete_upload(upload_id: str, request: Request, db: Session = Depends(get_
                    sha256=hashlib.sha256(data).hexdigest(), storage_key="")
     f.id = up.id  # 저장 키와 파일 ID 를 같게 (추측하기 어려운 무작위 값)
     # 저장하기 전에 잰다: 읽다가 실패해도 저장소에 주인 없는 파일이 남지 않게
-    f.dims_mm = mesh_dims(f.format, data)
+    f.dims_mm, preview_blob = measure_and_preview(f.format, data)
     try:
         stored = storage.put(f"market/{f.id}/{f.id}.{f.format}", data, CONTENT_TYPES[up.format])
     except StorageError as e:
         raise StorageUnavailableError("파일을 저장하지 못했어요. 잠시 후 다시 올려 주세요.") from e
     f.storage_key, f.url = stored.key, stored.url
-    _store_preview(storage, f, data)
+    _store_preview(storage, f, preview_blob)
     _discard_uploads(db, [up.id])
     db.add(f)
     try:
@@ -281,12 +280,9 @@ def complete_upload(upload_id: str, request: Request, db: Session = Depends(get_
     return file_out(f)
 
 
-def _store_preview(storage: Storage, f: MarketFile, data: bytes) -> bool:
-    """3D 미리보기용 가벼운 메시를 만들어 원본 옆에 저장한다 (STL·3MF). 못 만들면 화면이 원본을 쓴다"""
-    if f.format not in MESH_FORMATS:
-        return False
-    blob = build_preview(f.format, data)
-    if blob is None:
+def _store_preview(storage: Storage, f: MarketFile, blob: bytes | None) -> bool:
+    """3D 미리보기용 가벼운 메시(mesh_preview.py)를 원본 옆에 저장한다. 없거나 못 저장하면 화면이 원본을 쓴다"""
+    if blob is None or f.format not in MESH_FORMATS:
         return False
     try:
         stored = storage.put(preview_key(f.id), blob, PREVIEW_CONTENT_TYPE)
@@ -580,7 +576,7 @@ def delete_file(file_id: str, request: Request, db: Session = Depends(get_db),
 
 
 @router.post("/files/previews/backfill", summary="3D 미리보기 메시가 없는 예전 파일에 만들어 넣기 (관리자)")
-def backfill_previews(request: Request, limit: int = Query(default=2, ge=1, le=10), db: Session = Depends(get_db),
+def backfill_previews(request: Request, limit: int = Query(default=1, ge=1, le=3), db: Session = Depends(get_db),
                       user: User = Depends(get_current_user)) -> dict:
     if not user.is_admin:
         raise ForbiddenError("관리자만 쓸 수 있어요.")
@@ -589,12 +585,15 @@ def backfill_previews(request: Request, limit: int = Query(default=2, ge=1, le=1
                       .order_by(MarketFile.created_at).limit(limit)).all()
     done = failed = 0
     for f in rows:
+        # 먼저 '시도함'(0)으로 적어 둔다: 이 파일 때문에 요청이 죽어도 다음 백필이 같은 파일에서 막히지 않게
+        f.preview_size = 0
+        db.commit()
         data = _read_original(storage, f)
-        if data is not None and _store_preview(storage, f, data):
+        blob = build_preview(f.format, data) if data is not None else None
+        if _store_preview(storage, f, blob):
             done += 1
         else:
-            f.preview_size = 0  # 다시 시도하지 않게 (화면은 원본을 쓴다)
-            failed += 1
+            failed += 1  # 0 으로 남는다 (화면은 원본을 쓴다)
         db.commit()
     remaining = db.scalar(select(func.count(MarketFile.id)).where(MarketFile.format.in_(MESH_FORMATS),
                                                                   MarketFile.preview_size.is_(None))) or 0
@@ -606,7 +605,9 @@ def _read_original(storage: Storage, f: MarketFile) -> bytes | None:
         if f.url:
             import httpx
 
-            r = httpx.get(f.url, timeout=60, follow_redirects=True)
+            if not f.url.startswith("https://") or ".blob.vercel-storage.com/" not in f.url:
+                return None  # 우리 Blob 저장소의 주소만 받는다
+            r = httpx.get(f.url, timeout=httpx.Timeout(60, connect=10), follow_redirects=False)
             r.raise_for_status()
             return r.content
         if isinstance(storage, LocalStorage):

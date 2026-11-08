@@ -3,6 +3,9 @@
 /** Blob 공개 주소는 쿠키 없이, API 경로(로컬 저장소)는 로그인 쿠키와 함께 받는다 */
 export const needsCredentials = (url: string) => !url.includes(".blob.vercel-storage.com");
 
+/** 이보다 큰 3D 파일은 누르기 전에는 받지 않는다 (상세 화면을 열 때마다 수십 MB 를 받지 않게) */
+export const AUTO_3D_BYTES = 10 * 1024 * 1024;
+
 /** 3D 로 볼 수 있는 형식 */
 export type MeshFormat = "stl" | "3mf";
 export const isMeshFormat = (f: string): f is MeshFormat => f === "stl" || f === "3mf";

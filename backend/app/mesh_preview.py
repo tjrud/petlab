@@ -26,6 +26,8 @@ import threading
 
 import numpy as np
 
+from app.market_formats import load_3mf, mesh_dims, mesh_extents
+
 log = logging.getLogger(__name__)
 
 PREVIEW_MAX_TRIS = 100_000
@@ -53,10 +55,15 @@ def _binary_stl(data: bytes) -> tuple[np.ndarray, np.ndarray] | None:
     return verts, faces
 
 
-def _with_trimesh(fmt: str, data: bytes) -> tuple[np.ndarray, np.ndarray]:
-    import trimesh  # 무거운 모듈이라 필요할 때만
+def _with_trimesh(fmt: str, data: bytes) -> tuple[np.ndarray, np.ndarray] | None:
+    if fmt == "3mf":
+        m = load_3mf(data)  # 풀린 크기가 크면(압축 폭탄) None
+        if m is None:
+            return None
+    else:
+        import trimesh  # 무거운 모듈이라 필요할 때만
 
-    m = trimesh.load(io.BytesIO(data), file_type=fmt, force="mesh")
+        m = trimesh.load(io.BytesIO(data), file_type=fmt, force="mesh")
     return np.asarray(m.vertices, dtype=np.float32), np.asarray(m.faces, dtype=np.int32)
 
 
@@ -72,6 +79,16 @@ def _pack(verts: np.ndarray, faces: np.ndarray) -> bytes:
     return gzip.compress(body, 6, mtime=0)
 
 
+def _simplify_and_pack(verts: np.ndarray, faces: np.ndarray) -> bytes | None:
+    if len(faces) == 0 or len(verts) < 3:
+        return None
+    if len(faces) > PREVIEW_MAX_TRIS:
+        import fast_simplification
+
+        verts, faces = fast_simplification.simplify(verts, faces, target_reduction=1 - PREVIEW_MAX_TRIS / len(faces))
+    return _pack(np.asarray(verts, dtype=np.float32), np.asarray(faces))
+
+
 def build_preview(fmt: str, data: bytes) -> bytes | None:
     """STL·3MF 로 미리보기 메시(NFM1, gzip)를 만든다. 못 만들면 None (올리기는 막지 않고 화면은 원본을 쓴다)."""
     if fmt not in ("stl", "3mf"):
@@ -79,17 +96,36 @@ def build_preview(fmt: str, data: bytes) -> bytes | None:
     with _SLOT:
         try:
             got = _binary_stl(data) if fmt == "stl" else None
-            verts, faces = got if got is not None else _with_trimesh(fmt, data)
-            if len(faces) == 0 or len(verts) < 3:
-                return None
-            if len(faces) > PREVIEW_MAX_TRIS:
-                import fast_simplification
-
-                verts, faces = fast_simplification.simplify(verts, faces, target_reduction=1 - PREVIEW_MAX_TRIS / len(faces))
-            return _pack(np.asarray(verts, dtype=np.float32), np.asarray(faces))
+            if got is None:
+                got = _with_trimesh(fmt, data)
+            return _simplify_and_pack(*got) if got is not None else None
         except Exception:  # noqa: BLE001 - 미리보기는 덤이다. 실패해도 원본으로 보여 준다
             log.warning("3D 미리보기 메시를 만들지 못했습니다 (%s)", fmt, exc_info=True)
             return None
+
+
+def measure_and_preview(fmt: str, data: bytes) -> tuple[list[float] | None, bytes | None]:
+    """올리기를 마칠 때: 외곽 크기와 미리보기 메시를 함께 (3MF 는 한 번만 읽는다. 무거운 해석을 두 번 하지 않게)"""
+    if fmt == "stl":
+        dims = mesh_dims(fmt, data)
+        return dims, build_preview(fmt, data) if dims is not None else None
+    if fmt != "3mf":
+        return None, None
+    with _SLOT:
+        try:
+            mesh = load_3mf(data)
+            if mesh is None:
+                return None, None
+            dims = mesh_extents(mesh)
+            if dims is None:
+                return None, None
+            verts = np.asarray(mesh.vertices, dtype=np.float32)
+            faces = np.asarray(mesh.faces, dtype=np.int32)
+            del mesh
+            return dims, _simplify_and_pack(verts, faces)
+        except Exception:  # noqa: BLE001 - 크기·미리보기는 덤이다. 올리기는 막지 않는다
+            log.warning("3MF 크기·미리보기를 만들지 못했습니다", exc_info=True)
+            return None, None
 
 
 def read_preview(blob: bytes) -> tuple[np.ndarray, np.ndarray]:

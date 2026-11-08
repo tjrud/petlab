@@ -511,9 +511,9 @@ def test_upload_builds_light_3d_preview_and_cleans_it_up(client):
 
 
 def test_preview_failure_does_not_block_upload(client, monkeypatch):
-    import app.api.market as market_api
+    import app.mesh_preview as mesh_preview
 
-    monkeypatch.setattr(market_api, "build_preview", lambda fmt, data: None)
+    monkeypatch.setattr(mesh_preview, "build_preview", lambda fmt, data: None)
     signup(client, "maker_a")
     f = upload(client, "a.stl", tetra_stl(60))
     assert f["preview_url"] is None and f["mesh_url"]
@@ -523,9 +523,11 @@ def test_admin_backfills_missing_previews(client, monkeypatch):
     import app.api.market as market_api
     from app.models import MarketFile
 
+    import app.mesh_preview as mesh_preview
+
     signup(client, "maker_a")
     real = market_api.build_preview
-    monkeypatch.setattr(market_api, "build_preview", lambda fmt, data: None)
+    monkeypatch.setattr(mesh_preview, "build_preview", lambda fmt, data: None)
     f = upload(client, "old.stl", tetra_stl(60))
     with client.app.state.session_factory() as db:  # 예전 파일처럼 표시 없음으로
         db.get(MarketFile, f["id"]).preview_size = None
@@ -538,3 +540,31 @@ def test_admin_backfills_missing_previews(client, monkeypatch):
     with client.app.state.session_factory() as db:  # 올린 사람만 볼 수 있는 파일이라 DB 로 확인
         assert db.get(MarketFile, f["id"]).preview_size > 0
     assert client.post("/market/files/previews/backfill").json()["done"] == 0
+
+
+def test_3mf_zip_bomb_gets_no_preview_and_no_dims(client):
+    """작게 압축됐지만 풀면 큰 3MF 는 크기도 미리보기도 만들지 않는다 (메모리를 다 쓰지 않게)"""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", "<Types/>")
+        z.writestr("3D/3dmodel.model", b"<model>" + b" " * (80 * 1024 * 1024) + b"</model>")
+    data = buf.getvalue()
+    assert len(data) < 1024 * 1024
+    signup(client, "maker_a")
+    f = upload(client, "bomb.3mf", data)
+    assert f["dims_mm"] is None and f["preview_url"] is None
+
+
+def test_3mf_gets_dims_and_preview_from_one_read(client):
+    import trimesh
+
+    from app.mesh_preview import read_preview
+
+    m = trimesh.creation.box(extents=[40, 30, 20])
+    buf = io.BytesIO()
+    m.export(buf, file_type="3mf")
+    signup(client, "maker_a")
+    f = upload(client, "box.3mf", buf.getvalue())
+    assert f["dims_mm"] == [40.0, 30.0, 20.0] and f["preview_size"]
+    verts, tris = read_preview(client.get(f["preview_url"]).content)
+    assert len(tris) == 12 and all(abs(a - b) < 0.01 for a, b in zip(verts.max(0) - verts.min(0), [40, 30, 20]))

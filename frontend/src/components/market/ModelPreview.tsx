@@ -15,7 +15,7 @@ import * as THREE from "three";
 import { formatBytes } from "@/components/market/common";
 import { keepOnlyPreview, LoadedMesh, MeshErrorBoundary, type MeshFormat, type MeshPart } from "@/components/three/FileMesh";
 import { api } from "@/lib/api";
-import { canDecodeNfm } from "@/lib/meshUrl";
+import { AUTO_3D_BYTES, canDecodeNfm } from "@/lib/meshUrl";
 import { boxCorners, EDGE_STYLE, fitCamera, MODEL_COLOR, OUTLINE_STYLE, PREVIEW_BG, samplePoints } from "@/lib/previewLook";
 import type { MarketFile } from "@/lib/types";
 
@@ -103,9 +103,15 @@ export default function ModelPreview({
   /** 사용자가 한 번이라도 돌려 봤는지 (그 뒤로는 카메라를 다시 맞추지 않는다) */
   const touched = useRef(false);
   const url = file.mesh_url ? api.marketUrl(file.mesh_url) : "";
-  // 가벼운 미리보기 메시가 있으면 그것을 받는다 (원본의 수십 분의 일)
-  const previewUrl = file.preview_url && canDecodeNfm() ? api.marketUrl(file.preview_url) : null;
-  const status = state.url === url ? state.status : "loading";
+  // 가벼운 미리보기 메시가 있으면 그것을 받는다 (원본의 수십 분의 일).
+  // 못 받으면 원본으로 넘어가되, 원본이 크면 누를 때만 받는다
+  const [previewFailed, setPreviewFailed] = useState(false);
+  const [originalOk, setOriginalOk] = useState(false);
+  const previewUrl = file.preview_url && canDecodeNfm() && !previewFailed ? api.marketUrl(file.preview_url) : null;
+  const askOriginal = previewFailed && file.size > AUTO_3D_BYTES && !originalOk;
+  /** 지금 받는 메시 (불러오기 상태는 이것 기준) */
+  const meshKey = previewUrl ?? url;
+  const status = state.url === meshKey ? state.status : "loading";
   const [w, d, h] = file.dims_mm ?? [100, 100, 100];
   const radius = Math.max(Math.hypot(w, d, h) / 2, 5);
   const S = Math.max(w, d, h, 10);
@@ -125,7 +131,7 @@ export default function ModelPreview({
     [],
   );
   const onLoaded = () => {
-    setState((s) => (s.url === url && s.status === "ok" ? s : { url, status: "ok" }));
+    setState((s) => (s.url === meshKey && s.status === "ok" ? s : { url: meshKey, status: "ok" }));
     if (autoStarted.current || touched.current) return;
     autoStarted.current = true;
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
@@ -196,12 +202,14 @@ export default function ModelPreview({
           <directionalLight position={[radius * 2, radius * 0.9, radius * 0.8]} intensity={0.55} />
           <directionalLight position={[radius * 0.4, radius * 1.4, -radius * 2.2]} intensity={0.75} />
 
-          <MeshErrorBoundary key={url} fallback={null} onError={() => setState({ url, status: "error" })}>
+          {!askOriginal && (
+          <MeshErrorBoundary key={meshKey} fallback={null} onError={() => setState({ url: meshKey, status: "error" })}>
             <Suspense fallback={null}>
               <group rotation={Z_UP_TO_Y_UP}>
                 <LoadedMesh
                   url={url}
                   previewUrl={previewUrl}
+                  onPreviewError={() => setPreviewFailed(true)}
                   format={file.format as MeshFormat}
                   edges={EDGE_STYLE}
                   outline={OUTLINE_STYLE}
@@ -225,6 +233,7 @@ export default function ModelPreview({
               <Loaded onLoaded={onLoaded} />
             </Suspense>
           </MeshErrorBoundary>
+          )}
           {/* 주광 그림자를 받는 투명 바닥 */}
           <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.05, 0]} receiveShadow>
             <planeGeometry args={[radius * 10, radius * 10]} />
@@ -258,7 +267,21 @@ export default function ModelPreview({
           />
         </Canvas>
       </MeshErrorBoundary>
-      {!glFailed && status !== "ok" && (
+      {askOriginal && (
+        <div className="absolute inset-0 grid place-items-center p-6 text-center">
+          <div className="space-y-2">
+            <p className="text-sm text-stone-600">가벼운 미리보기를 불러오지 못했어요.</p>
+            <button
+              type="button"
+              className="rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm shadow-sm hover:bg-stone-50"
+              onClick={() => setOriginalOk(true)}
+            >
+              원본 3D 파일로 보기 ({formatBytes(file.size)})
+            </button>
+          </div>
+        </div>
+      )}
+      {!glFailed && !askOriginal && status !== "ok" && (
         <p
           role="status"
           className={`absolute inset-x-3 bottom-3 rounded-lg px-3 py-2 text-xs shadow-sm ${

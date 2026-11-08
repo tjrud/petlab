@@ -221,17 +221,19 @@ export function keepOnlyPreview(url: string, format: LoaderKind) {
 }
 
 /** 파일 형상 (불러오는 동안 Suspense 로 멈춘다. 감싸는 쪽에서 Suspense·MeshErrorBoundary 로 받는다) */
-/** 미리보기 메시(previewUrl, 수십 배 가벼움)가 있으면 그것을, 못 쓰면(오래된 브라우저·받기 실패) 원본을 그린다 */
+/** 미리보기 메시(previewUrl, 수십 배 가벼움)가 있으면 그것을, 못 쓰면(오래된 브라우저·받기 실패) 원본을 그린다.
+ * onPreviewError 를 주면 원본으로 바로 넘어가지 않고 알린다 (큰 원본을 받을지 부르는 쪽이 정하게) */
 export function LoadedMesh({
   url,
   format,
   previewUrl,
+  onPreviewError,
   ...opts
-}: { url: string; format: MeshFormat; previewUrl?: string | null } & PartsOptions) {
+}: { url: string; format: MeshFormat; previewUrl?: string | null; onPreviewError?: () => void } & PartsOptions) {
   const original = format === "stl" ? <StlParts url={url} {...opts} /> : <ThreeMfParts url={url} {...opts} />;
   if (!previewUrl || !canDecodeNfm()) return original;
   return (
-    <MeshErrorBoundary key={previewUrl} fallback={original}>
+    <MeshErrorBoundary key={previewUrl} fallback={onPreviewError ? null : original} onError={onPreviewError}>
       <NfmParts url={previewUrl} {...opts} />
     </MeshErrorBoundary>
   );

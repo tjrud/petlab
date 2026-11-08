@@ -14,7 +14,7 @@ import { fileIdOf, getAsset, registerFileAsset } from "@/lib/cageAssets";
 import { readDraft, writeDraft } from "@/lib/cagePlannerDoc";
 import { FORMAT_HINT, FORMAT_LABEL, formatBytes, FormatChips, imageSrc, MARKET_PATH } from "@/components/market/common";
 import RetryAlert from "@/components/RetryAlert";
-import { canDecodeNfm, isMeshFormat, needsCredentials } from "@/lib/meshUrl";
+import { AUTO_3D_BYTES, canDecodeNfm, isMeshFormat, needsCredentials } from "@/lib/meshUrl";
 import { api, ApiError } from "@/lib/api";
 import { uploadMarketFile } from "@/lib/marketUpload";
 import type { MarketFile, MarketItem } from "@/lib/types";
@@ -28,8 +28,6 @@ const ModelPreview = dynamic(() => import("@/components/market/ModelPreview"), {
 /** 3D 로 볼 수 있는 파일 (STL·3MF 이고 크기를 읽은 것) */
 const previewable = (f: MarketFile) => isMeshFormat(f.format) && !!f.mesh_url && !!f.dims_mm;
 
-/** 이보다 큰 3D 파일은 "3D로 보기"를 눌러야 받는다 (상세 화면을 열 때마다 수십 MB 를 받지 않게) */
-const AUTO_3D_BYTES = 10 * 1024 * 1024;
 const saveData = () =>
   typeof navigator !== "undefined" && !!(navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData;
 
@@ -122,22 +120,29 @@ export default function MarketItemDetail({ id }: { id: string }) {
     try {
       // 3D 그리기 코드(three.js)는 이 버튼을 누를 때 받는다 (상세 화면 첫 로딩을 가볍게)
       const { renderMeshThumbnail, thumbnailFile } = await import("@/lib/meshThumbnail");
-      const usePreview = !!f.preview_url && canDecodeNfm();
-      const url = api.marketUrl(usePreview ? f.preview_url! : f.mesh_url);
-      let buffer: ArrayBuffer;
-      try {
-        const res = await fetch(url, { credentials: needsCredentials(url) ? "include" : "omit" });
-        if (!res.ok) throw new Error();
-        buffer = await res.arrayBuffer();
-      } catch {
-        throw new ShownError("파일을 받지 못했어요. 잠시 뒤 다시 해 주세요.");
-      }
-      let blob: Blob | null;
-      try {
-        blob = await renderMeshThumbnail(buffer, usePreview ? "nfm" : f.format);
-      } catch {
-        blob = null;
-      }
+      /** 받아서 그린다. 받지 못했으면 "fetch", 그리지 못했으면 "render" */
+      const tryRender = async (path: string, fmt: Parameters<typeof renderMeshThumbnail>[1]): Promise<Blob | "fetch" | "render"> => {
+        const url = api.marketUrl(path);
+        let buffer: ArrayBuffer;
+        try {
+          const res = await fetch(url, { credentials: needsCredentials(url) ? "include" : "omit" });
+          if (!res.ok) return "fetch";
+          buffer = await res.arrayBuffer();
+        } catch {
+          return "fetch";
+        }
+        try {
+          return (await renderMeshThumbnail(buffer, fmt)) ?? "render";
+        } catch {
+          return "render";
+        }
+      };
+      // 가벼운 미리보기 메시로 먼저, 안 되면 원본으로
+      let got: Blob | "fetch" | "render" = "fetch";
+      if (f.preview_url && canDecodeNfm()) got = await tryRender(f.preview_url, "nfm");
+      if (!(got instanceof Blob)) got = await tryRender(f.mesh_url, f.format);
+      if (got === "fetch") throw new ShownError("파일을 받지 못했어요. 잠시 뒤 다시 해 주세요.");
+      const blob = got === "render" ? null : got;
       if (!blob) throw new ShownError("이 파일로는 이미지를 만들 수 없어요.");
       const img = await uploadMarketFile(thumbnailFile(blob, f.filename), "image", () => {});
       const item = await api.updateMarketItem(it.id, { image_file_id: img.id });

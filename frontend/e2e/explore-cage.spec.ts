@@ -207,3 +207,22 @@ test("탐색 3D 미리보기: 처음 몇 초만 천천히 돌다 멈추고, 만�
   await expect(r.locator("[data-rotating]")).toHaveAttribute("data-rotating", "false");
   await reduced.close();
 });
+
+test("탐색 3D 미리보기: 가벼운 미리보기 메시를 받지 못하면 원본 파일로 보여 준다", async ({ page }) => {
+  await adminLogin(page, "/explore/new");
+  await page.getByLabel("완성 파일 고르기").setInputFiles({ name: "fallback.stl", mimeType: "model/stl", buffer: tetraStl(60) });
+  await expect(page.getByRole("img", { name: "미리보기 이미지" })).toBeVisible({ timeout: 30_000 });
+  await page.getByLabel("제목", { exact: true }).fill("대체 확인");
+  await page.getByLabel("소개", { exact: true }).fill("미리보기 메시가 깨졌을 때");
+  await page.getByRole("button", { name: "탐색에 올리기" }).click();
+  await page.waitForURL(/\/explore\/[0-9a-f]{32}$/);
+  const asked: string[] = [];
+  await page.route(/\/market\/files\/[0-9a-f]{32}\/preview$/, (r) => r.fulfill({ status: 500, body: "x" }));
+  page.on("request", (rq) => {
+    if (/\/market\/files\/[0-9a-f]{32}\/mesh$/.test(rq.url())) asked.push("mesh");
+  });
+  await page.reload();
+  // 작은 원본(10MB 이하)은 묻지 않고 바로 원본으로
+  await expect(page.getByText(/6×6×6cm · 끌어서 돌려 볼 수 있어요/)).toBeVisible({ timeout: 30_000 });
+  expect(asked).toContain("mesh");
+});
