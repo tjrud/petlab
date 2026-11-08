@@ -507,3 +507,44 @@ test("내 정보: 종 목록·반려동물 목록을 불러오지 못하면 알�
   await page.reload();
   await expect(page.getByText("로그인하면 내 정보를 관리할 수 있어요")).toBeVisible();
 });
+
+test("내 설계 지우기: 목록 카드와 설계 화면에서 지우고, 취소하면 그대로 남는다", async ({ page }) => {
+  await signup(page, { username: `del_${RUN}`, nickname: `지우개${RUN}`, password: "eraser-pass-321" }, { next: "/designs" });
+  const API = "http://localhost:8000";
+  const make = async (prompt: string) => {
+    const h = await page.request.post(`${API}/habitats`, {
+      data: { species: "hamster", size: "syrian", count: 1, cage: { width_mm: 600, depth_mm: 400, height_mm: 300 } },
+    });
+    expect(h.status()).toBe(201);
+    const d = await page.request.post(`${API}/designs`, { data: { habitat_id: (await h.json()).id, prompt } });
+    expect(d.status()).toBe(201);
+    return (await d.json()) as { id: string; title: string };
+  };
+  const first = await make("은신처 하나");
+  const second = await make("터널 하나");
+  await page.goto("/designs");
+  await expect(page.getByText("총 2개")).toBeVisible();
+
+  // 확인 창에서 취소하면 지우지 않는다
+  page.once("dialog", (d) => d.dismiss());
+  await page.getByRole("button", { name: `${first.title} 설계 지우기` }).click();
+  await expect(page.getByText("총 2개")).toBeVisible();
+
+  page.once("dialog", (d) => {
+    expect(d.message()).toContain("되돌릴 수 없어요");
+    void d.accept();
+  });
+  await page.getByRole("button", { name: `${first.title} 설계 지우기` }).click();
+  await expect(page.getByText("총 1개")).toBeVisible();
+  await expect(page.getByRole("button", { name: `${first.title} 설계 지우기` })).toHaveCount(0);
+
+  // 설계 화면에서 지우면 내 설계 목록으로 돌아간다
+  await page.goto(`/designs/${second.id}`);
+  page.once("dialog", (d) => d.accept());
+  await page.getByRole("button", { name: `${second.title} 설계 지우기` }).click();
+  await page.waitForURL((u) => u.pathname === "/designs");
+  await expect(page.getByText("아직 만든 설계가 없어요")).toBeVisible();
+  // 지운 설계 주소는 열리지 않는다
+  await page.goto(`/designs/${first.id}`);
+  await expect(page.getByText(/설계를 찾을 수 없/)).toBeVisible();
+});

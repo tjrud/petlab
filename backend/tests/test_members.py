@@ -504,3 +504,59 @@ def test_explicit_nulls_are_accepted(client):
     r = client.patch(f"/community/posts/{post['id']}", json={"title": "새 제목", "body": None})
     assert r.status_code == 200 and r.json()["title"] == "새 제목" and r.json()["body"] == "b"
     assert client.post("/me/pets", json={**body, "notes": "x" * 501}).status_code == 422
+
+
+def test_delete_design_detaches_and_cleans_up(client, tmp_path):
+    a = signup(client, "user_a", "에이")
+    d = make_design(client)
+    v2 = client.post(f"/designs/{d['id']}/revise", json={"prompt": "더 크게"})
+    assert v2.status_code == 201, v2.text
+    keep = make_design(client, prompt="터널 하나")
+    post = client.post("/community/posts", json={"title": "공유", "body": "봐 주세요", "design_id": d["id"]}).json()
+    assert client.post("/waitlist", json={"email": "a@example.com", "design_id": d["id"], "version": 1}).status_code == 201
+    mesh_dir = tmp_path / "meshes" / d["id"]
+    assert mesh_dir.is_dir()
+
+    # 남의 설계는 지울 수 없다 (있는지도 알려 주지 않는다). 관리자도 회원의 설계는 지우지 못한다
+    b = signup(client, "user_b")
+    assert use(client, b).delete(f"/designs/{d['id']}").status_code == 404
+    admin_login(client)
+    assert client.delete(f"/designs/{d['id']}").status_code == 404
+    assert use(client, None).delete(f"/designs/{d['id']}").status_code == 401
+
+    use(client, a)
+    assert client.delete(f"/designs/{d['id']}").status_code == 204
+    assert client.get(f"/designs/{d['id']}").status_code == 404
+    assert client.delete(f"/designs/{d['id']}").status_code == 404
+    lst = client.get("/designs").json()
+    assert lst["total"] == 1 and lst["items"][0]["id"] == keep["id"]
+    # 글은 남고 설계만 빠진다
+    got = client.get(f"/community/posts/{post['id']}").json()
+    assert got["title"] == "공유" and got["design"] is None
+    assert not mesh_dir.exists() and (tmp_path / "meshes" / keep["id"]).is_dir()
+    with client.app.state.session_factory() as db:
+        assert db.scalar(select(DesignVersion).where(DesignVersion.design_id == d["id"])) is None
+        assert db.get(Habitat, d["habitat"]["id"]) is not None  # 사육 환경은 남는다
+    # 지운 설계도 하루 사용량에는 그대로 남는다
+    assert client.get("/me").json()["design_quota"]["used"] == 3
+
+
+def test_revise_after_delete_does_not_resurrect(client, monkeypatch):
+    signup(client, "user_a")
+    d = make_design(client)
+    svc = client.app.state.design_service
+    real = svc._generate
+
+    def generate_then_delete(*args, **kw):
+        out = real(*args, **kw)
+        # 해석하는 동안 다른 창에서 지운 것과 같다
+        with client.app.state.session_factory() as db:
+            db.delete(db.get(Design, d["id"]))
+            db.commit()
+        return out
+
+    monkeypatch.setattr(svc, "_generate", generate_then_delete)
+    r = client.post(f"/designs/{d['id']}/revise", json={"prompt": "더 크게"})
+    assert r.status_code == 404
+    with client.app.state.session_factory() as db:
+        assert db.scalar(select(DesignVersion).where(DesignVersion.design_id == d["id"])) is None

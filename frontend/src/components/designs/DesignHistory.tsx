@@ -111,7 +111,7 @@ export default function DesignHistory() {
       <p className={`${ui.muted} mb-3`}>총 {total}개</p>
       <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {items.map((d) => (
-          <DesignCard key={d.id} design={d} />
+          <DesignCard key={d.id} design={d} onDeleted={() => setAttempt((n) => n + 1)} />
         ))}
       </ul>
       {total > page_size && <Pagination page={page} totalPages={totalPages} hrefFor={pageHref} />}

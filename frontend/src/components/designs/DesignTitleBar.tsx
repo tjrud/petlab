@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import DeleteDesignButton from "@/components/designs/DeleteDesignButton";
 import type { Design } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
@@ -11,8 +12,8 @@ export function seesUnsharedVersions(design: Design): boolean {
   return design.versions.some((v) => !design.shared_versions.includes(v.version));
 }
 
-/** 설계 화면 상단: 제목·버전·사육 환경, 소유자는 커뮤니티 공유, 다른 회원은 읽기 전용 안내 */
-export default function DesignTitleBar({ design }: { design: Design }) {
+/** 설계 화면 상단: 제목·버전·사육 환경, 소유자는 커뮤니티 공유·삭제, 다른 회원은 읽기 전용 안내 */
+export default function DesignTitleBar({ design, onDeleted }: { design: Design; onDeleted?: () => void }) {
   const cur = design.current;
   const h = design.habitat;
   const shareHref = `/community/new?design=${encodeURIComponent(design.id)}&version=${cur.version}`;
@@ -38,9 +39,21 @@ export default function DesignTitleBar({ design }: { design: Design }) {
           )}
         </div>
         {design.is_owner && (
-          <Link href={shareHref} className={`${ui.btnSecondary} shrink-0`}>
-            커뮤니티에 공유
-          </Link>
+          <div className="flex shrink-0 items-start gap-2">
+            <Link href={shareHref} className={ui.btnSecondary}>
+              커뮤니티에 공유
+            </Link>
+            {onDeleted && (
+              <DeleteDesignButton
+                id={design.id}
+                title={design.title || "맞춤 설계"}
+                versionCount={design.versions.length}
+                shared={design.shared_versions.length > 0}
+                onDeleted={onDeleted}
+                className="self-stretch [&>button]:h-full [&>button]:px-3 [&>button]:text-sm"
+              />
+            )}
+          </div>
         )}
       </div>
       <p className="text-sm text-stone-500">

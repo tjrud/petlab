@@ -10,6 +10,7 @@ import copy
 import json
 import logging
 import os
+import shutil
 import threading
 import uuid
 from collections.abc import Callable, Iterable
@@ -18,13 +19,23 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from app.errors import InvalidInputError, NotFoundError
 from app.geometry.fingerprint import file_digest
 from app.llm.base import HabitatInfo, Interpreter, InterpretRequest, InterpretResult
-from app.models import Design, DesignVersion, Habitat, Pet, Post, User
+from app.models import (
+    Design,
+    DesignVersion,
+    Habitat,
+    MarketEvent,
+    MarketItem,
+    Pet,
+    Post,
+    User,
+    WaitlistEntry,
+)
 from app.rules.loader import RuleBook
 from app.schemas import (
     ID_RE,
@@ -383,6 +394,9 @@ class DesignService:
         habitat = design.habitat
         self.reserve_quota(db, user, ip_key)  # 기록 후 커밋 (create_design 과 같은 이유)
         generated = self._generate(habitat, prompt, previous=previous)
+        # 해석하는 동안(최대 1분) 다른 창에서 설계를 지웠으면 새 버전을 붙이지 않는다
+        if db.scalar(select(Design.id).where(Design.id == design.id)) is None:
+            raise NotFoundError("설계가 삭제되었어요.")
         next_no = (db.scalar(select(func.max(DesignVersion.version)).where(DesignVersion.design_id == design.id)) or 0) + 1
         row = self._save_version(db, design, generated, next_no, user)
         db.commit()
@@ -492,6 +506,28 @@ class DesignService:
         if not _can_edit(d, user):
             raise NotFoundError("설계를 찾을 수 없습니다.")
         return d
+
+    def delete_design(self, db: Session, design_id: str, user: User) -> None:
+        """설계와 모든 버전을 지운다 (소유자만: 관리자도 회원의 설계는 지우지 못한다, _can_edit).
+
+        커뮤니티 글·탐색 작품·제작 신청에 첨부되어 있으면 연결만 끊는다 (글·작품은 남는다). 다만 이 설계만 담은
+        탐색 작품(파일·배치 예시 없음)은 빈 작품이 되므로 함께 지운다 (소개 글은 작품을 지울 때처럼 남긴다).
+        사육 환경 행은 다른 설계나 설계 화면이 다시 쓸 수 있어 남긴다. 사용량 기록도 남는다
+        (지우고 다시 만들어 하루 상한을 피하지 못하게)."""
+        d = self.get_editable_design(db, design_id, user)
+        did = d.id
+        db.execute(update(Post).where(Post.design_id == did).values(design_id=None, design_version=None))
+        for item in db.scalars(select(MarketItem).where(MarketItem.design_id == did)):
+            if item.files or item.layout:
+                item.design_id = item.design_version = None
+            else:
+                db.execute(delete(MarketEvent).where(MarketEvent.item_id == item.id))
+                db.delete(item)
+        db.execute(update(WaitlistEntry).where(WaitlistEntry.design_id == did).values(design_id=None, version=None))
+        db.delete(d)  # 버전은 함께 지워진다 (cascade)
+        db.commit()
+        # 메시 캐시는 DB 에서 지운 뒤에 지운다 (지우는 도중 실패해도 DB 와 어긋나지 않게: 캐시는 다시 만들 수 있다)
+        shutil.rmtree(self.mesh_dir / did, ignore_errors=True)
 
     def list_designs(self, db: Session, user: User, page: int, page_size: int) -> DesignListOut:
         """내 설계 목록 (최근 수정순). 관리자는 소유자가 없는 옛 설계도 함께 본다."""

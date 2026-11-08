@@ -141,6 +141,7 @@ export const api = {
     request<Design>("/designs", { method: "POST", body: JSON.stringify({ habitat_id: habitatId, prompt }) }),
   getDesign: (id: string, version?: number) =>
     request<Design>(`/designs/${encodeURIComponent(id)}${version ? `?version=${version}` : ""}`),
+  deleteDesign: (id: string) => request<void>(`/designs/${encodeURIComponent(id)}`, json("DELETE")),
   reviseDesign: (id: string, prompt: string, baseVersion?: number) =>
     request<Design>(`/designs/${encodeURIComponent(id)}/revise`, {
       method: "POST",

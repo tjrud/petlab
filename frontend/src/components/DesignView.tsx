@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import DesignLoadError from "@/components/designs/DesignLoadError";
@@ -26,6 +27,7 @@ const CageViewer = dynamic(() => import("@/components/CageViewer"), {
  * (다른 사람에게는 커뮤니티 글에 첨부된 버전만 오고, 관리자도 남의 설계는 고치거나 공유하지 못한다).
  */
 export default function DesignView({ id, initialVersion }: { id: string; initialVersion?: number }) {
+  const router = useRouter();
   const [design, setDesign] = useState<Design | null>(null);
   const [loadError, setLoadError] = useState<{ status: number; message: string } | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
@@ -119,7 +121,7 @@ export default function DesignView({ id, initialVersion }: { id: string; initial
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
       <div className="min-w-0 space-y-3">
-        <DesignTitleBar design={design} />
+        <DesignTitleBar design={design} onDeleted={() => router.replace("/designs")} />
         <div
           data-testid="viewer"
           className="h-[420px] overflow-hidden rounded-2xl border border-amber-200 bg-white sm:h-[560px]"

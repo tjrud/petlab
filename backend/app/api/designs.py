@@ -50,6 +50,14 @@ def revise_design(design_id: str, data: DesignReviseIn, request: Request, db: Se
     return svc.design_out(db, design, version, user)
 
 
+@router.delete("/{design_id}", status_code=status.HTTP_204_NO_CONTENT,
+               summary="설계 삭제 (모든 버전, 소유자만). 첨부된 커뮤니티 글·탐색 작품에서는 연결만 끊는다")
+def delete_design(design_id: str, db: Session = Depends(get_db), svc: DesignService = Depends(get_service),
+                  user: User = Depends(get_current_user)):
+    svc.delete_design(db, design_id, user)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 # 아래 조회 API 는 커뮤니티 글에 첨부된 버전이라면 로그인 없이도 볼 수 있다 (그 밖에는 소유자·관리자만, 아니면 404)
 @router.get("/{design_id}", response_model=DesignOut, summary="설계 조회 (버전 지정 가능)")
 def get_design(design_id: str, version: int | None = Query(default=None, ge=1, le=2**31 - 1),
