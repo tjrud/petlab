@@ -156,6 +156,10 @@ test("탐색: 이미지 없이 올린 작품은 올린 사람이 3D 모습으로
   await page.getByRole("button", { name: "이 3D 모습으로 대표 이미지 만들기" }).click();
   await expect(page.getByRole("img", { name: "이미지 없는 STL 미리보기" })).toBeVisible({ timeout: 30_000 });
   await expect(page.getByRole("button", { name: "이 3D 모습으로 대표 이미지 만들기" })).toHaveCount(0);
+  // 3D 파일로 자동으로 만든 이미지는 다시 만들 수 있다 (렌더 모습이 바뀌었을 때)
+  const oldSrc = await page.getByRole("img", { name: "이미지 없는 STL 미리보기" }).getAttribute("src");
+  await page.getByRole("button", { name: "이 3D 모습으로 대표 이미지 다시 만들기" }).click();
+  await expect.poll(() => page.getByRole("img", { name: "이미지 없는 STL 미리보기" }).getAttribute("src"), { timeout: 30_000 }).not.toBe(oldSrc);
 });
 
 test("탐색 3D 미리보기: 처음 몇 초만 천천히 돌다 멈추고, 만지면 바로 멈춘다. 움직임 줄이기 설정이면 돌지 않는다", async ({ page, browser }) => {
@@ -225,4 +229,39 @@ test("탐색 3D 미리보기: 가벼운 미리보기 메시를 받지 못하면 
   // 작은 원본(10MB 이하)은 묻지 않고 바로 원본으로
   await expect(page.getByText(/6×6×6cm · 끌어서 돌려 볼 수 있어요/)).toBeVisible({ timeout: 30_000 });
   expect(asked).toContain("mesh");
+});
+
+test("가상 케이지: '화면 이동'을 켜면 빈 곳을 끌어 화면을 옮기고, 구조물은 그대로다", async ({ page }) => {
+  await page.goto("/cage");
+  await page.getByRole("button", { name: "다방 은신처 추가" }).click();
+  await expect(status(page)).toHaveText("케이지 1000×500×500mm · 구조물 1개");
+  const xBefore = await page.getByLabel("가로 위치 (mm)").inputValue();
+  const canvas = page.locator("canvas");
+  const box = (await canvas.boundingBox())!;
+  const still = async () => {
+    const a = await canvas.screenshot();
+    await page.waitForTimeout(400);
+    return (await canvas.screenshot()).equals(a);
+  };
+  await expect.poll(still, { timeout: 15_000 }).toBe(true);
+  const before = await canvas.screenshot();
+
+  const toggle = page.getByRole("button", { name: "화면 이동" });
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByText("빈 곳 끌기: 화면 이동")).toBeVisible();
+  // 빈 곳(왼쪽 위 배경)을 끈다
+  const sx = box.x + box.width * 0.12;
+  const sy = box.y + box.height * 0.3;
+  await page.mouse.move(sx, sy);
+  await page.mouse.down();
+  for (let i = 1; i <= 8; i++) await page.mouse.move(sx + i * 15, sy + i * 6, { steps: 2 });
+  await page.mouse.up();
+  // 감속(damping)은 프레임 수로 멈추므로 느린 환경에서는 오래 걸린다. 멈출 때까지 기다리지 않고 화면이 바뀌었는지만 본다
+  await expect.poll(async () => (await canvas.screenshot()).equals(before), { timeout: 15_000 }).toBe(false);
+  await expect(page.getByLabel("가로 위치 (mm)")).toHaveValue(xBefore);
+
+  // 시점 버튼을 다시 누르면 처음 화면으로
+  await page.getByRole("button", { name: "3D", exact: true }).click();
+  await expect.poll(still, { timeout: 45_000 }).toBe(true);
 });

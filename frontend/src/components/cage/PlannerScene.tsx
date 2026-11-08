@@ -32,6 +32,8 @@ type Props = {
   view: CameraView;
   /** 바뀌면 카메라를 다시 맞춰요 (같은 시점 버튼을 다시 눌렀을 때) */
   viewNonce: number;
+  /** 화면 이동 모드: 빈 곳을 왼쪽 버튼(한 손가락)으로 끌면 회전 대신 화면이 움직여요 */
+  panMode?: boolean;
   onSelect: (id: string | null) => void;
   onDragStart: (id: string) => void;
   onDrag: (id: string, x: number, y: number) => void;
@@ -45,6 +47,33 @@ const groundAt = (z: number) => new THREE.Plane(new THREE.Vector3(0, 1, 0), -z);
 const NO_POINTER = { pointerEvents: "none" } as const;
 
 type Controls = { enabled: boolean; target: THREE.Vector3; update: () => void };
+
+/** 화면을 옮겨도 케이지가 화면 밖으로 사라지지 않게, 돌려 보는 기준점을 케이지 둘레 안으로 묶어요 */
+function PanLimit({ cage }: { cage: Cage }) {
+  const getState = useThree((s) => s.get);
+  const controlsReady = useThree((s) => s.controls !== null);
+  const { width_mm: W, depth_mm: D, height_mm: H } = cage;
+  useEffect(() => {
+    const controls = getState().controls as unknown as (Controls & THREE.EventDispatcher<{ change: object }>) | null;
+    if (!controls) return;
+    const m = Math.max(W, D, H) * 0.25;
+    // 높이에도 여유를 둔다: 낮고 넓은 케이지는 화면 맞추기(CameraRig)가 기준점을 바닥 아래·천장 위로 옮기기도 한다
+    const lo = new THREE.Vector3(-m, -m, -D - m);
+    const hi = new THREE.Vector3(W + m, H + m, m);
+    const camera = getState().camera;
+    const onChange = () => {
+      const t = controls.target;
+      const clamped = t.clone().clamp(lo, hi);
+      if (clamped.equals(t)) return;
+      // 기준점을 되돌린 만큼 카메라도 함께 옮겨 보는 방향은 그대로
+      camera.position.add(clamped.clone().sub(t));
+      t.copy(clamped);
+    };
+    controls.addEventListener("change", onChange);
+    return () => controls.removeEventListener("change", onChange);
+  }, [getState, controlsReady, W, D, H]);
+  return null;
+}
 
 /** 시점별 카메라 방향 (Y-up, 케이지 앞쪽이 +Z) */
 const VIEW_DIR: Record<CameraView, () => THREE.Vector3> = {
@@ -387,6 +416,7 @@ export default function PlannerScene({
   rules,
   view,
   viewNonce,
+  panMode = false,
   onSelect,
   onDragStart,
   onDrag,
@@ -478,7 +508,23 @@ export default function PlannerScene({
           </group>
         )}
       </group>
-      <OrbitControls makeDefault maxPolarAngle={Math.PI / 2.05} minDistance={S * 0.25} maxDistance={S * 4} />
+      {/* 빈 곳 끌기: 회전(화면 이동 모드면 이동) · 오른쪽 버튼이나 Shift·Ctrl 끌기: 이동 · 휠: 확대·축소.
+          손가락: 한 손가락 회전(이동 모드면 이동), 두 손가락 이동·확대 */}
+      <OrbitControls
+        makeDefault
+        enablePan
+        screenSpacePanning
+        mouseButtons={{
+          LEFT: panMode ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE,
+          MIDDLE: THREE.MOUSE.DOLLY,
+          RIGHT: THREE.MOUSE.PAN,
+        }}
+        touches={{ ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN }} // 화면 이동 버튼은 넓은 화면에만 있어 터치는 늘 한 손가락 회전·두 손가락 이동
+        maxPolarAngle={Math.PI / 2.05}
+        minDistance={S * 0.25}
+        maxDistance={S * 4}
+      />
+      <PanLimit cage={cage} />
       <CameraRig cage={cage} view={view} nonce={viewNonce} insets={insets} />
     </Canvas>
   );

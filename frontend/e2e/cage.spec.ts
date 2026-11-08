@@ -750,7 +750,7 @@ test("가상 케이지 상단 줄·3D 위 도구 모음: 종·크기 선택, 저
   }
   await expect(page.getByRole("button", { name: "↶ 되돌리기" })).toHaveAttribute("title", "되돌리기 (Ctrl+Z)");
   await expect(page.getByRole("button", { name: "↷ 다시 하기" })).toHaveAttribute("title", "다시 하기 (Ctrl+Shift+Z)");
-  await expect(page.getByText("끌어서 옮기기 · R 90° 회전 · Q/E 15° · 방향키 1cm(Shift 1mm) · Del 삭제")).toBeVisible();
+  await expect(page.getByText("구조물 끌기: 옮기기 · R 90° 회전 · Q/E 15° · 방향키 1cm(Shift 1mm) · Del 삭제")).toBeVisible();
   await expect(status(page)).toHaveText("케이지 1000×500×500mm · 구조물 1개");
 });
 

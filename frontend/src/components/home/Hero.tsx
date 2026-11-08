@@ -29,12 +29,12 @@ export default function Hero() {
       aria-labelledby="hero-title"
       className="overflow-hidden rounded-3xl border border-amber-200 bg-linear-to-br from-amber-50 via-white to-teal-50 px-5 py-8 sm:px-10 sm:py-12"
     >
-      <div className="grid items-center gap-8 md:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 items-center gap-8 md:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
         <div>
           <p className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900 sm:text-sm">
             햄스터 케이지 맞춤 구조물
           </p>
-          <h1 id="hero-title" className="mt-4 text-balance text-3xl font-bold leading-tight sm:text-4xl lg:text-5xl">
+          <h1 id="hero-title" className="mt-4 text-balance text-[1.75rem] font-bold leading-tight sm:text-4xl lg:text-5xl">
             필요한 구조물을 적어 보세요
           </h1>
           <p className="mt-4 max-w-xl text-pretty text-stone-600 sm:text-lg">
@@ -42,26 +42,29 @@ export default function Hero() {
             파일(STL·3MF)로 받을 수 있어요.
           </p>
 
-          {/* 검색창처럼 한 줄로 적고 바로 설계하기로 넘어간다 (자바스크립트 없이도 동작하는 GET 폼) */}
+          {/* 검색창처럼 한 줄로 적고 바로 설계하기로 넘어간다 (자바스크립트 없이도 동작하는 GET 폼).
+              좁은 화면에서는 입력칸 아래에 버튼을 꽉 차게 두어 예시 문장이 잘리지 않게 한다 */}
           <form action="/design" method="get" role="search" aria-label="맞춤 설계 요청" className="mt-7 max-w-xl">
-            <div className="flex items-center gap-2 rounded-full border border-stone-300 bg-white py-1.5 pl-4 pr-1.5 shadow-sm transition focus-within:border-amber-400 focus-within:shadow-md focus-within:ring-2 focus-within:ring-amber-200">
-              <IconSearch className="h-5 w-5 shrink-0 text-stone-400" />
-              <input
-                type="search"
-                name="prompt"
-                aria-label="원하는 구조물"
-                placeholder="예: 환기구가 있는 은신처를 만들어 주세요"
-                maxLength={2000}
-                autoComplete="off"
-                enterKeyHint="go"
-                className="min-w-0 flex-1 bg-transparent py-2 text-base outline-none placeholder:text-stone-400"
-              />
+            <div className="flex flex-col gap-1.5 rounded-2xl border border-stone-300 bg-white p-1.5 shadow-sm transition focus-within:border-amber-400 focus-within:shadow-md focus-within:ring-2 focus-within:ring-amber-200 sm:flex-row sm:items-center sm:gap-2 sm:rounded-full sm:py-1.5 sm:pl-4">
+              <div className="flex min-w-0 flex-1 items-center gap-2 px-2.5 sm:px-0">
+                <IconSearch className="h-5 w-5 shrink-0 text-stone-400" />
+                <input
+                  type="search"
+                  name="prompt"
+                  aria-label="원하는 구조물"
+                  placeholder="예: 환기구가 있는 은신처"
+                  maxLength={2000}
+                  autoComplete="off"
+                  enterKeyHint="go"
+                  className="w-0 min-w-0 flex-1 bg-transparent py-2 text-base outline-none placeholder:text-stone-400"
+                />
+              </div>
               <button
                 type="submit"
-                className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-500 px-4 py-2.5 font-semibold text-white hover:bg-amber-600 sm:px-5"
+                className="inline-flex shrink-0 items-center justify-center gap-1 rounded-xl bg-amber-500 px-4 py-2.5 font-semibold text-white hover:bg-amber-600 sm:rounded-full sm:px-5"
               >
                 설계하기
-                <IconArrowRight className="hidden h-4 w-4 sm:block" />
+                <IconArrowRight className="h-4 w-4" />
               </button>
             </div>
           </form>

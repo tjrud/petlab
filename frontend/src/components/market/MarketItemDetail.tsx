@@ -108,6 +108,8 @@ export default function MarketItemDetail({ id }: { id: string }) {
   const meshFiles = it.files.filter(previewable);
   const preview = meshFiles.find((f) => f.id === previewId) ?? meshFiles[0] ?? null;
   const hasSkp = it.files.some((f) => f.format === "skp");
+  /** 3D 파일로 자동으로 만든 대표 이미지인지 (thumbnailFile 이 붙이는 이름) */
+  const autoImage = !!it.image && /-미리보기\.(webp|png|jpg)$/.test(it.image.filename);
   // 받을 크기: 가벼운 미리보기 메시가 있으면 그 크기 (보통 1MB 안팎이라 바로 보여 준다)
   const loadBytes = preview ? (preview.preview_size && canDecodeNfm() ? preview.preview_size : preview.size) : 0;
   const show3d = !!preview && (opened3d || (loadBytes <= AUTO_3D_BYTES && !saveData()));
@@ -259,9 +261,14 @@ export default function MarketItemDetail({ id }: { id: string }) {
             <p className="text-xs text-stone-500">
               가상 케이지에 놓으면 지금 작업 중인 케이지의 빈 자리에 실제 크기로 들어가요. 저장은 가상 케이지에서 해요.
             </p>
-            {it.can_edit && !it.image && !glUnavailable && (
+            {/* 대표 이미지가 없거나 3D 파일로 자동으로 만든 것이면, 올린 사람이 지금 3D 모습으로 (다시) 만들 수 있다 */}
+            {it.can_edit && (!it.image || autoImage) && !glUnavailable && (
               <button type="button" className={ui.btnSecondary} onClick={() => void makeImage(preview)} disabled={thumbBusy}>
-                {thumbBusy ? "대표 이미지 만드는 중…" : "이 3D 모습으로 대표 이미지 만들기"}
+                {thumbBusy
+                  ? "대표 이미지 만드는 중…"
+                  : it.image
+                    ? "이 3D 모습으로 대표 이미지 다시 만들기"
+                    : "이 3D 모습으로 대표 이미지 만들기"}
               </button>
             )}
           </section>
@@ -299,21 +306,24 @@ export default function MarketItemDetail({ id }: { id: string }) {
                   <span className="grid h-10 w-12 shrink-0 place-items-center rounded-lg bg-stone-100 text-xs font-bold text-stone-600">
                     {FORMAT_LABEL[f.format] ?? f.format.toUpperCase()}
                   </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium">{f.filename}</span>
+                  {/* 좁은 화면에서는 파일 이름·크기를 한 줄로 두고 버튼은 아래 줄에 나눠 놓는다 */}
+                  <span className="min-w-[10rem] flex-1">
+                    <span className="block break-all text-sm font-medium">{f.filename}</span>
                     <span className="block text-xs text-stone-500">
                       {formatBytes(f.size)}
                       {FORMAT_HINT[f.format] ? ` · ${FORMAT_HINT[f.format]}` : ""}
                     </span>
                   </span>
-                  {previewable(f) && (
-                    <Link href={cageAddHref(f.id)} className={ui.btnSecondary} aria-label={`${f.filename} 케이지에 놓기`}>
-                      케이지에 놓기
-                    </Link>
-                  )}
-                  <a href={api.marketUrl(f.download_url)} className={ui.btnPrimary} aria-label={`${f.filename} 내려받기`}>
-                    내려받기
-                  </a>
+                  <span className="flex w-full gap-2 *:flex-1 *:text-center sm:w-auto sm:*:flex-none">
+                    {previewable(f) && (
+                      <Link href={cageAddHref(f.id)} className={ui.btnSecondary} aria-label={`${f.filename} 케이지에 놓기`}>
+                        케이지에 놓기
+                      </Link>
+                    )}
+                    <a href={api.marketUrl(f.download_url)} className={ui.btnPrimary} aria-label={`${f.filename} 내려받기`}>
+                      내려받기
+                    </a>
+                  </span>
                 </li>
               ))}
             </ul>

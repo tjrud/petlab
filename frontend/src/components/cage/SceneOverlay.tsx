@@ -24,6 +24,8 @@ export default function SceneOverlay({
   onGrid,
   magnet,
   onMagnet,
+  panMode,
+  onPanMode,
   canUndo,
   canRedo,
   onUndo,
@@ -40,6 +42,9 @@ export default function SceneOverlay({
   onGrid: (on: boolean) => void;
   magnet: boolean;
   onMagnet: (on: boolean) => void;
+  /** 화면 이동 모드 (빈 곳을 끌면 회전 대신 이동) */
+  panMode: boolean;
+  onPanMode: (on: boolean) => void;
   canUndo: boolean;
   canRedo: boolean;
   onUndo: () => void;
@@ -96,6 +101,18 @@ export default function SceneOverlay({
             </button>
           ))}
         </div>
+        {/* 화면 이동: 마우스·트랙패드로 왼쪽 끌기만 할 때를 위해 (휴대폰은 두 손가락으로 끌면 이동) */}
+        <button
+          type="button"
+          aria-pressed={panMode}
+          onClick={() => onPanMode(!panMode)}
+          title="켜면 빈 곳을 끌어 화면을 옮겨요(Shift를 누르고 끌면 돌려요). 끄면 돌리고, 오른쪽 버튼이나 Shift를 누르고 끌면 옮겨요"
+          className={`hidden rounded-lg border px-2.5 py-1.5 text-xs shadow-sm sm:block ${
+            panMode ? "border-amber-400 bg-amber-100 font-semibold text-amber-900" : "border-stone-200 bg-white/90 text-stone-600 hover:bg-stone-50"
+          }`}
+        >
+          화면 이동
+        </button>
         <label className="flex items-center gap-1 rounded-lg border border-stone-200 bg-white/90 px-2 py-1.5 text-xs text-stone-600 shadow-sm">
           <input type="checkbox" checked={grid} onChange={(e) => onGrid(e.target.checked)} />
           1cm 격자
@@ -163,8 +180,13 @@ export default function SceneOverlay({
         <p className="font-semibold text-stone-800">
           케이지 {cage.width_mm}×{cage.depth_mm}×{cage.height_mm}mm · 구조물 {itemCount}개
         </p>
-        <p className="hidden sm:block">끌어서 옮기기 · R 90° 회전 · Q/E 15° · 방향키 1cm(Shift 1mm) · Del 삭제</p>
-        <p className="sm:hidden">구조물을 끌어서 옮기고, 아래 패널에서 돌려요</p>
+        <p className="hidden sm:block">구조물 끌기: 옮기기 · R 90° 회전 · Q/E 15° · 방향키 1cm(Shift 1mm) · Del 삭제</p>
+        <p className="hidden sm:block">
+          {panMode
+            ? "빈 곳 끌기: 화면 이동 · Shift 끌기: 돌려 보기 · 휠: 확대"
+            : "빈 곳 끌기: 돌려 보기 · 오른쪽 버튼·Shift 끌기: 화면 이동 · 휠: 확대"}
+        </p>
+        <p className="sm:hidden">구조물을 끌어서 옮기고, 두 손가락으로 화면을 옮기거나 확대해요</p>
       </div>
     </>
   );
