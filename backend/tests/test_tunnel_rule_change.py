@@ -69,6 +69,7 @@ def test_old_design_viewable_with_warning(tmp_path):
         notes = _rule_changed(g.json())
         assert len(notes) == 1 and notes[0]["severity"] == "warning"
         assert notes[0]["details"]["field"] == "length_mm" and notes[0]["details"]["max"] == 100
+        assert "막지는 않" in notes[0]["message_ko"]
         assert cur["validation"]["summary"]["warnings"] >= 1 and cur["validation"]["summary"]["errors"] == 0
         assert c.get(f"/designs/{d['id']}/export?format=stl").status_code == 200
         assert c.get(f"/designs/{d['id']}/export?format=3mf").status_code == 200

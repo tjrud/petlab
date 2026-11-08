@@ -573,16 +573,20 @@ class DesignService:
                 for i in stored_issues if i.get("code") == "rule_changed"}
         try:
             rctx = self._engine_ctx(design.habitat).rule_ctx
-            out: list[dict] = []
-            for it in v.items:
-                t = get_template(it["template"])
-                for n in rule_change_notices(t, t.load_stored_params(it["params"]), rctx, it["index"], it["label_ko"]):
-                    if (n.item_index, n.details.get("field")) not in seen:
-                        out.append(n.model_dump(mode="json"))
-            return out
-        except Exception:
-            log.exception("rule-change check failed: design=%s v=%s", design.id, v.version)
+        except KeyError:  # 규칙 파일에서 빠진 종·크기: 비교할 기준이 없다
             return []
+        out: list[dict] = []
+        for it in v.items:  # 구조물 하나를 검사하지 못해도 나머지는 알린다
+            try:
+                t = get_template(it["template"])
+                notices = rule_change_notices(t, t.load_stored_params(it["params"]), rctx, it["index"], it["label_ko"])
+            except Exception:
+                log.warning("rule-change check skipped: design=%s v=%s item=%s", design.id, v.version,
+                            it.get("index"), exc_info=True)
+                continue
+            out.extend(n.model_dump(mode="json") for n in notices
+                       if (n.item_index, n.details.get("field")) not in seen)
+        return out
 
     # ── 메시 / 내보내기 ──────────────────────────────────────
 

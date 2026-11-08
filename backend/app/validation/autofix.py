@@ -171,8 +171,8 @@ def _rule_changed(cls: type[TemplateParams], label: str, c: ParamConstraint, v: 
         code="rule_changed",
         severity=Severity.warning,
         item_index=item_index,
-        message_ko=(f"{label}: {_desc(cls, c.field)} {_fmt(v)} 이(가) 지금 기준을 넘습니다. {c.reason_ko} "
-                    "이 버전은 그대로 내려받을 수 있고, 설계를 수정하면 새 기준으로 맞춰집니다.").strip(),
+        message_ko=(f"{label}: {_desc(cls, c.field)} {_fmt(v)} 이(가) 지금 기준을 넘습니다. {c.reason_ko.rstrip('.')}. "
+                    "이 기준은 이 버전을 저장한 뒤에 생겨 이 버전을 막지는 않으며, 설계를 수정하면 새 기준으로 맞춰집니다."),
         details={"field": c.field, "value": v, "min": c.min, "max": c.max},
     )
 

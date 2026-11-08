@@ -112,7 +112,8 @@ def test_tunnel_max_length_rule(rules, size):
     stored = constraint_violations(TUNNEL, too_long, c)
     assert [(i.code, i.severity.value, i.details["field"]) for i in stored] == [("rule_changed", "warning", "length_mm")]
     assert stored[0].details["max"] == pytest.approx(max_len)
-    assert "그대로 내려받을 수 있" in stored[0].message_ko
+    assert "막지는 않" in stored[0].message_ko and "내려받을 수 있" not in stored[0].message_ko
+    assert "). 이 기준은" in stored[0].message_ko  # 까닭과 안내 사이에 마침표
 
 
 def test_dwarf_u_tunnel_reason_names_max_length(rules):
@@ -126,6 +127,15 @@ def test_dwarf_u_tunnel_reason_names_max_length(rules):
     assert fixed.bend_angle_deg < 180 and end_side(fixed.bend_angle_deg) != "front"
     bend = [i for i in issues if i.details.get("field") == "bend_angle_deg"]
     assert bend and "U자" in bend[0].message_ko and f"{c.size.tunnel_max_length_mm:g}mm" in bend[0].message_ko
+    # 최대 길이보다 짧은 터널에서 U자를 요청해도(예: '작은 U자 터널') 까닭을 밝힌다
+    short = TunnelParams(length_mm=85, inner_diameter_mm=55, bend_angle_deg=180, wall_thickness_mm=3)
+    _, issues2 = clamp_params(TUNNEL, short, c)
+    msg = next(i.message_ko for i in issues2 if i.details.get("field") == "bend_angle_deg")
+    assert "U자" in msg and "지금 길이로는" in msg
+    # 최대 길이 안에서 닿는 각도면 일반 문구 (U자 언급 없음)
+    reachable = TunnelParams(length_mm=85, inner_diameter_mm=55, bend_angle_deg=100, wall_thickness_mm=3)
+    _, issues3 = clamp_params(TUNNEL, reachable, c)
+    assert all("U자" not in i.message_ko for i in issues3)
     # 골든은 최대 길이 250mm 라 내경 70~75 에서 U자가 된다
     cs = ctx(rules, "syrian")
     u = TunnelParams(length_mm=250, inner_diameter_mm=75, bend_angle_deg=180, wall_thickness_mm=3)

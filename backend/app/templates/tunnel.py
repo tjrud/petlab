@@ -121,10 +121,12 @@ class TunnelTemplate(Template):
         else:
             min_reason = "터널 길이는 내경의 1.5배 이상이어야 합니다"
         bend_max = math.degrees(p.length_mm / d)
-        if p.length_mm >= max_len - 1e-6 and bend_max < 180:
-            # 더 길게 만들 수 없어 휨 각도가 막힌 경우: 까닭(최대 길이)을 밝힌다
-            bend_reason = (f"{s.display_name} 터널은 최대 {max_len:g}mm 라 이 내경으로는 {bend_max:.0f}° 까지만 "
-                           "휠 수 있습니다 (U자는 만들 수 없어 끝 출입구 방향이 바뀔 수 있습니다)")
+        bend_at_max = math.degrees(max_len / d)  # 최대 길이까지 늘렸을 때의 휨 한계
+        if p.bend_angle_deg > bend_at_max + 1e-6:
+            # 최대 길이로 늘려도 닿지 않는 각도: 까닭(최대 길이)을 밝힌다
+            now = "" if p.length_mm >= max_len - 1e-6 else f"지금 길이로는 {bend_max:.0f}°, "
+            bend_reason = (f"{now}{s.display_name} 터널은 최대 {max_len:g}mm 라 이 내경으로는 {min(180.0, bend_at_max):.0f}° "
+                           "까지만 휠 수 있습니다 (U자는 만들 수 없어 끝 출입구 방향이 바뀔 수 있습니다)")
         else:
             bend_reason = "굽힘이 너무 급하면 몸이 돌아 나가기 어려워 휘는 각도를 줄였습니다"
         return [
