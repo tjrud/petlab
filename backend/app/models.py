@@ -286,6 +286,10 @@ class MarketFile(Base):
     url: Mapped[str | None] = mapped_column(String(500), nullable=True)  # Vercel Blob 공개 주소 (로컬 저장이면 없음)
     # STL·3MF 의 외곽 크기 [x, y, z] mm (가상 케이지에 놓을 때). SKP·이미지는 없음
     dims_mm: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # 3D 미리보기용 가벼운 메시 (mesh_preview.py, NFM1). preview_size 가 있으면 만들어 둔 것.
+    # preview_url 은 Blob 공개 주소 (로컬 저장이면 없음 → API 경로로 내보낸다)
+    preview_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    preview_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # 공유한 배치 예시에 들어 있어 누구나 볼 수 있는 파일 (작품에 붙지 않았어도)
     shared: Mapped[bool | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

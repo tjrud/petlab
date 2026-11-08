@@ -99,6 +99,17 @@ def _age_days(item: MarketItem, now: datetime) -> float:
     return max(0.0, (now - created).total_seconds() / 86400)
 
 
+VIEWABLE_FORMATS = {"stl", "3mf"}
+
+
+def _hands_on(item: MarketItem) -> float:
+    """바로 써 볼 수 있는 작품에 주는 점수: 3D 로 미리 보고 가상 케이지에 놓아 볼 수 있으면(STL·3MF·배치) 크게,
+    미리보기 이미지가 있으면 조금 (SKP 만 있는 작품은 내려받아 SketchUp 으로 열어야 보인다)"""
+    viewable = bool(item.layout) or any(f.kind == "model" and f.format in VIEWABLE_FORMATS and f.dims_mm for f in item.files)
+    has_image = any(f.kind == "image" for f in item.files)
+    return (1.0 if viewable else 0.0) + (0.3 if has_image else 0.0)
+
+
 def recommend(db: Session, user: User | None, limit: int = 12) -> list[tuple[MarketItem, str]]:
     items = db.scalars(
         select(MarketItem).options(selectinload(MarketItem.owner), selectinload(MarketItem.files))
@@ -107,13 +118,19 @@ def recommend(db: Session, user: User | None, limit: int = 12) -> list[tuple[Mar
     now = datetime.now(timezone.utc)
     prof = profile(db, user) if user else None
     scored: list[tuple[float, MarketItem, str]] = []
+    mine: list[tuple[float, MarketItem, str]] = []
     for it in items:
-        if user and it.owner_id == user.id:
-            continue
         popular = 0.6 * math.log1p(it.download_count)
         fresh = math.exp(-_age_days(it, now) / 30)
-        score = popular + fresh
+        hands_on = _hands_on(it)
+        score = popular + fresh + hands_on
         reason = "많이 내려받은 작품" if popular > fresh else "새로 올라온 작품"
+        if hands_on >= 1.0 and hands_on > popular:
+            reason = "3D로 보고 가상 케이지에 놓아 볼 수 있어요"
+        if user and it.owner_id == user.id:
+            # 내 작품은 다른 사람 작품으로 다 채우지 못할 때만 뒤에 붙인다
+            mine.append((score, it, "내가 올린 작품"))
+            continue
         if prof:
             parts = {
                 "designs": 2.0 * prof["designs"].get(it.category, 0.0),
@@ -140,4 +157,5 @@ def recommend(db: Session, user: User | None, limit: int = 12) -> list[tuple[Mar
                 score -= 1.5
         scored.append((score, it, reason))
     scored.sort(key=lambda t: (-t[0], t[1].id))
-    return [(it, reason) for _, it, reason in scored[:limit]]
+    mine.sort(key=lambda t: (-t[0], t[1].id))
+    return [(it, reason) for _, it, reason in (scored + mine)[:limit]]

@@ -14,6 +14,7 @@ import {
   type MeshFormat,
   type MeshPart,
 } from "@/components/three/FileMesh";
+import { decodeNfm } from "@/lib/nfm";
 import { EDGE_STYLE, fitCamera, MODEL_COLOR, OUTLINE_STYLE, PREVIEW_BG, samplePoints } from "@/lib/previewLook";
 
 const W = 960;
@@ -21,9 +22,11 @@ const H = 720;
 /** 목록 카드에서는 조금 더 크게 채운다 */
 const FILL = 0.78;
 
-export const isMeshFormat = (f: string): f is MeshFormat => f === "stl" || f === "3mf";
+export { isMeshFormat } from "@/lib/meshUrl";
 
-function parse(buffer: ArrayBuffer, format: MeshFormat): MeshPart[] {
+/** format "nfm": 서버가 만든 가벼운 미리보기 메시 (원본보다 수십 배 작다) */
+async function parse(buffer: ArrayBuffer, format: MeshFormat | "nfm"): Promise<MeshPart[]> {
+  if (format === "nfm") return centered([{ geometry: await decodeNfm(buffer), matrix: new THREE.Matrix4() }]);
   if (format === "stl") {
     const g = new STLLoader().parse(buffer);
     g.computeVertexNormals();
@@ -33,8 +36,8 @@ function parse(buffer: ArrayBuffer, format: MeshFormat): MeshPart[] {
 }
 
 /** 비스듬히 위에서 본 모습을 그린다. 그릴 수 없으면(형상이 비었거나 WebGL 이 없으면) null */
-export async function renderMeshThumbnail(buffer: ArrayBuffer, format: MeshFormat): Promise<Blob | null> {
-  const parts = parse(buffer, format);
+export async function renderMeshThumbnail(buffer: ArrayBuffer, format: MeshFormat | "nfm"): Promise<Blob | null> {
+  const parts = await parse(buffer, format);
   if (!parts.length) return null;
   const canvas = document.createElement("canvas");
   let renderer: THREE.WebGLRenderer;

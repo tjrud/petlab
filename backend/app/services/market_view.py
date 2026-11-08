@@ -12,9 +12,11 @@ def file_out(f: MarketFile) -> MarketFileOut:
     view = (f.url or f"/market/files/{f.id}/view") if f.kind == "image" else None
     # 3D 로 불러올 주소: Blob 공개 주소(쿠키 없이 받는다) 또는 API 경로(로컬 저장소)
     mesh = (f.url or f"/market/files/{f.id}/mesh") if f.format in MESH_FORMATS else None
+    preview = (f.preview_url or f"/market/files/{f.id}/preview") if mesh and f.preview_size else None
     return MarketFileOut(id=f.id, kind=f.kind, filename=f.filename, format=f.format, size=f.size,
                          sha256=f.sha256, download_url=download, view_url=view, dims_mm=f.dims_mm,
-                         mesh_url=mesh, attached=f.item_id is not None or bool(f.shared))
+                         mesh_url=mesh, preview_url=preview, preview_size=f.preview_size if preview else None,
+                         attached=f.item_id is not None or bool(f.shared))
 
 
 def item_models(item: MarketItem) -> list[MarketFile]:

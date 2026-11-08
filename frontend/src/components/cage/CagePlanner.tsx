@@ -33,7 +33,7 @@ import {
 } from "@/lib/cageLayout";
 import { histReducer, metaOf, readDraft, snapshotOf, writeDraft, type Doc, type Meta } from "@/lib/cagePlannerDoc";
 import { withNext } from "@/lib/safeNext";
-import { PREVIEW_BG } from "@/lib/previewLook";
+import { PREVIEW_BG } from "@/lib/previewColors";
 import { uploadMarketFile } from "@/lib/marketUpload";
 import type { Cage, CageLayout, CageLayoutInput, CageLayoutSummary, LayoutItem, LayoutRules, MarketFile, Pet, SpeciesResponse } from "@/lib/types";
 import { ui } from "@/lib/ui";

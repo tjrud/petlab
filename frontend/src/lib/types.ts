@@ -328,6 +328,9 @@ export type MarketFile = {
   dims_mm: [number, number, number] | null;
   /** STL·3MF: 3D 로 불러올 주소 ("/" 로 시작하면 API 경로) */
   mesh_url: string | null;
+  /** 3D 미리보기용 가벼운 메시(NFM1)와 그 크기 (있으면 원본 대신 받는다) */
+  preview_url: string | null;
+  preview_size: number | null;
   /** 작품에 붙었거나 공유한 배치에 들어 있어 누구나 볼 수 있는지 */
   attached: boolean;
 };

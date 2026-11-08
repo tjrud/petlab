@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from pydantic import BaseModel
 
-from app.domain import Cage
 from app.rules.loader import SizeRules
+
+if TYPE_CHECKING:
+    from app.domain import Cage
 
 
 @dataclass(frozen=True)

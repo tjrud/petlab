@@ -7,7 +7,8 @@ import type { MarketItemSummary } from "@/lib/types";
 import { formatDate } from "@/lib/ui";
 
 /** 탐색 목록의 작품 카드 */
-export default function MarketItemCard({ item }: { item: MarketItemSummary }) {
+/** eager: 첫 줄 카드는 이미지를 미리 받는다 (나머지는 화면에 들어올 때) */
+export default function MarketItemCard({ item, eager = false }: { item: MarketItemSummary; eager?: boolean }) {
   return (
     <li>
       <Link
@@ -16,7 +17,13 @@ export default function MarketItemCard({ item }: { item: MarketItemSummary }) {
       >
         <div className="aspect-[4/3] w-full overflow-hidden bg-stone-100">
           {item.image ? (
-            <img src={imageSrc(item.image)} alt="" loading="lazy" className="h-full w-full object-cover transition group-hover:scale-[1.02]" />
+            <img
+              src={imageSrc(item.image)}
+              alt=""
+              loading={eager ? "eager" : "lazy"}
+              fetchPriority={eager ? "high" : "auto"}
+              decoding="async"
+              className="h-full w-full object-cover transition group-hover:scale-[1.02]" />
           ) : (
             <NoPreview formats={item.formats} />
           )}

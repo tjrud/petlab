@@ -117,16 +117,33 @@ def _fold(batch: list[tuple[bytes, bytes, bytes]], lo: np.ndarray, hi: np.ndarra
     return np.minimum(lo, a.min(axis=0)), np.maximum(hi, a.max(axis=0))
 
 
-def _3mf_dims(d: bytes) -> list[float] | None:
-    # zipfile 은 목록에 적힌 크기 이상으로 풀지 않으므로, 목록의 합계로 풀린 크기를 미리 막을 수 있다
-    with zipfile.ZipFile(io.BytesIO(d)) as z:
-        if sum(i.file_size for i in z.infolist()) > MAX_3MF_UNPACKED_BYTES:
-            return None
-    import trimesh  # 무거운 모듈이라 필요할 때만
+def safe_3mf(d: bytes) -> bool:
+    """풀어도 될 3MF 인지 (압축 폭탄 막기). zipfile 은 목록에 적힌 크기 이상으로 풀지 않으므로,
+    목록의 합계로 풀린 크기를 미리 알 수 있다"""
+    try:
+        with zipfile.ZipFile(io.BytesIO(d)) as z:
+            return sum(i.file_size for i in z.infolist()) <= MAX_3MF_UNPACKED_BYTES
+    except zipfile.BadZipFile:
+        return False
 
-    loaded = trimesh.load(io.BytesIO(d), file_type="3mf", force="mesh")
-    lo, hi = np.asarray(loaded.bounds, dtype=float)
+
+def load_3mf(d: bytes):
+    """3MF 를 한 메시로 읽는다 (풀린 크기가 크면 None). trimesh 는 무거워 필요할 때만 불러온다"""
+    if not safe_3mf(d):
+        return None
+    import trimesh
+
+    return trimesh.load(io.BytesIO(d), file_type="3mf", force="mesh")
+
+
+def mesh_extents(mesh) -> list[float] | None:
+    lo, hi = np.asarray(mesh.bounds, dtype=float)
     return _extents(lo, hi)
+
+
+def _3mf_dims(d: bytes) -> list[float] | None:
+    mesh = load_3mf(d)
+    return mesh_extents(mesh) if mesh is not None else None
 
 
 def mesh_dims(fmt: str, data: bytes) -> list[float] | None:

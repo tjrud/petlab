@@ -35,8 +35,8 @@ def hash_password(password: str) -> str:
     return f"scrypt${N}${R}${P}${_b64(salt)}${_b64(digest)}"
 
 
-# 없는 아이디로 로그인할 때도 같은 시간이 걸리도록 비교에 쓰는 더미 해시
-_DUMMY = hash_password("dummy-password-for-timing")
+# 없는 아이디로 로그인할 때도 같은 시간이 걸리도록 비교에 쓰는 더미 해시 (값은 상관없고 N·r·p 만 같으면 된다)
+_DUMMY = f"scrypt${N}${R}${P}$" + base64.b64encode(b"\0" * 16).decode() + "$" + base64.b64encode(b"\0" * 32).decode()
 
 
 def verify_password(password: str, stored: str | None) -> bool:

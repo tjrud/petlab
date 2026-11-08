@@ -11,11 +11,14 @@ import { ThreeMFLoader } from "three/examples/jsm/loaders/3MFLoader.js";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 import { mergeVertices, toCreasedNormals } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
-export type MeshFormat = "stl" | "3mf";
+import { needsCredentials, type MeshFormat } from "@/lib/meshUrl";
+import { canDecodeNfm, NfmLoader } from "@/lib/nfm";
+
+export type { MeshFormat };
 export type MeshPart = { geometry: THREE.BufferGeometry; matrix: THREE.Matrix4 };
 
 /** Blob 공개 주소는 쿠키 없이, API 경로(로컬 저장소)는 로그인 쿠키와 함께 받는다 */
-export const needsCredentials = (url: string) => !url.includes(".blob.vercel-storage.com");
+export { needsCredentials };
 
 /** 불러온 형상들을 바닥 가운데로 옮긴다 */
 export function centered(parts: MeshPart[]): MeshPart[] {
@@ -64,6 +67,13 @@ function StlParts({ url, ...opts }: { url: string } & PartsOptions) {
     geometry.computeVertexNormals();
     return centered([{ geometry, matrix: new THREE.Matrix4() }]);
   }, [geometry]);
+  return <MeshParts parts={parts} {...opts} />;
+}
+
+/** 미리보기용 가벼운 메시 (NFM1). STL 처럼 면마다 법선이 있는 형상으로 온다 */
+function NfmParts({ url, ...opts }: { url: string } & PartsOptions) {
+  const geometry = useLoader(NfmLoader, url, (l) => l.setWithCredentials(needsCredentials(url)));
+  const parts = useMemo(() => centered([{ geometry, matrix: new THREE.Matrix4() }]), [geometry]);
   return <MeshParts parts={parts} {...opts} />;
 }
 
@@ -197,12 +207,13 @@ function MeshParts({ parts, material, edges, outline, onParts, selfShadow = true
   );
 }
 
-const loaderOf = (f: MeshFormat) => (f === "stl" ? STLLoader : ThreeMFLoader);
-let lastPreview: { url: string; format: MeshFormat } | null = null;
+type LoaderKind = MeshFormat | "nfm";
+const loaderOf = (f: LoaderKind) => (f === "nfm" ? NfmLoader : f === "stl" ? STLLoader : ThreeMFLoader);
+let lastPreview: { url: string; format: LoaderKind } | null = null;
 
 /** 미리보기는 마지막에 본 파일만 메모리에 남긴다 (탐색을 둘러보는 동안 큰 메시가 쌓이지 않게).
  * 막 본 파일은 남겨 두므로 "가상 케이지에 놓아 보기"로 넘어가면 다시 받지 않는다 */
-export function keepOnlyPreview(url: string, format: MeshFormat) {
+export function keepOnlyPreview(url: string, format: LoaderKind) {
   if (lastPreview && (lastPreview.url !== url || lastPreview.format !== format)) {
     useLoader.clear(loaderOf(lastPreview.format), lastPreview.url);
   }
@@ -210,8 +221,22 @@ export function keepOnlyPreview(url: string, format: MeshFormat) {
 }
 
 /** 파일 형상 (불러오는 동안 Suspense 로 멈춘다. 감싸는 쪽에서 Suspense·MeshErrorBoundary 로 받는다) */
-export function LoadedMesh({ url, format, ...opts }: { url: string; format: MeshFormat } & PartsOptions) {
-  return format === "stl" ? <StlParts url={url} {...opts} /> : <ThreeMfParts url={url} {...opts} />;
+/** 미리보기 메시(previewUrl, 수십 배 가벼움)가 있으면 그것을, 못 쓰면(오래된 브라우저·받기 실패) 원본을 그린다.
+ * onPreviewError 를 주면 원본으로 바로 넘어가지 않고 알린다 (큰 원본을 받을지 부르는 쪽이 정하게) */
+export function LoadedMesh({
+  url,
+  format,
+  previewUrl,
+  onPreviewError,
+  ...opts
+}: { url: string; format: MeshFormat; previewUrl?: string | null; onPreviewError?: () => void } & PartsOptions) {
+  const original = format === "stl" ? <StlParts url={url} {...opts} /> : <ThreeMfParts url={url} {...opts} />;
+  if (!previewUrl || !canDecodeNfm()) return original;
+  return (
+    <MeshErrorBoundary key={previewUrl} fallback={onPreviewError ? null : original} onError={onPreviewError}>
+      <NfmParts url={previewUrl} {...opts} />
+    </MeshErrorBoundary>
+  );
 }
 
 /** 불러오지 못했으면 fallback 을 그린다 */

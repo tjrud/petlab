@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
@@ -35,9 +36,9 @@ from app.market_formats import (
     MODEL_FORMATS,
     content_matches,
     format_of,
-    mesh_dims,
 )
 from app.lookup import get_or_404
+from app.mesh_preview import PREVIEW_CONTENT_TYPE, build_preview, measure_and_preview, preview_key
 from app.models import CageLayout, MarketEvent, MarketFile, MarketItem, MarketUpload, MarketUploadChunk, Post, User
 from app.schemas import (
     ID_RE,
@@ -59,6 +60,7 @@ from app.services.design_service import DesignService
 from app.storage import LocalStorage, Storage, StorageError, Stored
 
 router = make_router(prefix="/market", tags=["탐색"])
+log = logging.getLogger(__name__)
 
 CHUNK_BYTES = 3 * 1024 * 1024
 UPLOAD_TTL = timedelta(hours=6)
@@ -260,12 +262,13 @@ def complete_upload(upload_id: str, request: Request, db: Session = Depends(get_
                    sha256=hashlib.sha256(data).hexdigest(), storage_key="")
     f.id = up.id  # 저장 키와 파일 ID 를 같게 (추측하기 어려운 무작위 값)
     # 저장하기 전에 잰다: 읽다가 실패해도 저장소에 주인 없는 파일이 남지 않게
-    f.dims_mm = mesh_dims(f.format, data)
+    f.dims_mm, preview_blob = measure_and_preview(f.format, data)
     try:
         stored = storage.put(f"market/{f.id}/{f.id}.{f.format}", data, CONTENT_TYPES[up.format])
     except StorageError as e:
         raise StorageUnavailableError("파일을 저장하지 못했어요. 잠시 후 다시 올려 주세요.") from e
     f.storage_key, f.url = stored.key, stored.url
+    _store_preview(storage, f, preview_blob)
     _discard_uploads(db, [up.id])
     db.add(f)
     try:
@@ -275,6 +278,27 @@ def complete_upload(upload_id: str, request: Request, db: Session = Depends(get_
         db.rollback()
         raise ConflictError("이미 올라간 파일이에요. 목록을 새로 고쳐 주세요.", code="upload_completed") from e
     return file_out(f)
+
+
+def _store_preview(storage: Storage, f: MarketFile, blob: bytes | None) -> bool:
+    """3D 미리보기용 가벼운 메시(mesh_preview.py)를 원본 옆에 저장한다. 없거나 못 저장하면 화면이 원본을 쓴다"""
+    if blob is None or f.format not in MESH_FORMATS:
+        return False
+    try:
+        stored = storage.put(preview_key(f.id), blob, PREVIEW_CONTENT_TYPE)
+    except StorageError:
+        log.warning("3D 미리보기 메시를 저장하지 못했습니다 (%s)", f.id, exc_info=True)
+        return False
+    f.preview_url, f.preview_size = stored.url, len(blob)
+    return True
+
+
+def _stored(f: MarketFile) -> list[Stored]:
+    """파일을 지울 때 저장소에서 함께 지울 것 (원본과 3D 미리보기 메시)"""
+    out = [Stored(key=f.storage_key, url=f.url)]
+    if f.preview_size:
+        out.append(Stored(key=preview_key(f.id), url=f.preview_url))
+    return out
 
 
 # ── 작품 ──
@@ -451,7 +475,7 @@ def delete_item(item_id: str, request: Request, db: Session = Depends(get_db), u
     item = _get_item(db, item_id)
     if not (user.id == item.owner_id or user.is_admin):
         raise ForbiddenError("내가 올린 작품만 지울 수 있어요.")
-    stored = [Stored(key=f.storage_key, url=f.url) for f in item.files]
+    stored = [s for f in item.files for s in _stored(f)]
     for f in list(item.files):
         db.delete(f)
     _unshare_layout_files(db, item)
@@ -542,13 +566,55 @@ def delete_file(file_id: str, request: Request, db: Session = Depends(get_db),
     if f.item_id is not None or f.shared:
         raise ConflictError("탐색에 올린 작품이나 공유한 배치에 들어 있는 파일이에요. 그 작품을 먼저 지워 주세요.",
                             code="file_in_use")
-    stored = Stored(key=f.storage_key, url=f.url)
+    stored = _stored(f)
     db.delete(f)
     db.commit()
     storage = request.app.state.market_storage
     if storage is not None:
-        storage.delete([stored])
+        storage.delete(stored)
     return Response(status_code=204)
+
+
+@router.post("/files/previews/backfill", summary="3D 미리보기 메시가 없는 예전 파일에 만들어 넣기 (관리자)")
+def backfill_previews(request: Request, limit: int = Query(default=1, ge=1, le=3), db: Session = Depends(get_db),
+                      user: User = Depends(get_current_user)) -> dict:
+    if not user.is_admin:
+        raise ForbiddenError("관리자만 쓸 수 있어요.")
+    storage = _storage(request)
+    rows = db.scalars(select(MarketFile).where(MarketFile.format.in_(MESH_FORMATS), MarketFile.preview_size.is_(None))
+                      .order_by(MarketFile.created_at).limit(limit)).all()
+    done = failed = 0
+    for f in rows:
+        # 먼저 '시도함'(0)으로 적어 둔다: 이 파일 때문에 요청이 죽어도 다음 백필이 같은 파일에서 막히지 않게
+        f.preview_size = 0
+        db.commit()
+        data = _read_original(storage, f)
+        blob = build_preview(f.format, data) if data is not None else None
+        if _store_preview(storage, f, blob):
+            done += 1
+        else:
+            failed += 1  # 0 으로 남는다 (화면은 원본을 쓴다)
+        db.commit()
+    remaining = db.scalar(select(func.count(MarketFile.id)).where(MarketFile.format.in_(MESH_FORMATS),
+                                                                  MarketFile.preview_size.is_(None))) or 0
+    return {"done": done, "failed": failed, "remaining": remaining}
+
+
+def _read_original(storage: Storage, f: MarketFile) -> bytes | None:
+    try:
+        if f.url:
+            import httpx
+
+            if not f.url.startswith("https://") or ".blob.vercel-storage.com/" not in f.url:
+                return None  # 우리 Blob 저장소의 주소만 받는다
+            r = httpx.get(f.url, timeout=httpx.Timeout(60, connect=10), follow_redirects=False)
+            r.raise_for_status()
+            return r.content
+        if isinstance(storage, LocalStorage):
+            return storage.path(f.storage_key).read_bytes()
+    except Exception:  # noqa: BLE001 - 못 읽으면 건너뛴다
+        log.warning("원본 파일을 읽지 못했습니다 (%s)", f.id, exc_info=True)
+    return None
 
 
 @router.get("/files/{file_id}/mesh", summary="3D 로 불러올 파일 (가상 케이지, 내려받기 횟수에 넣지 않음)")
@@ -558,6 +624,23 @@ def mesh_file(file_id: str, request: Request, db: Session = Depends(get_db),
     if f.format not in MESH_FORMATS:
         raise NotFoundError("파일을 찾을 수 없어요.")
     return _serve(request, f, attachment=False)
+
+
+@router.get("/files/{file_id}/preview", summary="3D 미리보기 메시 (NFM1, 로컬 저장소일 때)")
+def preview_file(file_id: str, request: Request, db: Session = Depends(get_db),
+                 user: User | None = Depends(get_optional_user)):
+    f = _visible_file(db, file_id, user)
+    storage = request.app.state.market_storage
+    if not f.preview_size:
+        raise NotFoundError("미리보기가 없어요.")
+    if f.preview_url:
+        return RedirectResponse(f.preview_url, status_code=302)
+    if not isinstance(storage, LocalStorage):
+        raise NotFoundError("미리보기가 없어요.")
+    path = storage.path(preview_key(f.id))
+    if not path.exists():
+        raise NotFoundError("미리보기가 없어요.")
+    return FileResponse(path, media_type=PREVIEW_CONTENT_TYPE)
 
 
 @router.get("/files/{file_id}/view", summary="미리보기 이미지 (로컬 저장소일 때)")

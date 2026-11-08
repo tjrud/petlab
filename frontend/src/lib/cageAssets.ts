@@ -58,7 +58,8 @@ export type CageAsset = {
    */
   floorLayer?: { flakeColor: string };
   /** 내가 올린 STL·3MF 파일 (shape "mesh"): 3D 로 불러올 주소와 형식. 크기는 파일의 외곽 크기 */
-  mesh?: { url: string; format: "stl" | "3mf"; fileId: string };
+  /** preview: 가벼운 미리보기 메시 주소 (있으면 원본 대신 받는다) */
+  mesh?: { url: string; format: "stl" | "3mf"; fileId: string; preview?: string };
 };
 
 export const CATEGORIES: { key: AssetCategory; label: string }[] = [
@@ -314,6 +315,7 @@ export function registerFileAsset(f: {
   format: string;
   dims_mm: [number, number, number] | null;
   mesh_url: string | null;
+  preview_url?: string | null;
 }, meshUrl: (path: string) => string): CageAsset | null {
   if (!f.dims_mm || !f.mesh_url || (f.format !== "stl" && f.format !== "3mf")) return null;
   const key = fileAssetKey(f.id);
@@ -325,7 +327,12 @@ export function registerFileAsset(f: {
     size: [f.dims_mm[0], f.dims_mm[1], f.dims_mm[2]],
     color: "#b8a6e0",
     description: `올린 ${f.format.toUpperCase()} 파일 (실제 크기)`,
-    mesh: { url: meshUrl(f.mesh_url), format: f.format, fileId: f.id },
+    mesh: {
+      url: meshUrl(f.mesh_url),
+      format: f.format,
+      fileId: f.id,
+      preview: f.preview_url ? meshUrl(f.preview_url) : undefined,
+    },
   };
   FILE_ASSETS.set(key, asset);
   return asset;

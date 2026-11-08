@@ -12,8 +12,8 @@
 from __future__ import annotations
 
 import hashlib
-import importlib
 import importlib.metadata
+import importlib.util
 import json
 import sys
 from collections.abc import Iterable
@@ -21,7 +21,6 @@ from functools import lru_cache
 from pathlib import Path
 
 from app.rules.loader import PrintingRules
-from app.templates.registry import get_template
 
 # 모든 템플릿의 형상에 영향을 주는 공용 코드: 템플릿 계약, B-rep → 메시 변환·출력 자세, 형상 생성, 배치 변환
 SHARED_MODULES: tuple[str, ...] = ("app.templates.base", "app.geometry.mesh", "app.services.engine", "app.domain")
@@ -36,10 +35,12 @@ def file_digest(data: bytes) -> str:
 @lru_cache(maxsize=None)
 def _module_digest(name: str) -> str:
     """모듈 소스 파일의 해시 (실행 중에는 바뀌지 않으므로 한 번만 읽는다)."""
-    mod = sys.modules.get(name) or importlib.import_module(name)
+    mod = sys.modules.get(name)
     try:
-        return file_digest(Path(mod.__file__).read_bytes())  # type: ignore[arg-type]
-    except (TypeError, OSError):
+        # 모듈을 불러오지 않고 소스 파일만 읽는다 (설계 조회가 형상 커널을 불러오지 않게)
+        origin = mod.__file__ if mod is not None else importlib.util.find_spec(name).origin  # type: ignore[union-attr]
+        return file_digest(Path(origin).read_bytes())  # type: ignore[arg-type]
+    except (TypeError, OSError, AttributeError, ImportError):
         # 소스를 읽을 수 없는 배포 형태. 지문은 참고용일 뿐이고 판정은 파일 해시로 하므로 기동은 막지 않는다.
         return f"unreadable:{name}"
 
@@ -57,12 +58,12 @@ def _library_versions() -> tuple[tuple[str, str], ...]:
 
 def geometry_fingerprint(template_keys: Iterable[str], printing: PrintingRules) -> str:
     """주어진 템플릿들의 형상을 만드는 지금 코드·설정의 지문 (SHA-256 hex)."""
+    from app.templates.keys import TEMPLATE_MODULES
+
     templates: dict[str, str] = {}
     for key in sorted(set(template_keys)):
-        try:
-            templates[key] = _module_digest(type(get_template(key)).__module__)
-        except KeyError:  # 삭제된 템플릿
-            templates[key] = "missing"
+        module = TEMPLATE_MODULES.get(key)
+        templates[key] = _module_digest(module) if module else "missing"  # 없으면 삭제된 템플릿
     payload = {
         "templates": templates,
         "shared": {m: _module_digest(m) for m in SHARED_MODULES},

@@ -113,9 +113,16 @@ test("탐색: STL 을 올리면 미리보기 이미지를 자동으로 만들고
   const detailUrl = page.url();
   await expect(page.getByRole("img", { name: "둥근 집 STL 미리보기" })).toBeVisible();
 
-  // 3D 미리보기
+  // 3D 미리보기: 원본 STL 이 아니라 서버가 만든 가벼운 미리보기 메시(NFM1)를 받는다
+  const meshRequests: string[] = [];
+  page.on("request", (rq) => {
+    if (/\/market\/files\/[0-9a-f]{32}\/(mesh|preview)$/.test(rq.url())) meshRequests.push(new URL(rq.url()).pathname.split("/").pop()!);
+  });
+  await page.reload();
   await expect(page.getByRole("heading", { level: 2, name: "3D 미리보기" })).toBeVisible();
   await expect(page.getByText(/9×9×9cm · 끌어서 돌려 볼 수 있어요/)).toBeVisible({ timeout: 30_000 });
+  expect(meshRequests).toContain("preview");
+  expect(meshRequests).not.toContain("mesh");
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/explore-3d-preview.png`, fullPage: true });
 
   // 가상 케이지에 놓아 보기 → 빈 자리에 놓이고 주소의 add 는 지워진다
@@ -199,4 +206,23 @@ test("탐색 3D 미리보기: 처음 몇 초만 천천히 돌다 멈추고, 만�
   await r.waitForTimeout(500);
   await expect(r.locator("[data-rotating]")).toHaveAttribute("data-rotating", "false");
   await reduced.close();
+});
+
+test("탐색 3D 미리보기: 가벼운 미리보기 메시를 받지 못하면 원본 파일로 보여 준다", async ({ page }) => {
+  await adminLogin(page, "/explore/new");
+  await page.getByLabel("완성 파일 고르기").setInputFiles({ name: "fallback.stl", mimeType: "model/stl", buffer: tetraStl(60) });
+  await expect(page.getByRole("img", { name: "미리보기 이미지" })).toBeVisible({ timeout: 30_000 });
+  await page.getByLabel("제목", { exact: true }).fill("대체 확인");
+  await page.getByLabel("소개", { exact: true }).fill("미리보기 메시가 깨졌을 때");
+  await page.getByRole("button", { name: "탐색에 올리기" }).click();
+  await page.waitForURL(/\/explore\/[0-9a-f]{32}$/);
+  const asked: string[] = [];
+  await page.route(/\/market\/files\/[0-9a-f]{32}\/preview$/, (r) => r.fulfill({ status: 500, body: "x" }));
+  page.on("request", (rq) => {
+    if (/\/market\/files\/[0-9a-f]{32}\/mesh$/.test(rq.url())) asked.push("mesh");
+  });
+  await page.reload();
+  // 작은 원본(10MB 이하)은 묻지 않고 바로 원본으로
+  await expect(page.getByText(/6×6×6cm · 끌어서 돌려 볼 수 있어요/)).toBeVisible({ timeout: 30_000 });
+  expect(asked).toContain("mesh");
 });

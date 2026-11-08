@@ -378,11 +378,12 @@ function FileMesh({ asset, m }: { asset: CageAsset; m: MatProps }) {
   if (!asset.mesh) return <MeshFallback asset={asset} m={m} />;
   const fallback = <MeshFallback asset={asset} m={m} />;
   return (
-    <MeshErrorBoundary key={asset.mesh.url} fallback={fallback}>
+    <MeshErrorBoundary key={asset.mesh.preview ?? asset.mesh.url} fallback={fallback}>
       <Suspense fallback={fallback}>
         {/* 큰 메시는 윤곽선 준비에 시간이 걸려 LoadedMesh 가 형상을 먼저 보여 준 뒤 붙인다 */}
         <LoadedMesh
           url={asset.mesh.url}
+          previewUrl={asset.mesh.preview}
           format={asset.mesh.format}
           outline={m.outline ?? undefined}
           material={() => <Mat {...m} outline={null} />}

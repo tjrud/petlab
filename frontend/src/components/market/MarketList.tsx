@@ -49,12 +49,16 @@ export default function MarketList() {
   const page = parsePage(params.get("page"));
   const [attempt, setAttempt] = useState(0);
   const [result, setResult] = useState<Result | null>(null);
-  // 추천은 로그인 상태에 따라 달라지므로 로그인 확인이 끝난 뒤에 받는다
-  const key = `${category}|${page}|${attempt}|${user?.id ?? ""}`;
-  const waitAuth = category === null && status === null;
+  // 추천은 서버가 로그인 쿠키로 정하므로 로그인 확인을 기다리지 않고 바로 받는다.
+  // 이 화면에서 로그인·로그아웃해 회원이 바뀌었을 때만 다시 받는다 (처음 확인된 회원은 그대로)
+  const uid = status === null ? undefined : (user?.id ?? null);
+  const [seen, setSeen] = useState<{ uid: string | null | undefined; epoch: number }>({ uid: undefined, epoch: 0 });
+  if (uid !== undefined && uid !== seen.uid) {
+    setSeen({ uid, epoch: seen.uid === undefined ? seen.epoch : seen.epoch + 1 });
+  }
+  const key = `${category}|${page}|${attempt}|${category === null ? seen.epoch : 0}`;
 
   useEffect(() => {
-    if (waitAuth) return;
     let alive = true;
     const fail = (e: unknown) => alive && setResult({ key, kind: "error", message: errorText(e, "작품 목록을 불러오지 못했어요.") });
     if (category === null) {
@@ -67,7 +71,7 @@ export default function MarketList() {
     return () => {
       alive = false;
     };
-  }, [page, category, key, waitAuth]);
+  }, [page, category, key]);
 
   const r = result?.key === key ? result : null;
   const chips = (
@@ -92,8 +96,8 @@ export default function MarketList() {
 
   const grid = (items: MarketItemSummary[]) => (
     <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {items.map((it) => (
-        <MarketItemCard key={it.id} item={it} />
+      {items.map((it, i) => (
+        <MarketItemCard key={it.id} item={it} eager={i < 3} />
       ))}
     </ul>
   );
@@ -111,9 +115,11 @@ export default function MarketList() {
       <>
         {chips}
         <p className={`${ui.muted} mb-3`}>
-          {user
-            ? "내 설계·가상 케이지 배치안·반려동물·최근에 본 작품을 바탕으로 골랐어요."
-            : "많이 내려받은 작품과 새 작품이에요. 로그인하면 내 설계와 반려동물에 맞춘 추천이 보여요."}
+          {status === null
+            ? "3D로 바로 볼 수 있는 작품과 많이 내려받은 작품, 새 작품을 골랐어요."
+            : user
+              ? "내 설계·가상 케이지 배치안·반려동물·최근에 본 작품을 바탕으로 골랐어요."
+              : "3D로 바로 볼 수 있는 작품, 많이 내려받은 작품, 새 작품 순이에요. 로그인하면 내 설계와 반려동물에 맞춘 추천이 보여요."}
         </p>
         {r.items.length === 0 ? empty("아직 추천할 작품이 없어요.") : grid(r.items)}
       </>
