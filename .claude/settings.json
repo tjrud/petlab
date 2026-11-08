@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__Canva__edit-design",
+      "mcp__Canva__create-design",
+      "mcp__Canva__read-design",
+      "mcp__Canva__create-upload-url",
+      "mcp__Canva__export-design"
+    ]
+  }
+}
