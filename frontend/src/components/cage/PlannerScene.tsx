@@ -12,6 +12,7 @@ import * as THREE from "three";
 import AssetModel from "@/components/cage/AssetModel";
 import { beddingDepth, getAsset, isFloorLayer, type CageAsset } from "@/lib/cageAssets";
 import { accessStrip, type LayoutReport } from "@/lib/cageLayout";
+import { contactShadowTexture, fitCamera, PREVIEW_BG, viewDirection } from "@/lib/previewLook";
 import type { Cage, LayoutItem, LayoutRules } from "@/lib/types";
 
 export type CameraView = "3d" | "top" | "front";
@@ -41,20 +42,33 @@ const NO_POINTER = { pointerEvents: "none" } as const;
 
 type Controls = { enabled: boolean; target: THREE.Vector3; update: () => void };
 
+/** 시점별 카메라 방향 (Y-up, 케이지 앞쪽이 +Z) */
+const VIEW_DIR: Record<CameraView, () => THREE.Vector3> = {
+  "3d": () => viewDirection(34, 24),
+  top: () => new THREE.Vector3(0, 1, 0.002).normalize(), // 위에서 (화면 위쪽이 케이지 뒤)
+  front: () => viewDirection(14, 0),
+};
+/** 케이지가 화면(가로·세로 중 좁은 쪽)에서 차지하는 비율. 위쪽 도구 모음·치수 글자 자리를 남긴다 */
+const CAGE_FILL = 0.84;
+
+/** 케이지 전체(외곽 상자)가 화면에 들어오도록 카메라를 맞춰요. 화면 비율까지 따지므로 모바일 세로 화면에서도
+ * 좌우가 잘리지 않아요. 시점·케이지 크기·화면 크기가 바뀔 때, 같은 시점 버튼을 다시 눌렀을 때 다시 맞춰요 */
 function CameraRig({ cage, view, nonce }: { cage: Cage; view: CameraView; nonce: number }) {
   const getState = useThree((s) => s.get);
   // 컨트롤이 준비되면(makeDefault) 다시 맞추려고 구독만 해요. 값은 효과 안에서 getState() 로 읽어요
   const controlsReady = useThree((s) => s.controls !== null);
+  const size = useThree((s) => s.size);
   const { width_mm: W, depth_mm: D, height_mm: H } = cage;
   useEffect(() => {
-    const { camera } = getState();
+    const camera = getState().camera as THREE.PerspectiveCamera;
     const controls = getState().controls as unknown as Controls | null;
-    const S = Math.max(W, D, H);
-    const target = new THREE.Vector3(W / 2, view === "top" ? 0 : H * 0.15, -D / 2);
-    if (view === "top") camera.position.set(W / 2, S * 1.55, -D / 2 + 0.01);
-    else if (view === "front") camera.position.set(W / 2, H * 0.55, S * 1.25);
-    else camera.position.set(W / 2 + S * 0.45, S * 0.95, S * 1.15);
-    camera.far = S * 20;
+    if (size.width === 0 || size.height === 0) return;
+    camera.aspect = size.width / size.height;
+    // 케이지 외곽 상자의 꼭짓점 (three.js 월드: 가로 x, 높이 y, 깊이 -z)
+    const corners: THREE.Vector3[] = [];
+    for (const x of [0, W]) for (const y of [0, H]) for (const z of [0, -D]) corners.push(new THREE.Vector3(x, y, z));
+    const target = fitCamera(camera, corners, CAGE_FILL, VIEW_DIR[view]());
+    camera.far = Math.max(W, D, H) * 20;
     camera.updateProjectionMatrix();
     if (controls) {
       controls.target.copy(target);
@@ -62,7 +76,7 @@ function CameraRig({ cage, view, nonce }: { cage: Cage; view: CameraView; nonce:
     } else {
       camera.lookAt(target);
     }
-  }, [getState, controlsReady, W, D, H, view, nonce]);
+  }, [getState, controlsReady, size.width, size.height, W, D, H, view, nonce]);
   return null;
 }
 
@@ -82,11 +96,12 @@ function FloorGrid({ cage, z }: { cage: Cage; z: number }) {
   }, [W, D, z]);
   return (
     <group>
+      {/* 옅게: 재기 위한 보조선이라 구조물보다 눈에 띄지 않게 */}
       <lineSegments geometry={minor}>
-        <lineBasicMaterial color="#eadfca" />
+        <lineBasicMaterial color="#e9e4da" />
       </lineSegments>
       <lineSegments geometry={major}>
-        <lineBasicMaterial color="#d5c19c" />
+        <lineBasicMaterial color="#d9d1c2" />
       </lineSegments>
     </group>
   );
@@ -101,7 +116,8 @@ function CageShell({ cage, floorZ }: { cage: Cage; floorZ: number }) {
     <group>
       <mesh position={[W / 2, D / 2, 0]} receiveShadow>
         <planeGeometry args={[W, D]} />
-        <meshStandardMaterial color="#f6ead3" roughness={1} />
+        {/* 밝은 종이색 바닥: 쿨그레이 배경과 구분되고, 나무색 구조물이 또렷하게 */}
+        <meshStandardMaterial color="#fbf8f2" roughness={1} />
       </mesh>
       <FloorGrid cage={cage} z={floorZ} />
       {/* 앞(관찰 면) 표시 */}
@@ -179,6 +195,18 @@ function Bedding({ cage, asset }: { cage: Cage; asset: CageAsset }) {
         <meshStandardMaterial color={asset.floorLayer?.flakeColor ?? asset.color} roughness={1} />
       </instancedMesh>
     </group>
+  );
+}
+
+/** 구조물이 바닥에 닿는 곳의 흐린 그림자 (주광 그림자가 다른 쪽으로 떨어져도 바닥에 놓여 보이게) */
+function ContactBlob({ asset }: { asset: CageAsset }) {
+  const [w, d] = asset.size;
+  const map = useMemo(() => contactShadowTexture(), []);
+  return (
+    <mesh position={[0, 0, 0.5]} raycast={() => null}>
+      <planeGeometry args={[w * 1.3, d * 1.3]} />
+      <meshBasicMaterial map={map} transparent depthWrite={false} toneMapped={false} />
+    </mesh>
   );
 }
 
@@ -280,6 +308,7 @@ function PlacedItem({
         onDragEnd(item.id);
       }}
     >
+      <ContactBlob asset={asset} />
       <Footprint asset={asset} color={footColor} opacity={footOpacity} />
       <AssetModel asset={asset} highlight={selected ? "selected" : hover ? "hover" : "none"} />
       {selected && (
@@ -316,7 +345,7 @@ function AccessStrips({ item, asset, depth }: { item: LayoutItem; asset: CageAss
 }
 
 export default function PlannerScene({
-  background = "#fbf7f0",
+  background = PREVIEW_BG,
   cage,
   items,
   selectedId,
@@ -336,6 +365,9 @@ export default function PlannerScene({
   // 바닥재는 바닥 전체에 깔고, 다른 구조물은 그 위에 놓아요
   const floorZ = beddingDepth(items);
   const bedding = items.map((it) => getAsset(it.asset)).find(isFloorLayer);
+  // 주광은 케이지 가운데를 향해 왼쪽 앞 위에서 (카메라는 오른쪽 앞). 그림자가 보이는 쪽 바닥에 떨어져요
+  const lightTarget = useMemo(() => new THREE.Object3D(), []);
+  const center: [number, number, number] = [W / 2, 0, -D / 2];
 
   return (
     <Canvas
@@ -348,17 +380,28 @@ export default function PlannerScene({
       gl={{ preserveDrawingBuffer: true }}
     >
       <color attach="background" args={[background]} />
-      <ambientLight intensity={0.7} />
+      {/* 환경광 + 주광(부드러운 그림자) + 보조광 + 역광: 면마다 밝기가 달라 형태가 살고, 안쪽 면이 까맣게 죽지 않게 */}
+      <hemisphereLight args={["#ffffff", "#d9c9b4", 1.0]} />
+      <ambientLight intensity={0.22} />
+      <primitive object={lightTarget} position={center} />
       <directionalLight
-        position={[W * 0.2, S * 1.6, S * 0.8]}
-        intensity={1.4}
+        position={[W / 2 - S * 0.9, S * 1.6, -D / 2 + S * 0.9]}
+        target={lightTarget}
+        intensity={2.0}
         castShadow
         shadow-mapSize={[2048, 2048]}
-        shadow-camera-left={-S}
-        shadow-camera-right={S * 2}
-        shadow-camera-top={S}
-        shadow-camera-bottom={-S * 2}
+        shadow-bias={-0.0004}
+        shadow-normalBias={S * 0.002}
+        shadow-radius={5}
+        shadow-camera-left={-S * 0.9}
+        shadow-camera-right={S * 0.9}
+        shadow-camera-top={S * 0.9}
+        shadow-camera-bottom={-S * 0.9}
+        shadow-camera-near={S * 0.1}
+        shadow-camera-far={S * 4}
       />
+      <directionalLight position={[W / 2 + S * 1.4, S * 0.7, -D / 2 + S * 0.6]} intensity={0.5} />
+      <directionalLight position={[W / 2 + S * 0.3, S * 1.0, -D / 2 - S * 1.6]} intensity={0.6} />
       <group rotation={Z_UP_TO_Y_UP}>
         <CageShell cage={cage} floorZ={floorZ} />
         {bedding && <Bedding cage={cage} asset={bedding} />}

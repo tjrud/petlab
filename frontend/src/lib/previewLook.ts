@@ -14,11 +14,28 @@ export const OUTLINE_STYLE = { color: "#3b2716", thickness: 1.6 } as const; // C
 export const ELEVATION_DEG = 32;
 export const AZIMUTH_DEG = 35;
 
-/** 카메라 방향 (Y-up, 모델 앞쪽이 +Z): 오른쪽 앞 위 */
-export function viewDirection(): THREE.Vector3 {
-  const el = THREE.MathUtils.degToRad(ELEVATION_DEG);
-  const az = THREE.MathUtils.degToRad(AZIMUTH_DEG);
+/** 카메라 방향 (Y-up, 모델 앞쪽이 +Z). 기본은 오른쪽 앞 위 */
+export function viewDirection(elevationDeg = ELEVATION_DEG, azimuthDeg = AZIMUTH_DEG): THREE.Vector3 {
+  const el = THREE.MathUtils.degToRad(elevationDeg);
+  const az = THREE.MathUtils.degToRad(azimuthDeg);
   return new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));
+}
+
+/** 바닥에 닿는 곳의 흐린 그림자 무늬 (가운데가 진하고 가장자리로 갈수록 사라지는 원). 브라우저에서만 */
+let contactTexture: THREE.CanvasTexture | null = null;
+export function contactShadowTexture(): THREE.CanvasTexture {
+  if (contactTexture) return contactTexture;
+  const c = document.createElement("canvas");
+  c.width = c.height = 128;
+  const ctx = c.getContext("2d")!;
+  const g = ctx.createRadialGradient(64, 64, 6, 64, 64, 64);
+  g.addColorStop(0, "rgba(43,33,24,0.55)");
+  g.addColorStop(0.55, "rgba(43,33,24,0.25)");
+  g.addColorStop(1, "rgba(43,33,24,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 128, 128);
+  contactTexture = new THREE.CanvasTexture(c);
+  return contactTexture;
 }
 
 const SAMPLE_POINTS = 8_000; // 화면 맞춤에는 이 정도면 충분하다 (이분 탐색마다 모두 투영하므로 적게)
@@ -46,11 +63,15 @@ export function boxCorners(box: THREE.Box3): THREE.Vector3[] {
 /** points 를 화면에 비춘 범위가 가로·세로 중 좁은 쪽의 fill(0~1) 만큼을 차지하고, 화면 가운데에 오도록 카메라를 놓는다.
  * 각도는 viewDirection() 그대로이고, 돌려 볼 때의 중심(돌려 보는 기준점)을 돌려준다.
  * 화면 비율까지 따지므로 모바일의 세로 화면에서도 같은 비율로 찬다 */
-export function fitCamera(camera: THREE.PerspectiveCamera, points: THREE.Vector3[], fill: number): THREE.Vector3 {
+export function fitCamera(
+  camera: THREE.PerspectiveCamera,
+  points: THREE.Vector3[],
+  fill: number,
+  dir: THREE.Vector3 = viewDirection(),
+): THREE.Vector3 {
   const box = new THREE.Box3().setFromPoints(points);
   const center = box.getCenter(new THREE.Vector3());
   const radius = Math.max(box.getSize(new THREE.Vector3()).length() / 2, 1);
-  const dir = viewDirection();
   camera.near = radius / 50;
   camera.far = radius * 60;
   camera.updateProjectionMatrix();

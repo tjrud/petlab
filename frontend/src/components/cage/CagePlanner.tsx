@@ -33,6 +33,7 @@ import {
 } from "@/lib/cageLayout";
 import { histReducer, metaOf, readDraft, snapshotOf, writeDraft, type Doc, type Meta } from "@/lib/cagePlannerDoc";
 import { withNext } from "@/lib/safeNext";
+import { PREVIEW_BG } from "@/lib/previewLook";
 import { uploadMarketFile } from "@/lib/marketUpload";
 import type { Cage, CageLayout, CageLayoutInput, CageLayoutSummary, LayoutItem, LayoutRules, MarketFile, Pet, SpeciesResponse } from "@/lib/types";
 import { ui } from "@/lib/ui";
@@ -45,7 +46,7 @@ const PlannerScene = dynamic(() => import("@/components/cage/PlannerScene"), {
 // 처음 크기는 종 규칙의 사육장 최소 기준(100×50×50cm, species.yaml enclosure_min_floor_mm)에 맞춰요
 const DEFAULT_CAGE: Cage = { width_mm: 1000, depth_mm: 500, height_mm: 500 };
 const DEFAULT_NAME = "새 배치안";
-const DEFAULT_BG = "#fbf7f0";
+const DEFAULT_BG = PREVIEW_BG; // 밝은 쿨그레이 (나무색 구조물과 확실히 구분되게)
 const BG_KEY = "nestforge:cage-bg";
 
 /** 지금 화면에 붙어 있는 플래너의 번호. 가려졌다 다시 보일 때(Activity)는 그대로이고,
