@@ -308,9 +308,33 @@ def test_recommendations(client):
     rec = client.get("/market/recommended").json()
     assert {x["id"] for x in rec} == {tunnel["id"], hide["id"]}
 
-    # 내 작품은 추천하지 않는다
+    # 내 작품은 다른 사람 작품 뒤에, 그것밖에 없으면 '내가 올린 작품'으로 보여 준다 (추천이 비지 않게)
     use(client, b)
-    assert client.get("/market/recommended").json() == []
+    mine = client.get("/market/recommended").json()
+    assert {x["id"] for x in mine} == {tunnel["id"], hide["id"]} and all(x["reason_ko"] == "내가 올린 작품" for x in mine)
+    other = client.post("/market/items", json=item_body(title="남의 다리", category="ramp",
+                                                         file_ids=[upload(client, "r.stl", tetra_stl(60))["id"]])).json()
+    use(client, a)
+    rec = client.get("/market/recommended").json()
+    assert other["id"] in [x["id"] for x in rec]
+    use(client, b)
+    assert [x["reason_ko"] for x in client.get("/market/recommended").json()][-2:] == ["내가 올린 작품"] * 2
+
+
+def test_recommendations_put_viewable_items_first(client):
+    """3D 로 보고 가상 케이지에 놓아 볼 수 있는 STL 작품이, 더 많이 내려받은 SKP 작품보다 앞에 온다"""
+    signup(client, "maker_a")
+    skp = client.post("/market/items", json=item_body(title="SKP 예시", category="etc",
+                                                       file_ids=[upload(client, "a.skp", skp_bytes(2048))["id"]])).json()
+    stl = client.post("/market/items", json=item_body(title="STL 은신처", category="hideout",
+                                                       file_ids=[upload(client, "b.stl", tetra_stl(60))["id"]],
+                                                       image_file_id=upload(client, "p.png", PNG, kind="image")["id"])).json()
+    use(client, None)
+    skp_file = client.get(f"/market/items/{skp['id']}").json()["files"][0]["id"]
+    client.get(f"/market/files/{skp_file}/download", follow_redirects=False)  # SKP 가 내려받기 1회 앞선다
+    rec = client.get("/market/recommended").json()
+    assert [x["id"] for x in rec] == [stl["id"], skp["id"]]
+    assert rec[0]["reason_ko"] == "3D로 보고 가상 케이지에 놓아 볼 수 있어요"
 
 
 def test_mesh_dims_reads_ascii_stl_and_skips_zip_bombs():
