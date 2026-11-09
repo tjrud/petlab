@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import math
+from typing import Literal, get_args, get_origin
 
 from app.i18n import catalog
 from app.llm.base import InterpretRequest
@@ -30,6 +31,8 @@ SYSTEM_PROMPT = """\
 - 위치 요청이 없으면 zone 은 "auto", rotation 은 null 로 두세요.
 - 요구사항에 없는 구조물을 임의로 추가하지 마세요. 요청이 모호하면 은신처 1개처럼 무난한 구성을 고르세요.
 - 지원하지 않는 구조물을 요청받으면 notes_ko 에 그 사실을 적고 가능한 템플릿으로만 설계하세요.
+- 터널 단면 모양(shape)·휘는 모양(path)은 보호자가 말한 대로 고르고(둥근, 원통·관, 네모, 집 모양, S자 등), 말이 없으면 기본값을
+  두세요. 휜 터널에 round_arch·tube·box 를 고르면 출력할 때 서포트가 필요하므로 notes_ko 에 알려 주세요.
 - 설계 수정 요청이면 직전 설계를 바탕으로, 요청된 부분만 바꾼 전체 설계를 다시 출력하세요.
 - summary_ko, reason_ko, notes_ko 는 보호자가 읽기 쉬운 한국어로 씁니다. 단, 사용자 메시지에 "응답 언어" 지시가 있으면
   그 언어로 씁니다 (필드 이름은 언어와 상관없이 그대로 둡니다).
@@ -45,7 +48,9 @@ def template_catalog() -> list[dict]:
             for m in f.metadata:
                 lo = getattr(m, "ge", lo)
                 hi = getattr(m, "le", hi)
-            fields[name] = {"설명": f.description, "범위": [lo, hi], "기본값": f.default}
+            choices = get_args(f.annotation) if get_origin(f.annotation) is Literal else ()
+            fields[name] = ({"설명": f.description, "선택지": list(choices), "기본값": f.default} if choices
+                            else {"설명": f.description, "범위": [lo, hi], "기본값": f.default})
         out.append({"template": t.key, "이름": t.display_name_ko, "설명": t.description_ko, "파라미터": fields})
     return out
 

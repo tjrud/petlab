@@ -106,7 +106,6 @@
  "바닥이 열린 아치형 터널. 길이, 안쪽 폭(내경), 수평으로 휘는 각도(0=직선), 벽 두께를 정한다. 양쪽 끝이 출입구다.": "Open-bottom arched tunnel. Sets length, inner width (inner diameter), horizontal bend angle (0 = straight), and wall thickness. Both ends are entrances.",
  "터널 중심선 길이 mm. 종별 최대 길이(몸길이의 2배) 이하. 일반 프린터(220mm)에 들어가려면 200mm 이하 권장": "Tunnel centerline length mm. No longer than the maximum for the species (2x body length). 200 mm or less recommended to fit a typical printer (220 mm)",
  "터널 안쪽 폭(=내경) mm. 종별 최소 내경 이상": "Tunnel inner width (= inner diameter) mm. At least the minimum inner diameter for the species",
- "수평면에서 휘는 각도(도). 0=직선, 90=ㄱ자 곡선, 180=U자": "Horizontal bend angle (degrees). 0 = straight, 90 = L-shaped, 180 = U-shaped",
  "벽 두께 mm": "Wall thickness mm",
  "터널 길이는 내경의 1.5배 이상이 좋지만 최대 길이 {0}mm 를 넘을 수 없어 {1}mm 까지만 요구합니다": "Tunnels should ideally be at least 1.5x the inner diameter long, but they can't exceed the {0} mm maximum, so only {1} mm is required",
  "터널 길이는 내경의 1.5배 이상이어야 합니다": "Tunnel length must be at least 1.5x the inner diameter",
@@ -156,5 +155,10 @@
  "왼쪽": "left",
  "오른쪽": "right",
  "앞쪽": "front",
- "뒤쪽": "back"
+ "뒤쪽": "back",
+ "수평면에서 휘는 각도(도). 0=직선, 90=ㄱ자 곡선, 180=U자. S자 경로에서는 한 번 휘는 각도": "Horizontal bend angle (degrees). 0 = straight, 90 = L-shaped curve, 180 = U-shape. For an S-curve, the angle of each bend",
+ "단면 모양. pointed_arch=끝이 뾰족한 아치(기본, 서포트 없이 출력), round_arch=둥근 아치, tube=둥근 관(바닥까지 막힘), box=네모, house=집 모양(경사 지붕, 서포트 없이 출력). 둥근 아치·관·네모는 곧은 터널이면 세워서 서포트 없이 출력하지만 휘면 서포트가 필요하다": "Cross-section shape. pointed_arch = arch with a pointed top (default, prints without supports), round_arch = round arch, tube = round tube (closed at the bottom), box = square, house = house shape (sloped roof, prints without supports). Straight round-arch, tube and box tunnels print standing up without supports, but curved ones need supports",
+ "휘는 모양 (bend_angle_deg > 0 일 때). arc=한 방향으로 휨, s_curve=S자 (반씩 반대로 휨)": "Bend style (when bend_angle_deg > 0). arc = bends one way, s_curve = S-shape (half bends each way)",
+ "S자 터널은 한 번에 90° 까지만 휠 수 있어 휘는 각도를 줄였습니다": "S-shaped tunnels can bend at most 90° each way, so the bend angle was reduced",
+ "{0}: 휜 터널을 이 단면으로 만들면 지붕 안쪽에 서포트가 필요해요 (오버행 {1}mm²). 서포트 없이 출력하려면 끝이 뾰족한 아치나 집 모양 단면을 고르세요.": "{0}: a curved tunnel with this cross-section needs supports under the roof (overhang {1} mm²). To print without supports, choose the pointed-arch or house shape."
 }

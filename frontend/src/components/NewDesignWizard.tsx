@@ -16,6 +16,7 @@ import type { Me, Pet, SpeciesResponse } from "@/lib/types";
 const EXAMPLE_PROMPTS = [
   "출입구가 두 개 있는 은신처를 만들어 주세요",
   "케이지 한쪽에 놓을 긴 터널이 필요해요",
+  "둥근 원통형 터널을 만들어 주세요",
   "완만한 경사로를 하나 만들어 주세요",
   "모래 목욕용 통을 하나 만들고 싶어요",
 ];

@@ -169,6 +169,17 @@ const en: Record<string, string> = {
     "I agree to the collection and use of my email address to receive a launch notification.",
   "등록 중…": "Signing up…",
   "대기 명단에 등록하기": "Join the waitlist",
+  // 터널 단면·휘는 모양 (lib/templates.ts)
+  "단면 모양": "Cross-section",
+  "휘는 모양": "Bend style",
+  "뾰족 아치": "Pointed arch",
+  "둥근 아치": "Round arch",
+  "둥근 관": "Round tube",
+  "네모": "Square",
+  "집 모양": "House shape",
+  "한 방향 곡선": "Single curve",
+  "S자": "S-curve",
+  "둥근 원통형 터널을 만들어 주세요": "Make a round tube tunnel",
 };
 
 export default en;

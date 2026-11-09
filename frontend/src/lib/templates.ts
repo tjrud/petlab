@@ -26,9 +26,27 @@ export const PARAM_LABELS: Record<string, string> = {
   steps: "단 수",
   lip_height_mm: "턱 높이",
   basin_depth_mm: "안쪽 깊이",
+  shape: "단면 모양",
+  path: "휘는 모양",
 };
 
-export function formatParam(key: string, value: number, t: TFunction): string {
+/** 고르는 값으로 된 파라미터(단면 모양 등)의 이름 */
+export const CHOICE_LABELS: Record<string, Record<string, string>> = {
+  shape: {
+    pointed_arch: "뾰족 아치",
+    round_arch: "둥근 아치",
+    tube: "둥근 관",
+    box: "네모",
+    house: "집 모양",
+  },
+  path: { arc: "한 방향 곡선", s_curve: "S자" },
+};
+
+export function formatParam(key: string, value: number | string, t: TFunction): string {
+  if (typeof value === "string") {
+    const label = CHOICE_LABELS[key]?.[value];
+    return label ? t(label) : value;
+  }
   const v = Number.isInteger(value) ? value.toString() : value.toFixed(1);
   if (key.endsWith("_mm")) return `${v}mm`;
   if (key.endsWith("_deg")) return `${v}°`;
