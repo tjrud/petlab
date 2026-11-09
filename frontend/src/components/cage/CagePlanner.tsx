@@ -5,8 +5,10 @@
 // 로그인하지 않아도 쓸 수 있고, 작업 중인 배치는 이 브라우저에 임시로 남겨 둬요 (새로 고침·로그인 후 이어서).
 
 import dynamic from "next/dynamic";
-import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { Link, useHref, useRouter, useT } from "@/i18n/client";
+import { stripLang } from "@/i18n/config";
+import { EN } from "@/i18n/en";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
@@ -38,14 +40,21 @@ import { uploadMarketFile } from "@/lib/marketUpload";
 import type { Cage, CageLayout, CageLayoutInput, CageLayoutSummary, LayoutItem, LayoutRules, MarketFile, Pet, SpeciesResponse } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
+function SceneLoading() {
+  const t = useT();
+  return <div className="grid h-full place-items-center text-sm text-stone-500">{t("3D 화면 준비 중…")}</div>;
+}
+
 const PlannerScene = dynamic(() => import("@/components/cage/PlannerScene"), {
   ssr: false,
-  loading: () => <div className="grid h-full place-items-center text-sm text-stone-500">3D 화면 준비 중…</div>,
+  loading: () => <SceneLoading />,
 });
 
 // 처음 크기는 종 규칙의 사육장 최소 기준(100×50×50cm, species.yaml enclosure_min_floor_mm)에 맞춰요
 const DEFAULT_CAGE: Cage = { width_mm: 1000, depth_mm: 500, height_mm: 500 };
 const DEFAULT_NAME = "새 배치안";
+/** 어느 언어든 새 배치안의 기본 이름인지 */
+const isDefaultName = (name: string) => name === DEFAULT_NAME || name === EN[DEFAULT_NAME];
 const DEFAULT_BG = PREVIEW_BG; // 밝은 쿨그레이 (나무색 구조물과 확실히 구분되게)
 const BG_KEY = "nestforge:cage-bg";
 
@@ -69,6 +78,8 @@ function newItemAt(cage: Cage, items: LayoutItem[], asset: CageAsset, rules: Lay
 type Tab = "catalog" | "cage" | "saved";
 
 export default function CagePlanner() {
+  const t = useT();
+  const href = useHref();
   const router = useRouter();
   const params = useSearchParams();
   const wantedLayout = params.get("layout");
@@ -79,7 +90,9 @@ export default function CagePlanner() {
 
   const [hist, dispatch] = useReducer(histReducer, { past: [], present: { cage: DEFAULT_CAGE, items: [] }, future: [] });
   const { cage, items } = hist.present;
-  const [meta, setMeta] = useState<Meta>({ name: DEFAULT_NAME, species: "hamster", size: "syrian", petId: null, layoutId: null });
+  /** 새 배치안의 기본 이름 (화면 언어로) */
+  const defaultName = t(DEFAULT_NAME);
+  const [meta, setMeta] = useState<Meta>({ name: defaultName, species: "hamster", size: "syrian", petId: null, layoutId: null });
   /** 마지막으로 저장(또는 불러온) 상태. 지금 상태와 다르면 저장하지 않은 변경이 있다 */
   const [savedSnap, setSavedSnap] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -131,9 +144,9 @@ export default function CagePlanner() {
         setLayoutsError(null);
       })
       .catch((e: unknown) => {
-        if (!isAuthError(e)) setLayoutsError(e instanceof ApiError ? e.messageKo : "배치안 목록을 불러오지 못했어요.");
+        if (!isAuthError(e)) setLayoutsError(e instanceof ApiError ? e.messageKo : t("배치안 목록을 불러오지 못했어요."));
       });
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     if (!userId) return;
@@ -219,9 +232,9 @@ export default function CagePlanner() {
       const f = await uploadMarketFile(file, "model", (sent, total) => onProgress(Math.round((sent / total) * 100)));
       await refreshMyFiles();
       const asset = registerFileAsset(f, api.marketUrl);
-      if (!asset) throw new Error(f.format === "skp" ? "SketchUp 파일은 3D로 볼 수 없어요." : "파일 크기를 읽지 못했어요.");
+      if (!asset) throw new Error(f.format === "skp" ? t("SketchUp 파일은 3D로 볼 수 없어요.") : t("파일 크기를 읽지 못했어요."));
     },
-    [refreshMyFiles],
+    [refreshMyFiles, t],
   );
 
   const deleteMyFile = useCallback(async (f: MarketFile) => {
@@ -272,7 +285,7 @@ export default function CagePlanner() {
   /** 화면의 상태를 먼저 바꾼 뒤 주소만 맞춰요 (그 주소의 배치안을 다시 불러오지 않게) */
   const replaceLayoutParam = useCallback((id: string | null) => {
     if (!isLive()) return; // 이 플래너는 이미 화면에서 내려갔어요 (새 플래너의 주소는 건드리지 않아요)
-    if (window.location.pathname !== "/cage") {
+    if (stripLang(window.location.pathname) !== "/cage") {
       // 저장·삭제를 기다리는 사이 다른 화면으로 떠났으면 지금 주소는 건드리지 않고, 돌아왔을 때 맞춰요
       pendingParam.current = { from: seenParam.current, to: id };
       selfNav.current = undefined;
@@ -283,8 +296,8 @@ export default function CagePlanner() {
     selfNav.current = id === seenParam.current ? undefined : id;
     // router.replace 는 서버 왕복을 기다리는 전환이라 그사이 다른 이동이 끼면 버려질 수 있어요.
     // history.replaceState 는 Next 가 서버 왕복 없이 반영해요 (useSearchParams 는 다음 렌더에 바뀜)
-    window.history.replaceState(null, "", id ? `/cage?layout=${id}` : "/cage");
-  }, [isLive]);
+    window.history.replaceState(null, "", href(id ? `/cage?layout=${id}` : "/cage"));
+  }, [isLive, href]);
 
   const loadLayout = useCallback(
     (id: string) => {
@@ -301,7 +314,7 @@ export default function CagePlanner() {
           if (loading.current === seq) applyLayout(l);
         })
         .catch((e: unknown) => {
-          if (loading.current === seq) setNotice({ kind: "error", text: e instanceof ApiError ? e.messageKo : "배치안을 불러오지 못했어요." });
+          if (loading.current === seq) setNotice({ kind: "error", text: e instanceof ApiError ? e.messageKo : t("배치안을 불러오지 못했어요.") });
         })
         .finally(() => {
           if (loading.current !== seq) return;
@@ -311,7 +324,7 @@ export default function CagePlanner() {
           settleLoad();
         });
     },
-    [applyLayout, settleLoad],
+    [applyLayout, settleLoad, t],
   );
 
   // 브라우저 저장소와 로그인 상태는 서버 렌더 때 알 수 없으므로, 화면이 붙은 뒤 효과에서 한 번 상태를 채워요
@@ -347,7 +360,8 @@ export default function CagePlanner() {
     if (!wantedLayout) {
       const d = readDraft();
       if (d && !ready) {
-        const m: Meta = { name: d.name || DEFAULT_NAME, species: d.species, size: d.size, petId: d.petId, layoutId: d.layoutId };
+        // 기본 이름은 지금 화면 언어로 (한국어 화면에서 만든 임시 저장을 영어 화면에서 열면 "New layout")
+        const m: Meta = { name: !d.name || isDefaultName(d.name) ? defaultName : d.name, species: d.species, size: d.size, petId: d.petId, layoutId: d.layoutId };
         setMeta(m);
         const valid = (i: LayoutItem) =>
           typeof i?.id === "string" && typeof i.asset === "string" &&
@@ -364,19 +378,19 @@ export default function CagePlanner() {
     }
     if (!userId) {
       setReady(true);
-      setNotice({ kind: "error", text: "저장한 배치안은 로그인하면 열 수 있어요." });
+      setNotice({ kind: "error", text: t("저장한 배치안은 로그인하면 열 수 있어요.") });
       return;
     }
     loadLayout(wantedLayout);
-  }, [status, wantedLayout, userId, meta.layoutId, ready, loadLayout, replaceLayoutParam, settleLoad]);
+  }, [status, wantedLayout, userId, meta.layoutId, ready, loadLayout, replaceLayoutParam, settleLoad, defaultName, t]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   // 작업 중인 배치를 이 브라우저에 남겨요 (불러오기를 마친 뒤부터)
   useEffect(() => {
     if (!ready) return;
-    const empty = items.length === 0 && !meta.layoutId && meta.name === DEFAULT_NAME;
+    const empty = items.length === 0 && !meta.layoutId && isDefaultName(meta.name);
     writeDraft(empty ? null : { ...meta, cage, items });
-  }, [ready, meta, cage, items]);
+  }, [ready, meta, cage, items, defaultName]);
 
   const snap = snapshotOf(meta, hist.present);
   const dirty = savedSnap === null ? items.length > 0 : snap !== savedSnap;
@@ -401,7 +415,7 @@ export default function CagePlanner() {
         return true;
       }
       if (items.length >= MAX_ITEMS) {
-        setNotice({ kind: "error", text: `구조물은 ${MAX_ITEMS}개까지 놓을 수 있어요.` });
+        setNotice({ kind: "error", text: t("구조물은 {n}개까지 놓을 수 있어요.", { n: MAX_ITEMS }) });
         return false;
       }
       const item = newItemAt(cage, items, asset, rules);
@@ -409,7 +423,7 @@ export default function CagePlanner() {
       setSelectedId(item.id);
       return true;
     },
-    [cage, items, commit, rules],
+    [cage, items, commit, rules, t],
   );
 
   // ?add=파일 ID: 불러오기(임시 저장 되살리기)를 마친 뒤 한 번만 놓고, 주소에서 add 는 지워요
@@ -427,7 +441,7 @@ export default function CagePlanner() {
     handledAdd.current = addFileParam;
     const dropParam = () => {
       const url = new URL(window.location.href);
-      if (url.pathname !== "/cage" || url.searchParams.get("add") !== addFileParam) return;
+      if (stripLang(url.pathname) !== "/cage" || url.searchParams.get("add") !== addFileParam) return;
       url.searchParams.delete("add");
       window.history.replaceState(null, "", `${url.pathname}${url.search}`);
     };
@@ -440,18 +454,18 @@ export default function CagePlanner() {
         const asset = registerFileAsset(f, api.marketUrl);
         setAssetVer((v) => v + 1);
         if (!asset) {
-          setNotice({ kind: "error", text: f.format === "skp" ? "SketchUp 파일은 가상 케이지에 놓을 수 없어요." : "이 파일은 크기를 읽지 못해 놓을 수 없어요." });
+          setNotice({ kind: "error", text: f.format === "skp" ? t("SketchUp 파일은 가상 케이지에 놓을 수 없어요.") : t("이 파일은 크기를 읽지 못해 놓을 수 없어요.") });
         } else if (addAssetRef.current(asset)) {
-          setNotice({ kind: "ok", text: `"${f.filename}" 파일을 빈 자리에 놓았어요. 마음에 들면 저장하세요.` });
+          setNotice({ kind: "ok", text: t("\"{name}\" 파일을 빈 자리에 놓았어요. 마음에 들면 저장하세요.", { name: f.filename }) });
         }
         dropParam();
       },
       (e: unknown) => {
-        setNotice({ kind: "error", text: e instanceof ApiError ? e.messageKo : "파일을 불러오지 못했어요." });
+        setNotice({ kind: "error", text: e instanceof ApiError ? e.messageKo : t("파일을 불러오지 못했어요.") });
         dropParam();
       },
     );
-  }, [ready, addFileParam]);
+  }, [ready, addFileParam, t]);
 
   const addStarter = useCallback(() => {
     commit((d) => {
@@ -572,7 +586,7 @@ export default function CagePlanner() {
   // ── 저장·불러오기·새로 만들기 ──
 
   const body = (): CageLayoutInput => ({
-    name: meta.name.trim() || DEFAULT_NAME,
+    name: meta.name.trim() || defaultName,
     species: meta.species,
     size: meta.size,
     cage,
@@ -632,7 +646,7 @@ export default function CagePlanner() {
       } else {
         saved = await write(api.createLayout);
       }
-      const petNote = petDropped ? " 연결된 반려동물을 찾을 수 없어 반려동물 연결은 빼고 저장했어요." : "";
+      const petNote = petDropped ? ` ${t("연결된 반려동물을 찾을 수 없어 반려동물 연결은 빼고 저장했어요.")}` : "";
       const moved = await movedSince(start);
       if (!isLive()) {
         // 기다리는 사이 이 플래너가 내려갔으면 새 화면에는 붙이지 않고, 새 화면의 목록만 다시 받게 해요
@@ -641,7 +655,7 @@ export default function CagePlanner() {
       }
       if (moved) {
         // 저장을 기다리는 사이 다른 배치안으로 옮겨 갔으면 지금 화면에는 반영하지 않고 알리기만 해요
-        setNotice({ kind: "ok", text: `"${saved.name}" 배치안으로 저장했어요. 내 배치안에서 열 수 있어요.${petNote}` });
+        setNotice({ kind: "ok", text: t("\"{name}\" 배치안으로 저장했어요. 내 배치안에서 열 수 있어요.", { name: saved.name }) + petNote });
         refreshLayouts();
         return;
       }
@@ -650,19 +664,23 @@ export default function CagePlanner() {
       setMeta(m);
       setSavedSnap(snapshotOf(m, { cage: saved.cage, items: saved.items }));
       replaceLayoutParam(saved.id);
-      setNotice({ kind: "ok", text: (asNew || !openId ? "새 배치안으로 저장했어요." : "저장했어요.") + petNote });
+      setNotice({ kind: "ok", text: (asNew || !openId ? t("새 배치안으로 저장했어요.") : t("저장했어요.")) + petNote });
       refreshLayouts();
     } catch (e) {
       setNotice({
         kind: "error",
-        text: isAuthError(e) ? "로그인이 풀렸어요. 다시 로그인하면 이어서 저장할 수 있어요 (작업은 이 브라우저에 남아 있어요)." : e instanceof ApiError ? e.messageKo : "저장하지 못했어요.",
+        text: isAuthError(e)
+          ? t("로그인이 풀렸어요. 다시 로그인하면 이어서 저장할 수 있어요 (작업은 이 브라우저에 남아 있어요).")
+          : e instanceof ApiError
+            ? e.messageKo
+            : t("저장하지 못했어요."),
       });
     } finally {
       setWriting(false);
     }
   };
 
-  const confirmDiscard = () => !dirty || window.confirm("저장하지 않은 변경이 있어요. 버리고 계속할까요?");
+  const confirmDiscard = () => !dirty || window.confirm(t("저장하지 않은 변경이 있어요. 버리고 계속할까요?"));
 
   const openLayout = (id: string) => {
     if (!confirmDiscard()) return;
@@ -673,7 +691,7 @@ export default function CagePlanner() {
 
   const newLayout = () => {
     if (!confirmDiscard()) return;
-    const m: Meta = { name: DEFAULT_NAME, species: meta.species, size: meta.size, petId: null, layoutId: null };
+    const m: Meta = { name: defaultName, species: meta.species, size: meta.size, petId: null, layoutId: null };
     docGen.current += 1;
     setMeta(m);
     dispatch({ type: "reset", doc: { cage: hist.present.cage, items: [] } });
@@ -684,7 +702,7 @@ export default function CagePlanner() {
   };
 
   const deleteLayout = async (l: CageLayoutSummary) => {
-    if (!window.confirm(`"${l.name}" 배치안을 지울까요? 되돌릴 수 없어요.`)) return;
+    if (!window.confirm(t("\"{name}\" 배치안을 지울까요? 되돌릴 수 없어요.", { name: l.name }))) return;
     setWriting(true);
     const start = placeNow();
     try {
@@ -702,7 +720,7 @@ export default function CagePlanner() {
       }
       refreshLayouts();
     } catch (e) {
-      setNotice({ kind: "error", text: e instanceof ApiError ? e.messageKo : "지우지 못했어요." });
+      setNotice({ kind: "error", text: e instanceof ApiError ? e.messageKo : t("지우지 못했어요.") });
     } finally {
       setWriting(false);
     }
@@ -815,7 +833,7 @@ export default function CagePlanner() {
             </div>
           )}
           <div className={ui.card}>
-            <div className="mb-4 flex gap-1 rounded-xl bg-stone-100 p-1 text-sm" role="tablist" aria-label="패널">
+            <div className="mb-4 flex gap-1 rounded-xl bg-stone-100 p-1 text-sm" role="tablist" aria-label={t("패널")}>
               {(
                 [
                   ["catalog", "카탈로그"],
@@ -831,7 +849,7 @@ export default function CagePlanner() {
                   onClick={() => setTab(k)}
                   className={`flex-1 rounded-lg px-2 py-1.5 ${tab === k ? "bg-white font-semibold shadow-sm" : "text-stone-600"}`}
                 >
-                  {label}
+                  {t(label)}
                 </button>
               ))}
             </div>
@@ -871,17 +889,17 @@ export default function CagePlanner() {
               ) : (
                 <p className="text-sm text-stone-600">
                   <Link href={withNext("/login", "/cage")} className={ui.link}>
-                    로그인
+                    {t("로그인")}
                   </Link>
-                  하면 배치안을 계정에 저장하고 다른 기기에서도 열 수 있어요. 지금 작업은 이 브라우저에 임시로 남아 있어요.
+                  {t("하면 배치안을 계정에 저장하고 다른 기기에서도 열 수 있어요. 지금 작업은 이 브라우저에 임시로 남아 있어요.")}
                 </p>
               ))}
           </div>
           <div className={`${ui.cardPlain} text-sm`}>
-            <p className="font-medium">구조물을 직접 만들려면</p>
-            <p className="mt-1 text-stone-600">이 케이지 치수에 맞춰 은신처·터널·경사로를 설계하고 3D 프린팅 파일(STL·3MF)로 받을 수 있어요.</p>
+            <p className="font-medium">{t("구조물을 직접 만들려면")}</p>
+            <p className="mt-1 text-stone-600">{t("이 케이지 치수에 맞춰 은신처·터널·경사로를 설계하고 3D 프린팅 파일(STL·3MF)로 받을 수 있어요.")}</p>
             <Link href={meta.petId ? `/design?pet=${encodeURIComponent(meta.petId)}` : "/design"} className={`${ui.link} mt-2 inline-block font-medium`}>
-              설계하기로 가기 →
+              {t("설계하기로 가기 →")}
             </Link>
           </div>
         </aside>

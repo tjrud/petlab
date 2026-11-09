@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Link, useT } from "@/i18n/client";
 
 import { ui } from "@/lib/ui";
 
@@ -12,28 +12,29 @@ export default function Pagination({
   totalPages: number;
   hrefFor: (page: number) => string;
 }) {
+  const t = useT();
   const disabled = `${ui.btnSecondary} cursor-not-allowed`;
   return (
-    <nav aria-label="페이지 이동" className="mt-8 flex items-center justify-center gap-3">
+    <nav aria-label={t("페이지 이동")} className="mt-8 flex items-center justify-center gap-3">
       {page > 1 ? (
         <Link href={hrefFor(page - 1)} rel="prev" className={ui.btnSecondary}>
-          이전
+          {t("이전")}
         </Link>
       ) : (
         <button type="button" disabled className={disabled}>
-          이전
+          {t("이전")}
         </button>
       )}
       <span className="text-sm tabular-nums text-stone-600">
-        {page} / {totalPages} 페이지
+        {t("{page} / {total} 페이지", { page, total: totalPages })}
       </span>
       {page < totalPages ? (
         <Link href={hrefFor(page + 1)} rel="next" className={ui.btnSecondary}>
-          다음
+          {t("다음")}
         </Link>
       ) : (
         <button type="button" disabled className={disabled}>
-          다음
+          {t("다음")}
         </button>
       )}
     </nav>

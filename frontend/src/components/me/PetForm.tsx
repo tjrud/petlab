@@ -2,6 +2,8 @@
 
 import { useEffect, useId, useState } from "react";
 
+import { useT } from "@/i18n/client";
+import type { TFunction } from "@/i18n/translate";
 import { api, ApiError, errorText, isAuthError } from "@/lib/api";
 import type { Pet, PetInput, PetSex, SpeciesOption } from "@/lib/types";
 import { ui } from "@/lib/ui";
@@ -59,32 +61,33 @@ function initialValues(pet: Pet | undefined, species: SpeciesOption[]): Values {
 }
 
 /** 서버 검증(PetIn)과 같은 규칙. 최종 판단은 서버가 한다. */
-function validate(v: Values, species: SpeciesOption[], today: string): Errors {
+function validate(v: Values, species: SpeciesOption[], today: string, t: TFunction): Errors {
   const errors: Errors = {};
   const name = v.name.trim();
-  if (!name) errors.name = "이름을 입력해 주세요.";
-  else if (hasControlChars(name)) errors.name = "이름에 쓸 수 없는 문자가 있어요.";
-  else if (charCount(name) > 40) errors.name = "이름은 40자 이하로 입력해 주세요.";
+  if (!name) errors.name = t("이름을 입력해 주세요.");
+  else if (hasControlChars(name)) errors.name = t("이름에 쓸 수 없는 문자가 있어요.");
+  else if (charCount(name) > 40) errors.name = t("이름은 40자 이하로 입력해 주세요.");
 
   const sp = species.find((s) => s.key === v.species);
-  if (!sp) errors.species = "종을 골라 주세요.";
-  else if (!sp.sizes.some((z) => z.key === v.size)) errors.size = "크기를 골라 주세요.";
+  if (!sp) errors.species = t("종을 골라 주세요.");
+  else if (!sp.sizes.some((z) => z.key === v.size)) errors.size = t("크기를 골라 주세요.");
 
   if (v.birth && (!/^\d{4}-\d{2}-\d{2}$/.test(v.birth) || v.birth < BIRTH_MIN || v.birth > today))
-    errors.birth = "생일은 1990년 1월 1일부터 오늘 사이로 입력해 주세요.";
+    errors.birth = t("생일은 1990년 1월 1일부터 오늘 사이로 입력해 주세요.");
 
   const notes = v.notes.trim();
-  if (hasControlChars(notes, true)) errors.notes = "메모에 쓸 수 없는 문자가 있어요.";
-  else if (charCount(notes) > NOTES_MAX) errors.notes = `메모는 ${NOTES_MAX}자 이하로 적어 주세요.`;
+  if (hasControlChars(notes, true)) errors.notes = t("메모에 쓸 수 없는 문자가 있어요.");
+  else if (charCount(notes) > NOTES_MAX) errors.notes = t("메모는 {max}자 이하로 적어 주세요.", { max: NOTES_MAX });
 
   const filled = CAGE_DIMS.filter(([k]) => v.cage[k].trim() !== "");
   if (filled.length > 0 && filled.length < 3) {
-    errors.cage = "가로·세로·높이를 모두 입력하거나, 치수 비우기를 눌러 주세요.";
-    for (const [k] of CAGE_DIMS) if (!v.cage[k].trim()) errors[k] = "입력해 주세요.";
+    errors.cage = t("가로·세로·높이를 모두 입력하거나, 치수 비우기를 눌러 주세요.");
+    for (const [k] of CAGE_DIMS) if (!v.cage[k].trim()) errors[k] = t("입력해 주세요.");
   } else if (filled.length === 3) {
     for (const [k, label] of CAGE_DIMS) {
-      const e = cageDimError(k, Number(v.cage[k]), label);
-      if (e) errors[k] = e; // 문제없는 칸은 키를 만들지 않는다
+      // 안내 문구는 cageDimError 와 같은 원문을 번역해 보인다 (한국어는 그대로). 문제없는 칸은 키를 만들지 않는다
+      if (cageDimError(k, Number(v.cage[k]), label))
+        errors[k] = t("{label}는 {lo}~{hi}mm 사이로 입력해 주세요.", { label: t(label), lo: CAGE_LIMITS[k][0], hi: CAGE_LIMITS[k][1] });
     }
   }
   return errors;
@@ -127,6 +130,7 @@ export default function PetForm({
   onAuthError: (e: ApiError) => void;
 }) {
   const uid = useId();
+  const t = useT();
   const id = (k: string) => `${uid}-${k}`;
   // 폼은 버튼을 눌러 열 때만 그려지므로(서버 렌더 없음) 여기서 오늘 날짜를 읽어도 된다
   const [today] = useState(todayLocal);
@@ -143,10 +147,10 @@ export default function PetForm({
     el?.closest("form")?.scrollIntoView({ block: "nearest" });
   }, [nameId]);
 
-  const errors = submitted ? validate(values, species, today) : {};
+  const errors = submitted ? validate(values, species, today, t) : {};
   const sizes = species.find((s) => s.key === values.species)?.sizes ?? [];
   const notesCount = charCount(values.notes.trim());
-  const title = pet ? "반려동물 정보 수정" : "반려동물 등록";
+  const title = pet ? t("반려동물 정보 수정") : t("반려동물 등록");
 
   const set = <K extends keyof Values>(k: K, value: Values[K]) => {
     setValues((prev) => ({ ...prev, [k]: value }));
@@ -159,7 +163,7 @@ export default function PetForm({
     e.preventDefault();
     setError(null);
     setSubmitted(true);
-    const errs = validate(values, species, today);
+    const errs = validate(values, species, today, t);
     const first = ORDER.find((k) => errs[k]);
     if (first) {
       focus(first);
@@ -174,10 +178,10 @@ export default function PetForm({
       setSubmitting(false);
       if (isAuthError(err)) return onAuthError(err);
       if (err instanceof ApiError && isBirthDateError(err)) {
-        setError("생일은 1990년 1월 1일부터 오늘 사이로 입력해 주세요.");
+        setError(t("생일은 1990년 1월 1일부터 오늘 사이로 입력해 주세요."));
         focus("birth");
       } else {
-        setError(errorText(err, "저장하지 못했어요. 잠시 뒤 다시 시도해 주세요."));
+        setError(errorText(err, t("저장하지 못했어요. 잠시 뒤 다시 시도해 주세요.")));
       }
     }
   }
@@ -205,7 +209,7 @@ export default function PetForm({
 
       <div>
         <label htmlFor={id("name")} className={ui.label}>
-          이름
+          {t("이름")}
         </label>
         <input
           {...field("name")}
@@ -221,7 +225,7 @@ export default function PetForm({
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
           <label htmlFor={id("species")} className={ui.label}>
-            종
+            {t("종")}
           </label>
           <select
             {...field("species")}
@@ -230,7 +234,7 @@ export default function PetForm({
           >
             {species.map((s) => (
               <option key={s.key} value={s.key}>
-                {s.display_name}
+                {t(s.display_name)}
               </option>
             ))}
           </select>
@@ -238,15 +242,15 @@ export default function PetForm({
         </div>
         <div>
           <label htmlFor={id("size")} className={ui.label}>
-            크기
+            {t("크기")}
           </label>
           <select {...field("size")} value={values.size} onChange={(e) => set("size", e.target.value)}>
             <option value="" disabled>
-              크기를 골라 주세요
+              {t("크기를 골라 주세요")}
             </option>
             {sizes.map((z) => (
               <option key={z.key} value={z.key}>
-                {z.display_name}
+                {t(z.display_name)}
               </option>
             ))}
           </select>
@@ -255,7 +259,7 @@ export default function PetForm({
       </div>
 
       <fieldset>
-        <legend className={ui.label}>성별</legend>
+        <legend className={ui.label}>{t("성별")}</legend>
         <div className="flex flex-wrap gap-2">
           {SEXES.map((s) => (
             <label
@@ -272,7 +276,7 @@ export default function PetForm({
                 onChange={() => set("sex", s)}
                 className="accent-amber-500"
               />
-              {SEX_LABEL[s]}
+              {t(SEX_LABEL[s])}
             </label>
           ))}
         </div>
@@ -281,9 +285,9 @@ export default function PetForm({
       <div>
         <div className="flex items-baseline justify-between gap-2">
           <label htmlFor={id("birth")} className={ui.label}>
-            생일
+            {t("생일")}
           </label>
-          <span className="text-xs text-stone-500">선택</span>
+          <span className="text-xs text-stone-500">{t("선택")}</span>
         </div>
         <div className="flex gap-2">
           <input
@@ -297,7 +301,7 @@ export default function PetForm({
           />
           {values.birth && (
             <button type="button" onClick={() => set("birth", "")} className={`${ui.btnSecondary} shrink-0`}>
-              생일 지우기
+              {t("생일 지우기")}
             </button>
           )}
         </div>
@@ -307,14 +311,14 @@ export default function PetForm({
       <div>
         <div className="flex items-baseline justify-between gap-2">
           <label htmlFor={id("notes")} className={ui.label}>
-            메모
+            {t("메모")}
           </label>
-          <span className="text-xs text-stone-500">선택</span>
+          <span className="text-xs text-stone-500">{t("선택")}</span>
         </div>
         <textarea
           {...field("notes", true)}
           rows={3}
-          placeholder="예: 겁이 많아서 은신처를 좋아해요"
+          placeholder={t("예: 겁이 많아서 은신처를 좋아해요")}
           value={values.notes}
           onChange={(e) => set("notes", e.target.value)}
         />
@@ -329,10 +333,10 @@ export default function PetForm({
 
       <fieldset>
         <legend className={ui.label}>
-          케이지 내부 치수 <span className="font-normal text-stone-500">(선택)</span>
+          {t("케이지 내부 치수")} <span className="font-normal text-stone-500">({t("선택")})</span>
         </legend>
         <p className="mb-2 text-xs text-stone-500">
-          저장해 두면 설계할 때 자동으로 채워져요. 모르면 비워 두어도 돼요.
+          {t("저장해 두면 설계할 때 자동으로 채워져요. 모르면 비워 두어도 돼요.")}
         </p>
         <div className="mb-3 flex flex-wrap gap-2">
           {CAGE_PRESETS.map((p) => {
@@ -347,7 +351,7 @@ export default function PetForm({
                   active ? "border-amber-500 bg-amber-100" : "border-stone-300 bg-white hover:bg-stone-50"
                 }`}
               >
-                {p.label}
+                {t(p.label)}
               </button>
             );
           })}
@@ -357,14 +361,14 @@ export default function PetForm({
             disabled={CAGE_DIMS.every(([k]) => !values.cage[k])}
             className="rounded-full border border-stone-300 bg-white px-3 py-1 text-sm text-stone-600 hover:bg-stone-50 disabled:opacity-50"
           >
-            치수 비우기
+            {t("치수 비우기")}
           </button>
         </div>
         <div className="grid grid-cols-3 gap-2 sm:gap-3">
           {CAGE_DIMS.map(([k, label]) => (
             <div key={k} className="min-w-0">
               <label htmlFor={id(k)} className="mb-1 block text-xs text-stone-600">
-                {label} (mm)
+                {t(label)} (mm)
               </label>
               <input
                 {...field(k)}
@@ -390,10 +394,10 @@ export default function PetForm({
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         <button type="button" onClick={onCancel} disabled={submitting} className={ui.btnSecondary}>
-          취소
+          {t("취소")}
         </button>
         <button type="submit" disabled={submitting} className={ui.btnPrimary}>
-          {submitting ? "저장 중…" : "저장"}
+          {submitting ? t("저장 중…") : t("저장")}
         </button>
       </div>
     </form>

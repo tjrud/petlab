@@ -21,14 +21,19 @@ export const ui = {
   link: "text-amber-700 underline-offset-2 hover:underline",
 } as const;
 
-/** "2026-11-01T12:00:00Z" → "2026. 11. 1." (한국어 날짜) */
+/** 날짜·시각 형식의 로캘: 지금 화면 언어(<html lang>). 서버에서 미리 그릴 때는 한국어 */
+function locale(): string {
+  return typeof document !== "undefined" && document.documentElement.lang === "en" ? "en-US" : "ko-KR";
+}
+
+/** "2026-11-01T12:00:00Z" → "2026. 11. 1." (영어 화면은 "11/1/2026") */
 export function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("ko-KR", { year: "numeric", month: "numeric", day: "numeric" });
+  return new Date(iso).toLocaleDateString(locale(), { year: "numeric", month: "numeric", day: "numeric" });
 }
 
 /** 날짜와 시각 ("2026. 11. 1. 오후 9:30") */
 export function formatDateTime(iso: string): string {
-  return new Date(iso).toLocaleString("ko-KR", {
+  return new Date(iso).toLocaleString(locale(), {
     year: "numeric",
     month: "numeric",
     day: "numeric",

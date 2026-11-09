@@ -2,6 +2,8 @@
 
 import { useEffect, useEffectEvent, useImperativeHandle, useRef, useState } from "react";
 
+import { useLang, useT } from "@/i18n/client";
+
 // Cloudflare Turnstile (회원가입 보안 확인). 스크립트는 처음 쓸 때 한 번만 불러온다.
 // 토큰은 한 번만 쓸 수 있으므로, 서버가 요청을 거절하면 부모가 reset() 으로 새로 풀게 한다.
 
@@ -70,6 +72,8 @@ export default function Turnstile({
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const emit = useEffectEvent((token: string | null) => onToken(token));
+  const lang = useLang();
+  const t = useT();
 
   useImperativeHandle(ref, () => ({
     reset: () => {
@@ -84,7 +88,7 @@ export default function Turnstile({
         if (cancelled || !box.current) return;
         widgetId.current = turnstile.render(box.current, {
           sitekey: siteKey,
-          language: "ko",
+          language: lang,
           callback: (token) => emit(token),
           "expired-callback": () => emit(null),
           "error-callback": () => emit(null),
@@ -103,14 +107,14 @@ export default function Turnstile({
       }
       emit(null);
     };
-  }, [siteKey, attempt]);
+  }, [siteKey, attempt, lang]);
 
   return (
     <div>
       <div ref={box} />
       {failed && (
         <p role="alert" className="mt-1 text-sm text-red-700">
-          보안 확인을 불러오지 못했어요.{" "}
+          {t("보안 확인을 불러오지 못했어요.")}{" "}
           <button
             type="button"
             className="font-semibold underline underline-offset-2"
@@ -119,7 +123,7 @@ export default function Turnstile({
               setAttempt((n) => n + 1);
             }}
           >
-            다시 불러오기
+            {t("다시 불러오기")}
           </button>
         </p>
       )}

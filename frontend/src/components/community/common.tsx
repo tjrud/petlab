@@ -1,6 +1,8 @@
 // 커뮤니티 화면 공통: 입력 한도, 주소, 작성자 표시, 글자 수, 자리 표시.
-// 훅을 쓰지 않으므로 서버 컴포넌트(페이지)와 클라이언트 컴포넌트 양쪽에서 쓸 수 있다.
+// 작성자 표시·글자 수는 번역 훅(useT)을 쓰므로 클라이언트 컴포넌트 안에서만 그린다.
 
+import { useT } from "@/i18n/client";
+import type { TFunction } from "@/i18n/translate";
 import { withNext } from "@/lib/safeNext";
 import type { Author } from "@/lib/types";
 
@@ -20,13 +22,13 @@ export { errorText } from "@/lib/api";
 export const oneLine = (v: string) => v.replace(/[\t\r\n]+/g, " ");
 
 /** 글 제목·내용 확인 (앞뒤 공백은 서버가 지우므로 같은 기준으로 본다) */
-export function checkPost(title: string, body: string): string | null {
-  const t = title.trim();
+export function checkPost(title: string, body: string, t: TFunction): string | null {
+  const ti = title.trim();
   const b = body.trim();
-  if (!t) return "제목을 입력해 주세요.";
-  if (t.length > LIMITS.title) return `제목은 ${LIMITS.title}자까지 쓸 수 있어요.`;
-  if (!b) return "내용을 입력해 주세요.";
-  if (b.length > LIMITS.body) return `내용은 ${LIMITS.body}자까지 쓸 수 있어요.`;
+  if (!ti) return t("제목을 입력해 주세요.");
+  if (ti.length > LIMITS.title) return t("제목은 {n}자까지 쓸 수 있어요.", { n: LIMITS.title });
+  if (!b) return t("내용을 입력해 주세요.");
+  if (b.length > LIMITS.body) return t("내용은 {n}자까지 쓸 수 있어요.", { n: LIMITS.body });
   return null;
 }
 
@@ -37,10 +39,11 @@ export function wasEdited(createdAt: string, updatedAt: string): boolean {
 
 /** 작성자 닉네임 (관리자는 배지). 닉네임은 일반 텍스트로만 보여 준다 */
 export function AuthorName({ author, className = "" }: { author: Author; className?: string }) {
+  const t = useT();
   return (
     <span className={`inline-flex min-w-0 items-center gap-1 ${className}`}>
       {author.role === "admin" && (
-        <span className="shrink-0 rounded bg-stone-800 px-1.5 py-0.5 text-xs font-medium text-white">관리자</span>
+        <span className="shrink-0 rounded bg-stone-800 px-1.5 py-0.5 text-xs font-medium text-white">{t("관리자")}</span>
       )}
       <span className="min-w-0 max-w-[12rem] truncate font-medium text-stone-700">{author.nickname}</span>
     </span>
@@ -49,16 +52,17 @@ export function AuthorName({ author, className = "" }: { author: Author; classNa
 
 /** 입력 글자 수 (예: 12/1000). 한도에 가까우면 색으로 알린다 */
 export function CharCount({ id, length, max }: { id: string; length: number; max: number }) {
+  const t = useT();
   const near = length > max * 0.9;
   return (
     <p id={id} className={`text-right text-xs tabular-nums ${near ? "text-amber-700" : "text-stone-500"}`}>
-      <span className="sr-only">입력한 글자 수 </span>
+      <span className="sr-only">{t("입력한 글자 수")} </span>
       {length}/{max}
     </p>
   );
 }
 
-/** 불러오는 동안의 자리 표시 (화면 낭독기에는 안내 문구만 읽힌다) */
+/** 불러오는 동안의 자리 표시 (화면 낭독기에는 안내 문구만 읽힌다). label 은 부르는 쪽에서 번역해 넘긴다 */
 export function Placeholder({ rows = 4, label, rowClassName = "h-20" }: { rows?: number; label: string; rowClassName?: string }) {
   return (
     <div role="status">

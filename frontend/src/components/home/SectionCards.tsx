@@ -1,6 +1,7 @@
-import Link from "next/link";
+import { Link } from "@/i18n/client";
 
 import { IconArrowRight, IconCage, IconChat, IconFolder, IconPaw, IconPencil } from "@/components/home/icons";
+import { getT } from "@/i18n/server";
 
 const AREAS = [
   {
@@ -47,11 +48,12 @@ const AREAS = [
   },
 ] as const;
 
-export default function SectionCards() {
+export default async function SectionCards() {
+  const t = await getT();
   return (
     <section aria-labelledby="areas-title" className="mt-12">
       <h2 id="areas-title" className="text-xl font-bold sm:text-2xl">
-        주요 기능
+        {t("주요 기능")}
       </h2>
       <ul className="mt-5 grid gap-4 sm:grid-cols-2">
         {AREAS.map(({ href, title, body, Icon, tone }) => (
@@ -64,10 +66,10 @@ export default function SectionCards() {
                 <Icon className="h-6 w-6" />
               </span>
               <div className="min-w-0">
-                <h3 className="text-lg font-semibold">{title}</h3>
-                <p className="mt-1 text-sm leading-relaxed text-stone-600">{body}</p>
+                <h3 className="text-lg font-semibold">{t(title)}</h3>
+                <p className="mt-1 text-sm leading-relaxed text-stone-600">{t(body)}</p>
                 <span className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-amber-700">
-                  바로 가기
+                  {t("바로 가기")}
                   <IconArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
                 </span>
               </div>

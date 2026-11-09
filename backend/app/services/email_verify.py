@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.errors import AppError, ConflictError, ForbiddenError, QuotaExceededError
+from app.i18n import Lang, get_lang
 from app.mailer import Mail, Mailer, MailError
 from app.models import EmailToken, UsageEvent, User
 from app.services import usage
@@ -88,7 +89,32 @@ def verified_email_taken(db: Session, key: str, exclude_user_id: str | None = No
     return db.scalar(q.limit(1)) is not None
 
 
-def _mail(user: User, link: str, ttl_hours: float) -> Mail:
+def _mail_en(user: User, link: str, ttl_hours: float) -> Mail:
+    hours = f"{ttl_hours:g} hour" + ("" if ttl_hours == 1 else "s")
+    text = (
+        f"Hi {user.nickname}, welcome to NestForge.\n\n"
+        f"Open the link below to verify your email address. The link works once and expires in {hours}.\n\n"
+        f"{link}\n\n"
+        "If you didn't sign up or change your email, you can ignore this email.\n"
+        "— NestForge"
+    )
+    nick, href = html.escape(user.nickname), html.escape(link, quote=True)
+    body = (
+        '<div style="font-family:sans-serif;line-height:1.6;color:#1f2937">'
+        f"<p>Hi {nick}, welcome to NestForge.</p>"
+        f"<p>Click the button below to verify your email address. The link works once and expires in {hours}.</p>"
+        f'<p><a href="{href}" style="display:inline-block;padding:10px 18px;background:#b45309;color:#fff;'
+        'border-radius:8px;text-decoration:none;font-weight:600">Verify email</a></p>'
+        f'<p style="font-size:13px;color:#6b7280">If the button doesn\'t work, copy and open this link:<br>{href}</p>'
+        '<p style="font-size:13px;color:#6b7280">If you didn\'t sign up or change your email, you can ignore this email.</p>'
+        "</div>"
+    )
+    return Mail(to=user.email or "", subject="[NestForge] Verify your email address", text=text, html=body)
+
+
+def _mail(user: User, link: str, ttl_hours: float, lang: Lang = "ko") -> Mail:
+    if lang == "en":
+        return _mail_en(user, link, ttl_hours)
     hours = f"{ttl_hours:g}"
     text = (
         f"{user.nickname}님, NestForge 에 오신 것을 환영해요.\n\n"
@@ -118,7 +144,9 @@ def send_verification(db: Session, settings: Settings, mailer: Mailer, user: Use
                       first: bool = False) -> bool:
     """보내기 횟수를 확인·기록하고 새 링크를 만들어 보낸다. first 는 가입할 때의 첫 메일.
     상한에 닿았으면 QuotaExceededError (기록·발송 안 함). 메일 서비스 오류면 False (다시 보내기를 안내).
-    보내지 못한 메일은 횟수에서 빼고, 1분 간격만 남긴다 (메일 서비스가 잠시 멈췄다고 하루 동안 막히지 않게)."""
+    보내지 못한 메일은 횟수에서 빼고, 1분 간격만 남긴다 (메일 서비스가 잠시 멈췄다고 하루 동안 막히지 않게).
+    메일은 요청 언어로 쓴다 (영어면 링크도 영어 페이지 /en/verify-email)."""
+    lang = get_lang()  # 요청 맥락에서 먼저 정한다 (발송이 다른 스레드로 옮겨 가도 같은 언어)
     if not user.email:
         raise AppError("내 정보에서 이메일을 먼저 등록해 주세요.", code="email_required")
     if usage.count(db, "email", user_id=user.id, window=LIFETIME) >= UNVERIFIED_LIFETIME:
@@ -141,9 +169,10 @@ def send_verification(db: Session, settings: Settings, mailer: Mailer, user: Use
     db.add(EmailToken(token_hash=token_hash, user_id=user.id, purpose="verify", email=user.email,
                       expires_at=_now() + timedelta(hours=settings.email_token_ttl_hours)))
     db.commit()  # 발송(네트워크) 동안 DB 연결을 쥐고 있지 않게 먼저 커밋한다
-    link = f"{settings.email_base_url}/verify-email?token={token}"
+    prefix = "/en" if lang == "en" else ""
+    link = f"{settings.email_base_url}{prefix}/verify-email?token={token}"
     try:
-        mailer.send(_mail(user, link, settings.email_token_ttl_hours))
+        mailer.send(_mail(user, link, settings.email_token_ttl_hours, lang))
     except MailError as e:
         log.error("인증 메일을 보내지 못했습니다 (user=%s): %s", user.id, e)
         try:  # 보내지 못한 메일은 횟수에서 빼고 링크도 지운다. 1분 간격만 남긴다

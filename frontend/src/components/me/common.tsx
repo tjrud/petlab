@@ -1,5 +1,7 @@
 // 내 정보 화면에서 함께 쓰는 작은 도우미 (글자 수·날짜·성별 표시·입력 칸 오류 표시·입력 칸 묶음)
 
+import type { Lang } from "@/i18n/config";
+import type { TFunction } from "@/i18n/translate";
 import type { Cage, PetSex } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
@@ -20,6 +22,7 @@ export function hasControlChars(s: string, multiline = false): boolean {
   return multiline ? /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/.test(s) : /[\u0000-\u001f\u007f-\u009f]/.test(s);
 }
 
+/** 성별 표시 (한국어 원문. 보여 줄 때 t(문구) 로 번역한다) */
 export const SEX_LABEL: Record<PetSex, string> = { male: "수컷", female: "암컷", unknown: "모름" };
 
 /** 케이지 치수 프리셋 (설계하기 화면과 반려동물 등록이 함께 쓴다) */
@@ -54,24 +57,24 @@ export function todayLocal(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-/** "2025-03-01" → "2025. 3. 1." (시간대에 따라 하루가 밀리지 않게 직접 나눈다) */
-export function formatYmd(ymd: string): string {
+/** "2025-03-01" → "2025. 3. 1." / 영어 "3/1/2025" (시간대에 따라 하루가 밀리지 않게 직접 나눈다) */
+export function formatYmd(ymd: string, lang: Lang = "ko"): string {
   const [y, m, d] = ymd.split("-").map(Number);
-  return `${y}. ${m}. ${d}.`;
+  return lang === "en" ? `${m}/${d}/${y}` : `${y}. ${m}. ${d}.`;
 }
 
 /** 생일로 나이를 센다: "1개월 미만", "5개월", "1살 2개월" */
-export function petAge(ymd: string, today = todayLocal()): string | null {
+export function petAge(ymd: string, t: TFunction, today = todayLocal()): string | null {
   const [by, bm, bd] = ymd.split("-").map(Number);
   const [ty, tm, td] = today.split("-").map(Number);
   if (![by, bm, bd, ty, tm, td].every(Number.isFinite)) return null;
   const months = (ty - by) * 12 + (tm - bm) - (td < bd ? 1 : 0);
   if (months < 0) return null;
-  if (months < 1) return "1개월 미만";
-  if (months < 12) return `${months}개월`;
+  if (months < 1) return t("1개월 미만");
+  if (months < 12) return t("{m}개월", { m: months });
   const years = Math.floor(months / 12);
   const rest = months % 12;
-  return rest ? `${years}살 ${rest}개월` : `${years}살`;
+  return rest ? t("{y}살 {m}개월", { y: years, m: rest }) : t("{y}살", { y: years });
 }
 
 const mm = (v: number) => String(Math.round(v * 10) / 10);

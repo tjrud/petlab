@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { Link, useT } from "@/i18n/client";
 import { useCallback, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
@@ -16,6 +16,7 @@ type ResendResult = { ok: boolean; message: string };
  */
 export function useResendVerification() {
   const { refresh } = useAuth();
+  const t = useT();
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ResendResult | null>(null);
 
@@ -27,20 +28,21 @@ export function useResendVerification() {
       const r = await api.resendVerification();
       setResult(
         r.sent
-          ? { ok: true, message: `인증 메일을 보냈어요 (${r.email}). 메일함(스팸함 포함)을 확인해 주세요.` }
-          : { ok: false, message: r.message_ko },
+          ? { ok: true, message: t("인증 메일을 보냈어요 ({email}). 메일함(스팸함 포함)을 확인해 주세요.", { email: r.email }) }
+          : // 서버 문구는 한국어 원문이라 번역해서 보여 준다 (사전에 없으면 그대로)
+            { ok: false, message: t(r.message_ko) },
       );
     } catch (e) {
       answered = e instanceof ApiError && e.status > 0; // 0: 서버에 닿지 못함
       setResult({
         ok: false,
-        message: errorText(e, "인증 메일을 보내지 못했어요. 잠시 뒤 다시 시도해 주세요."),
+        message: errorText(e, t("인증 메일을 보내지 못했어요. 잠시 뒤 다시 시도해 주세요.")),
       });
     } finally {
       setBusy(false);
     }
     if (answered) void refresh(); // 같은 확인이 이미 진행 중이면 함께 기다린다
-  }, [refresh]);
+  }, [refresh, t]);
 
   return { resend, busy, result };
 }
@@ -65,6 +67,7 @@ export function useEmailBlocked() {
 /** "인증 메일 다시 보내기" 버튼과 결과 */
 export function ResendVerification({ className = "" }: { className?: string }) {
   const { resend, busy, result } = useResendVerification();
+  const t = useT();
   return (
     <span className={`inline-flex flex-wrap items-center gap-x-2 gap-y-1 ${className}`}>
       <button
@@ -73,7 +76,7 @@ export function ResendVerification({ className = "" }: { className?: string }) {
         disabled={busy}
         className="whitespace-nowrap font-semibold underline underline-offset-2 disabled:opacity-50"
       >
-        {busy ? "보내는 중…" : "인증 메일 다시 보내기"}
+        {busy ? t("보내는 중…") : t("인증 메일 다시 보내기")}
       </button>
       {result && (
         <span role={result.ok ? "status" : "alert"} className={result.ok ? "text-emerald-800" : "text-red-700"}>
@@ -87,23 +90,24 @@ export function ResendVerification({ className = "" }: { className?: string }) {
 /** 헤더 아래 안내 띠: 이메일 인증을 마치지 않은 회원에게 (이메일이 없는 예전 회원에게는 등록 안내) */
 export function EmailVerifyBanner() {
   const { user, emailUnverified } = useAuth();
+  const t = useT();
   if (!emailUnverified || !user) return null;
   return (
-    <section aria-label="이메일 인증 안내" className="border-b border-amber-200 bg-amber-50 text-sm text-amber-950">
+    <section aria-label={t("이메일 인증 안내")} className="border-b border-amber-200 bg-amber-50 text-sm text-amber-950">
       <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2">
         {user.email ? (
           <>
             <p className="min-w-0">
-              이메일 인증을 마치면 설계·글쓰기·댓글을 쓸 수 있어요.{" "}
+              {t("이메일 인증을 마치면 설계·글쓰기·댓글을 쓸 수 있어요.")}{" "}
               <span className="break-all font-medium">({user.email})</span>
             </p>
             <ResendVerification />
           </>
         ) : (
           <>
-            <p className="min-w-0">이메일을 등록하고 인증하면 설계·글쓰기·댓글을 쓸 수 있어요.</p>
+            <p className="min-w-0">{t("이메일을 등록하고 인증하면 설계·글쓰기·댓글을 쓸 수 있어요.")}</p>
             <Link href="/me#email" className="whitespace-nowrap font-semibold underline underline-offset-2">
-              내 정보에서 이메일 등록하기
+              {t("내 정보에서 이메일 등록하기")}
             </Link>
           </>
         )}
@@ -114,21 +118,22 @@ export function EmailVerifyBanner() {
 
 /**
  * 폼 안의 안내: 이메일 인증 전이라 보낼 수 없을 때 (쓰던 내용은 그대로 둔다).
- * action 은 "설계를 받을", "글을 올릴"처럼 "~ 수 있어요" 앞에 오는 말.
+ * action 은 "설계를 받을", "글을 올릴"처럼 "~ 수 있어요" 앞에 오는 말 (한국어 원문으로 넘기면 여기서 번역한다).
  */
 export function EmailUnverifiedNotice({ action }: { action: string }) {
   const { user, refresh } = useAuth();
+  const t = useT();
   const [checking, setChecking] = useState(false);
   return (
     <div role="status" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-950">
       <p>
-        이메일 인증을 마치면 {action} 수 있어요.{" "}
+        {t("이메일 인증을 마치면 {action} 수 있어요.", { action: t(action) })}{" "}
         {user?.email ? (
           <>
-            메일함에서 인증 링크를 눌러 주세요 <span className="break-all">({user.email})</span>.
+            {t("메일함에서 인증 링크를 눌러 주세요")} <span className="break-all">({user.email})</span>.
           </>
         ) : (
-          "내 정보에서 이메일을 등록하고 인증해 주세요."
+          t("내 정보에서 이메일을 등록하고 인증해 주세요.")
         )}
       </p>
       <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1">
@@ -136,7 +141,7 @@ export function EmailUnverifiedNotice({ action }: { action: string }) {
           <ResendVerification />
         ) : (
           <Link href="/me#email" className="font-semibold underline underline-offset-2">
-            내 정보로 가기
+            {t("내 정보로 가기")}
           </Link>
         )}
         <button
@@ -149,7 +154,7 @@ export function EmailUnverifiedNotice({ action }: { action: string }) {
           }}
           className="whitespace-nowrap underline underline-offset-2 disabled:opacity-50"
         >
-          {checking ? "확인 중…" : "인증을 마쳤다면 다시 확인"}
+          {checking ? t("확인 중…") : t("인증을 마쳤다면 다시 확인")}
         </button>
       </div>
     </div>

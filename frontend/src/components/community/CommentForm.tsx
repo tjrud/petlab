@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { Link, useT } from "@/i18n/client";
 import { useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
@@ -13,6 +13,7 @@ import { ui } from "@/lib/ui";
 
 /** 댓글 쓰기 (회원만). 로그인하지 않았으면 로그인 안내를 보여 준다 */
 export default function CommentForm({ postId, onAdded }: { postId: string; onAdded: (c: Comment) => void }) {
+  const t = useT();
   const { status, user, refresh, emailUnverified } = useAuth();
   const [body, setBody] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -33,9 +34,9 @@ export default function CommentForm({ postId, onAdded }: { postId: string; onAdd
   if (!user && !dirty) {
     return (
       <div className="mt-4 rounded-xl border border-stone-200 bg-stone-50 p-4 text-sm text-stone-700">
-        <p>댓글은 회원만 남길 수 있어요.</p>
+        <p>{t("댓글은 회원만 남길 수 있어요.")}</p>
         <Link href={loginHref(postHref(postId))} className={`${ui.link} mt-1 inline-block font-semibold`}>
-          로그인하고 댓글 쓰기
+          {t("로그인하고 댓글 쓰기")}
         </Link>
       </div>
     );
@@ -47,11 +48,11 @@ export default function CommentForm({ postId, onAdded }: { postId: string; onAdd
     setEmailBlocked(false);
     const text = body.trim();
     if (!text) {
-      setError("댓글 내용을 입력해 주세요.");
+      setError(t("댓글 내용을 입력해 주세요."));
       return;
     }
     if (text.length > LIMITS.comment) {
-      setError(`댓글은 ${LIMITS.comment}자까지 쓸 수 있어요.`);
+      setError(t("댓글은 {n}자까지 쓸 수 있어요.", { n: LIMITS.comment }));
       return;
     }
     setSubmitting(true);
@@ -65,7 +66,7 @@ export default function CommentForm({ postId, onAdded }: { postId: string; onAdd
     } catch (err) {
       if (isAuthError(err)) setLoginLost(true); // 쓴 내용은 그대로 두고 다시 로그인하게 한다
       else if (isEmailUnverified(err)) setEmailBlocked(true);
-      else setError(errorText(err, "댓글을 올리지 못했어요. 다시 시도해 주세요."));
+      else setError(errorText(err, t("댓글을 올리지 못했어요. 다시 시도해 주세요.")));
     } finally {
       setSubmitting(false);
     }
@@ -74,7 +75,7 @@ export default function CommentForm({ postId, onAdded }: { postId: string; onAdd
   return (
     <form onSubmit={submit} noValidate className="mt-4 space-y-2">
       <label htmlFor="comment-body" className={ui.label}>
-        댓글
+        {t("댓글")}
       </label>
       <textarea
         id="comment-body"
@@ -84,7 +85,7 @@ export default function CommentForm({ postId, onAdded }: { postId: string; onAdd
         maxLength={LIMITS.comment}
         disabled={submitting}
         aria-describedby="comment-body-count"
-        placeholder="댓글을 적어 주세요."
+        placeholder={t("댓글을 적어 주세요.")}
         onChange={(e) => setBody(e.target.value)}
       />
       {error && (
@@ -97,7 +98,7 @@ export default function CommentForm({ postId, onAdded }: { postId: string; onAdd
       <div className="flex items-center justify-between gap-3">
         <CharCount id="comment-body-count" length={body.length} max={LIMITS.comment} />
         <button type="submit" className={ui.btnPrimary} disabled={submitting || emailUnverified}>
-          {submitting ? "등록 중…" : "댓글 등록"}
+          {submitting ? t("등록 중…") : t("댓글 등록")}
         </button>
       </div>
     </form>

@@ -2,8 +2,7 @@
 /* eslint-disable @next/next/no-img-element -- 미리보기는 Blob 공개 주소(외부)에서 바로 받는다 */
 
 import dynamic from "next/dynamic";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { Link, useRouter, useT } from "@/i18n/client";
 import { useEffect, useState } from "react";
 
 import { AuthorName, errorText, Placeholder, postHref } from "@/components/community/common";
@@ -12,7 +11,7 @@ import { useAuth } from "@/components/AuthProvider";
 import LayoutPreview from "@/components/market/LayoutPreview";
 import { fileIdOf, getAsset, registerFileAsset } from "@/lib/cageAssets";
 import { readDraft, writeDraft } from "@/lib/cagePlannerDoc";
-import { FORMAT_HINT, FORMAT_LABEL, formatBytes, FormatChips, imageSrc, MARKET_PATH } from "@/components/market/common";
+import { FORMAT_HINT, formatBytes, formatLabel, FormatChips, imageSrc, MARKET_PATH } from "@/components/market/common";
 import RetryAlert from "@/components/RetryAlert";
 import { AUTO_3D_BYTES, canDecodeNfm, isMeshFormat, needsCredentials } from "@/lib/meshUrl";
 import { api, ApiError } from "@/lib/api";
@@ -40,11 +39,13 @@ export const cageAddHref = (fileId: string) => `/cage?add=${encodeURIComponent(f
 type Result = { key: string; kind: "ok"; item: MarketItem } | { key: string; kind: "error"; status: number; message: string };
 
 export function MarketItemPlaceholder() {
-  return <Placeholder rows={2} label="작품을 불러오는 중이에요" rowClassName="h-48" />;
+  const t = useT();
+  return <Placeholder rows={2} label={t("작품을 불러오는 중이에요")} rowClassName="h-48" />;
 }
 
 /** 공유 작품 보기: 미리보기(이미지·3D)·소개·파일 내려받기·가상 케이지에 놓아 보기·커뮤니티 소개 글 */
 export default function MarketItemDetail({ id }: { id: string }) {
+  const t = useT();
   const router = useRouter();
   const [attempt, setAttempt] = useState(0);
   const [result, setResult] = useState<Result | null>(null);
@@ -65,12 +66,12 @@ export default function MarketItemDetail({ id }: { id: string }) {
       (item) => alive && setResult({ key, kind: "ok", item }),
       (e: unknown) =>
         alive &&
-        setResult({ key, kind: "error", status: e instanceof ApiError ? e.status : 0, message: errorText(e, "작품을 불러오지 못했어요.") }),
+        setResult({ key, kind: "error", status: e instanceof ApiError ? e.status : 0, message: errorText(e, t("작품을 불러오지 못했어요.")) }),
     );
     return () => {
       alive = false;
     };
-  }, [id, key]);
+  }, [id, key, t]);
 
   // 배치에 들어 있는 파일(STL·3MF)의 크기를 받아 위에서 본 그림에 실제 크기로 그린다
   const [, setFilesVer] = useState(0);
@@ -94,10 +95,10 @@ export default function MarketItemDetail({ id }: { id: string }) {
     if (r.status === 404) {
       return (
         <div className={`${ui.card} text-center`}>
-          <h1 className="text-xl font-bold">작품을 찾을 수 없어요</h1>
-          <p className="mt-2 text-sm text-stone-600">주소가 잘못되었거나 지워진 작품이에요.</p>
+          <h1 className="text-xl font-bold">{t("작품을 찾을 수 없어요")}</h1>
+          <p className="mt-2 text-sm text-stone-600">{t("주소가 잘못되었거나 지워진 작품이에요.")}</p>
           <Link href={MARKET_PATH} className={`${ui.btnSecondary} mt-4`}>
-            탐색으로
+            {t("탐색으로")}
           </Link>
         </div>
       );
@@ -143,14 +144,14 @@ export default function MarketItemDetail({ id }: { id: string }) {
       let got: Blob | "fetch" | "render" = "fetch";
       if (f.preview_url && canDecodeNfm()) got = await tryRender(f.preview_url, "nfm");
       if (!(got instanceof Blob)) got = await tryRender(f.mesh_url, f.format);
-      if (got === "fetch") throw new ShownError("파일을 받지 못했어요. 잠시 뒤 다시 해 주세요.");
+      if (got === "fetch") throw new ShownError(t("파일을 받지 못했어요. 잠시 뒤 다시 해 주세요."));
       const blob = got === "render" ? null : got;
-      if (!blob) throw new ShownError("이 파일로는 이미지를 만들 수 없어요.");
+      if (!blob) throw new ShownError(t("이 파일로는 이미지를 만들 수 없어요."));
       const img = await uploadMarketFile(thumbnailFile(blob, f.filename), "image", () => {});
       const item = await api.updateMarketItem(it.id, { image_file_id: img.id });
       setResult({ key, kind: "ok", item });
     } catch (e) {
-      setActionError(e instanceof ShownError ? e.message : errorText(e, "대표 이미지를 만들지 못했어요."));
+      setActionError(e instanceof ShownError ? e.message : errorText(e, t("대표 이미지를 만들지 못했어요.")));
     } finally {
       setThumbBusy(false);
     }
@@ -167,15 +168,15 @@ export default function MarketItemDetail({ id }: { id: string }) {
         const { layout_id } = await api.copyLayout(it.id);
         router.push(`/cage?layout=${encodeURIComponent(layout_id)}`);
       } catch (e) {
-        setActionError(errorText(e, "담지 못했어요."));
+        setActionError(errorText(e, t("담지 못했어요.")));
         setCopying(false);
       }
       return;
     }
     const draft = readDraft();
-    if (draft && draft.items.length > 0 && !window.confirm("가상 케이지에서 저장하지 않은 작업이 이 배치로 바뀌어요. 계속할까요?")) return;
+    if (draft && draft.items.length > 0 && !window.confirm(t("가상 케이지에서 저장하지 않은 작업이 이 배치로 바뀌어요. 계속할까요?"))) return;
     writeDraft({
-      name: `${lay.name} (탐색)`.slice(0, 40),
+      name: t("{name} (탐색)", { name: lay.name }).slice(0, 40),
       species: lay.species,
       size: lay.size,
       petId: null,
@@ -187,14 +188,14 @@ export default function MarketItemDetail({ id }: { id: string }) {
   }
 
   async function remove() {
-    if (!window.confirm("이 작품을 지울까요? 올린 파일도 함께 지워지고 되돌릴 수 없어요. 커뮤니티 소개 글은 남아요.")) return;
+    if (!window.confirm(t("이 작품을 지울까요? 올린 파일도 함께 지워지고 되돌릴 수 없어요. 커뮤니티 소개 글은 남아요."))) return;
     setDeleting(true);
     setActionError(null);
     try {
       await api.deleteMarketItem(it.id);
       router.replace(MARKET_PATH);
     } catch (e) {
-      setActionError(errorText(e, "지우지 못했어요."));
+      setActionError(errorText(e, t("지우지 못했어요.")));
       setDeleting(false);
     }
   }
@@ -203,10 +204,10 @@ export default function MarketItemDetail({ id }: { id: string }) {
     <div className="space-y-5">
       <article className={`${ui.card} space-y-4`}>
         {it.image && (
-          <img src={imageSrc(it.image)} alt={`${it.title} 미리보기`} fetchPriority="high" className="max-h-[28rem] w-full rounded-xl bg-stone-100 object-contain" />
+          <img src={imageSrc(it.image)} alt={t("{title} 미리보기", { title: it.title })} fetchPriority="high" className="max-h-[28rem] w-full rounded-xl bg-stone-100 object-contain" />
         )}
         <header className="space-y-2">
-          <p className="text-sm font-medium text-amber-800">{it.category_name_ko}</p>
+          <p className="text-sm font-medium text-amber-800">{t(it.category_name_ko)}</p>
           <h1 className="break-words text-2xl font-bold leading-snug sm:text-3xl">{it.title}</h1>
           <FormatChips formats={it.formats} />
           <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-stone-500">
@@ -214,7 +215,7 @@ export default function MarketItemDetail({ id }: { id: string }) {
             <span aria-hidden>·</span>
             <time dateTime={it.created_at}>{formatDateTime(it.created_at)}</time>
             <span aria-hidden>·</span>
-            <span>내려받기 {it.download_count}회</span>
+            <span>{t("내려받기 {n}회", { n: it.download_count })}</span>
           </p>
         </header>
         <div className="whitespace-pre-wrap break-words leading-relaxed text-stone-800">{it.description}</div>
@@ -223,14 +224,14 @@ export default function MarketItemDetail({ id }: { id: string }) {
           <section aria-labelledby="preview-title" className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 id="preview-title" className={ui.h2}>
-                3D 미리보기
+                {t("3D 미리보기")}
               </h2>
               <Link href={cageAddHref(preview.id)} className={ui.btnPrimary}>
-                가상 케이지에 놓아 보기
+                {t("가상 케이지에 놓아 보기")}
               </Link>
             </div>
             {meshFiles.length > 1 && (
-              <div className="flex flex-wrap gap-1.5" role="group" aria-label="미리 볼 파일">
+              <div className="flex flex-wrap gap-1.5" role="group" aria-label={t("미리 볼 파일")}>
                 {meshFiles.map((f) => (
                   <button
                     key={f.id}
@@ -254,21 +255,21 @@ export default function MarketItemDetail({ id }: { id: string }) {
                   <img src={imageSrc(it.image)} alt="" className="absolute inset-0 h-full w-full object-contain opacity-60" />
                 )}
                 <button type="button" className={`${ui.btnSecondary} relative`} onClick={() => setOpened3d(true)}>
-                  3D로 보기 ({formatBytes(loadBytes)})
+                  {t("3D로 보기 ({size})", { size: formatBytes(loadBytes) })}
                 </button>
               </div>
             )}
             <p className="text-xs text-stone-500">
-              가상 케이지에 놓으면 지금 작업 중인 케이지의 빈 자리에 실제 크기로 들어가요. 저장은 가상 케이지에서 해요.
+              {t("가상 케이지에 놓으면 지금 작업 중인 케이지의 빈 자리에 실제 크기로 들어가요. 저장은 가상 케이지에서 해요.")}
             </p>
             {/* 대표 이미지가 없거나 3D 파일로 자동으로 만든 것이면, 올린 사람이 지금 3D 모습으로 (다시) 만들 수 있다 */}
             {it.can_edit && (!it.image || autoImage) && !glUnavailable && (
               <button type="button" className={ui.btnSecondary} onClick={() => void makeImage(preview)} disabled={thumbBusy}>
                 {thumbBusy
-                  ? "대표 이미지 만드는 중…"
+                  ? t("대표 이미지 만드는 중…")
                   : it.image
-                    ? "이 3D 모습으로 대표 이미지 다시 만들기"
-                    : "이 3D 모습으로 대표 이미지 만들기"}
+                    ? t("이 3D 모습으로 대표 이미지 다시 만들기")
+                    : t("이 3D 모습으로 대표 이미지 만들기")}
               </button>
             )}
           </section>
@@ -278,19 +279,20 @@ export default function MarketItemDetail({ id }: { id: string }) {
           <section aria-labelledby="layout-title" className="space-y-3 rounded-xl border border-sky-200 bg-sky-50/40 p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 id="layout-title" className={ui.h2}>
-                가상 케이지 배치
+                {t("가상 케이지 배치")}
               </h2>
               <button type="button" className={ui.btnPrimary} onClick={() => void copyToCage()} disabled={copying}>
-                {copying ? "담는 중…" : "내 가상 케이지로 담기"}
+                {copying ? t("담는 중…") : t("내 가상 케이지로 담기")}
               </button>
             </div>
             <LayoutPreview layout={it.layout} className="mx-auto max-h-80 w-full" />
             <p className="text-sm text-stone-600">
-              {it.layout.name} · 케이지 {it.layout.cage.width_mm}×{it.layout.cage.depth_mm}×{it.layout.cage.height_mm}mm ·{" "}
-              {it.layout.size_name_ko}
+              {it.layout.name} ·{" "}
+              {t("케이지 {w}×{d}×{h}mm", { w: it.layout.cage.width_mm, d: it.layout.cage.depth_mm, h: it.layout.cage.height_mm })} ·{" "}
+              {t(it.layout.size_name_ko)}
             </p>
             <p className="text-xs text-stone-500">
-              {user ? "담으면 내 배치안으로 저장되고 가상 케이지에서 바로 열려요." : "담으면 가상 케이지에서 바로 열려요. 저장하려면 로그인하세요."}
+              {user ? t("담으면 내 배치안으로 저장되고 가상 케이지에서 바로 열려요.") : t("담으면 가상 케이지에서 바로 열려요. 저장하려면 로그인하세요.")}
             </p>
           </section>
         )}
@@ -298,30 +300,30 @@ export default function MarketItemDetail({ id }: { id: string }) {
         {it.files.length > 0 && (
           <section aria-labelledby="files-title" className="space-y-2">
             <h2 id="files-title" className={ui.h2}>
-              파일
+              {t("파일")}
             </h2>
             <ul className="space-y-2">
               {it.files.map((f) => (
                 <li key={f.id} className="flex flex-wrap items-center gap-3 rounded-xl border border-stone-200 p-3">
                   <span className="grid h-10 w-12 shrink-0 place-items-center rounded-lg bg-stone-100 text-xs font-bold text-stone-600">
-                    {FORMAT_LABEL[f.format] ?? f.format.toUpperCase()}
+                    {formatLabel(f.format, t)}
                   </span>
                   {/* 좁은 화면에서는 파일 이름·크기를 한 줄로 두고 버튼은 아래 줄에 나눠 놓는다 */}
                   <span className="min-w-[10rem] flex-1">
                     <span className="block break-all text-sm font-medium">{f.filename}</span>
                     <span className="block text-xs text-stone-500">
                       {formatBytes(f.size)}
-                      {FORMAT_HINT[f.format] ? ` · ${FORMAT_HINT[f.format]}` : ""}
+                      {FORMAT_HINT[f.format] ? ` · ${t(FORMAT_HINT[f.format])}` : ""}
                     </span>
                   </span>
                   <span className="flex w-full gap-2 *:flex-1 *:text-center sm:w-auto sm:*:flex-none">
                     {previewable(f) && (
-                      <Link href={cageAddHref(f.id)} className={ui.btnSecondary} aria-label={`${f.filename} 케이지에 놓기`}>
-                        케이지에 놓기
+                      <Link href={cageAddHref(f.id)} className={ui.btnSecondary} aria-label={t("{name} 케이지에 놓기", { name: f.filename })}>
+                        {t("케이지에 놓기")}
                       </Link>
                     )}
-                    <a href={api.marketUrl(f.download_url)} className={ui.btnPrimary} aria-label={`${f.filename} 내려받기`}>
-                      내려받기
+                    <a href={api.marketUrl(f.download_url)} className={ui.btnPrimary} aria-label={t("{name} 내려받기", { name: f.filename })}>
+                      {t("내려받기")}
                     </a>
                   </span>
                 </li>
@@ -329,24 +331,24 @@ export default function MarketItemDetail({ id }: { id: string }) {
             </ul>
             {hasSkp && (
               <p className="text-xs text-stone-500">
-                SketchUp(SKP) 파일은 브라우저에서 3D로 볼 수 없어 3D 미리보기와 가상 케이지에서 쓸 수 없어요.
+                {t("SketchUp(SKP) 파일은 브라우저에서 3D로 볼 수 없어 3D 미리보기와 가상 케이지에서 쓸 수 없어요.")}
               </p>
             )}
-            <p className="text-xs text-stone-500">올린 사람이 만든 파일이에요. NestForge 안전 검증을 거치지 않았으니 크기와 틈을 확인하고 쓰세요.</p>
+            <p className="text-xs text-stone-500">{t("올린 사람이 만든 파일이에요. NestForge 안전 검증을 거치지 않았으니 크기와 틈을 확인하고 쓰세요.")}</p>
           </section>
         )}
 
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-amber-100 pt-4">
           {it.post_id ? (
             <Link href={postHref(it.post_id)} className={`${ui.link} text-sm font-medium`}>
-              커뮤니티 소개 글에서 댓글 보기 →
+              {t("커뮤니티 소개 글에서 댓글 보기 →")}
             </Link>
           ) : (
             <span />
           )}
           {it.can_delete && (
             <button type="button" className={ui.btnDanger} onClick={remove} disabled={deleting}>
-              {deleting ? "지우는 중…" : "작품 지우기"}
+              {deleting ? t("지우는 중…") : t("작품 지우기")}
             </button>
           )}
         </div>

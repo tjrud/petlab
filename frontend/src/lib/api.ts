@@ -26,6 +26,8 @@ import type {
   SpeciesResponse,
   VerifyEmailResult,
 } from "./types";
+import { DEFAULT_LANG, isLang, type Lang } from "@/i18n/config";
+import { translate } from "@/i18n/translate";
 
 export const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, "");
 
@@ -41,7 +43,9 @@ export class ApiError extends Error {
   }
 }
 
+// 서버 문구가 없을 때 보여 줄 문구 (지금 화면 언어로 번역해 쓴다)
 const FALLBACK_MESSAGE = "서버와 통신하지 못했어요. 잠시 후 다시 시도해 주세요.";
+const fallbackMessage = () => translate(currentLang(), FALLBACK_MESSAGE);
 
 /** 로그인이 필요해서(또는 로그인 설정 문제로) 실패한 요청인지 */
 export function isAuthError(e: unknown): e is ApiError {
@@ -77,8 +81,15 @@ export async function errorFrom(res: Response): Promise<ApiError> {
     const d = detail as { message_ko: string; code?: string; errors?: unknown };
     return new ApiError(res.status, d.message_ko, d.code, d.errors);
   }
-  if (res.status === 422) return new ApiError(422, "입력값을 확인해 주세요.", "validation_error", detail);
-  return new ApiError(res.status, FALLBACK_MESSAGE);
+  if (res.status === 422) return new ApiError(422, translate(currentLang(), "입력값을 확인해 주세요."), "validation_error", detail);
+  return new ApiError(res.status, fallbackMessage());
+}
+
+/** 지금 화면의 언어 (<html lang>). 서버가 오류·검증 문구를 이 언어로 답한다 */
+export function currentLang(): Lang {
+  if (typeof document === "undefined") return DEFAULT_LANG;
+  const l = document.documentElement.lang;
+  return isLang(l) ? l : DEFAULT_LANG;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -87,10 +98,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     res = await fetch(`${API_BASE}${path}`, {
       ...init,
       credentials: "include", // 관리자 세션 쿠키 (로컬 개발처럼 출처가 달라도 전송)
-      headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+      headers: { "Content-Type": "application/json", "X-Lang": currentLang(), ...(init?.headers ?? {}) },
     });
   } catch {
-    throw new ApiError(0, FALLBACK_MESSAGE);
+    throw new ApiError(0, fallbackMessage());
   }
   if (!res.ok) {
     const err = await errorFrom(res);

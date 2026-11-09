@@ -6,6 +6,7 @@ import { Component, Suspense, useMemo, useState, type ReactNode } from "react";
 import * as THREE from "three";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 
+import { useT } from "@/i18n/client";
 import { api } from "@/lib/api";
 import { TEMPLATE_COLORS } from "@/lib/templates";
 import type { Cage, Item } from "@/lib/types";
@@ -113,6 +114,7 @@ function CageBox({ cage }: { cage: Cage }) {
 }
 
 export default function CageViewer({ cage, items, selected, errorItems, onSelect }: Props) {
+  const t = useT();
   const { width_mm: W, depth_mm: D, height_mm: H } = cage;
   const S = Math.max(W, D, H);
   // three.js 월드 좌표(Y-up)에서 케이지 중심: (W/2, H/2, -D/2)
@@ -128,10 +130,11 @@ export default function CageViewer({ cage, items, selected, errorItems, onSelect
     <div className="relative h-full w-full">
       <div className="pointer-events-none absolute left-3 top-3 z-10 space-y-0.5 rounded-lg bg-white/85 px-3 py-2 text-xs text-stone-600 shadow-sm">
         <p className="font-semibold text-stone-800">
-          케이지 내부 {W} × {D} × {H} mm
+          {t("케이지 내부 {w} × {d} × {h} mm", { w: W, d: D, h: H })}
         </p>
         <p>
-          <span className="mr-1 inline-block h-2 w-3 rounded-sm bg-amber-500 align-middle" />앞(관찰 면)
+          <span className="mr-1 inline-block h-2 w-3 rounded-sm bg-amber-500 align-middle" />
+          {t("앞(관찰 면)")}
         </p>
       </div>
       {meshFailed && (
@@ -139,8 +142,9 @@ export default function CageViewer({ cage, items, selected, errorItems, onSelect
           role="status"
           className="absolute inset-x-3 bottom-3 z-10 rounded-lg bg-red-50/95 px-3 py-2 text-xs text-red-700 shadow-sm"
         >
-          일부 구조물의 3D 형상을 불러오지 못했어요. 이 버전을 만든 뒤 서비스가 바뀌어 형상을 다시 확인하지 못했을 수
-          있어요. 같은 요청으로 새 버전을 만들어 주세요.
+          {t(
+            "일부 구조물의 3D 형상을 불러오지 못했어요. 이 버전을 만든 뒤 서비스가 바뀌어 형상을 다시 확인하지 못했을 수 있어요. 같은 요청으로 새 버전을 만들어 주세요.",
+          )}
         </p>
       )}
       <Canvas

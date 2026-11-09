@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { useLang, useT } from "@/i18n/client";
 import type { ApiError } from "@/lib/api";
 import { josa } from "@/lib/josa";
 import type { Pet, SpeciesOption } from "@/lib/types";
@@ -29,6 +30,8 @@ export default function PetSection({
   onPetsChange: (pets: Pet[]) => void;
   onAuthError: (e: ApiError) => void;
 }) {
+  const t = useT();
+  const lang = useLang();
   /** null: 닫힘 · "new": 새로 등록 · 그 외: 수정 중인 반려동물 id */
   const [editing, setEditing] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -45,14 +48,18 @@ export default function PetSection({
     const list = pets ?? [];
     const exists = list.some((p) => p.id === pet.id);
     onPetsChange(exists ? list.map((p) => (p.id === pet.id ? pet : p)) : [...list, pet]);
-    setNotice(exists ? `${pet.name} 정보를 고쳤어요.` : `${josa(pet.name, "을를")} 등록했어요.`);
+    setNotice(
+      exists
+        ? t("{name} 정보를 고쳤어요.", { name: pet.name })
+        : t("{name} 등록했어요.", { name: lang === "ko" ? josa(pet.name, "을를") : pet.name }),
+    );
     setEditing(null);
   };
 
   const deleted = (id: string) => {
     const gone = pets?.find((p) => p.id === id);
     onPetsChange((pets ?? []).filter((p) => p.id !== id));
-    setNotice(gone ? `${gone.name} 정보를 삭제했어요.` : "삭제했어요.");
+    setNotice(gone ? t("{name} 정보를 삭제했어요.", { name: gone.name }) : t("삭제했어요."));
     if (editing === id) setEditing(null);
   };
 
@@ -62,12 +69,14 @@ export default function PetSection({
         <div className="min-w-0">
           <div className="flex items-baseline gap-2">
             <h2 id="pets-title" className={ui.h2}>
-              내 반려동물
+              {t("내 반려동물")}
             </h2>
-            {pets && pets.length > 0 && <span className="text-sm text-stone-500">{pets.length}마리</span>}
+            {pets && pets.length > 0 && (
+              <span className="text-sm text-stone-500">{t("{n}마리", { n: pets.length })}</span>
+            )}
           </div>
           <p className="mt-1 text-sm text-stone-600">
-            등록해 두면 설계할 때 종·크기·케이지 치수가 자동으로 채워져요.
+            {t("등록해 두면 설계할 때 종·크기·케이지 치수가 자동으로 채워져요.")}
           </p>
         </div>
         {editing !== "new" && (
@@ -77,17 +86,17 @@ export default function PetSection({
             disabled={!canOpen || full || editing !== null}
             className={btnPrimarySm}
           >
-            반려동물 등록
+            {t("반려동물 등록")}
           </button>
         )}
       </div>
 
       {full && editing !== "new" && (
-        <p className={`${ui.muted} mt-2`}>반려동물은 {MAX_PETS}마리까지 등록할 수 있어요.</p>
+        <p className={`${ui.muted} mt-2`}>{t("반려동물은 {max}마리까지 등록할 수 있어요.", { max: MAX_PETS })}</p>
       )}
       {speciesError && (
         <p role="alert" className={`${ui.error} mt-3`}>
-          종 목록을 불러오지 못해 지금은 등록·수정할 수 없어요. {speciesError}
+          {t("종 목록을 불러오지 못해 지금은 등록·수정할 수 없어요.")} {speciesError}
         </p>
       )}
       {notice && (
@@ -109,14 +118,14 @@ export default function PetSection({
           </p>
         ) : !pets ? (
           <p role="status" className={ui.muted}>
-            반려동물 정보를 불러오는 중…
+            {t("반려동물 정보를 불러오는 중…")}
           </p>
         ) : pets.length === 0 ? (
           editing !== "new" && (
             <div className="rounded-xl border border-dashed border-amber-300 bg-amber-50/50 p-6 text-center">
-              <p className="mt-2 font-medium">아직 등록한 반려동물이 없어요</p>
+              <p className="mt-2 font-medium">{t("아직 등록한 반려동물이 없어요")}</p>
               <p className="mt-1 text-sm text-stone-600">
-                이름·종·크기·케이지 치수를 저장해 두면 다음 설계 때 자동으로 채워져요.
+                {t("이름·종·크기·케이지 치수를 저장해 두면 다음 설계 때 자동으로 채워져요.")}
               </p>
             </div>
           )

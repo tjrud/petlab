@@ -3,7 +3,9 @@
 // 좌표계는 백엔드 배치기와 같아요: mm, 원점 = 앞-왼쪽 바닥 모서리, x = 오른쪽, y = 뒤쪽(안쪽), 회전은 위에서 볼 때 반시계.
 // 검토 기준 수치(끼임 틈·출입구 폭·오르는 높이)는 서버의 종별 규칙(/species 의 layout_rules)에서 받아요.
 
-import { beddingDepth, getAsset, isFloorLayer, type CageAsset, type Side } from "@/lib/cageAssets";
+import type { Lang } from "@/i18n/config";
+import { makeT, type TFunction, type Vars } from "@/i18n/translate";
+import { beddingDepth, FILE_ASSET_PREFIX, getAsset, isFloorLayer, type CageAsset, type Side } from "@/lib/cageAssets";
 import { josa } from "@/lib/josa";
 import type { Cage, LayoutItem, LayoutRules } from "@/lib/types";
 
@@ -151,7 +153,10 @@ export type CheckSeverity = "error" | "warning";
 export type LayoutIssue = {
   key: string;
   severity: CheckSeverity;
+  /** 한국어 문구 */
   message: string;
+  /** 화면 언어로 만든 문구 (한국어면 message 와 같아요) */
+  text: (t: TFunction, lang: Lang) => string;
   /** 관련 항목 ID (화면에서 강조하고, 누르면 선택해요) */
   itemIds: string[];
 };
@@ -169,6 +174,32 @@ export type LayoutReport = {
 };
 
 const fmt = (mm: number) => `${Math.round(mm)}mm`;
+
+/** 화면에 보일 에셋 이름: 내장 에셋은 번역하고, 올린 파일 이름은 그대로 (사용자가 붙인 이름) */
+export function assetLabel(asset: CageAsset, t: TFunction): string {
+  return asset.key.startsWith(FILE_ASSET_PREFIX) && asset.name !== "내 파일" ? asset.name : t(asset.name);
+}
+
+type Pair = "이가" | "와과" | "을를" | "은는";
+/** 문구 속 에셋 이름 자리: 한국어는 원래 이름(+조사), 영어는 번역한 이름 */
+type NameVar = { name: CageAsset; josa?: Pair };
+
+function nameIn(n: NameVar, t: TFunction, lang: Lang): string {
+  return lang === "ko" ? (n.josa ? josa(n.name.name, n.josa) : n.name.name) : assetLabel(n.name, t);
+}
+
+const KO_T = makeT("ko");
+
+/** 문구 원문(자리표시)과 값으로 화면 언어별 문구를 만드는 함수 */
+function message(ko: string, vars: Vars = {}, names: Record<string, NameVar> = {}, sub: Record<string, string> = {}) {
+  return (t: TFunction, lang: Lang) => {
+    const v: Vars = { ...vars };
+    for (const [k, n] of Object.entries(names)) v[k] = nameIn(n, t, lang);
+    // 번역할 짧은 낱말 (방향 등)
+    for (const [k, w] of Object.entries(sub)) v[k] = t(w);
+    return t(ko, v);
+  };
+}
 
 /**
  * 종별 규칙에서 나오는 판정 함수들 (배치 검토와 빈 자리 찾기가 같은 기준을 써요).
@@ -204,8 +235,8 @@ export function checkLayout(cage: Cage, items: LayoutItem[], rules: LayoutRules 
   const H = cage.height_mm;
   // 바닥재를 깔면 구조물이 그 위에 놓여 위 공간이 줄어요
   const bed = beddingDepth(items);
-  const add = (severity: CheckSeverity, key: string, message: string, ...itemIds: string[]) =>
-    issues.push({ severity, key, message, itemIds });
+  const add = (severity: CheckSeverity, key: string, text: LayoutIssue["text"], ...itemIds: string[]) =>
+    issues.push({ severity, key, message: text(KO_T, "ko"), text, itemIds });
 
   const { low, isTrap, blocks } = ruleTests(rules);
 
@@ -218,7 +249,12 @@ export function checkLayout(cage: Cage, items: LayoutItem[], rules: LayoutRules 
       add(
         "warning",
         "floor",
-        `케이지 바닥 ${Math.round(W / 10)}×${Math.round(D / 10)}cm가 최소 기준 ${Math.round(minLong / 10)}×${Math.round(minShort / 10)}cm보다 작아요. 더 넓은 케이지를 권장해요.`,
+        message("케이지 바닥 {w}×{d}cm가 최소 기준 {minW}×{minD}cm보다 작아요. 더 넓은 케이지를 권장해요.", {
+          w: Math.round(W / 10),
+          d: Math.round(D / 10),
+          minW: Math.round(minLong / 10),
+          minD: Math.round(minShort / 10),
+        }),
       );
     }
   }
@@ -226,14 +262,18 @@ export function checkLayout(cage: Cage, items: LayoutItem[], rules: LayoutRules 
   for (const { item, asset, poly } of placed) {
     const g = wallGaps(poly, cage);
     const out = Object.values(g).some((v) => v < -TOL);
-    if (out) add("error", `out:${item.id}`, `${josa(asset.name, "이가")} 케이지 밖으로 나가 있어요.`, item.id);
+    if (out) add("error", `out:${item.id}`, message("{a} 케이지 밖으로 나가 있어요.", {}, { a: { name: asset, josa: "이가" } }), item.id);
     if (asset.size[2] + bed > H + TOL) {
       add(
         "error",
         `tall:${item.id}`,
         bed > 0
-          ? `${asset.name} 높이 ${fmt(asset.size[2])}에 바닥재 ${fmt(bed)}를 더하면 케이지 높이 ${fmt(H)}보다 높아요.`
-          : `${asset.name} 높이 ${fmt(asset.size[2])}가 케이지 높이 ${fmt(H)}보다 높아요.`,
+          ? message(
+              "{a} 높이 {h}에 바닥재 {bed}를 더하면 케이지 높이 {cageH}보다 높아요.",
+              { h: fmt(asset.size[2]), bed: fmt(bed), cageH: fmt(H) },
+              { a: { name: asset } },
+            )
+          : message("{a} 높이 {h}가 케이지 높이 {cageH}보다 높아요.", { h: fmt(asset.size[2]), cageH: fmt(H) }, { a: { name: asset } }),
         item.id,
       );
     }
@@ -242,11 +282,16 @@ export function checkLayout(cage: Cage, items: LayoutItem[], rules: LayoutRules 
       const trapWalls = (Object.entries(g) as [keyof typeof g, number][]).filter(([, v]) => isTrap(v));
       if (trapWalls.length) {
         const names = { left: "왼쪽", right: "오른쪽", front: "앞", back: "뒤" };
-        const where = trapWalls.map(([k, v]) => `${names[k]} 벽 ${fmt(v)}`).join(", ");
+        const passable = fmt(rules.gap_passable_min_mm);
         add(
           "warning",
           `wallgap:${item.id}`,
-          `${josa(asset.name, "와과")} 벽 사이 틈(${where})에 몸이 끼일 수 있어요. 벽에 붙이거나 ${fmt(rules.gap_passable_min_mm)} 이상 띄워 주세요.`,
+          (t, lang) =>
+            t("{a} 벽 사이 틈({where})에 몸이 끼일 수 있어요. 벽에 붙이거나 {gap} 이상 띄워 주세요.", {
+              a: nameIn({ name: asset, josa: "와과" }, t, lang),
+              where: trapWalls.map(([k, v]) => t("{side} 벽 {gap}", { side: t(names[k]).toLowerCase(), gap: fmt(v) })).join(", "),
+              gap: passable,
+            }),
           item.id,
         );
       }
@@ -257,7 +302,13 @@ export function checkLayout(cage: Cage, items: LayoutItem[], rules: LayoutRules 
         add(
           "warning",
           `entrance:${item.id}`,
-          `${asset.name}의 ${asset.isTunnel ? "안지름" : "출입구 폭"} ${fmt(asset.entranceMm)}가 이 아이에게 좁아요 (최소 ${fmt(min)}).`,
+          message(
+            asset.isTunnel
+              ? "{a}의 안지름 {w}가 이 아이에게 좁아요 (최소 {min})."
+              : "{a}의 출입구 폭 {w}가 이 아이에게 좁아요 (최소 {min}).",
+            { w: fmt(asset.entranceMm), min: fmt(min) },
+            { a: { name: asset } },
+          ),
           item.id,
         );
       }
@@ -267,7 +318,11 @@ export function checkLayout(cage: Cage, items: LayoutItem[], rules: LayoutRules 
         add(
           "warning",
           `tunnellen:${item.id}`,
-          `${asset.name} 길이 ${fmt(asset.tunnelLengthMm)}가 터널 권장 최대 길이 ${fmt(rules.tunnel_max_length_mm)}보다 길어요. 독일 동물보호연맹은 플라스틱 튜브를 몸길이의 2배 이하로 권해요 (이 크기 구분에서 가장 작은 개체 기준).`,
+          message(
+            "{a} 길이 {len}가 터널 권장 최대 길이 {max}보다 길어요. 독일 동물보호연맹은 플라스틱 튜브를 몸길이의 2배 이하로 권해요 (이 크기 구분에서 가장 작은 개체 기준).",
+            { len: fmt(asset.tunnelLengthMm), max: fmt(rules.tunnel_max_length_mm) },
+            { a: { name: asset } },
+          ),
           item.id,
         );
       }
@@ -277,7 +332,11 @@ export function checkLayout(cage: Cage, items: LayoutItem[], rules: LayoutRules 
         add(
           "warning",
           `climb:${item.id}`,
-          `${asset.name} 높이 ${fmt(asset.climbHeightMm)}는 떨어지면 다칠 수 있어요 (권장 최대 ${fmt(rules.max_climb_height_mm)}).`,
+          message(
+            "{a} 높이 {h}는 떨어지면 다칠 수 있어요 (권장 최대 {max}).",
+            { h: fmt(asset.climbHeightMm), max: fmt(rules.max_climb_height_mm) },
+            { a: { name: asset } },
+          ),
           item.id,
         );
       }
@@ -286,7 +345,11 @@ export function checkLayout(cage: Cage, items: LayoutItem[], rules: LayoutRules 
         add(
           "warning",
           `ceiling:${item.id}`,
-          `${asset.name} 위와 천장 사이(${fmt(head)})에 끼일 수 있어요. 더 낮은 구조물을 쓰거나 천장이 높은 케이지가 좋아요.`,
+          message(
+            "{a} 위와 천장 사이({gap})에 끼일 수 있어요. 더 낮은 구조물을 쓰거나 천장이 높은 케이지가 좋아요.",
+            { gap: fmt(head) },
+            { a: { name: asset } },
+          ),
           item.id,
         );
       }
@@ -295,7 +358,11 @@ export function checkLayout(cage: Cage, items: LayoutItem[], rules: LayoutRules 
       add(
         "warning",
         `exits:${item.id}`,
-        `${josa(asset.name, "은는")} 출입구가 ${asset.entranceCount}개라 막다른 곳이 될 수 있어요. 출입구가 ${rules.hideout_min_entrances}개 이상인 은신처를 권장해요.`,
+        message(
+          "{a} 출입구가 {n}개라 막다른 곳이 될 수 있어요. 출입구가 {min}개 이상인 은신처를 권장해요.",
+          { n: asset.entranceCount, min: rules.hideout_min_entrances },
+          { a: { name: asset, josa: "은는" } },
+        ),
         item.id,
       );
     }
@@ -306,7 +373,11 @@ export function checkLayout(cage: Cage, items: LayoutItem[], rules: LayoutRules 
         add(
           "warning",
           `bath:${item.id}`,
-          `${asset.name} 안쪽 ${fmt(iw)}×${fmt(id)}가 최소 기준 ${fmt(mw)}×${fmt(md)}보다 작아요.`,
+          message(
+            "{a} 안쪽 {w}×{d}가 최소 기준 {minW}×{minD}보다 작아요.",
+            { w: fmt(iw), d: fmt(id), minW: fmt(mw), minD: fmt(md) },
+            { a: { name: asset } },
+          ),
           item.id,
         );
       }
@@ -315,7 +386,11 @@ export function checkLayout(cage: Cage, items: LayoutItem[], rules: LayoutRules 
       add(
         "warning",
         `step:${item.id}`,
-        `${asset.name} 턱 ${fmt(asset.stepHeightMm)}가 높아 넘어 들어가기 어려워요 (권장 최대 ${fmt(rules.max_step_height_mm)}).`,
+        message(
+          "{a} 턱 {h}가 높아 넘어 들어가기 어려워요 (권장 최대 {max}).",
+          { h: fmt(asset.stepHeightMm), max: fmt(rules.max_step_height_mm) },
+          { a: { name: asset } },
+        ),
         item.id,
       );
     }
@@ -327,7 +402,13 @@ export function checkLayout(cage: Cage, items: LayoutItem[], rules: LayoutRules 
       const b = placed[j];
       const depth = overlapDepth(a.poly, b.poly);
       if (depth > TOL) {
-        add("error", `overlap:${a.item.id}:${b.item.id}`, `${josa(a.asset.name, "와과")} ${josa(b.asset.name, "이가")} 겹쳐요.`, a.item.id, b.item.id);
+        add(
+          "error",
+          `overlap:${a.item.id}:${b.item.id}`,
+          message("{a} {b} 겹쳐요.", {}, { a: { name: a.asset, josa: "와과" }, b: { name: b.asset, josa: "이가" } }),
+          a.item.id,
+          b.item.id,
+        );
         continue;
       }
       if (!rules || low(a.asset) || low(b.asset)) continue;
@@ -336,7 +417,11 @@ export function checkLayout(cage: Cage, items: LayoutItem[], rules: LayoutRules 
         add(
           "warning",
           `gap:${a.item.id}:${b.item.id}`,
-          `${josa(a.asset.name, "와과")} ${b.asset.name} 사이 틈 ${fmt(gap)}에 몸이 끼일 수 있어요. 붙이거나 ${fmt(rules.gap_passable_min_mm)} 이상 띄워 주세요.`,
+          message(
+            "{a} {b} 사이 틈 {gap}에 몸이 끼일 수 있어요. 붙이거나 {min} 이상 띄워 주세요.",
+            { gap: fmt(gap), min: fmt(rules.gap_passable_min_mm) },
+            { a: { name: a.asset, josa: "와과" }, b: { name: b.asset } },
+          ),
           a.item.id,
           b.item.id,
         );
@@ -352,10 +437,18 @@ export function checkLayout(cage: Cage, items: LayoutItem[], rules: LayoutRules 
         const blockedByWall = outsideBox(bounds(strip), cage);
         const blocker = placed.find((o) => o.item.id !== item.id && blocks(strip, o));
         if (blockedByWall || blocker) {
+          const gap = { min: fmt(rules.gap_passable_min_mm) };
           add(
             "warning",
             `access:${item.id}:${side}`,
-            `${asset.name}의 ${sideName[side]} 출입구 앞이 ${blocker ? `${blocker.asset.name}에` : "벽에"} 막혀 있어요. 앞에 ${fmt(rules.gap_passable_min_mm)} 이상 비워 주세요.`,
+            blocker
+              ? message(
+                  "{a}의 {side} 출입구 앞이 {b}에 막혀 있어요. 앞에 {min} 이상 비워 주세요.",
+                  gap,
+                  { a: { name: asset }, b: { name: blocker.asset } },
+                  { side: sideName[side] },
+                )
+              : message("{a}의 {side} 출입구 앞이 벽에 막혀 있어요. 앞에 {min} 이상 비워 주세요.", gap, { a: { name: asset } }, { side: sideName[side] }),
             item.id,
             ...(blocker ? [blocker.item.id] : []),
           );

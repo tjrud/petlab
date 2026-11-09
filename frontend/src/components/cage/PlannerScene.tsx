@@ -10,8 +10,10 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 
 import AssetModel from "@/components/cage/AssetModel";
+import { useT } from "@/i18n/client";
+import type { TFunction } from "@/i18n/translate";
 import { beddingDepth, getAsset, isFloorLayer, type CageAsset } from "@/lib/cageAssets";
-import { accessStrip, type LayoutReport } from "@/lib/cageLayout";
+import { accessStrip, assetLabel, type LayoutReport } from "@/lib/cageLayout";
 import { contactShadowTexture, fitCamera, PREVIEW_BG, viewDirection } from "@/lib/previewLook";
 import type { Cage, LayoutItem, LayoutRules } from "@/lib/types";
 
@@ -166,7 +168,8 @@ function FloorGrid({ cage, z }: { cage: Cage; z: number }) {
   );
 }
 
-function CageShell({ cage, floorZ }: { cage: Cage; floorZ: number }) {
+// 3D 위 글자(Html)는 따로 그려져 언어 정보를 받지 못해요. 번역 함수는 Canvas 밖에서 받아 내려 줘요
+function CageShell({ cage, floorZ, t }: { cage: Cage; floorZ: number; t: TFunction }) {
   const { width_mm: W, depth_mm: D, height_mm: H } = cage;
   // 3D 위 글자(Html)는 이벤트 대상이 연결된 뒤에 붙여요. 먼저 붙이면 대상이 바뀌며 글자가 지워져요
   const labelsReady = useThree((s) => Boolean(s.events.connected));
@@ -193,12 +196,12 @@ function CageShell({ cage, floorZ }: { cage: Cage; floorZ: number }) {
         <>
           <Html style={NO_POINTER} position={[W / 2, -Math.min(W, D) * 0.06, 0]} center zIndexRange={[5, 0]}>
             <span className="pointer-events-none whitespace-nowrap rounded bg-white/85 px-1.5 py-0.5 text-[11px] text-stone-600 shadow-sm">
-              가로 {Math.round(W)}mm · 앞
+              {t("가로 {w}mm · 앞", { w: Math.round(W) })}
             </span>
           </Html>
           <Html style={NO_POINTER} position={[-Math.min(W, D) * 0.06, D / 2, 0]} center zIndexRange={[5, 0]}>
             <span className="pointer-events-none whitespace-nowrap rounded bg-white/85 px-1.5 py-0.5 text-[11px] text-stone-600 shadow-sm">
-              세로 {Math.round(D)}mm
+              {t("세로 {d}mm", { d: Math.round(D) })}
             </span>
           </Html>
         </>
@@ -281,6 +284,7 @@ function Footprint({ asset, color, opacity }: { asset: CageAsset; color: string;
 }
 
 function PlacedItem({
+  label,
   floorClip,
   floorZ,
   item,
@@ -292,6 +296,8 @@ function PlacedItem({
   onDrag,
   onDragEnd,
 }: {
+  /** 선택했을 때 위에 띄울 이름 (화면 언어) */
+  label: string;
   floorClip: THREE.Plane[];
   floorZ: number;
   item: LayoutItem;
@@ -376,7 +382,7 @@ function PlacedItem({
       {selected && (
         <Html style={NO_POINTER} position={[0, 0, asset.size[2] + 18]} center zIndexRange={[10, 0]}>
           <div className="pointer-events-none whitespace-nowrap rounded-md bg-stone-900/85 px-2 py-1 text-xs text-white">
-            {asset.name}
+            {label}
           </div>
         </Html>
       )}
@@ -422,6 +428,7 @@ export default function PlannerScene({
   onDrag,
   onDragEnd,
 }: Props) {
+  const t = useT();
   const { width_mm: W, depth_mm: D, height_mm: H } = cage;
   const S = Math.max(W, D, H);
   const selected = items.find((i) => i.id === selectedId) ?? null;
@@ -480,7 +487,7 @@ export default function PlannerScene({
       <directionalLight position={[W / 2 + S * 1.4, S * 0.7, -D / 2 + S * 0.6]} intensity={0.5} />
       <directionalLight position={[W / 2 + S * 0.3, S * 1.0, -D / 2 - S * 1.6]} intensity={0.6} />
       <group rotation={Z_UP_TO_Y_UP}>
-        <CageShell cage={cage} floorZ={floorZ} />
+        <CageShell cage={cage} floorZ={floorZ} t={t} />
         {bedding && <Bedding cage={cage} asset={bedding} />}
         {items.map((it) => {
           const asset = getAsset(it.asset);
@@ -489,6 +496,7 @@ export default function PlannerScene({
           return (
             <PlacedItem
               key={it.id}
+              label={assetLabel(asset, t)}
               floorClip={floorClip}
               floorZ={floorZ}
               item={it}

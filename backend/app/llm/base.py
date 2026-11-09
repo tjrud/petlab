@@ -29,6 +29,8 @@ class InterpretRequest:
     size_rules: SizeRules
     min_wall_mm: float
     previous: BaseModel | None = None  # 수정 시 직전 버전의 DesignSpec
+    # summary_ko·reason_ko·notes_ko 를 쓸 언어 ("ko"·"en"). 필드 이름은 언어와 상관없이 그대로다
+    language: str = "ko"
 
 
 @dataclass(frozen=True)

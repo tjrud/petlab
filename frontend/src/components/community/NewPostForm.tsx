@@ -1,6 +1,7 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
+import { useRouter, useT } from "@/i18n/client";
 import { useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
@@ -23,11 +24,13 @@ function parseVersion(raw: string | null): number | undefined {
 }
 
 export function NewPostPlaceholder() {
-  return <Placeholder rows={3} label="글쓰기 화면을 준비하는 중이에요" rowClassName="h-24" />;
+  const t = useT();
+  return <Placeholder rows={3} label={t("글쓰기 화면을 준비하는 중이에요")} rowClassName="h-24" />;
 }
 
 /** 글쓰기 (회원 전용). 내 설계를 하나 골라 첨부할 수 있다 */
 export default function NewPostForm() {
+  const t = useT();
   const router = useRouter();
   const params = useSearchParams();
   const rawId = params.get("design");
@@ -87,7 +90,7 @@ export default function NewPostForm() {
     setError(null);
     setEmailBlocked(false);
     setTried(true);
-    const invalid = checkPost(title, body);
+    const invalid = checkPost(title, body, t);
     if (invalid) {
       setError({ message: invalid, needsLogin: false });
       return;
@@ -112,13 +115,13 @@ export default function NewPostForm() {
       router.replace(postHref(post.id));
     } catch (err) {
       if (isEmailUnverified(err)) setEmailBlocked(true); // 아래 안내로 알려 준다 (쓴 내용은 그대로)
-      else setError({ message: errorText(err, "글을 올리지 못했어요. 다시 시도해 주세요."), needsLogin: isAuthError(err) });
+      else setError({ message: errorText(err, t("글을 올리지 못했어요. 다시 시도해 주세요.")), needsLogin: isAuthError(err) });
       setSubmitting(false);
     }
   }
 
   function cancel() {
-    if (dirty && !window.confirm("작성 중인 내용이 사라져요. 글쓰기를 그만둘까요?")) return;
+    if (dirty && !window.confirm(t("작성 중인 내용이 사라져요. 글쓰기를 그만둘까요?"))) return;
     setTitle("");
     setBody("");
     setChoice(null);
@@ -156,14 +159,14 @@ export default function NewPostForm() {
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         <button type="button" className={ui.btnSecondary} onClick={cancel} disabled={submitting}>
-          취소
+          {t("취소")}
         </button>
         <button
           type="submit"
           className={ui.btnPrimary}
           disabled={submitting || attach.kind === "loading" || emailUnverified}
         >
-          {submitting ? "등록 중…" : "등록"}
+          {submitting ? t("등록 중…") : t("등록")}
         </button>
       </div>
     </form>

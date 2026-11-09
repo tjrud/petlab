@@ -1,14 +1,15 @@
 "use client";
 
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
 import { EmailUnverifiedNotice, useEmailBlocked } from "@/components/EmailVerification";
+import { Link, useT } from "@/i18n/client";
 import { api, ApiError, isEmailUnverified } from "@/lib/api";
 
 export default function WaitlistForm() {
+  const t = useT();
   const params = useSearchParams();
   const designId = params.get("design") ?? undefined;
   const versionParam = params.get("version");
@@ -28,7 +29,7 @@ export default function WaitlistForm() {
     setError(null);
     setEmailBlocked(false);
     if (!agree) {
-      setError("알림 수신에 동의해 주세요.");
+      setError(t("알림 수신에 동의해 주세요."));
       return;
     }
     setSubmitting(true);
@@ -40,7 +41,13 @@ export default function WaitlistForm() {
         setEmailBlocked(true);
         return;
       }
-      setError(err instanceof ApiError ? (err.status === 422 ? "이메일 주소를 확인해 주세요." : err.messageKo) : "등록하지 못했어요.");
+      setError(
+        err instanceof ApiError
+          ? err.status === 422
+            ? t("이메일 주소를 확인해 주세요.")
+            : err.messageKo
+          : t("등록하지 못했어요."),
+      );
     } finally {
       setSubmitting(false);
     }
@@ -49,11 +56,11 @@ export default function WaitlistForm() {
   if (done) {
     return (
       <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-6 text-center" role="status">
-        <h2 className="mt-2 text-xl font-bold">대기 등록 완료</h2>
+        <h2 className="mt-2 text-xl font-bold">{t("대기 등록 완료")}</h2>
         <p className="mt-2 text-stone-700">{done}</p>
         {designId && (
           <Link href={`/designs/${designId}`} className="mt-4 inline-block text-amber-700 underline">
-            설계로 돌아가기
+            {t("설계로 돌아가기")}
           </Link>
         )}
       </div>
@@ -63,11 +70,15 @@ export default function WaitlistForm() {
   return (
     <form onSubmit={submit} className="space-y-4 rounded-2xl border border-amber-200 bg-white p-6">
       <p className="text-stone-700">
-        출력·배송 서비스는 준비 중이에요. 이메일을 남기면 서비스가 열릴 때 알림 메일을 보내요.
-        {designId && <span className="block text-sm text-stone-500">선택한 설계: {designId.slice(0, 8)}{version ? ` · v${version}` : ""}</span>}
+        {t("출력·배송 서비스는 준비 중이에요. 이메일을 남기면 서비스가 열릴 때 알림 메일을 보내요.")}
+        {designId && (
+          <span className="block text-sm text-stone-500">
+            {t("선택한 설계: {design}", { design: `${designId.slice(0, 8)}${version ? ` · v${version}` : ""}` })}
+          </span>
+        )}
       </p>
       <label className="block">
-        <span className="mb-1 block text-sm font-medium">이메일</span>
+        <span className="mb-1 block text-sm font-medium">{t("이메일")}</span>
         <input
           type="email"
           required
@@ -79,7 +90,7 @@ export default function WaitlistForm() {
       </label>
       <label className="flex items-start gap-2 text-sm">
         <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} className="mt-1" />
-        <span>서비스 오픈 알림을 받기 위해 이메일 주소를 수집·이용하는 데 동의합니다.</span>
+        <span>{t("서비스 오픈 알림을 받기 위해 이메일 주소를 수집·이용하는 데 동의합니다.")}</span>
       </label>
       {error && (
         <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
@@ -92,7 +103,7 @@ export default function WaitlistForm() {
         disabled={submitting || emailUnverified}
         className="w-full rounded-xl bg-amber-500 px-6 py-3 font-semibold text-white hover:bg-amber-600 disabled:bg-amber-300"
       >
-        {submitting ? "등록 중…" : "대기 명단에 등록하기"}
+        {submitting ? t("등록 중…") : t("대기 명단에 등록하기")}
       </button>
     </form>
   );

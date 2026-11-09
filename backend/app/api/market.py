@@ -37,6 +37,7 @@ from app.market_formats import (
     content_matches,
     format_of,
 )
+from app.i18n import tr
 from app.lookup import get_or_404
 from app.mesh_preview import PREVIEW_CONTENT_TYPE, build_preview, measure_and_preview, preview_key
 from app.models import CageLayout, MarketEvent, MarketFile, MarketItem, MarketUpload, MarketUploadChunk, Post, User
@@ -355,7 +356,9 @@ def create_item(data: MarketItemIn, request: Request, db: Session = Depends(get_
     for f in files:
         f.item_id = item.id
     if with_post:
-        post = Post(author_id=user.id, title=f"[탐색] {data.title}"[:100], body=data.description,
+        # 소개 글 제목 머리말은 올린 사람의 화면 언어로 (글은 회원이 쓴 내용이라 나중에 바꾸지 않는다)
+        head = tr("[탐색]")
+        post = Post(author_id=user.id, title=f"{head} {data.title}"[:100], body=data.description,
                     design_id=data.design_id, design_version=version)
         db.add(post)
         db.flush()
@@ -374,7 +377,7 @@ def _layout_snapshot(lay: CageLayout) -> dict:
 
 def _layout_from_snapshot(snap: dict, owner: User) -> CageLayout:
     cage = snap["cage"]
-    return CageLayout(owner_id=owner.id, name=f"{snap['name']} (탐색)"[:40], species=snap["species"],
+    return CageLayout(owner_id=owner.id, name=f"{snap['name']} {tr('(탐색)')}"[:40], species=snap["species"],
                       size=snap["size"], cage_width_mm=cage["width_mm"], cage_depth_mm=cage["depth_mm"],
                       cage_height_mm=cage["height_mm"], items=list(snap["items"]))
 

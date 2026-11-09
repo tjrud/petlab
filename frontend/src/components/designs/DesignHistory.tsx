@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { Link, useRouter, useT } from "@/i18n/client";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
@@ -31,6 +31,7 @@ type Result =
 
 /** "내 설계" 목록 (회원 전용). 페이지·로그인 상태가 바뀌면 다시 불러온다. */
 export default function DesignHistory() {
+  const t = useT();
   const router = useRouter();
   const params = useSearchParams();
   const page = parsePage(params.get("page"));
@@ -55,7 +56,7 @@ export default function DesignHistory() {
         setResult({
           key,
           kind: "error",
-          message: errorText(e, "설계 내역을 불러오지 못했어요."),
+          message: errorText(e, t("설계 내역을 불러오지 못했어요.")),
           authCode: isAuthError(e) ? (e.code ?? null) : null,
         });
       },
@@ -63,7 +64,7 @@ export default function DesignHistory() {
     return () => {
       alive = false;
     };
-  }, [userId, page, key]);
+  }, [userId, page, key, t]);
 
   if (!authKnown) return <DesignGridSkeleton />;
   if (!userId) return <LoginRequired message="로그인하면 내 설계 내역을 볼 수 있어요" />;
@@ -91,10 +92,10 @@ export default function DesignHistory() {
   if (total === 0) {
     return (
       <div className={`${ui.card} flex flex-col items-center py-12 text-center`}>
-        <p className="mt-3 text-lg font-semibold">아직 만든 설계가 없어요</p>
-        <p className="mt-1 text-sm text-stone-600">케이지 크기와 원하는 구조물을 적으면 설계를 시작할 수 있어요.</p>
+        <p className="mt-3 text-lg font-semibold">{t("아직 만든 설계가 없어요")}</p>
+        <p className="mt-1 text-sm text-stone-600">{t("케이지 크기와 원하는 구조물을 적으면 설계를 시작할 수 있어요.")}</p>
         <Link href="/design" className={`${ui.btnPrimary} mt-5`}>
-          첫 설계 만들기
+          {t("첫 설계 만들기")}
         </Link>
       </div>
     );
@@ -104,9 +105,9 @@ export default function DesignHistory() {
     // 주소의 페이지 번호가 전체 페이지 수보다 큰 경우
     return (
       <div className={`${ui.card} text-center`}>
-        <p className="font-medium">이 페이지에는 설계가 없어요.</p>
+        <p className="font-medium">{t("이 페이지에는 설계가 없어요.")}</p>
         <Link href={pageHref(1)} className={`${ui.btnSecondary} mt-4`}>
-          첫 페이지로
+          {t("첫 페이지로")}
         </Link>
       </div>
     );
@@ -114,7 +115,7 @@ export default function DesignHistory() {
 
   return (
     <div>
-      <p className={`${ui.muted} mb-3`}>총 {total}개</p>
+      <p className={`${ui.muted} mb-3`}>{t("총 {n}개", { n: total })}</p>
       <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {items.map((d) => (
           <DesignCard key={d.id} design={d} onDeleted={onDeleted} />

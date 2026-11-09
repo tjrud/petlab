@@ -43,10 +43,14 @@ const nextConfig: NextConfig = {
     return [
       { source: "/market", destination: "/explore", permanent: true },
       { source: "/market/:path*", destination: "/explore/:path*", permanent: true },
+      { source: "/en/market", destination: "/en/explore", permanent: true },
+      { source: "/en/market/:path*", destination: "/en/explore/:path*", permanent: true },
     ];
   },
   /* config options here */
   cacheComponents: true,
+  // 뿌리 레이아웃이 app/[lang] 안에 있어 어떤 경로에도 맞지 않는 주소는 app/global-not-found.tsx 로
+  experimental: { globalNotFound: true },
   partialPrefetching: true,
   turbopack: {
     rules: {

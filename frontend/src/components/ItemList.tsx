@@ -1,3 +1,4 @@
+import { useT } from "@/i18n/client";
 import { formatParam, PARAM_LABELS, TEMPLATE_COLORS } from "@/lib/templates";
 import type { Item } from "@/lib/types";
 
@@ -12,10 +13,11 @@ export default function ItemList({
   errorItems: Set<number>;
   onSelect: (i: number | null) => void;
 }) {
+  const t = useT();
   return (
     <section aria-labelledby="items-title" className="space-y-2">
       <h2 id="items-title" className="font-bold">
-        구조물 ({items.length})
+        {t("구조물 ({n})", { n: items.length })}
       </h2>
       <ul className="space-y-2">
         {items.map((it) => {
@@ -38,7 +40,7 @@ export default function ItemList({
                   />
                   <span className="font-semibold">{it.label_ko}</span>
                   <span className="ml-auto text-xs text-stone-500">
-                    {it.placement ? `${it.size_mm.map((v) => Math.round(v)).join("×")}mm` : "배치 실패"}
+                    {it.placement ? `${it.size_mm.map((v) => Math.round(v)).join("×")}mm` : t("배치 실패")}
                   </span>
                 </div>
                 {active && (
@@ -47,13 +49,15 @@ export default function ItemList({
                     <dl className="grid grid-cols-2 gap-x-3 gap-y-1">
                       {Object.entries(it.params).map(([k, v]) => (
                         <div key={k} className="flex justify-between gap-2">
-                          <dt className="text-stone-500">{PARAM_LABELS[k] ?? k}</dt>
-                          <dd className="font-medium">{formatParam(k, v)}</dd>
+                          <dt className="text-stone-500">{PARAM_LABELS[k] ? t(PARAM_LABELS[k]) : k}</dt>
+                          <dd className="font-medium">{formatParam(k, v, t)}</dd>
                         </div>
                       ))}
                     </dl>
                     <p className="text-xs text-stone-500">
-                      출력 크기 {it.print_size_mm.map((v) => Math.round(v)).join("×")}mm (서포트 없이 출력하는 자세 기준)
+                      {t("출력 크기 {size}mm (서포트 없이 출력하는 자세 기준)", {
+                        size: it.print_size_mm.map((v) => Math.round(v)).join("×"),
+                      })}
                     </p>
                   </div>
                 )}

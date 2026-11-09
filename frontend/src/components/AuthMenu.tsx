@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { Link, useT } from "@/i18n/client";
 import { useState } from "react";
 
 import { useAuth, useLogout } from "@/components/AuthProvider";
@@ -10,6 +10,7 @@ const pill = "shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5";
 
 /** 헤더 오른쪽: 로그인·회원가입 또는 닉네임·로그아웃 (서버에 닿지 못하면 다시 시도) */
 export default function AuthMenu() {
+  const t = useT();
   const { status, user, unreachable, refresh } = useAuth();
   const { logout, busy, error } = useLogout();
   const [retrying, setRetrying] = useState(false);
@@ -20,7 +21,7 @@ export default function AuthMenu() {
     return (
       <div className="flex min-w-0 items-center gap-2 text-sm">
         <span role="status" className="min-w-0 text-xs leading-tight text-red-700">
-          서버에 연결하지 못했어요
+          {t("서버에 연결하지 못했어요")}
         </span>
         <button
           type="button"
@@ -32,7 +33,7 @@ export default function AuthMenu() {
           }}
           className={`${pill} border border-stone-300 hover:bg-stone-50 disabled:opacity-50`}
         >
-          {retrying ? "확인 중…" : "다시 시도"}
+          {retrying ? t("확인 중…") : t("다시 시도")}
         </button>
       </div>
     );
@@ -42,11 +43,11 @@ export default function AuthMenu() {
     return (
       <div className="flex min-w-0 items-center gap-2 text-sm">
         <Link href="/login" className={`${pill} hover:bg-stone-100`}>
-          로그인
+          {t("로그인")}
         </Link>
         {status.signup_enabled && (
           <Link href="/signup" className={`${pill} bg-amber-500 font-medium text-white hover:bg-amber-600`}>
-            회원가입
+            {t("회원가입")}
           </Link>
         )}
       </div>
@@ -57,11 +58,11 @@ export default function AuthMenu() {
       <Link
         href="/me"
         className="min-w-0 max-w-[7.5rem] truncate text-stone-600 hover:text-stone-900 sm:max-w-[9rem]"
-        title="내 정보"
+        title={t("내 정보")}
       >
         {/* 좁은 화면에서는 이름표가 닉네임 자리를 다 차지해 "N…" 만 보이므로 빼고, 닉네임을 보인다 (내 정보에 관리자 표시가 있다) */}
         {user.role === "admin" && (
-          <span className="mr-1 hidden rounded bg-stone-800 px-1.5 py-0.5 text-xs text-white sm:inline">관리자</span>
+          <span className="mr-1 hidden rounded bg-stone-800 px-1.5 py-0.5 text-xs text-white sm:inline">{t("관리자")}</span>
         )}
         {user.nickname}
       </Link>
@@ -71,7 +72,7 @@ export default function AuthMenu() {
         onClick={logout}
         className={`${pill} border border-stone-300 hover:bg-stone-50 disabled:opacity-50`}
       >
-        로그아웃
+        {t("로그아웃")}
       </button>
       {/* 오류는 줄 밖(헤더 아래)에 띄운다: 헤더 줄이 넓어져 좁은 화면에서 가로로 넘치지 않게 */}
       {error && (

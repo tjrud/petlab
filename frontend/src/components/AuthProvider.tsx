@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
+import { useHref, useT } from "@/i18n/client";
 import { api, AUTH_ERROR_EVENT } from "@/lib/api";
 import { writeDraft } from "@/lib/cagePlannerDoc";
 import type { AuthStatus, User } from "@/lib/types";
@@ -169,6 +170,8 @@ export function useAuthRecheck(): RecheckResult {
 
 /** 로그아웃. 성공하면 전체 새로고침으로 메인 화면에 간다 (숨김 상태로 남아 있던 이전 화면과 클라이언트 캐시를 버린다) */
 export function useLogout() {
+  const t = useT();
+  const href = useHref();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -179,13 +182,13 @@ export function useLogout() {
       await api.logout();
     } catch {
       // 서버가 쿠키를 지우지 못했으면 로그인 상태를 그대로 보여 준다
-      setError("로그아웃하지 못했어요. 다시 시도해 주세요.");
+      setError(t("로그아웃하지 못했어요. 다시 시도해 주세요."));
       setBusy(false);
       return;
     }
     writeDraft(null); // 가상 케이지 임시 저장도 지워요 (같은 기기를 쓰는 다른 사람에게 보이지 않게)
-    window.location.replace("/");
-  }, []);
+    window.location.replace(href("/"));
+  }, [t, href]);
 
   return { logout, busy, error };
 }

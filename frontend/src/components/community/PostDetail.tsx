@@ -1,7 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { Link, useRouter, useT } from "@/i18n/client";
 import { useEffect, useState } from "react";
 
 import CommentSection from "@/components/community/CommentSection";
@@ -18,29 +17,33 @@ type Result =
   | { key: string; kind: "error"; status: number; message: string };
 
 export function PostPlaceholder() {
+  const t = useT();
   return (
     <div className="mx-auto max-w-3xl">
-      <Placeholder rows={3} label="글을 불러오는 중이에요" rowClassName="h-32" />
+      <Placeholder rows={3} label={t("글을 불러오는 중이에요")} rowClassName="h-32" />
     </div>
   );
 }
 
 function BackLink() {
+  const t = useT();
   return (
     <Link href={COMMUNITY_PATH} className={`${ui.link} text-sm font-medium`}>
-      <span aria-hidden>← </span>목록으로
+      <span aria-hidden>← </span>
+      {t("목록으로")}
     </Link>
   );
 }
 
 function PostNotFound() {
+  const t = useT();
   return (
     <div className="mx-auto max-w-3xl">
       <div className={`${ui.card} text-center`}>
-        <h1 className="mt-3 text-xl font-bold">글을 찾을 수 없어요</h1>
-        <p className="mt-2 text-sm text-stone-600">주소가 잘못되었거나 삭제된 글이에요.</p>
+        <h1 className="mt-3 text-xl font-bold">{t("글을 찾을 수 없어요")}</h1>
+        <p className="mt-2 text-sm text-stone-600">{t("주소가 잘못되었거나 삭제된 글이에요.")}</p>
         <Link href={COMMUNITY_PATH} className={`${ui.btnSecondary} mt-5`}>
-          커뮤니티로 돌아가기
+          {t("커뮤니티로 돌아가기")}
         </Link>
       </div>
     </div>
@@ -49,6 +52,7 @@ function PostNotFound() {
 
 /** 커뮤니티 글 보기 (누구나). 수정·삭제·댓글 권한은 서버가 알려 준다 (can_edit / can_delete) */
 export default function PostDetail({ id }: { id: string }) {
+  const t = useT();
   const router = useRouter();
   const [attempt, setAttempt] = useState(0);
   const [result, setResult] = useState<Result | null>(null);
@@ -66,14 +70,14 @@ export default function PostDetail({ id }: { id: string }) {
           key,
           kind: "error",
           status: e instanceof ApiError ? e.status : 0,
-          message: errorText(e, "글을 불러오지 못했어요."),
+          message: errorText(e, t("글을 불러오지 못했어요.")),
         });
       },
     );
     return () => {
       alive = false;
     };
-  }, [id, key]);
+  }, [id, key, t]);
 
   const r = result?.key === key ? result : null;
   if (!r) return <PostPlaceholder />;
