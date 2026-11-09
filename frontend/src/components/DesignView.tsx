@@ -221,7 +221,7 @@ export default function DesignView({ id, initialVersion }: { id: string; initial
           designId={design.id}
           version={cur.version}
           allowed={cur.export_allowed}
-          partCount={cur.items.length}
+          items={cur.items}
           kind={kind}
           printNotes={notesForDesign}
         />

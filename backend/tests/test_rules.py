@@ -158,7 +158,7 @@ def test_repo_rules_load_aquarium(rules):
     assert set(aq.sizes) == AQUARIUM_SIZES
     assert rules.habitat("aquarium") == "aquarium" and rules.habitat("hamster") == "cage"
     assert rules.allowed_templates("aquarium") == ("cave", "tunnel")
-    assert rules.allowed_templates("hamster") == ("hideout", "tunnel", "ramp", "sand_bath")
+    assert rules.allowed_templates("hamster") == ("hideout", "tunnel", "ramp", "sand_bath", "house")
     assert rules.buoyancy("hamster") is None
     b = rules.buoyancy("aquarium")
     assert b is not None and b.material_density_g_cm3 > b.water_density_g_cm3
@@ -311,9 +311,9 @@ def test_buoyancy_material_must_be_denser_than_water(rules_copy):
         load_rules(rules_copy)
 
 
-@pytest.mark.parametrize("templates", [["cave", "tunnel", "ramp"], ["hideout"], ["cave", "sand_bath"]])
+@pytest.mark.parametrize("templates", [["cave", "tunnel", "ramp"], ["hideout"], ["cave", "sand_bath"], ["cave", "house"]])
 def test_cage_templates_in_aquarium_rejected(rules_copy, templates):
-    """바닥이 열린 은신처(물속에서 공기가 갇힘)·램프·모래목욕통은 어항에 만들 수 없다."""
+    """바닥이 열린 은신처(물속에서 공기가 갇힘)·램프·모래목욕통·조립형 집(지붕·층판 아래 공기, 끼우는 파트)은 어항에 만들 수 없다."""
     _edit_species(rules_copy, lambda d: d["species"]["aquarium"].update(templates=templates))
     with pytest.raises(RuleFileError, match="habitat aquarium"):
         load_rules(rules_copy)
@@ -340,7 +340,7 @@ def test_aquarium_must_list_templates(rules_copy):
 
 
 def test_cage_templates_default(rules_copy):
-    """케이지 종은 templates 를 빼면 케이지 기본 구조물 4종, 사육 환경도 빼면 cage, 최대 마릿수 10."""
+    """케이지 종은 templates 를 빼면 케이지 기본 구조물 5종(조립형 집 포함), 사육 환경도 빼면 cage, 최대 마릿수 10."""
     def strip(d):
         for k in ("templates", "habitat", "max_count"):
             d["species"]["hamster"].pop(k)
@@ -348,7 +348,7 @@ def test_cage_templates_default(rules_copy):
     _edit_species(rules_copy, strip)
     rb = load_rules(rules_copy)
     assert rb.habitat("hamster") == "cage"
-    assert rb.allowed_templates("hamster") == ("hideout", "tunnel", "ramp", "sand_bath")
+    assert rb.allowed_templates("hamster") == ("hideout", "tunnel", "ramp", "sand_bath", "house")
     assert rb.species_entry("hamster").max_count == 10
 
 
@@ -366,6 +366,18 @@ def test_cage_size_missing_climb_fields_rejected_only_with_ramp(rules_copy):
     rb = load_rules(rules_copy)
     assert rb.allowed_templates("hamster") == ("hideout", "tunnel", "sand_bath")
     assert rb.size_rules("hamster", "dwarf").max_climb_height_mm is None
+
+
+@pytest.mark.parametrize("field", ["max_climb_height_mm", "max_ramp_angle_deg"])
+def test_cage_house_needs_climb_fields_without_ramp(rules_copy, field):
+    """조립형 집(2층 바닥 높이·내부 경사로)은 램프가 없어도 오르기 높이·경사 기준이 있어야 한다."""
+    def house_only(d):
+        d["species"]["hamster"]["templates"] = ["hideout", "house"]
+        d["species"]["hamster"]["sizes"]["syrian"].pop(field)
+
+    _edit_species(rules_copy, house_only)
+    with pytest.raises(RuleFileError, match=rf"(?s)'syrian'.*{field}.*house"):
+        load_rules(rules_copy)
 
 
 def test_cage_size_missing_sand_bath_fields_rejected(rules_copy):

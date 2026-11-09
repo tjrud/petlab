@@ -5,7 +5,7 @@ import itertools
 
 import pytest
 
-from app.domain import Cage, Placement, PlacementHint, access_strip
+from app.domain import Cage, Placement, PlacementHint, Rect, access_strip
 from app.layout.placer import _placed_at, place_all
 from app.services.engine import build_item
 from app.templates.base import Features
@@ -183,3 +183,93 @@ def test_placed_at_matches_world_rect_exactly(syrian, placement):
     assert got.strips == tuple(access_strip(rect, dv, P) for dv in it.access_directions(placement.rotation_deg))
     assert len(got.strips) == 2
     assert it.placement == prior
+
+
+# ── attach_to: 다른 구조물의 한 면에 맞대어 놓기 (2층 집의 바깥 램프) ──
+
+
+def _house_with_landing(rules, index, hint=PlacementHint()):
+    from app.templates.house import HouseTemplate
+    t = HouseTemplate()
+    p = t.Params(width_mm=160, depth_mm=130, height_mm=220,
+                 floors={"count": 2, "climb": "external_ramp", "exit_side": "back", "level_height_mm": 110})
+    return build_item(index, t, p, hint, rules.printing)
+
+
+def _ramp(rules, index, attach_to, height=110.0):
+    from app.templates.ramp import RampTemplate
+    t = RampTemplate()
+    return build_item(index, t, t.Params(height_mm=height, width_mm=80, slope_deg=30), PlacementHint(attach_to=attach_to),
+                      rules.printing)
+
+
+def test_attach_to_puts_ramp_top_against_landing(rules, syrian):
+    from app.layout.placer import attach_satisfied
+
+    cage = Cage(900, 500, 400)
+    house = _house_with_landing(rules, 0, PlacementHint(zone="left"))
+    ramp = _ramp(rules, 1, (0, "back"))
+    assert place_all([house, ramp], cage, syrian.gap_trap) == []
+    assert attach_satisfied(ramp, house, "back")
+    # 램프의 뒷면(꼭대기)이 집의 뒷면(착지판 바깥면)에 닿고, 램프 앞(오르는 입구) 공간은 비어 있다
+    assert ramp.world_rect.distance(house.world_rect) == pytest.approx(0, abs=1e-6)
+    assert _safety_issues([house, ramp], syrian, cage) == []
+    # 대상이 램프 자리를 남겨 두고 놓인다: 램프 전체가 케이지 안에 있다
+    r = ramp.world_rect
+    assert r.x0 >= -1e-6 and r.y0 >= -1e-6 and r.x1 <= cage.width_mm + 1e-6 and r.y1 <= cage.depth_mm + 1e-6
+
+
+def test_attach_to_falls_back_when_there_is_no_room(rules, syrian):
+    """붙일 자리가 없으면(케이지가 좁아 램프가 들어가지 않음) 일반 배치로 놓고 엔진이 경고를 낸다."""
+    from app.layout.placer import attach_satisfied
+    from app.services.engine import _attach_issues
+
+    cage = Cage(300, 240, 400)
+    house = _house_with_landing(rules, 0)
+    ramp = _ramp(rules, 1, (0, "back"))
+    failed = place_all([house, ramp], cage, syrian.gap_trap)
+    assert house.placement is not None
+    if ramp.placement is not None:
+        assert not attach_satisfied(ramp, house, "back")
+        [issue] = _attach_issues([house, ramp])
+        assert issue.code == "attach_fallback" and issue.severity == "warning" and issue.item_index == 1
+        assert issue.related_index == 0 and "붙일 자리가 없어" in issue.message_ko
+    else:
+        assert failed == [ramp]
+
+
+def test_attach_to_missing_target_uses_normal_placement(rules, syrian):
+    ramp = _ramp(rules, 1, (7, "back"))
+    assert place_all([ramp], CAGE, syrian.gap_trap) == []
+    assert ramp.placement is not None
+
+
+def test_attach_rotation_and_rect():
+    from app.layout.placer import attach_rect, attach_rotation
+
+    # 대상이 0° 일 때 뒷면(+Y)에 붙으려면 이 항목의 뒷면이 −Y 를 봐야 하므로 180°
+    assert attach_rotation("back", 0) == 180
+    assert attach_rotation("front", 0) == 0
+    assert attach_rotation("left", 0) == 270 or attach_rotation("left", 0) == 90
+    it = box_item(0, 80, 120, 50)
+    rot, rect = attach_rect(it, Rect(100, 100, 200, 160), "back", 0)
+    assert rot == 180 and (rect.y0, rect.x0, rect.x1) == (160, 110, 190)
+    rot, rect = attach_rect(it, Rect(100, 100, 200, 160), "right", 0)
+    assert rect.x0 == 200 and rect.cy == 130
+
+
+def test_two_access_sides_are_both_checked(rules, syrian):
+    """출입구가 여러 면인 구조물(앞·뒤 출입구 집)은 모든 출입 면 앞 공간이 비어 있어야 놓인다."""
+    from app.templates.house import HouseTemplate
+    t = HouseTemplate()
+    house = build_item(0, t, t.Params(width_mm=160, depth_mm=130, height_mm=110, doors={"sides": ["front", "back"]}),
+                       PlacementHint(zone="back"), rules.printing)
+    assert place_all([house], CAGE, syrian.gap_trap) == []
+    assert set(house.features.access_sides) == {"front", "back"}
+    assert checks.check_access([house], CAGE, syrian) == []
+    # 두 출입 면 모두 벽에서 출입 공간(P)만큼 떨어진다 (한 면만 보면 벽에 붙여 버린다)
+    P = syrian.gap_trap.passable_min_mm
+    r = house.world_rect
+    for dx, dy in house.access_directions(house.placement.rotation_deg):
+        gap = {(0, -1): r.y0, (0, 1): CAGE.depth_mm - r.y1, (-1, 0): r.x0, (1, 0): CAGE.width_mm - r.x1}[(dx, dy)]
+        assert gap >= P - 1e-6

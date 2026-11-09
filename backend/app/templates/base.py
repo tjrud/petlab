@@ -5,6 +5,8 @@
   - constraints(): 종 규칙·출력 규칙·파라미터 상호 관계에서 나오는 동적 허용 범위
   - build(): build123d 형상 생성 (사용 자세, 바닥 Z=0, XY 중심 원점)
   - print_rotation(): 출력 자세 회전 (서포트 없이 출력 가능한 방향)
+  - print_parts(): 출력 파트 목록 (기본은 build() 형상 하나. 한 덩어리로 서포트 없이 출력할 수 없는 조립형
+    구조물은 본체·지붕·층판처럼 2~3개 파트로 나눈다)
   - features(): 검증에 쓰는 설계 특징 (벽 두께, 개구부, 출입 방향 등)
 
 LLM 은 Params 값만 결정한다. 형상은 오직 build() 가 만든다.
@@ -84,12 +86,60 @@ class Features:
 
 
 @dataclass(frozen=True)
+class PrintPart:
+    """출력 파트 하나: 파트 자신의 좌표계 형상과 그 출력 자세 회전.
+
+    key 는 파일 이름에 쓰는 ASCII 식별자(body, roof, floor …), name_ko 는 화면에 보이는 이름.
+    조립 형상(build())과 파트 형상은 같은 치수를 써야 하며, 파트별로 메시 건전성·벽 두께 실측·오버행·출력 공간을 검사한다.
+    """
+
+    name_ko: str
+    part: Part
+    rotation: np.ndarray
+    key: str = "body"
+
+
+@dataclass(frozen=True)
+class DecorZone:
+    """안전과 무관한 면에서 장식(무늬·각인)을 얹을 수 있는 영역.
+
+    면 좌표 (u, v): u 는 바깥에서 그 면을 볼 때 오른쪽, v 는 위. 원점은 면의 가로 가운데·구조물 바닥(Z=0).
+    영역은 [u0, u1] × [v0, v1] 에서 obstacles(출입구·창·연결부·결합부, (u0, v0, u1, v1))를 keepout_mm 만큼 넓혀 뺀 곳이다.
+    mode: engrave(파내기) 또는 relief(돋을새김). 돋을새김은 출력 자세에서 오버행이 생기지 않는 세로 벽에서만.
+    지붕(face="roof")은 평면 경사면(경사 지붕)에서 각인만: 경사면을 기울어진 벽으로 보고 x_dir(용마루 방향)·z_dir(바깥 법선)을 준다.
+    """
+
+    face: Side | Literal["roof"]
+    mode: Literal["engrave", "relief"]
+    max_depth_mm: float
+    keepout_mm: float
+    u0: float
+    u1: float
+    v0: float
+    v1: float
+    obstacles: tuple[tuple[float, float, float, float], ...] = ()
+    part_key: str = "body"  # 이 면이 속한 출력 파트
+    print_inverted: bool = False  # 그 파트를 뒤집어 출력하는지 (파낸 홈의 천장 기울기 방향이 바뀐다)
+    thickness_field: str | None = None  # 이 면의 벽 두께 파라미터 (각인 깊이만큼 두껍게 보정하는 데 쓴다)
+    # 면 좌표 원점(u=0, v=0)의 월드 좌표: 바깥 표면 위의 점 (세로 벽은 바닥점, 경사면은 처마 가운데)
+    surface: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    # 면의 u 방향·바깥 법선 (월드). None 이면 face 에서 정한다 (세로 벽). v 방향 = z_dir × x_dir (위쪽)
+    x_dir: tuple[float, float, float] | None = None
+    z_dir: tuple[float, float, float] | None = None
+
+
+@dataclass(frozen=True)
 class RuleContext:
     """템플릿이 동적 범위를 계산할 때 쓰는 규칙 값."""
 
     size: SizeRules
     min_wall_mm: float  # max(종 기준(케이지: 갉음 내구성, 어항: 물속 내구성), 출력 최소 벽)
     count: int = 1  # 함께 지내는 마릿수 (마릿수에 따라 달라지는 규칙용)
+    # 서포트 없이 출력할 수 있는 최대 오버행(printing.yaml). 출력 자세가 지붕 경사 같은 파라미터를 제한할 때 쓴다.
+    # None 이면(옛 호출) 출력 규칙 기반 제약은 내지 않는다
+    printing_max_overhang_deg: float | None = None
+    # 장식의 최소 형상 크기(printing.yaml min_feature_mm). None 이면 장식을 적용하지 않는다
+    min_feature_mm: float | None = None
     # 어항: 구조물 최대 높이 (물 깊이 − 구조물 위 최소 물 깊이). 엔진이 새 설계를 보정할 때만 준다.
     # 높이를 이 안에 맞추려면 다른 값도 바꿔야 하는 템플릿(물속 동굴: 지붕 높이)이 그 값을 함께 조정할 때 쓴다
     height_limit_mm: float | None = None
@@ -140,8 +190,10 @@ class Template(ABC):
     def default_params(self, ctx: RuleContext | None = None) -> TemplateParams:
         return self.Params()
 
-    def min_height_mm(self, ctx: RuleContext) -> float | None:
-        """규칙 안에서 만들 수 있는 가장 낮은 외형 높이 (어항 물 깊이와 비교). 모르면 None (비교하지 않음)."""
+    def min_height_mm(self, ctx: RuleContext, p: TemplateParams | None = None) -> float | None:
+        """규칙 안에서 만들 수 있는 가장 낮은 외형 높이 (어항 물 깊이와 비교). 모르면 None (비교하지 않음).
+
+        p: 보정 전 파라미터. 보정이 바꾸지 않는 선택(터널 단면 모양처럼 높이를 정하는 값)을 반영할 때 쓴다."""
         return None
 
     def height_limit_constraints(
@@ -166,6 +218,18 @@ class Template(ABC):
         """사용 자세 → 출력 자세 회전 행렬(3x3). 기본: 그대로 출력."""
         return np.eye(3)
 
+    def print_parts(self, p: TemplateParams, built: Part | None = None) -> list[PrintPart]:
+        """출력 파트 목록. 기본: build() 형상 하나를 print_rotation() 자세로 (built 가 있으면 다시 만들지 않는다).
+
+        여러 파트로 나누는 템플릿은 이를 덮어쓴다. 파트는 사용 자세·조립 위치 그대로 두고 rotation 으로만 출력 자세를
+        정한다. 케이지 배치·겹침·끼임·출입구 검사는 build() 의 조립 형상으로 한다."""
+        return [PrintPart("본체", built if built is not None else self.build(p), self.print_rotation(p))]
+
     @abstractmethod
     def features(self, p: TemplateParams) -> Features:
         """검증용 설계 특징."""
+
+    def decor_zones(self, p: TemplateParams) -> list[DecorZone]:
+        """장식을 얹을 수 있는 영역 (기본: 없음). 장식은 features() 와 검사 결과를 바꾸지 않아야 한다."""
+        return []
+

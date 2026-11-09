@@ -67,9 +67,8 @@ def _walk(node):
 
 
 def schema_templates(schema: dict) -> set[str]:
-    return {n["const"] for n in _walk(schema) if "const" in n} | {
-        v for n in _walk(schema) if "enum" in n and n.get("type") == "string" for v in n["enum"]
-        if v in {"hideout", "tunnel", "ramp", "sand_bath", "cave"}}
+    """스키마의 항목(…Item) 정의가 받는 템플릿 키 (장식 kind·터널 단면 'house' 같은 다른 상수는 빼고)."""
+    return {d["properties"]["template"]["const"] for name, d in schema["$defs"].items() if name.endswith("Item")}
 
 
 # ── 스키마: 템플릿 묶음마다 ──────────────────────────────────
@@ -83,14 +82,19 @@ def test_api_schema_for_aquarium_has_only_cave_and_tunnel():
     assert schema_templates(schema) == {"cave", "tunnel"}
     text = json.dumps(schema, ensure_ascii=False)
     assert "램프" not in text and "모래목욕통" not in text
+    # 장식(decor)·attach_to(집의 바깥 램프)는 어항 계약에 없다: 물속 동굴·터널에는 장식 면이 없고 집·램프도 없다
+    assert "decor" not in text and "attach_to" not in text and "HouseParams" not in defs
 
 
 def test_api_schema_for_hamster_has_no_cave():
     schema = api_schema(CAGE_TEMPLATES)
-    assert schema_templates(schema) == {"hideout", "tunnel", "ramp", "sand_bath"}
+    assert schema_templates(schema) == {"hideout", "tunnel", "ramp", "sand_bath", "house"}
     assert "CaveParams" not in schema["$defs"]
-    # 기본값(모든 템플릿)은 저장된 버전 읽기용: 다섯 템플릿 모두
-    assert schema_templates(api_schema()) == {"hideout", "tunnel", "ramp", "sand_bath", "cave"}
+    # 케이지 계약은 main 그대로 모든 항목에 decor, 배치에 attach_to 가 있다
+    assert all("decor" in d["properties"] for n, d in schema["$defs"].items() if n.endswith("Item"))
+    assert "attach_to" in schema["$defs"]["LLMPlacement"]["properties"]
+    # 기본값(모든 템플릿)은 저장된 버전 읽기용: 여섯 템플릿 모두
+    assert schema_templates(api_schema()) == {"hideout", "tunnel", "ramp", "sand_bath", "house", "cave"}
 
 
 def test_schema_is_cached_per_template_set_regardless_of_order():
@@ -175,12 +179,12 @@ def test_user_message_for_hamster_has_no_aquarium_rows(rules):
     for absent in ("물 깊이", "어항", "물속 동굴", "만들 수 있는 구조물", "속이 빈", MATERIAL_RULE_KEY):
         assert absent not in head, absent
     templates = [t["template"] for t in json.loads(rest.split("## 보호자 요구사항")[0])]
-    assert templates == ["hideout", "tunnel", "ramp", "sand_bath"]
+    assert templates == ["hideout", "tunnel", "ramp", "sand_bath", "house"]
 
 
 def test_template_catalog_filters_by_allowed():
     assert [t["template"] for t in template_catalog(AQUARIUM_TEMPLATES)] == ["tunnel", "cave"]
-    assert [t["template"] for t in template_catalog()] == ["hideout", "tunnel", "ramp", "sand_bath", "cave"]
+    assert [t["template"] for t in template_catalog()] == ["hideout", "tunnel", "ramp", "sand_bath", "house", "cave"]
 
 
 def test_system_prompt_is_species_neutral():
@@ -391,3 +395,81 @@ def test_size_name_messages_are_species_neutral_in_english(rules):
     # 저장된 옛 설계·검증 문구의 옛 나노 어종 이름도 그대로 번역된다
     assert c.translate("나노 어종 (네온·엠버 테트라, 보라라스 등 성체 3cm 이하)") == \
         "Nano fish (neon and ember tetras, Boraras, etc.; adults up to 3 cm)"
+
+
+# ── main 병합: 터널 단면·조립형 집·장식과 어항 계약 ──────────────────────────
+
+
+def test_aquarium_schema_keeps_tunnel_shape_and_path():
+    """#35 터널 단면·S자 파라미터는 어항 계약에도 그대로 있다 (터널은 케이지·어항 공통)."""
+    props = api_schema(AQUARIUM_TEMPLATES)["$defs"]["TunnelParams"]["properties"]
+    assert {"shape", "path"} <= set(props)
+    assert set(props["shape"]["enum"]) == {"pointed_arch", "round_arch", "tube", "box", "house"}
+
+
+def test_aquarium_parse_rejects_house_decor_and_attach_to(rules):
+    req = make_req(rules)
+    ok = spec_dict(rules, req, ("cave",))
+    parse_spec(json.dumps(ok), AQUARIUM_TEMPLATES)
+    for bad in ({**ok["items"][0], "decor": None},
+                {**ok["items"][0], "placement": {**ok["items"][0]["placement"], "attach_to": None}}):
+        with pytest.raises(ValidationError):
+            parse_spec(json.dumps({**ok, "items": [bad]}), AQUARIUM_TEMPLATES)
+    hreq = make_req(rules, "hamster", "syrian", 1)
+    with pytest.raises(ValidationError):
+        parse_spec(json.dumps(spec_dict(rules, hreq, ("house",))), AQUARIUM_TEMPLATES)
+
+
+def test_aquarium_user_message_mentions_shape_advice_and_no_decor(rules):
+    msg = build_user_message(make_req(rules))
+    head = msg.split("## 사용 가능한 템플릿")[0]
+    assert "pointed_arch(기본)·house 권장" in head and "round_arch·tube·box" in head
+    assert '"장식(무늬·글귀 각인)"' in head
+    assert "house(집)" in head.split('"만들 수 있는 구조물"')[1].split("\n")[0]  # 만들 수 없는 목록에 집도 있다
+    hmsg = build_user_message(make_req(rules, "hamster", "syrian", 1))
+    assert "S자 터널 한 번 휨 최대 각도" in hmsg and "장식(무늬" not in hmsg and "어항 터널 단면" not in hmsg
+
+
+@pytest.mark.parametrize("prompt,lang", [("2층 집처럼 생긴 동굴", "ko"), ("창문 있는 집", "ko"), ("경사 지붕 집", "ko"),
+                                         ("a two-story house with windows", "en")])
+def test_mock_house_words_mean_cave_in_aquarium(rules, prompt, lang):
+    """집 키워드(2층·창문·지붕)는 어항에서 집 템플릿을 고르지 않는다: '집'·house 는 숨을 곳(물속 동굴)이다."""
+    spec = mock(rules, prompt, language=lang)
+    assert templates_of(spec) == ["cave"]
+    assert not any("house" in n.lower() or "집" in n for n in spec.notes_ko)
+
+
+def test_mock_house_shaped_tunnel_in_aquarium(rules):
+    spec = mock(rules, "집 모양 터널")
+    assert templates_of(spec) == ["tunnel"] and spec.items[0].params.shape == "house"
+    spec = mock(rules, "a house-shaped tunnel", language="en")
+    assert templates_of(spec) == ["tunnel"] and spec.items[0].params.shape == "house"
+    spec = mock(rules, "S자 터널이랑 동굴")
+    assert templates_of(spec) == ["tunnel", "cave"] and spec.items[0].params.path == "s_curve"
+
+
+@pytest.mark.parametrize("prompt", ["줄무늬 동굴", "\"네온\" 이라고 새긴 동굴", "a cave with stripes"])
+def test_mock_never_puts_decor_on_aquarium_items(rules, prompt):
+    spec = mock(rules, prompt, language="en" if prompt.isascii() else "ko")
+    assert templates_of(spec) == ["cave"]
+    assert all(getattr(it, "decor", None) is None for it in spec.items)
+    assert "decor" not in json.loads(spec.model_dump_json())["items"][0]
+
+
+def test_mock_aquarium_revision_from_stored_version(rules):
+    """저장된 버전은 모든 템플릿 계약(decor·attach_to: null 포함)으로 읽는다: 어항 수정 요청도 그 직전 설계로 된다."""
+    v1 = mock(rules, "동굴이랑 터널")
+    stored = parse_spec(v1.model_dump_json())  # DesignService._previous_spec 과 같은 읽기
+    assert stored.items[0].decor is None and stored.items[0].placement.attach_to is None
+    v2 = mock(rules, "터널을 더 크게", previous=stored)
+    assert templates_of(v2) == ["cave", "tunnel"]
+    assert v2.items[1].params.length_mm > v1.items[1].params.length_mm
+
+
+def test_mock_hamster_house_and_decor_unchanged(rules):
+    """케이지(햄스터)는 main 그대로: 2층 집 + 바깥 램프(attach_to), 은신처 장식."""
+    spec = mock(rules, "2층 집에 바깥 램프", species="hamster", size="syrian", count=1)
+    assert templates_of(spec) == ["house", "ramp"]
+    assert spec.items[1].placement.attach_to.item_index == 0
+    spec = mock(rules, "줄무늬 은신처", species="hamster", size="syrian", count=1)
+    assert spec.items[0].decor is not None and spec.items[0].decor.pattern == "stripes"

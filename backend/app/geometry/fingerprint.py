@@ -22,8 +22,15 @@ from pathlib import Path
 
 from app.rules.loader import PrintingRules
 
-# 모든 템플릿의 형상에 영향을 주는 공용 코드: 템플릿 계약, B-rep → 메시 변환·출력 자세, 형상 생성, 배치 변환
-SHARED_MODULES: tuple[str, ...] = ("app.templates.base", "app.geometry.mesh", "app.services.engine", "app.domain")
+# 모든 템플릿의 형상에 영향을 주는 공용 코드: 템플릿 계약, B-rep → 메시 변환·출력 자세, 형상 생성, 배치 변환,
+# 조립형 템플릿의 부품 라이브러리(app.templates.parts)
+SHARED_MODULES: tuple[str, ...] = (
+    "app.templates.base", "app.geometry.mesh", "app.services.engine", "app.domain",
+    "app.templates.parts.common", "app.templates.parts.shell", "app.templates.parts.openings", "app.templates.parts.levels",
+    "app.templates.decor",
+)
+# 각인 글꼴: 글꼴 파일이 바뀌면 각인 형상이 바뀐다
+FONT_DIR = Path(__file__).resolve().parents[1] / "assets" / "fonts"
 # 테셀레이션·메시 처리 결과를 바꿀 수 있는 라이브러리 (설치되지 않은 이름은 건너뛴다)
 LIBRARIES: tuple[str, ...] = ("build123d", "cadquery-ocp", "cadquery-ocp-novtk", "trimesh", "numpy")
 
@@ -43,6 +50,14 @@ def _module_digest(name: str) -> str:
     except (TypeError, OSError, AttributeError, ImportError):
         # 소스를 읽을 수 없는 배포 형태. 지문은 참고용일 뿐이고 판정은 파일 해시로 하므로 기동은 막지 않는다.
         return f"unreadable:{name}"
+
+
+@lru_cache(maxsize=1)
+def _font_digests() -> tuple[tuple[str, str], ...]:
+    try:
+        return tuple((f.name, file_digest(f.read_bytes())) for f in sorted(FONT_DIR.glob("*.[ot]tf")))
+    except OSError:
+        return ()
 
 
 @lru_cache(maxsize=1)
@@ -68,6 +83,7 @@ def geometry_fingerprint(template_keys: Iterable[str], printing: PrintingRules) 
         "templates": templates,
         "shared": {m: _module_digest(m) for m in SHARED_MODULES},
         "libraries": dict(_library_versions()),
+        "fonts": dict(_font_digests()),
         "tessellation": [printing.tessellation_tolerance_mm, printing.tessellation_angular_tolerance_deg],
     }
     return file_digest(json.dumps(payload, sort_keys=True).encode())

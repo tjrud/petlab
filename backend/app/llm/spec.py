@@ -20,12 +20,25 @@ from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from app.domain import PlacementHint, Rotation, Zone
 from app.services.engine import ItemSpec
+from app.templates.base import Side, Template
+from app.templates.decor import DecorSpec
 from app.templates.registry import all_templates
 
 MAX_ITEMS = 8
 
 
-class LLMPlacement(BaseModel):
+class AttachTo(BaseModel):
+    """다른 항목의 한 면에 맞대어 놓는 힌트 (2층 집의 바깥 램프: 램프 꼭대기가 착지판에 닿게)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    item_index: int = Field(ge=0, lt=MAX_ITEMS, description="붙일 대상 항목의 items 배열 인덱스 (0부터)")
+    side: Side = Field(description="대상 항목의 어느 면에 붙일지 (집의 floors.exit_side 와 같게)")
+
+
+# 배치 힌트 (zone·group·rotation). attach_to 를 쓸 구조물(집·램프)이 없는 묶음(어항)의 계약에 쓴다.
+# 문서 문자열은 스키마 설명으로 LLM 에게 보이므로 두지 않는다 (케이지 계약을 main 과 같게, 어항 계약에 램프 말이 없게)
+class LLMZonePlacement(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     zone: Zone = Field(
@@ -42,17 +55,47 @@ class LLMPlacement(BaseModel):
     )
 
     def to_hint(self) -> PlacementHint:
-        return PlacementHint(zone=self.zone, group=self.group, rotation=self.rotation)
+        attach_to = getattr(self, "attach_to", None)
+        attach = (attach_to.item_index, attach_to.side) if attach_to is not None else None
+        return PlacementHint(zone=self.zone, group=self.group, rotation=self.rotation, attach_to=attach)
 
 
-def _item_model(template) -> type[BaseModel]:
+# 배치 힌트 + attach_to (2층 집의 바깥 램프)
+class LLMPlacement(LLMZonePlacement):
+    attach_to: AttachTo | None = Field(
+        default=None,
+        description="다른 항목에 맞대어 놓기. 2층 집(house, floors.climb=external_ramp)의 바깥 램프(ramp)에만 "
+                    "{item_index: 집 항목 인덱스, side: 집의 floors.exit_side} 로 지정하고, 그 밖에는 null",
+    )
+
+
+# attach_to 는 2층 집(house)의 바깥 램프(ramp)를 잇는 힌트라 두 템플릿이 모두 있는 묶음(케이지)에만 둔다
+ATTACH_TEMPLATES = ("house", "ramp")
+
+
+def supports_decor(template) -> bool:
+    """장식 영역을 내는 템플릿인지 (Template.decor_zones 를 덮어쓴 템플릿: 은신처·집)."""
+    return type(template).decor_zones is not Template.decor_zones
+
+
+@lru_cache
+def _item_model(template, decor: bool, attach: bool = True) -> type[BaseModel]:
+    fields: dict[str, Any] = dict(
+        template=(Literal[template.key], Field(description=f"{template.display_name_ko}: {template.description_ko}")),
+        params=(template.Params, ...),
+        placement=(LLMPlacement if attach else LLMZonePlacement, ...),
+    )
+    if decor:
+        fields["decor"] = (DecorSpec | None, Field(  # type: ignore[valid-type]
+            default=None,
+            description="장식 (안전과 무관한 바깥 벽·지붕 윗면에만). 무늬(pattern) 또는 글귀 각인(text) 중 하나. "
+                        "이름 새기기·무늬 요청이 없으면 null. 은신처(hideout)·집(house)에서만 쓸 수 있다",
+        ))
+    fields["reason_ko"] = (str, Field(description="이 구조물과 값을 고른 이유 (응답 언어로 한두 문장, 지정이 없으면 한국어)"))
     return create_model(
         f"{template.Params.__name__.removesuffix('Params')}Item",
         __config__=ConfigDict(extra="forbid"),
-        template=(Literal[template.key], Field(description=f"{template.display_name_ko}: {template.description_ko}")),
-        params=(template.Params, ...),
-        placement=(LLMPlacement, ...),
-        reason_ko=(str, Field(description="이 구조물과 값을 고른 이유 (응답 언어로 한두 문장, 지정이 없으면 한국어)")),
+        **fields,
     )
 
 
@@ -77,7 +120,12 @@ def template_keys(templates: Iterable[str] | None = None) -> tuple[str, ...]:
 @lru_cache
 def _item_union(keys: tuple[str, ...]) -> Any:
     by_key = {t.key: t for t in all_templates()}
-    models = tuple(_item_model(by_key[k]) for k in keys)
+    # 장식(decor) 필드는 장식 영역이 있는 템플릿(은신처·집)이 하나라도 있는 묶음에만 둔다. 케이지 묶음은 예전처럼 모든 항목에
+    # decor 가 있고(없는 템플릿은 엔진이 장식을 빼고 경고), 어항 묶음(물속 동굴·터널)에는 decor 가 아예 없다:
+    # 물속 동굴·터널에는 장식 면이 없고, 물속의 파인 홈에는 이끼·찌꺼기가 낀다
+    decor = any(supports_decor(by_key[k]) for k in keys)
+    attach = all(k in keys for k in ATTACH_TEMPLATES)
+    models = tuple(_item_model(by_key[k], decor, attach) for k in keys)
     if len(models) == 1:
         return models[0]
     return Annotated[Union[models], Field(discriminator="template")]  # type: ignore[valid-type]
@@ -114,7 +162,8 @@ def parse_spec(text: str, templates: Iterable[str] | None = None) -> BaseModel:
 
 def to_item_specs(spec: BaseModel) -> list[ItemSpec]:
     return [
-        ItemSpec(template=it.template, params=it.params.model_dump(), hint=it.placement.to_hint())
+        ItemSpec(template=it.template, params=it.params.model_dump(), hint=it.placement.to_hint(),
+                 decor=it.decor.model_dump(mode="json") if getattr(it, "decor", None) is not None else None)
         for it in spec.items  # type: ignore[attr-defined]
     ]
 
@@ -125,7 +174,7 @@ def to_item_specs(spec: BaseModel) -> list[ItemSpec]:
 
 _UNSUPPORTED = {
     "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf",
-    "minLength", "maxLength", "minItems", "maxItems", "default", "discriminator", "title",
+    "minLength", "maxLength", "minItems", "maxItems", "default", "discriminator", "title", "pattern",
 }
 
 
@@ -150,7 +199,13 @@ def _sanitize(node: Any) -> Any:
         node["anyOf"] = node.pop("oneOf")
     for k in _UNSUPPORTED:
         node.pop(k, None)
-    out = {k: _sanitize(v) for k, v in node.items()}
+    out = {}
+    for k, v in node.items():
+        if k in ("properties", "$defs") and isinstance(v, dict):
+            # 속성·정의 이름은 스키마 키워드가 아니다 ("pattern" 이라는 속성을 지우지 않게) → 값만 정리한다
+            out[k] = {name: _sanitize(sub) for name, sub in v.items()}
+        else:
+            out[k] = _sanitize(v)
     if out.get("type") == "object" and "properties" in out:
         out["additionalProperties"] = False
         out["required"] = list(out["properties"].keys())  # 모든 값을 LLM 이 명시적으로 고르게 한다

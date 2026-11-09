@@ -57,7 +57,7 @@ def test_engine_context_exposes_habitat_templates_and_buoyancy(rules):
     a, h = actx(rules), hctx(rules)
     assert a.habitat == "aquarium" and h.habitat == "cage"
     assert a.allowed_templates == ("cave", "tunnel")
-    assert h.allowed_templates == ("hideout", "tunnel", "ramp", "sand_bath")
+    assert h.allowed_templates == ("hideout", "tunnel", "ramp", "sand_bath", "house")
     assert a.buoyancy is not None and a.buoyancy.material_density_g_cm3 == pytest.approx(1.24)
     assert h.buoyancy is None
 
@@ -743,3 +743,142 @@ def test_shallow_tank_messages_translate_to_english(rules):
     assert out.endswith("so the water must be at least 143.3 mm deep.")
     assert c.translate("수조 부피가 약 25L(물 깊이에 바닥재 50mm·윗여유 30mm를 더해 어림)로 나노 어종 (네온·엠버 테트라, "
                        "보라라스 등 성체 3cm 이하) 최소 기준 54L 보다 작습니다.").startswith("The tank holds about 25 L")
+
+
+# ── main 병합: 터널 단면(#35)·조립형 집(#36)·장식(#37)과 어항 기준 ─────────────
+
+
+TUNNEL_SHAPES = ("pointed_arch", "round_arch", "tube", "box", "house")
+
+
+@pytest.mark.parametrize("shape", TUNNEL_SHAPES)
+@pytest.mark.parametrize("path,bend", [("arc", 0), ("arc", 90), ("s_curve", 60)])
+def test_tunnel_shapes_fit_under_water_clearance(rules, shape, path, bend):
+    """단면 모양마다 실제 바깥 높이(뾰족 아치·집 모양 > 둥근 아치·네모·관)로 물 깊이 한도에 맞춘다. S자도 높이는 같다."""
+    from app.templates.tunnel import outer_height
+    c = actx(rules, size="small_fish", cage=Cage(600, 300, 200), count=6)  # 한도 125mm
+    # 내경 130(필드 상한)이면 어느 단면이든 한도보다 높다 (둥근 아치·네모 133, 관 136, 뾰족 아치·집 모양 약 171)
+    p = {**defaults("tunnel", c), "inner_diameter_mm": 130, "shape": shape, "path": path, "bend_angle_deg": bend}
+    res = run_engine([ItemSpec("tunnel", p)], c, measure_thickness=False)
+    assert res.report.passed, res.report.errors
+    it = res.items[0]
+    assert it.params.shape == shape and it.params.path == path
+    assert it.height_mm <= 125 + 1e-6 and it.height_mm == pytest.approx(outer_height(it.params), abs=0.05)
+    assert it.height_mm > 125 - 1  # 내경을 한도까지만 줄인다 (단면 모양별 높이식으로)
+    fixed = [i for i in by_code(res.report, "param_adjusted") if i.details["field"] == "inner_diameter_mm"]
+    assert fixed and "높이를 125mm(물 깊이 − 75mm) 이하로" in fixed[0].message_ko
+
+
+@pytest.mark.parametrize("shape", TUNNEL_SHAPES)
+def test_tunnel_min_height_follows_shape(rules, shape):
+    """가장 낮은 터널 높이·필요한 물 깊이는 고른 단면 모양으로 계산한다 (water_too_shallow 문구의 숫자)."""
+    from app.templates.tunnel import TunnelParams, height_for
+    c = actx(rules, size="community", cage=Cage(600, 300, 100), count=6)
+    s = c.size_rules
+    need = TunnelTemplate().min_height_mm(c.rule_ctx, TunnelParams(shape=shape))
+    assert need == pytest.approx(height_for(shape, s.tunnel_min_inner_diameter_mm, c.min_wall_mm), abs=0.1)
+    res = run_engine([ItemSpec("tunnel", {**defaults("tunnel", c), "shape": shape})], c, measure_thickness=False)
+    assert codes(res.report.errors) == ["water_too_shallow"]
+    assert res.report.errors[0].details["min_height_mm"] == pytest.approx(need)
+
+
+def test_lower_tunnel_shape_fits_where_pointed_arch_does_not(rules):
+    """같은 최소 내경이면 둥근 아치·네모가 뾰족 아치보다 낮다: 얕은 물에서 고른 모양대로 판정한다."""
+    from app.templates.tunnel import TunnelParams
+    c = actx(rules, size="small_fish", cage=Cage(600, 300, 135), count=6)  # 한도 60mm
+    T = TunnelTemplate()
+    assert T.min_height_mm(c.rule_ctx, TunnelParams(shape="box")) <= 60 < T.min_height_mm(c.rule_ctx, TunnelParams())
+    box = run_engine([ItemSpec("tunnel", {**defaults("tunnel", c), "shape": "box"})], c, measure_thickness=False)
+    assert box.report.passed and box.items[0].height_mm <= 60 + 1e-6
+    arch = run_engine([ItemSpec("tunnel", defaults("tunnel", c))], c, measure_thickness=False)
+    assert codes(arch.report.errors) == ["water_too_shallow"]
+
+
+@pytest.mark.parametrize("shape,flat", [(s, s in ("round_arch", "tube", "box")) for s in TUNNEL_SHAPES])
+def test_flat_topped_tunnel_shapes_warn_in_aquarium(rules, shape, flat):
+    """천장 꼭대기가 둥글거나 평평한 단면은 공기가 더 남아 경고를 하나 더 낸다 (모양은 바꾸지 않는다). 케이지는 그대로."""
+    c = actx(rules)
+    res = run_engine([ItemSpec("tunnel", {**defaults("tunnel", c), "shape": shape})], c, measure_thickness=False)
+    warn = by_code(res.report, "tunnel_flat_ceiling")
+    assert bool(warn) == flat and res.items[0].params.shape == shape
+    assert len(by_code(res.report, "tunnel_trapped_air")) == 1
+    if flat:
+        assert warn[0].severity.value == "warning" and warn[0].item_index == 0
+        assert warn[0].message_ko.startswith("터널 #1: 천장 꼭대기가 둥글거나 평평한 단면이라")
+        assert not HANGUL.search(checks_en(warn[0].message_ko))
+    h = hctx(rules)
+    hres = run_engine([ItemSpec("tunnel", {**defaults("tunnel", h), "shape": shape})], h, measure_thickness=False)
+    assert not by_code(hres.report, "tunnel_flat_ceiling") and not by_code(hres.report, "tunnel_trapped_air")
+
+
+def checks_en(text: str) -> str:
+    from app.i18n import catalog
+    return catalog().translate(text)
+
+
+def test_house_is_not_allowed_in_aquarium(rules):
+    """조립형 집은 케이지 전용 (평 지붕·뚜껑·층판 아래 공기, 따로 끼우는 파트). 저장된 집은 다시 검증해도 막는다."""
+    c = actx(rules)
+    house = get_template("house")
+    res = run_engine([ItemSpec("house", house.default_params(hctx(rules).rule_ctx).model_dump())], c)
+    assert codes(res.report.errors) == ["template_not_allowed"] and not res.items
+    built = run_engine([ItemSpec("house", house.default_params(hctx(rules).rule_ctx).model_dump())], hctx(rules),
+                       measure_thickness=False)
+    assert built.report.passed, built.report.errors
+    report = revalidate(built.items, c)
+    assert "template_not_allowed" in codes(report.errors)
+
+
+def test_hamster_house_is_allowed(rules):
+    h = hctx(rules, cage=Cage(800, 500, 400))
+    assert "house" in h.allowed_templates
+    p = get_template("house").default_params(h.rule_ctx).model_dump()
+    p["floors"].update(count=2, climb="external_ramp", exit_side="back")
+    p["doors"].update(sides=["front"])
+    ramp = {**defaults("ramp", h), "height_mm": p["floors"]["level_height_mm"]}
+    res = run_engine([ItemSpec("house", p), ItemSpec("ramp", ramp, PlacementHint(attach_to=(0, "back")))], h,
+                     measure_thickness=False)
+    assert not by_code(res.report, "template_not_allowed")
+    assert len(res.items[0].parts) >= 2 and not by_code(res.report, "attach_fallback")
+
+
+def test_decor_on_aquarium_items_is_skipped(rules):
+    """물속 동굴·터널에는 장식 영역이 없어 장식이 들어와도(저장된 명세 등) 빼고 경고만 한다. 형상은 장식 없는 것과 같다."""
+    c = actx(rules)
+    decor = {"kind": "pattern", "pattern": "stripes", "density": 2, "direction": 0, "depth_mm": 0.6,
+             "face": "walls", "mode": "engrave"}
+    plain = run_engine([ItemSpec("cave", defaults("cave", c))], c, measure_thickness=False)
+    res = run_engine([ItemSpec("cave", defaults("cave", c), decor=decor)], c, measure_thickness=False)
+    assert codes(by_code(res.report, "decor_skipped")) == ["decor_skipped"] and res.report.passed
+    assert res.items[0].params == plain.items[0].params
+    assert res.items[0].print_mesh.volume == pytest.approx(plain.items[0].print_mesh.volume)
+
+
+def test_underwater_weight_sums_every_print_part(rules):
+    """여러 파트로 나뉘는 구조물은 출력 파트 부피를 모두 더한다 (조립 형상 하나만 보지 않는다)."""
+    import trimesh
+
+    from app.domain import BuiltPart
+    nano = rules.size_rules(SPECIES, "nano_fish")
+    b = rules.buoyancy(SPECIES)
+    it = box_item(0, 10, 10, 10)  # 1cm³
+    one = checks.check_underwater_weight([it], nano, b)[0].details["total_g"]
+    lid = trimesh.creation.box((10, 10, 10))
+    it.parts = [BuiltPart("body", "본체", it.mesh, it.print_mesh), BuiltPart("roof", "지붕", lid, lid)]
+    two = checks.check_underwater_weight([it], nano, b)[0]
+    assert two.details["total_g"] == pytest.approx(2 * one)
+    assert two.details["items"] == [{"index": 0, "grams": pytest.approx(2 * one)}]
+    broken = lid.copy()
+    broken.faces = broken.faces[:-2]  # 닫히지 않은 파트는 뺀다
+    it.parts[1] = BuiltPart("roof", "지붕", broken, broken)
+    assert checks.check_underwater_weight([it], nano, b)[0].details["total_g"] == pytest.approx(one)
+
+
+def test_shrimp_tube_tunnel_footprint_is_whole(rules):
+    """둥근 관 단면의 바닥 윤곽이 부동소수점 이음매로 갈라지지 않는다 (갈라지면 벽과의 틈을 잘못 재 끼임 오류가 났다)."""
+    c = actx(rules, size="shrimp", cage=Cage(600, 300, 200))
+    res = run_engine([ItemSpec("tunnel", {**defaults("tunnel", c), "shape": "tube"})], c, measure_thickness=False)
+    it = res.items[0]
+    w, d = it.size_xy(0)
+    assert it.footprint.area == pytest.approx(w * d, abs=1.0)
+    assert res.report.passed, res.report.errors

@@ -122,6 +122,14 @@ class PlacementOut(BaseModel):
     rotation_deg: int
 
 
+class PartOut(BaseModel):
+    """출력 파트 하나 (조립형 구조물은 본체·지붕·층판처럼 여러 개)."""
+
+    key: str                       # 파일 이름에 쓰는 식별자 (body, roof, floor2, floor)
+    name_ko: str
+    size_mm: list[float]           # 출력 자세 [X, Y, Z]
+
+
 class ItemOut(BaseModel):
     index: int
     template: str
@@ -130,8 +138,10 @@ class ItemOut(BaseModel):
     reason_ko: str
     placement: PlacementOut | None
     size_mm: list[float]           # 사용 자세 [가로, 세로, 높이]
-    print_size_mm: list[float]     # 출력 자세 [X, Y, Z]
+    print_size_mm: list[float]     # 출력 자세 [X, Y, Z] (파트가 여럿이면 본체)
     mesh_url: str | None           # 케이지 좌표계로 배치된 STL (배치 실패 시 null)
+    parts: list[PartOut] = []      # 출력 파트 (STL 은 파트별 파일, 3MF 는 한 파일에 여러 객체)
+    decor: dict | None = None      # 장식 명세 (무늬 또는 글귀 각인). 없으면 null
 
 
 class VersionSummary(BaseModel):

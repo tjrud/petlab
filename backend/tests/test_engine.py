@@ -251,3 +251,52 @@ def test_int_field_rounds_toward_allowed_range(rules, start, rule, expected):
     [i] = issues
     assert i.message_ko == f"램프/계단: 계단 단 수 {start} → {expected} 로 보정했습니다. {rule.reason_ko}"
     assert repr(i.details) == f"{{'field': 'steps', 'from': {start}, 'to': {expected}}}"
+
+
+# ── 조립형 집 + 바깥 램프 (attach_to) ─────────────────────────
+
+
+def test_house_with_external_ramp_end_to_end(rules):
+    """2층 집(external_ramp) + 램프를 attach_to 로 잇는다: 램프 높이가 2층 바닥에 맞춰지고 착지판에 닿아 검증을 통과한다."""
+    from app.layout.placer import attach_satisfied
+
+    c = ctx(rules, Cage(1000, 500, 400))
+    house = _defaults("house", c)
+    house["floors"].update(count=2, climb="external_ramp", exit_side="back", level_height_mm=100)
+    specs = [
+        ItemSpec("house", house, PlacementHint(zone="left")),
+        ItemSpec("ramp", {**_defaults("ramp", c), "height_mm": 60}, PlacementHint(attach_to=(0, "back"))),
+    ]
+    res = run_engine(specs, c)
+    assert res.report.passed, res.report.errors
+    h, r = res.items
+    assert r.params.height_mm == pytest.approx(h.params.floors.level_height_mm)
+    fixed = [i for i in by_code(res.report, "param_adjusted") if i.item_index == 1 and i.details["field"] == "height_mm"]
+    assert fixed and "착지판" in fixed[0].message_ko
+    assert attach_satisfied(r, h, "back")
+    assert not by_code(res.report, "attach_fallback")
+    assert [p.key for p in h.print_parts] == ["body", "roof", "floor2"]
+    assert [p.key for p in r.print_parts] == ["body"]
+    # 다시 검증(저장된 배치 그대로)도 통과하고 attach 제약을 함께 본다
+    from app.services.engine import revalidate
+    assert revalidate(res.items, c).passed
+
+
+def test_house_attach_fallback_warns_but_does_not_block(rules):
+    c = ctx(rules, Cage(330, 250, 400))  # 램프를 붙일 자리가 없는 좁은 케이지
+    house = _defaults("house", c)
+    house["floors"].update(count=2, climb="external_ramp", exit_side="back")
+    res = run_engine([ItemSpec("house", house), ItemSpec("ramp", _defaults("ramp", c), PlacementHint(attach_to=(0, "back")))], c)
+    if all(it.placement is not None for it in res.items):
+        assert [i.severity.value for i in by_code(res.report, "attach_fallback")] == ["warning"]
+
+
+def test_house_multi_part_checks_report_part_names(rules):
+    """파트 단위 검사 문구에는 파트 이름이 붙는다 (출력 공간 초과 경고로 확인)."""
+    c = ctx(rules, Cage(1000, 500, 400))
+    house = _defaults("house", c)
+    house.update(width_mm=300, depth_mm=250)
+    house["floors"].update(count=2)
+    res = run_engine([ItemSpec("house", house)], c)
+    msgs = [i.message_ko for i in by_code(res.report, "exceeds_build_volume")]
+    assert any("(본체)" in m for m in msgs) and any("(지붕)" in m for m in msgs)

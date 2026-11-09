@@ -10,6 +10,10 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Iterable
+from typing import Literal, get_args, get_origin
+
+from pydantic import BaseModel
+from pydantic_core import PydanticUndefined
 
 from app.i18n import catalog
 from app.llm.base import InterpretRequest
@@ -35,6 +39,17 @@ SYSTEM_PROMPT = """\
 - 위치 요청이 없으면 zone 은 "auto", rotation 은 null 로 두세요.
 - 요구사항에 없는 구조물을 임의로 추가하지 마세요. 요청이 모호하면 숨을 곳 1개(케이지는 은신처, 어항은 물속 동굴)처럼 무난한 구성을 고르세요.
 - 지원하지 않거나 이 종에 만들 수 없는 구조물을 요청받으면 notes_ko 에 그 사실을 적고 사용 가능한 템플릿으로만 설계하세요.
+- 터널 단면 모양(shape)·휘는 모양(path)은 보호자가 말한 대로 고르고(둥근, 원통·관, 네모, 집 모양, S자 등), 말이 없으면 기본값을
+  두세요. 휜 터널에 round_arch·tube·box 를 고르면 출력할 때 서포트가 필요하므로 notes_ko 에 알려 주세요.
+- 2층·경사 지붕·둥근 지붕·터널 연결·창 요청은 house 템플릿의 부품(floors, roof, ports, windows, doors, floor)으로 표현하세요
+  (house 가 사용 가능한 템플릿에 있을 때만. 없으면 위의 '만들 수 없는 구조물'처럼 다룹니다).
+  단순한 은신처 요청은 hideout 을 그대로 씁니다. house 의 부품 값은 중첩 객체로 모두 채웁니다.
+- 2층 집에 바깥 램프를 두려면(floors.climb=external_ramp) ramp 항목을 하나 추가하고, 그 placement.attach_to 에
+  {item_index: 집 항목의 인덱스, side: 집의 floors.exit_side} 를 적어 램프 꼭대기가 착지판에 닿게 하세요.
+  램프 높이는 집의 2층 바닥 높이(floors.level_height_mm)와 같게 적습니다. 그 밖의 항목은 attach_to 를 null 로 둡니다.
+- 이름 새기기·무늬 요청은 항목의 decor(무늬 pattern 또는 글귀 text)로 표현하고, 안전 치수(출입구·창·벽 두께 기준)는 바꾸지
+  마세요. 장식은 은신처·집의 바깥 벽과 경사·둥근 지붕 윗면에만 들어가며, 파내기 각인은 벽을 깊이만큼 더 두껍게 적으면 좋습니다.
+  요청이 없으면 decor 는 null 입니다. 항목에 decor 필드가 없으면(장식을 넣을 수 없는 사육 환경) notes_ko 에 그 사실을 적습니다.
 - 설계 수정 요청이면 직전 설계를 바탕으로, 요청된 부분만 바꾼 전체 설계를 다시 출력하세요.
 - summary_ko, reason_ko, notes_ko 는 보호자가 읽기 쉬운 한국어로 씁니다. 단, 사용자 메시지에 "응답 언어" 지시가 있으면
   그 언어로 씁니다 (필드 이름은 언어와 상관없이 그대로 둡니다).
@@ -46,22 +61,35 @@ def is_aquarium(req: InterpretRequest) -> bool:
     return req.habitat.habitat == "aquarium" or req.size_rules.aquatic is not None
 
 
+def _field_catalog(model: type[BaseModel]) -> dict:
+    """모델 필드 → {설명, 범위|선택지, 기본값}. 중첩 모델(조립형 템플릿의 부품)은 재귀로 펼친다."""
+    fields = {}
+    for name, f in model.model_fields.items():
+        ann = f.annotation
+        if isinstance(ann, type) and issubclass(ann, BaseModel):
+            fields[name] = {"설명": f.description, "부품": _field_catalog(ann)}
+            continue
+        lo = hi = None
+        for m in f.metadata:
+            lo = getattr(m, "ge", lo)
+            hi = getattr(m, "le", hi)
+        default = f.default if f.default is not PydanticUndefined else None
+        if get_origin(ann) is Literal:
+            fields[name] = {"설명": f.description, "선택지": list(get_args(ann)), "기본값": default}
+        elif get_origin(ann) is list:
+            item = get_args(ann)[0]
+            choices = list(get_args(item)) if get_origin(item) is Literal else []
+            fields[name] = {"설명": f.description, "목록 선택지": choices, "기본값": default}
+        else:
+            fields[name] = {"설명": f.description, "범위": [lo, hi], "기본값": default}
+    return fields
+
+
 def template_catalog(allowed: Iterable[str] | None = None) -> list[dict]:
     """LLM 에게 보일 템플릿 목록. allowed 를 주면 그 템플릿만 (None: 등록된 모든 템플릿)."""
     wanted = None if allowed is None else set(allowed)
-    out = []
-    for t in all_templates():
-        if wanted is not None and t.key not in wanted:
-            continue
-        fields = {}
-        for name, f in t.Params.model_fields.items():
-            lo = hi = None
-            for m in f.metadata:
-                lo = getattr(m, "ge", lo)
-                hi = getattr(m, "le", hi)
-            fields[name] = {"설명": f.description, "범위": [lo, hi], "기본값": f.default}
-        out.append({"template": t.key, "이름": t.display_name_ko, "설명": t.description_ko, "파라미터": fields})
-    return out
+    return [{"template": t.key, "이름": t.display_name_ko, "설명": t.description_ko, "파라미터": _field_catalog(t.Params)}
+            for t in all_templates() if wanted is None or t.key in wanted]
 
 
 def _size_rules(req: InterpretRequest, aquarium: bool) -> dict[str, object]:
@@ -78,6 +106,8 @@ def _size_rules(req: InterpretRequest, aquarium: bool) -> dict[str, object]:
         rules["터널 최대 길이(mm) — 이 크기 구분에서 가장 작은 개체 몸길이의 2배"] = tmax
         rules["터널 최대 휨 각도(도) — 최대 길이·최소 내경일 때 (굽힘 반경 ≥ 내경)"] = round(
             min(180.0, math.degrees(tmax / tmin)), 1)
+        rules["S자 터널 한 번 휨 최대 각도(도) — 최대 길이·최소 내경일 때 (반 길이로 휨, 90° 까지)"] = round(
+            min(90.0, math.degrees(0.5 * tmax / tmin)), 1)
     elif "tunnel" in allowed:
         rules["터널 최대 길이(mm)"] = ("없음 — 이 크기 구분은 터널 길이 제한이 없습니다 (터널 파라미터 설명의 '종별 최대 길이'는 "
                                  "해당하지 않음). 일반 프린터에 들어가도록 200mm 이하 권장")
@@ -109,8 +139,14 @@ def _size_rules(req: InterpretRequest, aquarium: bool) -> dict[str, object]:
             h.cage.height_mm - aq.structure_top_clearance_mm, 1)
         rules["높이 ÷ 바닥 짧은 변 최대 — 출력물은 물속에서 가벼워 쉽게 넘어진다"] = aq.max_height_to_base_ratio
         if "tunnel" in allowed:
-            rules["터널 높이 — 내경 × 약 1.28 + 벽 두께 × 약 1.56 (높이 파라미터가 따로 없다). 구조물 최대 높이를 넘으면 "
-                  "내경을 줄인다"] = "내경과 벽 두께로 정해짐"
+            rules["터널 높이 — 단면 모양(shape)·내경·벽 두께로 정해진다 (높이 파라미터가 따로 없다). 뾰족 아치·집 모양은 "
+                  "내경 × 약 1.28 + 벽 두께 × 약 1.56, 둥근 아치·네모는 내경 + 벽 두께, 관은 내경 + 벽 두께 × 2. "
+                  "구조물 최대 높이를 넘으면 내경을 줄인다"] = "단면 모양·내경·벽 두께로 정해짐"
+    if "tunnel" in allowed:
+        # 물속 동굴이 천장 경사를 요구하는 것과 같은 까닭: 꼭대기가 기울지 않은 천장 아래에는 공기가 넓게 남는다
+        rules["어항 터널 단면(shape)"] = ("pointed_arch(기본)·house 권장 — 천장 꼭대기가 뾰족해 공기가 적게 남는다. "
+                                     "round_arch·tube·box 는 천장 꼭대기가 둥글거나 평평해 공기가 더 남아 뜨기 쉬우니 "
+                                     "보호자가 그 모양을 콕 집어 말할 때만 고르고 notes_ko 에 알려 주세요")
     if "cave" in allowed:
         slope = max(PRINT_MIN_ROOF_SLOPE_DEG, aq.ceiling_min_slope_deg if aq is not None else 0.0)
         rules["물속 동굴 지붕 경사 최소(도) — 안쪽 천장에 공기가 남지 않고 서포트 없이 출력되도록"] = slope
@@ -128,6 +164,8 @@ def _size_rules(req: InterpretRequest, aquarium: bool) -> dict[str, object]:
                                                        if cannot else "")
     rules["속이 빈 닫힌 공간"] = ("금지 — 물이 돌지 않는 닫힌 빈 공간은 물을 썩게 하고 공기가 갇혀 뜨게 합니다. "
                             "템플릿 형상이 이를 보장하므로 템플릿 밖의 형상(덮개·막힌 방 등)을 제안하지 마세요")
+    rules["장식(무늬·글귀 각인)"] = ("어항 구조물에는 넣지 않습니다 (물속 동굴·터널에는 장식 면이 없고, 물속의 파인 홈에는 이끼·찌꺼기가 "
+                              "낍니다). 보호자가 요청하면 notes_ko 에 넣을 수 없다고 적으세요")
     # 소재 안전은 서버가 화면에 따로 보이는 출력·설치 안내(print_notes_ko, 커뮤니티 글10 과 같은 조건)가 정한다.
     # 모델이 일반 상식("PLA 는 무독성이라 안전")으로 그 안내와 어긋나는 말을 쓰지 않게 막는다
     rules[MATERIAL_RULE_KEY] = MATERIAL_RULE

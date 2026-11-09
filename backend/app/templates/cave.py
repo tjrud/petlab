@@ -238,8 +238,9 @@ class CaveTemplate(Template):
                        top_opening_mm=o, roof_slope_deg=slope, wall_thickness_mm=t)
         return p.model_copy(update={"height_mm": max(30.0, float(math.ceil(min_height(p) - 1e-9)))})
 
-    def min_height_mm(self, ctx: RuleContext) -> float:
-        """규칙이 허용하는 가장 낮은 동굴: 종별 최소 출입구 폭·최소 벽 두께·최소 지붕 경사에 꼭대기 구멍을 가장 넓힌 것."""
+    def min_height_mm(self, ctx: RuleContext, p: TemplateParams | None = None) -> float:
+        """규칙이 허용하는 가장 낮은 동굴: 종별 최소 출입구 폭·최소 벽 두께·최소 지붕 경사에 꼭대기 구멍을 가장 넓힌 것.
+        높이 한도 보정이 지붕·구멍·벽·출입구를 함께 줄이므로 p 와 상관없다."""
         return max(MIN_HEIGHT_FIELD_MM, _ceil1(lowest_height(*_lowest_values(ctx))))
 
     def constraints(self, p: CaveParams, ctx: RuleContext) -> list[ParamConstraint]:

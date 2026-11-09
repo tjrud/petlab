@@ -2,10 +2,13 @@
 
 모든 기준값은 rules/species.yaml, rules/printing.yaml 에서 온다 (코드 하드코딩 금지).
 각 검사 함수는 Issue 목록을 반환한다.
+케이지 적합·겹침·끼임·출입구 막힘·개구부·오르기는 조립 형상(BuiltItem.mesh)으로, 메시 건전성·벽 두께 실측·오버행·
+출력 공간은 출력 파트(BuiltItem.print_parts) 단위로 본다 (여러 파트로 나뉘는 조립형 구조물).
 
 어항 크기 구분(size.aquatic 이 있음)에서는 Cage 가 수조 안쪽(가로·세로)과 물 깊이(바닥재 위 ~ 수면)를 뜻한다.
 바닥·부피 기준만 겉 크기로 적혀 있어, 그 둘을 비교할 때는 유리 두께 어림을 더한 겉 크기를 쓴다.
 문구에 '케이지' 대신 '수조'를 쓰고, 천장 틈 검사 대신 수조 부피·넘어짐·물속 무게·터널 공기 안내를 더한다.
+넘어짐은 놓이는 구조물(조립 형상) 단위로, 물속 무게는 출력 파트를 모두 더해 계산한다.
 """
 
 from __future__ import annotations
@@ -49,20 +52,22 @@ def is_aquarium(size: SizeRules) -> bool:
 def check_mesh(items: list[BuiltItem]) -> list[Issue]:
     out = []
     for it in items:
-        h = mesh_health(it.mesh)
-        if not h.ok:
-            reasons = []
-            if not h.watertight:
-                reasons.append("닫힌 형태(watertight)가 아님")
-            if not h.winding_consistent:
-                reasons.append("면 방향 불일치")
-            if h.watertight and h.volume_mm3 <= 0:
-                reasons.append("부피가 0 이하")
-            out.append(_err(
-                "mesh_invalid",
-                f"{it.label_ko}: 메시에 결함이 있어 출력 파일로 쓸 수 없습니다 ({', '.join(reasons)}).",
-                item_index=it.index, details={"watertight": h.watertight, "winding": h.winding_consistent},
-            ))
+        for part in it.print_parts:
+            h = mesh_health(part.mesh)
+            if not h.ok:
+                reasons = []
+                if not h.watertight:
+                    reasons.append("닫힌 형태(watertight)가 아님")
+                if not h.winding_consistent:
+                    reasons.append("면 방향 불일치")
+                if h.watertight and h.volume_mm3 <= 0:
+                    reasons.append("부피가 0 이하")
+                out.append(_err(
+                    "mesh_invalid",
+                    f"{it.part_label_ko(part)}: 메시에 결함이 있어 출력 파일로 쓸 수 없습니다 ({', '.join(reasons)}).",
+                    item_index=it.index, details={"watertight": h.watertight, "winding": h.winding_consistent,
+                                                  "part": part.key},
+                ))
     return out
 
 
@@ -274,15 +279,19 @@ def check_wall_thickness(items: list[BuiltItem], min_wall_mm: float, measure: bo
                 item_index=it.index, details={"designed_mm": designed, "min_mm": min_wall_mm},
             ))
             continue
-        if measure and it.mesh.is_watertight:
-            t = measure_thickness(it.mesh)
+        if not measure:
+            continue
+        for part in it.print_parts:
+            if not part.mesh.is_watertight:
+                continue
+            t = measure_thickness(part.mesh)
             if len(t):
                 p1 = float(np.percentile(t, 1))
                 if p1 < 0.9 * min_wall_mm:
                     out.append(_warn(
                         "wall_thin_measured",
-                        f"{it.label_ko}: 메시 측정 결과 일부 두께가 약 {p1:.1f}mm 로 기준 {min_wall_mm:g}mm 보다 얇습니다.",
-                        item_index=it.index, details={"measured_p1_mm": p1, "min_mm": min_wall_mm},
+                        f"{it.part_label_ko(part)}: 메시 측정 결과 일부 두께가 약 {p1:.1f}mm 로 기준 {min_wall_mm:g}mm 보다 얇습니다.",
+                        item_index=it.index, details={"measured_p1_mm": p1, "min_mm": min_wall_mm, "part": part.key},
                     ))
     return out
 
@@ -299,13 +308,17 @@ def overhang_area(mesh: trimesh.Trimesh, max_overhang_deg: float) -> float:
 def check_overhang(items: list[BuiltItem], printing: PrintingRules) -> list[Issue]:
     out = []
     for it in items:
-        area = overhang_area(it.print_mesh, printing.max_overhang_deg)
-        if area > printing.overhang_area_tolerance_mm2:
-            out.append(_warn(
-                "support_needed",
-                f"{it.label_ko}: {printing.max_overhang_deg:g}° 를 넘는 오버행 {area:.0f}mm² 가 있어 서포트 없이 출력하기 어렵습니다.",
-                item_index=it.index, details={"overhang_area_mm2": area},
-            ))
+        for part in it.print_parts:
+            area = overhang_area(part.print_mesh, printing.max_overhang_deg)
+            if area > printing.overhang_area_tolerance_mm2:
+                label = it.part_label_ko(part)
+                # 휜 터널의 둥근·네모 단면처럼 세워서 출력할 수 없어 서포트가 필요한 경우는 고를 수 있는 대안을 알려 준다
+                msg = (f"{label}: 휜 터널을 이 단면으로 만들면 지붕 안쪽에 서포트가 필요해요 (오버행 {area:.0f}mm²). "
+                       "서포트 없이 출력하려면 끝이 뾰족한 아치나 집 모양 단면을 고르세요."
+                       if it.features.extra.get("bent_needs_support") else
+                       f"{label}: {printing.max_overhang_deg:g}° 를 넘는 오버행 {area:.0f}mm² 가 있어 서포트 없이 출력하기 어렵습니다.")
+                out.append(_warn("support_needed", msg, item_index=it.index,
+                                 details={"overhang_area_mm2": area, "part": part.key}))
     return out
 
 
@@ -313,16 +326,17 @@ def check_build_volume(items: list[BuiltItem], printing: PrintingRules) -> list[
     out = []
     bx, by, bz = printing.build_volume_mm
     for it in items:
-        ex = it.print_mesh.extents
-        # 판 위에서 90° 돌려 놓을 수 있으므로 짧은 변·긴 변끼리 비교
-        fits_xy = min(ex[:2]) <= min(bx, by) + 1e-6 and max(ex[:2]) <= max(bx, by) + 1e-6
-        if not fits_xy or ex[2] > bz + 1e-6:
-            out.append(_warn(
-                "exceeds_build_volume",
-                f"{it.label_ko}: 출력 크기 {ex[0]:.0f}×{ex[1]:.0f}×{ex[2]:.0f}mm 가 기준 프린터 출력 공간 "
-                f"{bx:g}×{by:g}×{bz:g}mm 를 넘습니다.",
-                item_index=it.index, details={"extents_mm": [float(e) for e in ex]},
-            ))
+        for part in it.print_parts:
+            ex = part.print_mesh.extents
+            # 판 위에서 90° 돌려 놓을 수 있으므로 짧은 변·긴 변끼리 비교
+            fits_xy = min(ex[:2]) <= min(bx, by) + 1e-6 and max(ex[:2]) <= max(bx, by) + 1e-6
+            if not fits_xy or ex[2] > bz + 1e-6:
+                out.append(_warn(
+                    "exceeds_build_volume",
+                    f"{it.part_label_ko(part)}: 출력 크기 {ex[0]:.0f}×{ex[1]:.0f}×{ex[2]:.0f}mm 가 기준 프린터 출력 공간 "
+                    f"{bx:g}×{by:g}×{bz:g}mm 를 넘습니다.",
+                    item_index=it.index, details={"extents_mm": [float(e) for e in ex], "part": part.key},
+                ))
     return out
 
 
@@ -442,14 +456,22 @@ def check_tip_over(items: list[BuiltItem], size: SizeRules) -> list[Issue]:
 
 
 def check_underwater_weight(items: list[BuiltItem], size: SizeRules, buoyancy: BuoyancyRules | None) -> list[Issue]:
-    """어항: 출력물 전체의 물속 무게(무게 − 부력)를 알려 준다 (채움 100% 가정, 안내)."""
+    """어항: 출력물 전체의 물속 무게(무게 − 부력)를 알려 준다 (채움 100% 가정, 안내).
+
+    여러 파트로 나뉘는 구조물은 출력 파트(print_parts)의 부피를 모두 더한다 (조립 형상은 맞닿은 파트를 합친 것이라
+    부피가 같아야 하지만, 실제로 출력하는 것은 파트들이다). 닫히지 않은 파트는 부피를 믿을 수 없어 뺀다
+    (메시 결함은 mesh_invalid 오류로 따로 알린다)."""
     if size.aquatic is None or buoyancy is None:
         return []
-    solid = [it for it in items if it.mesh.is_watertight]
-    if not solid:
-        return []
     rho_m, rho_w = buoyancy.material_density_g_cm3, buoyancy.water_density_g_cm3
-    per_item = [{"index": it.index, "grams": abs(float(it.mesh.volume)) / 1000 * (rho_m - rho_w)} for it in solid]
+    per_item = []
+    for it in items:
+        parts = [part for part in it.print_parts if part.mesh.is_watertight]
+        if parts:
+            volume_mm3 = sum(abs(float(part.mesh.volume)) for part in parts)
+            per_item.append({"index": it.index, "grams": volume_mm3 / 1000 * (rho_m - rho_w)})
+    if not per_item:
+        return []
     total = sum(p["grams"] for p in per_item)
     pct = (rho_m - rho_w) / rho_m * 100
     return [_info(
@@ -462,14 +484,31 @@ def check_underwater_weight(items: list[BuiltItem], size: SizeRules, buoyancy: B
 
 
 def check_tunnel_air(items: list[BuiltItem], size: SizeRules) -> list[Issue]:
-    """어항: 수평 터널은 꼭대기를 따라 공기 띠가 남을 수 있어 설치 안내를 띄운다 (형상으로 막지 않음)."""
+    """어항: 수평 터널은 꼭대기를 따라 공기 띠가 남을 수 있어 설치 안내를 띄운다 (형상으로 막지 않음).
+
+    천장 꼭대기가 기울지 않은 단면(둥근 아치·관·네모: features.extra["flat_ceiling"])은 뾰족한 아치·집 모양보다 천장 아래 공기가
+    넓게 남아(물속 동굴이 천장 경사를 요구하는 것과 같은 까닭) 뜨기 쉬우므로 경고를 하나 더 낸다. 단면 모양은 보호자가
+    고른 것이라 바꾸지 않는다."""
     if size.aquatic is None:
         return []
-    return [_info(
-        "tunnel_trapped_air",
-        f"{it.label_ko}: 수평으로 놓으면 꼭대기를 따라 공기가 남아 뜰 수 있어요. 물속에서 한쪽 끝을 들어 공기를 뺀 뒤 놓아 주세요.",
-        item_index=it.index,
-    ) for it in items if it.key == "tunnel"]
+    out = []
+    for it in items:
+        if it.key != "tunnel":
+            continue
+        if it.features.extra.get("flat_ceiling"):
+            shape = getattr(it.params, "shape", None)
+            out.append(_warn(
+                "tunnel_flat_ceiling",
+                f"{it.label_ko}: 천장 꼭대기가 둥글거나 평평한 단면이라 끝이 뾰족한 아치·집 모양 단면보다 천장 아래에 공기가 "
+                "더 많이 남아 물속에서 뜨기 쉬워요. 어항에는 끝이 뾰족한 아치나 집 모양 단면을 권합니다.",
+                item_index=it.index, details={"shape": shape},
+            ))
+        out.append(_info(
+            "tunnel_trapped_air",
+            f"{it.label_ko}: 수평으로 놓으면 꼭대기를 따라 공기가 남아 뜰 수 있어요. 물속에서 한쪽 끝을 들어 공기를 뺀 뒤 놓아 주세요.",
+            item_index=it.index,
+        ))
+    return out
 
 
 def validate_all(

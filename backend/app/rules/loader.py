@@ -22,8 +22,9 @@ Count = Annotated[int, Field(ge=1)]
 
 Habitat = Literal["cage", "aquarium"]
 # 사육 환경별로 만들 수 있는 구조물. 종이 templates 를 적지 않으면 케이지 기본값을 쓴다
-CAGE_TEMPLATES: tuple[str, ...] = ("hideout", "tunnel", "ramp", "sand_bath")
-# 어항: 바닥이 열린 상자형 은신처는 물속에서 지붕 아래 공기가 갇혀 뜨고, 램프·모래목욕통은 어항에 맞지 않는다
+CAGE_TEMPLATES: tuple[str, ...] = ("hideout", "tunnel", "ramp", "sand_bath", "house")
+# 어항: 바닥이 열린 상자형 은신처는 물속에서 지붕 아래 공기가 갇혀 뜨고, 램프·모래목욕통은 어항에 맞지 않는다.
+# 조립형 집(house)도 케이지 전용: 평 지붕·뚜껑·2층 바닥판 아래에 공기가 갇히고 따로 끼우는 파트가 물속에서 뜨거나 빠진다
 AQUARIUM_TEMPLATES: tuple[str, ...] = ("cave", "tunnel")
 HABITAT_TEMPLATES: dict[str, tuple[str, ...]] = {"cage": CAGE_TEMPLATES, "aquarium": AQUARIUM_TEMPLATES}
 
@@ -188,6 +189,8 @@ _TEMPLATE_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "tunnel": ("tunnel_max_length_mm",),
     "ramp": ("max_ramp_angle_deg", "max_climb_height_mm", "max_step_height_mm"),
     "sand_bath": ("sand_bath_min_inner_mm", "sand_bath_min_depth_mm", "max_step_height_mm"),
+    # 조립형 집: 2층 경사로 경사·2층 바닥 높이 (parts/levels.py, house.default_params)
+    "house": ("max_ramp_angle_deg", "max_climb_height_mm"),
 }
 # 어항 크기 구분에는 없어야 하는 값 (램프·모래목욕통·오르기 기준)
 _AQUARIUM_FORBIDDEN_FIELDS: tuple[str, ...] = (
@@ -310,6 +313,8 @@ class PrintingRules(_Strict):
     overhang_area_tolerance_mm2: Annotated[float, Field(ge=0)]
     build_volume_mm: tuple[PositiveMM, PositiveMM, PositiveMM]
     plate_spacing_mm: Annotated[float, Field(ge=0)]
+    # 장식(무늬·각인) 최소 형상 크기 (선 폭·점 지름·글자 획)
+    min_feature_mm: PositiveMM
     tessellation_tolerance_mm: PositiveMM
     tessellation_angular_tolerance_deg: PositiveMM
 

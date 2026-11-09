@@ -1,5 +1,5 @@
 import { useT } from "@/i18n/client";
-import { formatParam, PARAM_LABELS, TEMPLATE_COLORS } from "@/lib/templates";
+import { describeDecor, flattenParams, formatParam, PARAM_LABELS, TEMPLATE_COLORS } from "@/lib/templates";
 import type { Item } from "@/lib/types";
 
 export default function ItemList({
@@ -46,19 +46,37 @@ export default function ItemList({
                 {active && (
                   <div className="mt-2 space-y-2 text-sm">
                     <p className="text-stone-600">{it.reason_ko}</p>
+                    {it.decor && (
+                      <p className="rounded-lg bg-amber-50 px-2 py-1 text-xs text-amber-900" data-testid="decor-summary">
+                        {t("장식")}: {describeDecor(it.decor, t)}
+                      </p>
+                    )}
                     <dl className="grid grid-cols-2 gap-x-3 gap-y-1">
-                      {Object.entries(it.params).map(([k, v]) => (
+                      {flattenParams(it.params).map(([k, v]) => (
                         <div key={k} className="flex justify-between gap-2">
                           <dt className="text-stone-500">{PARAM_LABELS[k] ? t(PARAM_LABELS[k]) : k}</dt>
                           <dd className="font-medium">{formatParam(k, v, t)}</dd>
                         </div>
                       ))}
                     </dl>
-                    <p className="text-xs text-stone-500">
-                      {t("출력 크기 {size}mm (서포트 없이 출력하는 자세 기준)", {
-                        size: it.print_size_mm.map((v) => Math.round(v)).join("×"),
-                      })}
-                    </p>
+                    {(it.parts?.length ?? 1) > 1 ? (
+                      <div className="text-xs text-stone-500">
+                        <p>{t("출력 파트 {n}개 (서포트 없이 출력하는 자세 기준)", { n: it.parts!.length })}</p>
+                        <ul className="mt-0.5 list-disc pl-4">
+                          {it.parts!.map((part) => (
+                            <li key={part.key}>
+                              {t(part.name_ko)} {part.size_mm.map((v) => Math.round(v)).join("×")}mm
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-stone-500">
+                        {t("출력 크기 {size}mm (서포트 없이 출력하는 자세 기준)", {
+                          size: it.print_size_mm.map((v) => Math.round(v)).join("×"),
+                        })}
+                      </p>
+                    )}
                   </div>
                 )}
               </button>

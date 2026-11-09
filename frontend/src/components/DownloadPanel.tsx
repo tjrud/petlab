@@ -5,7 +5,7 @@ import { useState, type MouseEvent } from "react";
 import AquariumPrintNotice from "@/components/AquariumPrintNotice";
 import { Link, useLang, useT } from "@/i18n/client";
 import { api, errorFrom } from "@/lib/api";
-import type { HabitatKind } from "@/lib/types";
+import type { HabitatKind, Item } from "@/lib/types";
 
 const NETWORK_ERROR = "파일을 받지 못했어요. 잠시 후 다시 시도해 주세요.";
 
@@ -24,18 +24,31 @@ function filenameFrom(header: string | null): string | null {
   return plain ? plain[1].trim() : null;
 }
 
+/** 내려받을 STL 파일 이름 (서버 export 와 같은 규칙: 구조물 하나·파트 하나면 part1_<템플릿>.stl, 파트가 여럿이면 파트 이름을 붙인다) */
+export function partFiles(items: Item[]): { name: string; label: string }[] {
+  const out: { name: string; label: string }[] = [];
+  for (const it of items) {
+    const parts = it.parts?.length ? it.parts : [{ key: "body", name_ko: "본체", size_mm: it.print_size_mm }];
+    const base = `part${it.index + 1}_${it.template}`;
+    for (const part of parts) {
+      out.push({ name: parts.length > 1 ? `${base}_${part.key}.stl` : `${base}.stl`, label: part.name_ko });
+    }
+  }
+  return out;
+}
+
 export default function DownloadPanel({
   designId,
   version,
   allowed,
-  partCount,
+  items,
   kind = "cage",
   printNotes = null,
 }: {
   designId: string;
   version: number;
   allowed: boolean;
-  partCount: number;
+  items: Item[];
   /** 사육 환경 종류. 어항이면 출력·설치 안전 안내를 함께 보여 준다 */
   kind?: HabitatKind;
   /** 어항 출력 안내 (종 규칙의 print_notes_ko). null 이면 아직 불러오는 중이라 안내를 띄우지 않는다 */
@@ -43,6 +56,9 @@ export default function DownloadPanel({
 }) {
   const t = useT();
   const lang = useLang();
+  const files = partFiles(items);
+  const partCount = files.length;
+  const multiPartItems = items.filter((it) => (it.parts?.length ?? 1) > 1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -107,6 +123,22 @@ export default function DownloadPanel({
               {t("3MF 받기")}
             </a>
           </div>
+          {multiPartItems.length > 0 && (
+            <div className="rounded-xl bg-stone-50 p-3 text-xs text-stone-600" data-testid="part-files">
+              <p>
+                {t("조립형 구조물은 파트를 따로 출력해 끼워 맞춰요. STL은 파트 {n}개가 zip 하나로, 3MF는 파일 하나에 파트를 모두 담아요.", {
+                  n: partCount,
+                })}
+              </p>
+              <ul className="mt-1 list-disc pl-4">
+                {files.map((f) => (
+                  <li key={f.name}>
+                    <span className="font-mono">{f.name}</span> · {t(f.label)}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           {error && (
             <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">
               {error}

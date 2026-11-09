@@ -49,7 +49,7 @@ species:
   hamster:
     display_name: 햄스터
     habitat: cage                                 # cage: 케이지 / aquarium: 어항
-    templates: [hideout, tunnel, ramp, sand_bath]   # 이 종에 만들 수 있는 구조물
+    templates: [hideout, tunnel, ramp, sand_bath, house]   # 이 종에 만들 수 있는 구조물 (house: 조립형 집)
     max_count: 10                                 # 입력할 수 있는 최대 마릿수
     sizes:
       dwarf:
@@ -129,6 +129,8 @@ species:
   #   바닥·부피 기준은 겉 크기로 적혀 있어 비교할 때만 aquatic.glass_thickness_assumed_mm 로 겉 크기를 어림한다.
   #   만들 수 있는 구조물은 물속 동굴(cave)과 터널뿐이다. 램프·모래목욕통은 어항에 맞지 않는다.
   #   물속 동굴은 지붕이 꼭대기 구멍 쪽으로 기울어 안에 공기가 갇히지 않는다(바닥이 열린 상자형 은신처는 공기가 갇혀 뜰 수 있어 어항에 쓰지 않는다).
+  #   조립형 집(house)도 케이지 전용이다: 평 지붕·지붕 뚜껑·2층 바닥판 아래에 공기가 갇히고, 따로 끼우는 파트는 물속에서
+  #   뜨거나 빠지며, 창·연결부 구멍과 2층 경사로는 물고기·새우 기준(끼임 틈·천장 경사)을 따져 만든 것이 아니다.
   # ───────────────────────────────────────────────────────────────────────────
   aquarium:
     display_name: 어항 (담수 관상어·새우)

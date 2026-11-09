@@ -1,17 +1,27 @@
 """터널 템플릿.
 
-형상: 바닥이 열린 아치형 터널. 단면은 '세로 벽 + 반원 + 꼭대기 티어드롭'.
-  - 원형 천장의 꼭대기 부분은 오버행이 45° 를 넘으므로, 꼭대기에서 TIP_ANGLE 만큼 떨어진 접점부터
-    직선(접선)으로 뾰족하게 이어 서포트 없이 출력할 수 있게 한다.
-  - 곡률(bend_angle_deg > 0)은 수평면(XY)에서 휘도록 단면을 수직축 기준으로 회전(revolve)해 만든다.
-출력: 사용 자세 그대로 (바닥면이 베드).
+단면(shape): 안쪽 폭 = 내경(inner_diameter_mm), 안쪽 높이 ≥ 내경. 모두 좌우 대칭.
+  - pointed_arch (기본): 바닥이 열린 아치. '세로 벽 + 반원 + 꼭대기 티어드롭'. 원형 천장의 꼭대기는 오버행이 45° 를
+    넘으므로, 꼭대기에서 TIP_ANGLE 만큼 떨어진 접점부터 직선(접선)으로 뾰족하게 이어 서포트 없이 출력한다.
+  - round_arch: 바닥이 열린 둥근 아치 (세로 벽 + 반원).
+  - tube: 둥근 관 (바닥까지 막힌 원형. 바깥 바닥을 조금 깎아 굴러가지 않게).
+  - box: 바닥이 열린 네모 (평평한 지붕).
+  - house: 바닥이 열린 집 모양 (세로 벽 + 50° 경사 지붕). 서포트 없이 출력.
+경로(path): 곡률(bend_angle_deg > 0)은 수평면(XY)에서 휘도록 단면을 수직축 기준으로 회전(revolve)해 만든다.
+  - arc (기본): 한 방향으로 휜다 (90° = ㄱ자, 180° = U자).
+  - s_curve: 반씩 반대 방향으로 휘어 S자로 (끝 출입구는 시작과 같은 방향을 본다).
+출력: 서포트 없이 출력할 수 있는 자세. 둥근 아치·관·네모는 곧은 터널이면 세워서(단면이 베드와 나란히) 출력하고,
+휜 터널이면 세울 수 없어 사용 자세로 출력하며 지붕 안쪽에 서포트가 필요하다고 경고한다.
 """
 
 from __future__ import annotations
 
 import math
 
-from build123d import Align, Axis, Circle, Part, Plane, Polygon, Pos, Rectangle, extrude, revolve
+from typing import Literal
+
+import numpy as np
+from build123d import Align, Axis, Circle, Part, Plane, Polygon, Pos, Rectangle, Rot, extrude, revolve
 from pydantic import Field
 
 from app.templates.base import (
@@ -40,9 +50,18 @@ class TunnelParams(TemplateParams):
         60, ge=MIN_INNER_FIELD_MM, le=MAX_INNER_FIELD_MM, description="터널 안쪽 폭(=내경) mm. 종별 최소 내경 이상"
     )
     bend_angle_deg: float = Field(
-        0, ge=0, le=180, description="수평면에서 휘는 각도(도). 0=직선, 90=ㄱ자 곡선, 180=U자"
+        0, ge=0, le=180, description="수평면에서 휘는 각도(도). 0=직선, 90=ㄱ자 곡선, 180=U자. S자 경로에서는 한 번 휘는 각도"
     )
     wall_thickness_mm: float = Field(3, ge=MIN_WALL_FIELD_MM, le=MAX_WALL_FIELD_MM, description="벽 두께 mm")
+    shape: Literal["pointed_arch", "round_arch", "tube", "box", "house"] = Field(
+        "pointed_arch",
+        description=("단면 모양. pointed_arch=끝이 뾰족한 아치(기본, 서포트 없이 출력), round_arch=둥근 아치, "
+                     "tube=둥근 관(바닥까지 막힘), box=네모, house=집 모양(경사 지붕, 서포트 없이 출력). "
+                     "둥근 아치·관·네모는 곧은 터널이면 세워서 서포트 없이 출력하지만 휘면 서포트가 필요하다"),
+    )
+    path: Literal["arc", "s_curve"] = Field(
+        "arc", description="휘는 모양 (bend_angle_deg > 0 일 때). arc=한 방향으로 휨, s_curve=S자 (반씩 반대로 휨)"
+    )
 
 
 def _arch(rad: float, leg_top: float, bottom: float) -> object:
@@ -59,39 +78,128 @@ def _arch(rad: float, leg_top: float, bottom: float) -> object:
     return rect + circle + tip
 
 
+# 서포트 없이 출력할 수 없는 단면 (곧은 터널이면 세워서 출력한다)
+NEEDS_STANDING = frozenset({"round_arch", "tube", "box"})
+# 관(tube) 바닥에 붙이는 받침의 폭: 바깥 지름의 이 비율 (굴러가지 않고 베드에 잘 붙게)
+_TUBE_FOOT = 0.5
+# S자 경로에서 한 번 휘는 최대 각도
+S_CURVE_MAX_DEG = 90.0
+
+
+def _round_arch(rad: float, leg_top: float, bottom: float) -> object:
+    """바닥(bottom)~leg_top 의 직사각형 + leg_top 높이에 중심을 둔 원 (2D)."""
+    rect = Pos(0, bottom) * Rectangle(2 * rad, leg_top - bottom, align=(Align.CENTER, Align.MIN))
+    return rect + Pos(0, leg_top) * Circle(rad)
+
+
+def _house(half: float, wall_top: float, bottom: float) -> object:
+    """바닥(bottom)~wall_top 의 세로 벽 + 꼭대기로 TIP_ANGLE 만큼 기운 경사 지붕 (2D 오각형)."""
+    rise = half * math.tan(math.radians(TIP_ANGLE_DEG))
+    return Polygon(
+        (-half, bottom), (half, bottom), (half, wall_top), (0, wall_top + rise), (-half, wall_top),
+        align=None,
+    )
+
+
+def _house_wall_top(r: float) -> float:
+    """집 모양 안쪽 벽 높이: 지름 2r 인 원(통과 기준)이 경사 지붕에 닿지 않을 만큼 (꼭대기 높이는 뾰족 아치와 같다)."""
+    a = math.radians(TIP_ANGLE_DEG)
+    return r * (1 + 1 / math.cos(a) - math.tan(a))
+
+
 def profile(p: TunnelParams):
-    """터널 단면 (바닥이 열린 아치). 로컬 2D 좌표: x=가로, y=높이."""
+    """터널 단면. 로컬 2D 좌표: x=가로, y=높이 (바닥 y=0)."""
     r = p.inner_diameter_mm / 2
-    ro = r + p.wall_thickness_mm
-    # 바깥 원(반지름 r+t)은 높이 r 에 중심이 있어 바닥 아래로 t 만큼 내려가므로 바닥(y=0)에서 잘라낸다
+    t = p.wall_thickness_mm
+    ro = r + t
     above_floor = Rectangle(4 * ro, 4 * ro, align=(Align.CENTER, Align.MIN))
+    if p.shape == "round_arch":
+        return (_round_arch(ro, r, 0) & above_floor) - _round_arch(r, r, -_CUT)
+    if p.shape == "box":
+        outer = Rectangle(2 * ro, 2 * r + t, align=(Align.CENTER, Align.MIN))
+        inner = Pos(0, -_CUT) * Rectangle(2 * r, 2 * r + _CUT, align=(Align.CENTER, Align.MIN))
+        return outer - inner
+    if p.shape == "house":
+        wi = _house_wall_top(r)
+        # 바깥 지붕은 안쪽 지붕과 벽 두께만큼 떨어지게 (경사면에 수직으로 t)
+        a = math.radians(TIP_ANGLE_DEG)
+        lift = t / math.cos(a) - t * math.tan(a)
+        return _house(ro, wi + lift, 0) - _house(r, wi, -_CUT)
+    if p.shape == "tube":
+        # 바닥까지 막힌 둥근 관 (어디나 벽 두께 t). 바깥 아래에 평평한 받침을 붙여 굴러가지 않게 놓인다
+        cy = ro
+        foot = Rectangle(_TUBE_FOOT * 2 * ro, cy, align=(Align.CENTER, Align.MIN))
+        return (Pos(0, cy) * Circle(ro) + foot) - Pos(0, cy) * Circle(r)
+    # pointed_arch (기본): 바깥 원(반지름 r+t)은 높이 r 에 중심이 있어 바닥 아래로 t 만큼 내려가므로 바닥(y=0)에서 잘라낸다
     outer = _arch(ro, r, 0) & above_floor
     inner = _arch(r, r, -_CUT)
     return outer - inner
 
 
-def arch_height(inner_diameter_mm: float, wall_thickness_mm: float) -> float:
-    """아치 단면 바깥 높이 = r + (r + t)/cos(TIP_ANGLE)."""
-    r = inner_diameter_mm / 2
-    return r + (r + wall_thickness_mm) / math.cos(math.radians(TIP_ANGLE_DEG))
+def height_coefficients(shape: str) -> tuple[float, float]:
+    """단면 모양별 바깥 높이 = a × 내경 + b × 벽 두께 의 (a, b). 휘는 모양(arc·S자)은 높이를 바꾸지 않는다.
+
+    뾰족 아치·집 모양: r + (r + t)/cos(TIP_ANGLE) (집 모양 꼭대기는 뾰족 아치와 같다), 둥근 아치·네모: 2r + t,
+    관: 2(r + t). 어항 물 깊이에 맞출 때(height_limit_constraints·min_height_mm) 쓴다. outer_height 와 같은지는
+    tests/test_template_others.py 가 확인한다."""
+    k = 1 / math.cos(math.radians(TIP_ANGLE_DEG))
+    if shape in ("round_arch", "box"):
+        return 1.0, 1.0
+    if shape == "tube":
+        return 1.0, 2.0
+    return (1 + k) / 2, k  # pointed_arch, house
 
 
-def outer_height(p: TunnelParams) -> float:
-    return arch_height(p.inner_diameter_mm, p.wall_thickness_mm)
+def height_for(shape: str, inner_diameter_mm: float, wall_thickness_mm: float) -> float:
+    """단면 모양·내경·벽 두께로 정해지는 바깥 높이."""
+    a, b = height_coefficients(shape)
+    return a * inner_diameter_mm + b * wall_thickness_mm
 
 
 def _floor1(x: float) -> float:
     return math.floor(x * 10 + 1e-6) / 10
 
 
+# 천장 꼭대기가 기울지 않은(둥글거나 평평한) 단면. 물속에 수평으로 놓으면 뾰족한 단면보다 천장 아래 공기가 넓게 남는다
+FLAT_TOPPED_SHAPES = frozenset({"round_arch", "tube", "box"})
+
+
+def outer_height(p: TunnelParams) -> float:
+    r = p.inner_diameter_mm / 2
+    t = p.wall_thickness_mm
+    if p.shape == "round_arch":
+        return 2 * r + t
+    if p.shape == "box":
+        return 2 * r + t
+    if p.shape == "house":
+        a = math.radians(TIP_ANGLE_DEG)
+        return _house_wall_top(r) + t / math.cos(a) - t * math.tan(a) + (r + t) * math.tan(a)
+    if p.shape == "tube":
+        return 2 * (r + t)
+    return r + (r + t) / math.cos(math.radians(TIP_ANGLE_DEG))
+
+
+def is_s_curve(p: TunnelParams) -> bool:
+    return p.path == "s_curve" and p.bend_angle_deg > 0
+
+
 def bend_radius(p: TunnelParams) -> float | None:
+    """중심선 굽힘 반경. S자는 반씩 휘므로 한 번 휘는 구간의 길이(전체의 절반)로 계산한다."""
     if p.bend_angle_deg <= 0:
         return None
-    return p.length_mm / math.radians(p.bend_angle_deg)
+    length = p.length_mm / 2 if is_s_curve(p) else p.length_mm
+    return length / math.radians(p.bend_angle_deg)
 
 
-def end_side(bend_angle_deg: float) -> Side:
-    """끝 출입구가 향하는 로컬 측면. 시작 출입구는 항상 front(-Y)."""
+def needs_support(p: TunnelParams) -> bool:
+    """서포트가 필요한지: 세워서 출력해야 하는 단면인데 휘어서 세울 수 없을 때."""
+    return p.shape in NEEDS_STANDING and p.bend_angle_deg > 0
+
+
+def end_side(bend_angle_deg: float, path: str = "arc") -> Side:
+    """끝 출입구가 향하는 로컬 측면. 시작 출입구는 항상 front(-Y). S자는 시작과 같은 방향으로 나간다."""
+    if path == "s_curve" and bend_angle_deg > 0:
+        return "back"
     if bend_angle_deg <= 45:
         return "back"
     if bend_angle_deg <= 135:
@@ -128,37 +236,40 @@ class TunnelTemplate(Template):
             wall_thickness_mm=ctx.default_wall_mm,
         )
 
-    def min_height_mm(self, ctx: RuleContext) -> float:
-        """종별 최소 내경·최소 벽 두께로 만든 가장 낮은 터널 높이."""
+    def min_height_mm(self, ctx: RuleContext, p: TemplateParams | None = None) -> float:
+        """종별 최소 내경·최소 벽 두께로 만든 가장 낮은 터널 높이. 높이는 단면 모양에 따라 다르므로 p 의 shape 를 쓴다
+        (p 가 없으면 기본 단면 pointed_arch)."""
+        shape = p.shape if isinstance(p, TunnelParams) else "pointed_arch"
         inner = min(MAX_INNER_FIELD_MM, max(MIN_INNER_FIELD_MM, ctx.size.tunnel_min_inner_diameter_mm))
         t = min(MAX_WALL_FIELD_MM, max(MIN_WALL_FIELD_MM, ctx.min_wall_mm))
-        return math.ceil(arch_height(inner, t) * 10 - 1e-6) / 10
+        return math.ceil(height_for(shape, inner, t) * 10 - 1e-6) / 10
 
     def height_limit_constraints(
         self, p: TunnelParams, ctx: RuleContext, limit_mm: float, reason_ko: str
     ) -> list[ParamConstraint]:
-        """터널 높이는 내경과 벽 두께로 정해진다: 높이가 limit_mm 이하가 되도록 내경(필요하면 벽 두께도) 상한을 둔다."""
-        k = 1 / math.cos(math.radians(TIP_ANGLE_DEG))
+        """터널 높이는 단면 모양·내경·벽 두께로 정해진다: 높이가 limit_mm 이하가 되도록 내경(필요하면 벽 두께도) 상한을 둔다.
+        휘는 모양(arc·S자)은 수평면에서만 휘므로 높이와 상관없다."""
+        a, b = height_coefficients(p.shape)
         t = max(p.wall_thickness_mm, ctx.min_wall_mm)
         inner_min = max(MIN_INNER_FIELD_MM, ctx.size.tunnel_min_inner_diameter_mm)
         out: list[ParamConstraint] = []
-        # 최소 내경으로도 높으면 벽 두께를 줄인다 (높이 = r(1 + k) + t·k)
-        t_fit = (limit_mm - inner_min / 2 * (1 + k)) / k
+        # 최소 내경으로도 높으면 벽 두께를 줄인다 (높이 = a·내경 + b·t)
+        t_fit = (limit_mm - a * inner_min) / b
         if t > t_fit + 1e-9:
             t = max(ctx.min_wall_mm, MIN_WALL_FIELD_MM, _floor1(t_fit))
             out.append(ParamConstraint("wall_thickness_mm", max=t, source="geometry", reason_ko=reason_ko))
         out.append(ParamConstraint(
-            "inner_diameter_mm", max=_floor1(2 * (limit_mm - t * k) / (1 + k)), source="geometry", reason_ko=reason_ko,
+            "inner_diameter_mm", max=_floor1((limit_mm - b * t) / a), source="geometry", reason_ko=reason_ko,
         ))
         return out
 
     def constraints(self, p: TunnelParams, ctx: RuleContext) -> list[ParamConstraint]:
         s = ctx.size
         d = max(p.inner_diameter_mm, s.tunnel_min_inner_diameter_mm)
-        limit = ctx.height_limit_mm
-        if limit is not None and self.min_height_mm(ctx) <= limit + 1e-6:
+        h_limit = ctx.height_limit_mm
+        if h_limit is not None and self.min_height_mm(ctx, p) <= h_limit + 1e-6:
             # 어항 높이 한도(엔진이 따로 준다)가 줄일 내경을 미리 반영해 길이 하한·휨 한계를 계산한다
-            inner_cap = self.height_limit_constraints(p, ctx, limit, "")[-1].max
+            inner_cap = self.height_limit_constraints(p, ctx, h_limit, "")[-1].max
             assert inner_cap is not None
             d = max(min(d, inner_cap), s.tunnel_min_inner_diameter_mm)
         max_len = s.tunnel_max_length_mm  # None: 길이 상한 없음 (어항)
@@ -168,19 +279,28 @@ class TunnelTemplate(Template):
                           f"{max_len:g}mm 까지만 요구합니다")
         else:
             min_reason = "터널 길이는 내경의 1.5배 이상이어야 합니다"
-        bend_max = math.degrees(p.length_mm / d)
-        # 최대 길이까지 늘렸을 때의 휨 한계 (길이 상한이 없으면 지금 길이 기준 한계뿐)
-        bend_at_max = math.degrees(max_len / d) if max_len is not None else math.inf
-        if max_len is not None and p.bend_angle_deg > bend_at_max + 1e-6:
+        # S자는 반씩 휘므로 한 번 휘는 구간 길이가 절반이다 (굽힘 반경 ≥ 내경). 한 번에 90° 까지
+        s_curve = p.path == "s_curve"
+        seg = 0.5 if s_curve else 1.0
+        cap = S_CURVE_MAX_DEG if s_curve else 180.0
+        bend_max = min(cap, math.degrees(seg * p.length_mm / d))
+        # 최대 길이까지 늘렸을 때의 휨 한계 (길이 상한이 없으면(어항) 지금 길이 기준 한계뿐)
+        bend_at_max = math.degrees(seg * max_len / d) if max_len is not None else math.inf
+        if max_len is not None and p.bend_angle_deg > min(cap, bend_at_max) + 1e-6 and bend_at_max < cap:
             # 최대 길이로 늘려도 닿지 않는 각도: 까닭(최대 길이)을 밝힌다
-            # 영어 카탈로그가 문장 단위로 찾을 수 있게 두 문장을 따로 둔다 (한국어 결과는 같다)
-            limit = min(180.0, bend_at_max)
-            if p.length_mm >= max_len - 1e-6:
+            # 영어 카탈로그가 문장 단위로 찾을 수 있게 문장을 따로 둔다 (한국어 결과는 같다)
+            limit = bend_at_max
+            if s_curve:
+                bend_reason = (f"{s.display_name} 터널은 최대 {max_len:g}mm 라 이 내경으로는 S자를 한 번에 "
+                               f"{limit:.0f}° 까지만 휠 수 있습니다")
+            elif p.length_mm >= max_len - 1e-6:
                 bend_reason = (f"{s.display_name} 터널은 최대 {max_len:g}mm 라 이 내경으로는 {limit:.0f}° "
                                "까지만 휠 수 있습니다 (U자는 만들 수 없어 끝 출입구 방향이 바뀔 수 있습니다)")
             else:
                 bend_reason = (f"지금 길이로는 {bend_max:.0f}°, {s.display_name} 터널은 최대 {max_len:g}mm 라 이 내경으로는 "
                                f"{limit:.0f}° 까지만 휠 수 있습니다 (U자는 만들 수 없어 끝 출입구 방향이 바뀔 수 있습니다)")
+        elif s_curve and p.bend_angle_deg > cap + 1e-6:
+            bend_reason = "S자 터널은 한 번에 90° 까지만 휠 수 있어 휘는 각도를 줄였습니다"
         else:
             bend_reason = "굽힘이 너무 급하면 몸이 돌아 나가기 어려워 휘는 각도를 줄였습니다"
         out = [
@@ -216,13 +336,28 @@ class TunnelTemplate(Template):
             # XZ 평면(로컬 y=Z)에서 -Y 방향으로 압출 → 터널이 Y 축을 따라 놓임
             return extrude(Plane.XZ * prof, amount=p.length_mm)
         # 단면을 x=R 에 두고 Z 축 기준 회전 → 수평면에서 휘는 터널
-        return revolve(Plane.XZ * (Pos(R, 0) * prof), axis=Axis.Z, revolution_arc=p.bend_angle_deg)
+        first = revolve(Plane.XZ * (Pos(R, 0) * prof), axis=Axis.Z, revolution_arc=p.bend_angle_deg)
+        if not is_s_curve(p):
+            return first
+        # S자: 첫 구간 끝 단면의 중심을 지나는 수직축으로 180° 돌린 사본을 잇는다 (단면이 좌우 대칭이라 그대로 맞물린다)
+        a = math.radians(p.bend_angle_deg)
+        ex, ey = R * math.cos(a), R * math.sin(a)
+        second = Pos(ex, ey, 0) * Rot(0, 0, 180) * Pos(-ex, -ey, 0) * first
+        return first + second
+
+    def print_rotation(self, p: TunnelParams) -> np.ndarray:
+        # 곧은 둥근 아치·관·네모: 세워서(터널 축 = Z) 출력하면 단면이 베드와 나란해 서포트가 필요 없다.
+        # 터널은 Y 축을 따라 놓이므로 X 축 기준 90° 회전
+        if p.shape in NEEDS_STANDING and p.bend_angle_deg <= 0:
+            return np.array([[1.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]])
+        return np.eye(3)
 
     def features(self, p: TunnelParams) -> Features:
-        sides: tuple[Side, ...] = ("front", end_side(p.bend_angle_deg))
+        sides: tuple[Side, ...] = ("front", end_side(p.bend_angle_deg, p.path))
         return Features(
             min_wall_thickness_mm=p.wall_thickness_mm,
             openings=(Opening("passage", p.inner_diameter_mm, "터널 내경", rule_key="tunnel_min_inner_diameter_mm"),),
             access_sides=tuple(dict.fromkeys(sides)),
-            extra={"outer_height_mm": outer_height(p)},
+            extra={"outer_height_mm": outer_height(p), "bent_needs_support": needs_support(p),
+                   "flat_ceiling": p.shape in FLAT_TOPPED_SHAPES},
         )

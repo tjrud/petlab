@@ -12,7 +12,7 @@ import re
 from app.i18n import catalog
 from app.llm.base import InterpretRequest, InterpretResult
 from app.llm.prompts import is_aquarium, pet_name_en
-from app.llm.spec import MAX_ITEMS, parse_spec
+from app.llm.spec import ATTACH_TEMPLATES, MAX_ITEMS, parse_spec
 from app.templates.base import RuleContext
 from app.templates.registry import all_templates
 from app.validation.autofix import clip_to_field_bounds
@@ -23,9 +23,30 @@ TEMPLATE_KEYWORDS: dict[str, tuple[str, ...]] = {
     "tunnel": ("터널", "굴", "통로"),
     "ramp": ("계단", "램프", "경사로", "오르막"),
     "sand_bath": ("모래목욕", "모래 목욕", "모래통", "목욕통", "모래"),
+    # 조립형 집: 2층·지붕 모양·창·터널 연결 요청. "집" 만 말하면 은신처다
+    "house": ("2층", "이층", "복층", "경사 지붕", "뾰족 지붕", "둥근 지붕", "아치 지붕", "지붕 집", "창문", "터널 연결",
+              "터널이 붙는", "터널을 붙"),
 }
-TEMPLATE_NAMES_KO = {"hideout": "은신처", "tunnel": "터널", "ramp": "램프/계단", "sand_bath": "모래목욕통",
+TEMPLATE_NAMES_KO = {"hideout": "은신처", "tunnel": "터널", "ramp": "램프/계단", "sand_bath": "모래목욕통", "house": "집",
                      "cave": "물속 동굴"}
+# 집 부품 키워드
+HOUSE_TWO_FLOORS = ("2층", "이층", "복층")
+HOUSE_EXTERNAL = ("바깥 램프", "외부 램프", "바깥 경사로", "외부 경사로", "밖에 램프", "밖에 경사로")
+HOUSE_PITCHED = ("경사 지붕", "뾰족 지붕", "박공")
+HOUSE_ROUNDED = ("둥근 지붕", "아치 지붕")
+HOUSE_PORT = ("터널 연결", "터널이 붙는", "터널을 붙")
+HOUSE_FLOOR = ("바닥판",)
+# 장식: 무늬 종류 키워드와 각인 요청
+PATTERN_WORDS_KO = (("stripes", ("줄무늬", "줄 무늬", "스트라이프")), ("dots", ("점무늬", "물방울", "도트")),
+                    ("scales", ("비늘",)), ("brick", ("벽돌",)), ("wave", ("물결",)), ("honeycomb", ("벌집",)))
+PATTERN_WORDS_EN = (("stripes", re.compile(r"\bstripe[sd]?\b")), ("dots", re.compile(r"\b(?:dots?|polka)\b")),
+                    ("scales", re.compile(r"\bscales?\b")), ("brick", re.compile(r"\bbricks?\b")),
+                    ("wave", re.compile(r"\bwav(?:e|es|y)\b")), ("honeycomb", re.compile(r"\bhoneycomb\b")))
+ENGRAVE_KO = re.compile(r"[\"'“‘]([가-힣A-Za-z0-9 \-]{1,12})[\"'”’]\s*(?:라고|이라고|을|를|라는|이라는)?\s*(?:새겨|각인|적어|써)")
+ENGRAVE_KO2 = re.compile(r"([가-힣A-Za-z0-9\-]{1,12})\s*(?:라고|이라고)\s*(?:새겨|각인|적어|써)")
+ENGRAVE_EN = re.compile(r"(?:engrave|carve|write|inscribe)\s+[\"'“‘]([가-힣A-Za-z0-9 \-]{1,12})[\"'”’]")
+# 장식 영역이 있는 템플릿 (Template.decor_zones 를 덮어쓴 것). 어항 템플릿(물속 동굴·터널)에는 장식을 넣지 않는다
+DECOR_TEMPLATES = ("hideout", "house")
 
 ZONE_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
     ("front_left", ("왼쪽 앞", "앞쪽 왼", "좌측 앞")),
@@ -52,11 +73,21 @@ TEMPLATE_KEYWORDS_EN: dict[str, re.Pattern[str]] = {
     "tunnel": re.compile(r"\b(?:tunnels?|tubes?|burrows?|passages?)\b"),
     "ramp": re.compile(r"\b(?:ramps?|stairs?|stair ?cases?|steps?|slopes?|ladders?)\b"),
     "sand_bath": re.compile(r"\b(?:sand ?baths?|sand ?box(?:es)?|dust ?baths?|bath ?tubs?|baths?|sand)\b"),
+    "house": re.compile(r"\b(?:two[ -]?stor(?:y|ey|ies)|2[ -]?stor(?:y|ey)|second floor|upper floor|lofts?|"
+                        r"pitched roofs?|gabled? roofs?|peaked roofs?|rounded roofs?|arched roofs?|windows?|"
+                        r"tunnel (?:port|connection|connector))\b"),
 }
 TEMPLATE_NAMES_EN = {"hideout": "Hideout", "tunnel": "Tunnel", "ramp": "Ramp/stairs", "sand_bath": "Sand bath",
-                     "cave": "Underwater cave"}
+                     "house": "House", "cave": "Underwater cave"}
+HOUSE_TWO_FLOORS_EN = re.compile(r"\b(?:two[ -]?stor(?:y|ey|ies)|2[ -]?stor(?:y|ey)|second floor|upper floor|lofts?)\b")
+HOUSE_EXTERNAL_EN = re.compile(r"\b(?:outside|external|outer|exterior) (?:ramp|stairs?|slope)\b")
+HOUSE_PITCHED_EN = re.compile(r"\b(?:pitched|gabled?|peaked) roofs?\b")
+HOUSE_ROUNDED_EN = re.compile(r"\b(?:rounded|arched|round) roofs?\b")
+HOUSE_PORT_EN = re.compile(r"\btunnel (?:port|connection|connector)\b")
+HOUSE_FLOOR_EN = re.compile(r"\bfloor plate\b")
 
 # 어항(habitat="aquarium") 요청용 키워드. 은신처·집처럼 숨을 곳을 뜻하는 말은 물속 동굴로 읽는다.
+# 조립형 집(house) 키워드(2층·지붕·창문 …)는 넣지 않는다: 어항에 집은 없고, '2층 집'의 '집'도 숨을 곳(물속 동굴)으로 읽는다.
 # 순서대로 찾고 찾은 말은 지운다: '동굴'을 먼저 지워 터널 키워드 '굴'이 다시 잡지 않게 한다.
 # 어항의 '모래'는 바닥재라 모래목욕통으로 읽지 않는다 (모래목욕을 콕 집어 말했을 때만 만들 수 없다고 알린다)
 AQUARIUM_KEYWORDS: dict[str, tuple[str, ...]] = {
@@ -110,12 +141,32 @@ ADD_EN = re.compile(r"\b(?:add|another|one more|an extra|extra)\b")
 _NUMBER_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
                  "ten": 10, "eleven": 11, "twelve": 12}
 _NUM_EN = r"(\d+|" + "|".join(_NUMBER_WORDS) + r")"
+WINDOWS_EN = re.compile(_NUM_EN + r"\s*windows?\b")
 STEPS_EN = re.compile(r"\b(?:stairs?|stair ?cases?|steps?)\b")
 STEP_COUNT_EN = re.compile(_NUM_EN + r"[\s-]*(?:steps?|stairs?)\b")
 RAMP_EN = re.compile(r"\b(?:ramps?|slopes?|sloped|inclines?)\b")
 U_BEND_EN = re.compile(r"\b(?:u[ -]?(?:shaped?|turns?|bend)|uturns?)\b")
 CURVE_EN = re.compile(r"\b(?:curved?|curving|curvy|bent|bends?|bendy|l[ -]?shaped?|elbow|angled)\b")
 STRAIGHT_EN = re.compile(r"\bstraight\b")
+# "tunnel's bend" 처럼 소유격 's 뒤의 단어는 S자가 아니다
+# "house-shaped tunnel" 의 house 는 은신처가 아니라 터널 단면 모양
+HOUSE_SHAPE_EN = re.compile(r"\bhouse[ -]?shaped?\b")
+S_CURVE_EN = re.compile(r"(?<!['’])\b(?:s[ -]?(?:shaped?|curves?|bends?)|zig-?zag|wavy|snaking)\b")
+# 터널 단면 모양 (먼저 맞는 것)
+TUNNEL_SHAPES_KO = (
+    ("tube", ("원통", "튜브", "파이프", "둥근 관", "원형")),
+    ("box", ("네모", "사각", "직사각")),
+    ("house", ("집 모양", "집모양", "삼각", "오각", "지붕 모양")),
+    ("pointed_arch", ("뾰족",)),
+    ("round_arch", ("둥근", "둥글게", "반원")),
+)
+TUNNEL_SHAPES_EN = (
+    ("tube", re.compile(r"\b(?:tubes?|pipes?|cylindrical|circular)\b")),
+    ("box", re.compile(r"\b(?:square|boxy|box-shaped|rectangular)\b")),
+    ("house", re.compile(r"\b(?:house[ -]?shaped?|peaked|a-frame|triangular|gabled?)\b")),
+    ("pointed_arch", re.compile(r"\bpointed\b")),
+    ("round_arch", re.compile(r"\b(?:round(?:ed)?|semi-?circular|arched)\b")),
+)
 VENTS_EN = (re.compile(_NUM_EN + r"\s*(?:air[ -]?|ventilation |vent )?(?:vents?|holes?)\b"),
             re.compile(r"\b(?:vents?|ventilation holes?|air ?holes?)\b[^\d]{0,8}?(\d+)\b(?!\s*(?:mm|cm|\.\d))"))
 _DOOR_EN = r"(?:entrances?|entry|entries|doors?|doorways?|openings?)"
@@ -129,6 +180,48 @@ def _num(word: str) -> int:
     return int(word) if word.isdigit() else _NUMBER_WORDS[word]
 
 
+def _find_decor(text: str) -> dict | None:
+    """장식 명세: 따옴표 글귀 각인, 또는 무늬 키워드. 없으면 None."""
+    low = _en(text)
+    m = ENGRAVE_KO.search(text) or ENGRAVE_KO2.search(text) or ENGRAVE_EN.search(text)
+    if m:
+        return {"kind": "text", "text": m.group(1).strip(), "face": "left", "height_mm": 15, "depth_mm": 0.6}
+    for key, words in PATTERN_WORDS_KO:
+        if any(w in text for w in words):
+            return {"kind": "pattern", "pattern": key, "density": 2, "direction": 0, "depth_mm": 0.6,
+                    "face": "walls", "mode": "engrave"}
+    for key, rx in PATTERN_WORDS_EN:
+        if rx.search(low):
+            return {"kind": "pattern", "pattern": key, "density": 2, "direction": 0, "depth_mm": 0.6,
+                    "face": "walls", "mode": "engrave"}
+    return None
+
+
+def _apply_house(text: str, low: str, out: dict) -> dict:
+    """집 부품: 층·오르는 수단·지붕·창·연결부·바닥판 (중첩 파라미터는 사본을 고친다)."""
+    out = {k: (dict(v) if isinstance(v, dict) else v) for k, v in out.items()}
+    if any(w in text for w in HOUSE_TWO_FLOORS) or HOUSE_TWO_FLOORS_EN.search(low):
+        out["floors"]["count"] = 2
+        if any(w in text for w in HOUSE_EXTERNAL) or HOUSE_EXTERNAL_EN.search(low):
+            out["floors"]["climb"] = "external_ramp"
+            out["floors"]["exit_side"] = "back"
+            out["doors"]["sides"] = ["front"]
+    if any(w in text for w in HOUSE_PITCHED) or HOUSE_PITCHED_EN.search(low):
+        out["roof"]["kind"] = "pitched"
+    elif any(w in text for w in HOUSE_ROUNDED) or HOUSE_ROUNDED_EN.search(low):
+        out["roof"]["kind"] = "rounded"
+    if any(w in text for w in HOUSE_PORT) or HOUSE_PORT_EN.search(low):
+        out["ports"]["sides"] = ["left"]
+    if any(w in text for w in HOUSE_FLOOR) or HOUSE_FLOOR_EN.search(low):
+        out["floor"]["enabled"] = True
+    m = re.search(r"창(?:문)?[^\d]{0,8}?(\d+)\s*개", text) or WINDOWS_EN.search(low)
+    if m:
+        out["windows"]["count"] = min(4, _num(m.group(1)))
+    elif "창문" in text or re.search(r"\bwindows?\b", low):
+        out["windows"]["count"] = max(out["windows"].get("count", 0), 2)
+    return out
+
+
 def _en(text: str) -> str:
     return text.lower()
 
@@ -140,7 +233,13 @@ def _blank(m: re.Match[str]) -> str:
 def _find_templates(text: str, aquarium: bool = False) -> list[str]:
     words_of, rx_of = (AQUARIUM_KEYWORDS, AQUARIUM_KEYWORDS_EN) if aquarium else (TEMPLATE_KEYWORDS, TEMPLATE_KEYWORDS_EN)
     found = []
+    # "집 모양 터널" 의 "집" 은 은신처가 아니라 터널 단면 모양이다 (같은 길이로 바꿔 위치는 그대로)
+    if "터널" in text:
+        text = text.replace("집 모양", "＿ 모양").replace("집모양", "＿모양")
     low = _en(text)
+    if rx_of["tunnel"].search(low):
+        # "house-shaped tunnel" 의 house 는 은신처(어항은 물속 동굴)가 아니라 터널 단면 모양이다
+        low = HOUSE_SHAPE_EN.sub(lambda mm: "_" * len(mm.group(0)), low)
     for key, words in words_of.items():
         positions = [text.find(w) for w in words if w in text]
         m = rx_of[key].search(low)
@@ -157,7 +256,11 @@ def _find_templates(text: str, aquarium: bool = False) -> list[str]:
             if ko_rx is not None:
                 text = ko_rx.sub(_blank, text)
             low = rx_of[key].sub(_blank, low)
-    return [k for _, k in sorted(found)]
+    keys = [k for _, k in sorted(found)]
+    if "house" in keys:
+        # "2층 집" 의 "집"·"house with windows" 의 "house" 는 은신처가 아니라 조립형 집이다
+        keys = [k for k in keys if k != "hideout"]
+    return keys
 
 
 def _without_door_phrases(text: str) -> str:
@@ -201,12 +304,28 @@ def _apply_numbers(key: str, text: str, params: dict) -> dict:
     out = dict(params)
     low = _en(text)
     if key == "tunnel":
+        for shape, words in TUNNEL_SHAPES_KO:
+            if any(w in text for w in words):
+                out["shape"] = shape
+                break
+        else:
+            for shape, rx in TUNNEL_SHAPES_EN:
+                if rx.search(low):
+                    out["shape"] = shape
+                    break
+    if key == "tunnel" and (any(w in text for w in ("S자", "s자", "에스자", "지그재그")) or S_CURVE_EN.search(low)):
+        out["path"] = "s_curve"
+        out["bend_angle_deg"] = 60
+    elif key == "tunnel":
         if any(w in text for w in ("U자", "유턴")) or U_BEND_EN.search(low):
             out["bend_angle_deg"] = 180
+            out["path"] = "arc"
         elif any(w in text for w in ("곡선", "구부러", "휘어", "ㄱ자", "꺾")) or CURVE_EN.search(low):
             out["bend_angle_deg"] = 90
+            out["path"] = "arc"
         elif "직선" in text or STRAIGHT_EN.search(low):
             out["bend_angle_deg"] = 0
+            out["path"] = "arc"
     if key == "ramp":
         if "계단" in text:
             m = re.search(r"(\d+)\s*단", text)
@@ -216,6 +335,8 @@ def _apply_numbers(key: str, text: str, params: dict) -> dict:
             out["steps"] = _num(m.group(1)) if m else max(out.get("steps", 0), 3)
         elif any(w in text for w in ("경사로", "램프", "슬로프")) or RAMP_EN.search(low):
             out["steps"] = 0
+    if key == "house":
+        out = _apply_house(text, low, out)
     if key == "hideout":
         m = re.search(r"환기구[^\d]{0,8}?(\d+)\s*개", text)
         if m:
@@ -278,9 +399,22 @@ class MockInterpreter:
             names = ", ".join(names_of[k] for k in unsupported)
             notes.append(f"Left out because they aren't supported yet: {names}" if en
                          else f"아직 지원하지 않는 구조물이라 제외했습니다: {names}")
+        if "house" in requested and (any(w in text for w in HOUSE_EXTERNAL) or HOUSE_EXTERNAL_EN.search(_en(text))):
+            requested = [k for k in requested if k != "ramp"]  # 바깥 램프는 아래에서 attach_to 로 붙인다
+        # 장식은 장식 영역이 있는 템플릿에만. 그런 템플릿이 허용 목록에 없으면(어항) 계약에 decor 필드도 없다 (spec._item_union)
+        decor_field = any(k in DECOR_TEMPLATES for k in allowed)
+        decor = _find_decor(text) if decor_field else None
+
         items: list[dict] = []
+        # attach_to 도 집·램프가 모두 있는 묶음(케이지)의 계약에만 있다
+        attach_field = all(k in allowed for k in ATTACH_TEMPLATES)
         if req.previous is not None:
             items = json.loads(req.previous.model_dump_json())["items"]
+            for it in items:  # 저장된 버전은 모든 템플릿 계약으로 읽어 decor·attach_to 가 null 로 들어 있다
+                if not decor_field:
+                    it.pop("decor", None)
+                if not attach_field:
+                    it["placement"].pop("attach_to", None)
         # 직전 설계에 이 종이 만들 수 없는 구조물이 있으면(규칙 파일이 바뀐 경우) 실제 LLM 처럼 빼고 알린다
         dropped = [it["template"] for it in items if it["template"] not in allowed]
         items = [it for it in items if it["template"] in allowed]
@@ -316,6 +450,8 @@ class MockInterpreter:
                             it["placement"]["zone"] = zone
                         if grouped:
                             it["placement"]["group"] = "g1"
+                        if decor and it["template"] in DECOR_TEMPLATES:
+                            it["decor"] = decor
                 requested = [k for k in requested if k not in existing]
         elif not requested:
             requested = [default_key]
@@ -337,8 +473,31 @@ class MockInterpreter:
                     "zone": zone or ("left" if grouped else "auto"),
                     "group": "g1" if grouped else None,
                     "rotation": None,
+                    **({"attach_to": None} if attach_field else {}),
                 },
+                **({"decor": decor if key in DECOR_TEMPLATES else None} if decor_field else {}),
                 "reason_ko": self._reason_en(req, key) if en else self._reason_ko(req, key),
+            })
+
+        # 2층 집에 바깥 램프: 램프 항목을 더하고 attach_to 로 잇는다 (램프 높이 = 2층 바닥 높이). 집·램프가 모두 있는 종만
+        for idx, it in enumerate(items if attach_field else []):
+            if it["template"] != "house" or it["params"]["floors"]["count"] != 2:
+                continue
+            if it["params"]["floors"]["climb"] != "external_ramp":
+                continue
+            already = any(x["template"] == "ramp" and (x["placement"].get("attach_to") or {}).get("item_index") == idx
+                          for x in items)
+            if already or len(items) >= MAX_ITEMS:
+                continue
+            ramp = registry["ramp"]
+            rp = ramp.default_params(ctx).model_dump()
+            rp["height_mm"] = it["params"]["floors"]["level_height_mm"]
+            items.append({
+                "template": "ramp", "params": rp,
+                "placement": {"zone": "auto", "group": None, "rotation": None,
+                              "attach_to": {"item_index": idx, "side": it["params"]["floors"]["exit_side"]}},
+                "reason_ko": ("A ramp attached to the house's second-floor landing." if en
+                              else "2층 집의 바깥 착지판에 닿는 램프입니다."),
             })
 
         if not items:
@@ -351,7 +510,8 @@ class MockInterpreter:
                           if en else f"구조물이 모두 제외되어 기본 {TEMPLATE_NAMES_KO[default_key]}을(를) 남겼습니다.")
             items.append({
                 "template": default_key, "params": t.default_params(ctx).model_dump(),
-                "placement": {"zone": "auto", "group": None, "rotation": None},
+                "placement": {"zone": "auto", "group": None, "rotation": None,
+                              **({"attach_to": None} if attach_field else {})},
                 "reason_ko": reason,
             })
         items = items[:MAX_ITEMS]
