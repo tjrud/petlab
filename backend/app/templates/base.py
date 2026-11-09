@@ -100,6 +100,35 @@ class PrintPart:
 
 
 @dataclass(frozen=True)
+class DecorZone:
+    """안전과 무관한 면에서 장식(무늬·각인)을 얹을 수 있는 영역.
+
+    면 좌표 (u, v): u 는 바깥에서 그 면을 볼 때 오른쪽, v 는 위. 원점은 면의 가로 가운데·구조물 바닥(Z=0).
+    영역은 [u0, u1] × [v0, v1] 에서 obstacles(출입구·창·연결부·결합부, (u0, v0, u1, v1))를 keepout_mm 만큼 넓혀 뺀 곳이다.
+    mode: engrave(파내기) 또는 relief(돋을새김). 돋을새김은 출력 자세에서 오버행이 생기지 않는 세로 벽에서만.
+    지붕(face="roof")은 평면 경사면(경사 지붕)에서 각인만: 경사면을 기울어진 벽으로 보고 x_dir(용마루 방향)·z_dir(바깥 법선)을 준다.
+    """
+
+    face: Side | Literal["roof"]
+    mode: Literal["engrave", "relief"]
+    max_depth_mm: float
+    keepout_mm: float
+    u0: float
+    u1: float
+    v0: float
+    v1: float
+    obstacles: tuple[tuple[float, float, float, float], ...] = ()
+    part_key: str = "body"  # 이 면이 속한 출력 파트
+    print_inverted: bool = False  # 그 파트를 뒤집어 출력하는지 (파낸 홈의 천장 기울기 방향이 바뀐다)
+    thickness_field: str | None = None  # 이 면의 벽 두께 파라미터 (각인 깊이만큼 두껍게 보정하는 데 쓴다)
+    # 면 좌표 원점(u=0, v=0)의 월드 좌표: 바깥 표면 위의 점 (세로 벽은 바닥점, 경사면은 처마 가운데)
+    surface: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    # 면의 u 방향·바깥 법선 (월드). None 이면 face 에서 정한다 (세로 벽). v 방향 = z_dir × x_dir (위쪽)
+    x_dir: tuple[float, float, float] | None = None
+    z_dir: tuple[float, float, float] | None = None
+
+
+@dataclass(frozen=True)
 class RuleContext:
     """템플릿이 동적 범위를 계산할 때 쓰는 규칙 값."""
 
@@ -109,6 +138,8 @@ class RuleContext:
     # 서포트 없이 출력할 수 있는 최대 오버행(printing.yaml). 출력 자세가 지붕 경사 같은 파라미터를 제한할 때 쓴다.
     # None 이면(옛 호출) 출력 규칙 기반 제약은 내지 않는다
     printing_max_overhang_deg: float | None = None
+    # 장식의 최소 형상 크기(printing.yaml min_feature_mm). None 이면 장식을 적용하지 않는다
+    min_feature_mm: float | None = None
 
     @property
     def hideout_min_entrances(self) -> int:
@@ -174,3 +205,8 @@ class Template(ABC):
     @abstractmethod
     def features(self, p: TemplateParams) -> Features:
         """검증용 설계 특징."""
+
+    def decor_zones(self, p: TemplateParams) -> list[DecorZone]:
+        """장식을 얹을 수 있는 영역 (기본: 없음). 장식은 features() 와 검사 결과를 바꾸지 않아야 한다."""
+        return []
+
