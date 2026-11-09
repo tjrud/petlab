@@ -3,16 +3,19 @@
 1) 파라미터 보정: 템플릿 허용 범위·종 규칙·상호 제약을 위반한 값을 경계로 옮긴다(클램프).
 2) 공간 보정: 케이지에 놓을 자리가 없으면 크기 파라미터를 단계적으로 줄인다 (엔진에서 사용).
 보정할 수 없는 충돌은 error 이슈로 남긴다.
+
+제약의 field 는 점 표기 경로("roof.pitch_deg")로 중첩 Params(조립형 템플릿의 부품 모델) 안의 값을 가리킬 수 있다.
 """
 
 from __future__ import annotations
 
+import copy
 import math
 from collections.abc import Iterator
 from typing import Any
 
 from annotated_types import Ge, Gt, Le, Lt
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from app.templates.base import ParamConstraint, RuleContext, Template, TemplateParams
 from app.validation.report import Issue, Severity
@@ -20,9 +23,39 @@ from app.validation.report import Issue, Severity
 MAX_PASSES = 8
 
 
+def _field_info(params_cls: type[BaseModel], path: str):
+    """점 표기 경로("roof.pitch_deg")의 FieldInfo. 중첩 Params(부품 모델)를 따라 내려간다."""
+    cls: type[BaseModel] = params_cls
+    parts = path.split(".")
+    for name in parts[:-1]:
+        cls = cls.model_fields[name].annotation  # type: ignore[assignment]
+    return cls.model_fields[parts[-1]]
+
+
+def get_path(values: dict, path: str) -> Any:
+    """model_dump() 결과에서 점 표기 경로의 값."""
+    for name in path.split("."):
+        values = values[name]
+    return values
+
+
+def set_path(values: dict, path: str, value: Any) -> None:
+    *heads, last = path.split(".")
+    for name in heads:
+        values = values[name]
+    values[last] = value
+
+
+def _get_attr(params: BaseModel, path: str) -> Any:
+    v: Any = params
+    for name in path.split("."):
+        v = getattr(v, name)
+    return v
+
+
 def field_bounds(params_cls: type[TemplateParams], name: str) -> tuple[float | None, float | None]:
     lo = hi = None
-    for m in params_cls.model_fields[name].metadata:
+    for m in _field_info(params_cls, name).metadata:
         if isinstance(m, (Ge, Gt)):
             lo = float(m.ge if isinstance(m, Ge) else m.gt)
         elif isinstance(m, (Le, Lt)):
@@ -56,13 +89,13 @@ def _violations(
 ) -> Iterator[tuple[ParamConstraint, Any]]:
     """params 가 어기는 제약과 그 필드의 현재 값을 제약 목록 순서대로 내준다."""
     for c in _all_constraints(template, params, ctx, extra):
-        v = getattr(params, c.field)
+        v = _get_attr(params, c.field)
         if c.violates(v):
             yield c, v
 
 
 def _is_int_field(params_cls: type[TemplateParams], name: str) -> bool:
-    return params_cls.model_fields[name].annotation is int
+    return _field_info(params_cls, name).annotation is int
 
 
 def _fmt(v: float) -> str:
@@ -81,7 +114,7 @@ def clamp_params(
     cls = template.Params
     label = label_ko or template.display_name_ko
     values = params.model_dump()
-    original = dict(values)
+    original = copy.deepcopy(values)
     reasons: dict[str, str] = {}
 
     for _ in range(MAX_PASSES):
@@ -90,7 +123,7 @@ def clamp_params(
         changed = False
         for c in cons:
             # 패스 시작 시점(current)이 아니라 values 에서 읽는다: 같은 필드의 뒤 제약이 앞 제약이 바꾼 값을 본다
-            v = values[c.field]
+            v = get_path(values, c.field)
             if not c.violates(v):
                 continue
             below = c.min is not None and v < c.min
@@ -102,15 +135,15 @@ def clamp_params(
             # 템플릿 허용 범위를 벗어나야만 만족할 수 있으면 경계에서 멈추고, 아래 param_conflict 로 남는다
             clipped = clip_to_field_bounds(cls, c.field, target)
             if clipped != v:
-                values[c.field] = clipped
+                set_path(values, c.field, clipped)
                 reasons[c.field] = c.reason_ko
                 changed = True
         if not changed:
             break
 
     issues: list[Issue] = []
-    for f, new in values.items():
-        old = original[f]
+    for f, new in _leaves(values):
+        old = get_path(original, f)
         if new != old:
             issues.append(Issue(
                 code="param_adjusted",
@@ -191,8 +224,18 @@ def rule_change_notices(
             for c, v in _violations(template, params, ctx, None) if not c.blocking]
 
 
+def _leaves(values: dict, prefix: str = "") -> Iterator[tuple[str, Any]]:
+    """중첩 dict 의 (점 표기 경로, 값). 목록 값은 하나의 잎으로 본다."""
+    for k, v in values.items():
+        path = f"{prefix}{k}"
+        if isinstance(v, dict):
+            yield from _leaves(v, path + ".")
+        else:
+            yield path, v
+
+
 def _desc(cls: type[TemplateParams], name: str) -> str:
-    d = cls.model_fields[name].description or name
+    d = _field_info(cls, name).description or name
     return d.split(".")[0].replace(" mm", "")
 
 

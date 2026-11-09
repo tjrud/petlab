@@ -10,6 +10,9 @@ import json
 import math
 from typing import Literal, get_args, get_origin
 
+from pydantic import BaseModel
+from pydantic_core import PydanticUndefined
+
 from app.i18n import catalog
 from app.llm.base import InterpretRequest
 from app.templates.registry import all_templates
@@ -33,26 +36,44 @@ SYSTEM_PROMPT = """\
 - 지원하지 않는 구조물을 요청받으면 notes_ko 에 그 사실을 적고 가능한 템플릿으로만 설계하세요.
 - 터널 단면 모양(shape)·휘는 모양(path)은 보호자가 말한 대로 고르고(둥근, 원통·관, 네모, 집 모양, S자 등), 말이 없으면 기본값을
   두세요. 휜 터널에 round_arch·tube·box 를 고르면 출력할 때 서포트가 필요하므로 notes_ko 에 알려 주세요.
+- 2층·경사 지붕·둥근 지붕·터널 연결·창 요청은 house 템플릿의 부품(floors, roof, ports, windows, doors, floor)으로 표현하세요.
+  단순한 은신처 요청은 hideout 을 그대로 씁니다. house 의 부품 값은 중첩 객체로 모두 채웁니다.
+- 2층 집에 바깥 램프를 두려면(floors.climb=external_ramp) ramp 항목을 하나 추가하고, 그 placement.attach_to 에
+  {item_index: 집 항목의 인덱스, side: 집의 floors.exit_side} 를 적어 램프 꼭대기가 착지판에 닿게 하세요.
+  램프 높이는 집의 2층 바닥 높이(floors.level_height_mm)와 같게 적습니다. 그 밖의 항목은 attach_to 를 null 로 둡니다.
 - 설계 수정 요청이면 직전 설계를 바탕으로, 요청된 부분만 바꾼 전체 설계를 다시 출력하세요.
 - summary_ko, reason_ko, notes_ko 는 보호자가 읽기 쉬운 한국어로 씁니다. 단, 사용자 메시지에 "응답 언어" 지시가 있으면
   그 언어로 씁니다 (필드 이름은 언어와 상관없이 그대로 둡니다).
 """
 
 
+def _field_catalog(model: type[BaseModel]) -> dict:
+    """모델 필드 → {설명, 범위|선택지, 기본값}. 중첩 모델(조립형 템플릿의 부품)은 재귀로 펼친다."""
+    fields = {}
+    for name, f in model.model_fields.items():
+        ann = f.annotation
+        if isinstance(ann, type) and issubclass(ann, BaseModel):
+            fields[name] = {"설명": f.description, "부품": _field_catalog(ann)}
+            continue
+        lo = hi = None
+        for m in f.metadata:
+            lo = getattr(m, "ge", lo)
+            hi = getattr(m, "le", hi)
+        default = f.default if f.default is not PydanticUndefined else None
+        if get_origin(ann) is Literal:
+            fields[name] = {"설명": f.description, "선택지": list(get_args(ann)), "기본값": default}
+        elif get_origin(ann) is list:
+            item = get_args(ann)[0]
+            choices = list(get_args(item)) if get_origin(item) is Literal else []
+            fields[name] = {"설명": f.description, "목록 선택지": choices, "기본값": default}
+        else:
+            fields[name] = {"설명": f.description, "범위": [lo, hi], "기본값": default}
+    return fields
+
+
 def template_catalog() -> list[dict]:
-    out = []
-    for t in all_templates():
-        fields = {}
-        for name, f in t.Params.model_fields.items():
-            lo = hi = None
-            for m in f.metadata:
-                lo = getattr(m, "ge", lo)
-                hi = getattr(m, "le", hi)
-            choices = get_args(f.annotation) if get_origin(f.annotation) is Literal else ()
-            fields[name] = ({"설명": f.description, "선택지": list(choices), "기본값": f.default} if choices
-                            else {"설명": f.description, "범위": [lo, hi], "기본값": f.default})
-        out.append({"template": t.key, "이름": t.display_name_ko, "설명": t.description_ko, "파라미터": fields})
-    return out
+    return [{"template": t.key, "이름": t.display_name_ko, "설명": t.description_ko, "파라미터": _field_catalog(t.Params)}
+            for t in all_templates()]
 
 
 def build_user_message(req: InterpretRequest) -> str:

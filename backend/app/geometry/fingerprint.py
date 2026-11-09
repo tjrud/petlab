@@ -22,8 +22,12 @@ from pathlib import Path
 
 from app.rules.loader import PrintingRules
 
-# 모든 템플릿의 형상에 영향을 주는 공용 코드: 템플릿 계약, B-rep → 메시 변환·출력 자세, 형상 생성, 배치 변환
-SHARED_MODULES: tuple[str, ...] = ("app.templates.base", "app.geometry.mesh", "app.services.engine", "app.domain")
+# 모든 템플릿의 형상에 영향을 주는 공용 코드: 템플릿 계약, B-rep → 메시 변환·출력 자세, 형상 생성, 배치 변환,
+# 조립형 템플릿의 부품 라이브러리(app.templates.parts)
+SHARED_MODULES: tuple[str, ...] = (
+    "app.templates.base", "app.geometry.mesh", "app.services.engine", "app.domain",
+    "app.templates.parts.common", "app.templates.parts.shell", "app.templates.parts.openings", "app.templates.parts.levels",
+)
 # 테셀레이션·메시 처리 결과를 바꿀 수 있는 라이브러리 (설치되지 않은 이름은 건너뛴다)
 LIBRARIES: tuple[str, ...] = ("build123d", "cadquery-ocp", "cadquery-ocp-novtk", "trimesh", "numpy")
 

@@ -11,9 +11,9 @@ from dataclasses import dataclass, field
 
 from pydantic import ValidationError
 
-from app.domain import BuiltItem, Cage, PlacementHint, mesh_footprint
+from app.domain import BuiltItem, BuiltPart, Cage, PlacementHint, mesh_footprint
 from app.geometry.mesh import part_to_mesh, to_print_orientation
-from app.layout.placer import place_all
+from app.layout.placer import attach_satisfied, place_all
 from app.rules.loader import PrintingRules, RuleBook, SizeRules
 from app.templates.base import ParamConstraint, RuleContext, Template, TemplateParams
 from app.templates.registry import get_template
@@ -51,7 +51,8 @@ class EngineContext:
 
     @property
     def rule_ctx(self) -> RuleContext:
-        return RuleContext(self.size_rules, self.min_wall_mm, self.count)
+        return RuleContext(self.size_rules, self.min_wall_mm, self.count,
+                           printing_max_overhang_deg=self.rules.printing.max_overhang_deg)
 
 
 @dataclass
@@ -63,20 +64,31 @@ class EngineResult:
 def build_item(
     index: int, template: Template, params: TemplateParams, hint: PlacementHint, printing: PrintingRules
 ) -> BuiltItem:
+    tol, ang = printing.tessellation_tolerance_mm, printing.tessellation_angular_tolerance_deg
     part = template.build(params)
-    mesh = part_to_mesh(part, printing.tessellation_tolerance_mm, printing.tessellation_angular_tolerance_deg)
+    mesh = part_to_mesh(part, tol, ang)
     lo, hi = mesh.bounds
     mesh.apply_translation([-(lo[0] + hi[0]) / 2, -(lo[1] + hi[1]) / 2, -lo[2]])
+    print_mesh = to_print_orientation(mesh, template.print_rotation(params))
+    # 출력 파트: 파트가 하나뿐인 템플릿은 예전과 똑같은 메시(조립 형상 = 본체)를 쓴다 (파일 바이트가 바뀌지 않게)
+    parts: list[BuiltPart] = []
+    print_parts = template.print_parts(params, built=part)
+    if len(print_parts) > 1:
+        for pp in print_parts:
+            pmesh = part_to_mesh(pp.part, tol, ang)
+            parts.append(BuiltPart(pp.key, pp.name_ko, pmesh, to_print_orientation(pmesh, pp.rotation)))
+        print_mesh = parts[0].print_mesh
     return BuiltItem(
         index=index,
         key=template.key,
         features=template.features(params),
         mesh=mesh,
-        print_mesh=to_print_orientation(mesh, template.print_rotation(params)),
+        print_mesh=print_mesh,
         footprint=mesh_footprint(mesh),
         hint=hint,
         template=template,
         params=params,
+        parts=parts,
     )
 
 
@@ -95,7 +107,29 @@ def _label(template: Template, index: int) -> str:
     return f"{template.display_name_ko} #{index + 1}"
 
 
-def _prepare(spec: ItemSpec, index: int, ctx: EngineContext) -> tuple[Template, TemplateParams, list[Issue]] | Issue:
+def attach_constraints(template: Template, hint: PlacementHint, targets: dict[int, BuiltItem | tuple[Template, TemplateParams]]
+                       ) -> list[ParamConstraint]:
+    """attach_to 로 다른 구조물에 붙는 항목의 상호 제약: 램프 꼭대기 높이 = 대상의 착지판 높이 (2층 집의 바깥 램프)."""
+    if hint.attach_to is None or not template.height_field:
+        return []
+    idx, _ = hint.attach_to
+    target = targets.get(idx)
+    if target is None:
+        return []
+    t_template, t_params = (target.template, target.params) if isinstance(target, BuiltItem) else target
+    if t_template is None or t_params is None:
+        return []
+    landing = t_template.features(t_params).extra.get("landing_height_mm")
+    if landing is None:
+        return []
+    return [ParamConstraint(
+        template.height_field, min=landing, max=landing,
+        reason_ko=f"램프 꼭대기가 {_label(t_template, idx)}의 착지판({landing:g}mm)에 닿도록 높이를 맞췄습니다",
+    )]
+
+
+def _prepare(spec: ItemSpec, index: int, ctx: EngineContext,
+             extra: list[ParamConstraint] | None = None) -> tuple[Template, TemplateParams, list[Issue]] | Issue:
     try:
         template = get_template(spec.template)
     except KeyError:
@@ -107,9 +141,33 @@ def _prepare(spec: ItemSpec, index: int, ctx: EngineContext) -> tuple[Template, 
         return Issue(code="invalid_params", severity=Severity.error, item_index=index,
                      message_ko=f"{_label(template, index)}: 파라미터가 허용 범위를 벗어났습니다.",
                      details={"errors": e.errors(include_url=False, include_context=False)})
-    params, issues = clamp_params(template, params, ctx.rule_ctx, _height_constraint(template, ctx),
+    params, issues = clamp_params(template, params, ctx.rule_ctx, _height_constraint(template, ctx) + list(extra or []),
                                   index, _label(template, index))
     return template, params, issues
+
+
+def _attach_issues(items: list[BuiltItem]) -> list[Issue]:
+    """attach_to 힌트를 지키지 못한 항목(대상 측면에 맞닿지 않음)은 일반 배치로 놓였다고 경고한다."""
+    by_index = {it.index: it for it in items}
+    out = []
+    for it in items:
+        if it.hint.attach_to is None or it.placement is None:
+            continue
+        idx, side = it.hint.attach_to
+        target = by_index.get(idx)
+        if target is None or target.placement is None:
+            where = f"항목 #{idx + 1}"
+        elif attach_satisfied(it, target, side):
+            continue
+        else:
+            where = target.label_ko
+        out.append(Issue(
+            code="attach_fallback", severity=Severity.warning, item_index=it.index,
+            related_index=idx if target is not None else None,
+            message_ko=f"{it.label_ko}: {where} 옆에 붙일 자리가 없어 따로 놓았어요. 직접 옮겨 이어 주세요.",
+            details={"attach_to": [idx, side]},
+        ))
+    return out
 
 
 def _shrink_to_fit(items: list[BuiltItem], ctx: EngineContext, report: ValidationReport) -> None:
@@ -147,8 +205,23 @@ def _shrink_to_fit(items: list[BuiltItem], ctx: EngineContext, report: Validatio
 def run_engine(specs: list[ItemSpec], ctx: EngineContext, measure_thickness: bool = True) -> EngineResult:
     report = ValidationReport()
     items: list[BuiltItem] = []
+    # attach_to 대상(2층 집 등)을 먼저 보정해 두고, 붙는 항목(램프)은 대상의 최종 값에 맞춘다
+    attached = {i for i, s in enumerate(specs) if s.hint.attach_to is not None}
+    prepared_all: dict[int, tuple[Template, TemplateParams, list[Issue]] | Issue] = {}
     for i, spec in enumerate(specs):
-        prepared = _prepare(spec, i, ctx)
+        if i not in attached:
+            prepared_all[i] = _prepare(spec, i, ctx)
+    targets = {i: (pr[0], pr[1]) for i, pr in prepared_all.items() if not isinstance(pr, Issue)}
+    for i in attached:
+        spec = specs[i]
+        try:
+            template = get_template(spec.template)
+        except KeyError:
+            template = None
+        extra = attach_constraints(template, spec.hint, targets) if template is not None else []
+        prepared_all[i] = _prepare(spec, i, ctx, extra)
+    for i, spec in enumerate(specs):
+        prepared = prepared_all[i]
         if isinstance(prepared, Issue):
             report.extend([prepared])
             continue
@@ -162,6 +235,7 @@ def run_engine(specs: list[ItemSpec], ctx: EngineContext, measure_thickness: boo
                                  message_ko=f"{_label(template, i)}: 형상 생성에 실패했습니다 ({type(e).__name__}).")])
 
     _shrink_to_fit(items, ctx, report)
+    report.extend(_attach_issues(items))
     report.extend(validate_all(
         items, ctx.cage, ctx.size_rules, ctx.rules.printing, ctx.min_wall_mm,
         count=ctx.count, measure_thickness_mesh=measure_thickness,
@@ -176,10 +250,11 @@ def revalidate(items: list[BuiltItem], ctx: EngineContext) -> ValidationReport:
     처음 설계할 때(run_engine)와 같은 기준이지만 보정·축소·재배치는 하지 않는다. 고치면 저장된 버전과 다른
     설계가 되므로, 지금 템플릿 제약을 벗어난 파라미터도 자동 보정 대신 오류로 남긴다."""
     report = ValidationReport()
+    by_index = {it.index: it for it in items}
     for it in items:
         if it.template is not None and it.params is not None:
-            report.extend(constraint_violations(it.template, it.params, ctx.rule_ctx,
-                                                _height_constraint(it.template, ctx), it.index, it.label_ko))
+            extra = _height_constraint(it.template, ctx) + attach_constraints(it.template, it.hint, by_index)
+            report.extend(constraint_violations(it.template, it.params, ctx.rule_ctx, extra, it.index, it.label_ko))
     report.extend(validate_all(
         items, ctx.cage, ctx.size_rules, ctx.rules.printing, ctx.min_wall_mm, count=ctx.count,
     ))

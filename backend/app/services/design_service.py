@@ -47,6 +47,7 @@ from app.schemas import (
     HabitatIn,
     HabitatOut,
     ItemOut,
+    PartOut,
     PlacementOut,
     SharedDesignOut,
     VersionOut,
@@ -57,7 +58,7 @@ from app.services.market_view import item_models, stored_blobs
 from app.storage import Stored
 
 if TYPE_CHECKING:  # 형상 커널(build123d/OCP)·trimesh 는 설계 생성·메시·내려받기 요청에서만 불러온다
-    from app.domain import BuiltItem, Cage
+    from app.domain import BuiltItem, Cage, PlacementHint
     from app.geometry.export import ExportFile
     from app.services.engine import EngineContext, EngineResult
 
@@ -148,9 +149,10 @@ def _atomic_write(path: Path, data: bytes) -> None:
         tmp.unlink(missing_ok=True)
 
 
-def _print_name(index: int) -> str:
-    """출력 자세 메시 캐시 파일 이름 (내려받기용)."""
-    return f"print_{index}.stl"
+def _print_name(index: int, part_key: str | None = None) -> str:
+    """출력 자세 메시 캐시 파일 이름 (내려받기용). 첫 파트(본체)는 print_i.stl (파트가 하나뿐인 템플릿과 같은 이름),
+    그 밖의 파트는 print_i_<파트>.stl."""
+    return f"print_{index}.stl" if part_key is None else f"print_{index}_{part_key}.stl"
 
 
 def _world_name(index: int) -> str:
@@ -158,17 +160,31 @@ def _world_name(index: int) -> str:
     return f"world_{index}.stl"
 
 
+def _stored_parts(it: dict) -> list[dict]:
+    """저장된 구조물의 출력 파트 기록 (옛 행에는 없다 → 본체 하나)."""
+    return it.get("parts") or []
+
+
+def _part_file_keys(it: dict) -> list[str | None]:
+    """구조물의 출력 파트별 캐시 파일 이름에 쓰는 파트 키 (첫 파트는 None = print_i.stl)."""
+    parts = _stored_parts(it)
+    return [None] + [p["key"] for p in parts[1:]]
+
+
 def _cache_names(it: dict) -> list[str]:
     """저장된 구조물 하나(DesignVersion.items 의 항목)가 캐시에 가져야 할 파일 이름."""
-    names = [_print_name(it["index"])]
+    names = [_print_name(it["index"], k) for k in _part_file_keys(it)]
     if it["placement"]:
         names.append(_world_name(it["index"]))
     return names
 
 
 def _mesh_files(item: BuiltItem) -> dict[str, bytes]:
-    """구조물 하나의 메시 캐시 파일: 출력 자세(print_i), 배치된 경우 케이지 좌표계 뷰어 메시(world_i)."""
+    """구조물 하나의 메시 캐시 파일: 출력 자세(print_i, 파트가 여럿이면 print_i_<파트>), 배치된 경우 케이지 좌표계
+    뷰어 메시(world_i)."""
     files = {_print_name(item.index): item.print_mesh.export(file_type="stl")}
+    for part in item.parts[1:]:
+        files[_print_name(item.index, part.key)] = part.print_mesh.export(file_type="stl")
     if item.placement is not None:
         files[_world_name(item.index)] = item.world_mesh().export(file_type="stl")
     return files
@@ -215,10 +231,22 @@ def _version_records(llm_spec: dict, engine: EngineResult) -> tuple[list[dict], 
             ),
             "size_mm": [float(v) for v in (hi - lo)],
             "print_size_mm": [float(v) for v in it.print_mesh.extents],
+            # 출력 파트 (조립형 구조물은 2~3개). 파트가 하나뿐이면 본체 하나
+            "parts": [{"key": part.key, "name_ko": part.name_ko, "size_mm": [float(v) for v in part.print_mesh.extents]}
+                      for part in it.print_parts],
         })
     if effective_items:
         effective["items"] = effective_items
     return built_items, effective
+
+
+def _stored_hint(it: dict) -> PlacementHint:
+    """저장된 배치 힌트 중 다시 검증에 필요한 것(attach_to: 램프 높이 = 착지판 높이 제약)만 복원한다."""
+    from app.domain import PlacementHint
+    raw = (it.get("hint") or {}).get("attach_to") if isinstance(it.get("hint"), dict) else None
+    if isinstance(raw, dict) and isinstance(raw.get("item_index"), int) and raw.get("side") in ("front", "back", "left", "right"):
+        return PlacementHint(attach_to=(raw["item_index"], raw["side"]))
+    return PlacementHint()
 
 
 @dataclass(frozen=True)
@@ -623,6 +651,8 @@ class DesignService:
                 size_mm=it["size_mm"], print_size_mm=it["print_size_mm"],
                 mesh_url=(f"/designs/{design.id}/versions/{v.version}/parts/{it['index']}.stl?g={g}"
                           if it["placement"] else None),
+                parts=[PartOut(**part) for part in _stored_parts(it)] or [PartOut(key="body", name_ko="본체",
+                                                                                   size_mm=it["print_size_mm"])],
             )
             for it in v.items
         ]
@@ -694,10 +724,10 @@ class DesignService:
 
     def _rebuild(self, design: Design, v: DesignVersion, it: dict) -> BuiltItem:
         """저장된 최종 파라미터·배치로 구조물 하나를 다시 만든다."""
-        from app.domain import Placement, PlacementHint
+        from app.domain import Placement
         try:
             t = get_template(it["template"])
-            built = build_item(it["index"], t, t.load_stored_params(it["params"]), PlacementHint(),
+            built = build_item(it["index"], t, t.load_stored_params(it["params"]), _stored_hint(it),
                                self.rules.printing)
         except Exception as e:  # 템플릿 삭제·파라미터 스키마 변경·형상 커널 오류
             log.exception("mesh regeneration failed: design=%s v=%s item=%s", design.id, v.version, it)
@@ -803,9 +833,12 @@ class DesignService:
                 errors,
             )
         d = self._ensure_meshes(design, v)
-        parts = [
-            ExportPart(f"part{it['index'] + 1}_{it['template']}",
-                       trimesh.load(d / _print_name(it["index"]), file_type="stl"))
-            for it in v.items
-        ]
+        parts = []
+        for it in v.items:
+            base = f"part{it['index'] + 1}_{it['template']}"
+            stored = _stored_parts(it)
+            for key in _part_file_keys(it):
+                # 파트가 여럿인 구조물만 이름에 파트를 붙인다 (파트 하나짜리 파일 이름은 그대로)
+                name = base if len(stored) <= 1 else f"{base}_{key or stored[0]['key']}"
+                parts.append(ExportPart(name, trimesh.load(d / _print_name(it["index"], key), file_type="stl")))
         return export_parts(parts, fmt, f"nestforge_{design.id[:8]}_v{v.version}", self.rules.printing.plate_spacing_mm)
