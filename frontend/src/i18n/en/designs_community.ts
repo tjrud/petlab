@@ -68,7 +68,7 @@ const en: Record<string, string> = {
   "글 목록을 불러오는 중이에요": "Loading posts…",
   "글 목록을 불러오지 못했어요.": "Couldn't load posts.",
   "아직 글이 없어요.": "No posts yet.",
-  "케이지 설계나 사육 경험을 올려 주세요.": "Share your cage designs or hamster care experience.",
+  "케이지 설계나 사육 경험을 올려 주세요.": "Share your cage designs or pet care experience.",
   "이 페이지에는 글이 없어요.": "There are no posts on this page.",
   "총 {n}개의 글": "Posts: {n}",
   "탐색": "Explore",

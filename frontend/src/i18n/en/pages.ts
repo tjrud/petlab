@@ -7,7 +7,7 @@ const en: Record<string, string> = {
   "케이지 치수를 정하고 은신처·쳇바퀴·모래목욕통 같은 구조물을 놓아 보며 겹침과 끼임 틈을 미리 확인해요.":
     "Set your cage size, place hideouts, wheels and sand baths, and check for overlaps and trap gaps ahead of time.",
   "보호자들이 만든 은신처·터널·경사로 SKP·3MF·STL 파일과 가상 케이지 배치를 나누는 곳.":
-    "Share hideout, tunnel and ramp files (SKP, 3MF, STL) and virtual cage layouts made by hamster owners.",
+    "Share hideout, tunnel and ramp files (SKP, 3MF, STL) and virtual cage layouts made by pet owners.",
   "커뮤니티 글": "Community post",
   "공유 작품": "Shared work",
   "작품 올리기 · 탐색": "Upload a work · Explore",
@@ -18,16 +18,16 @@ const en: Record<string, string> = {
     "Set your cage size, then place, move and rotate items from the catalog. Each time you place one, we check for overlaps, anything outside the cage, trap gaps and space in front of entrances. Try it out before you buy supplies or rearrange your layout.",
   "목록으로": "Back to list",
   "글쓰기": "New post",
-  "설계와 사육 정보를 올리고 보는 곳이에요.": "Share and read designs and hamster care tips.",
+  "설계와 사육 정보를 올리고 보는 곳이에요.": "Share and read designs and pet care tips.",
   "맞춤 설계하기": "Create a custom design",
   "사육 환경과 원하는 구조물을 적으면 설계와 함께 안전·출력 기준 검사 결과가 나와요. 결과는 3D로 보고 STL·3MF 파일로 내려받을 수 있어요.":
-    "Describe your hamster's setup and the structure you want, and you'll get a design along with safety and print checks. View the result in 3D and download it as STL or 3MF files.",
+    "Describe your pet's setup and the structure you want, and you'll get a design along with safety and print checks. View the result in 3D and download it as STL or 3MF files.",
   "설계를 불러오는 중…": "Loading design…",
   "만든 설계를 최근 수정한 순서로 보여요.": "Your designs, most recently edited first.",
   "새 설계": "New design",
   "작품 올리기": "Upload a work",
   "보호자들이 만든 구조물 파일(SKP·3MF·STL)과 가상 케이지 배치를 내려받고 나누는 곳이에요.":
-    "Download and share structure files (SKP, 3MF, STL) and virtual cage layouts made by hamster owners.",
+    "Download and share structure files (SKP, 3MF, STL) and virtual cage layouts made by pet owners.",
   "로그인": "Log in",
   "회원가입": "Sign up",
   "이메일 인증": "Email verification",
@@ -113,7 +113,7 @@ const en: Record<string, string> = {
   "반려동물 정보를 불러오는 중이에요": "Loading your pets…",
   "등록된 반려동물이 없어요.": "No pets yet.",
   "아이와 케이지 정보를 등록해 두면 다음 설계 때 바로 불러올 수 있어요.":
-    "Save your hamster and cage details to load them right away next time you design.",
+    "Save your pet and its cage or tank details to load them right away next time you design.",
   "반려동물 등록하기": "Add a pet",
   "그 밖에 {n}마리가 더 있어요.": "{n} more not shown.",
   "모두 보기": "View all",
@@ -153,7 +153,7 @@ const en: Record<string, string> = {
   "전체 보기": "View all",
   "최근 글을 불러오는 중이에요": "Loading recent posts…",
   "아직 올라온 글이 없어요.": "No posts yet.",
-  "설계나 사육 이야기를 올려 주세요.": "Share a design or a hamster care story.",
+  "설계나 사육 이야기를 올려 주세요.": "Share a design or a pet care story.",
   "커뮤니티로 가기": "Go to Community",
   "설계 첨부": "Design attached",
   "댓글 {n}": "Comments {n}",
