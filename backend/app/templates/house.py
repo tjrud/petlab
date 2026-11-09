@@ -24,6 +24,7 @@ from build123d import Part
 from pydantic import Field, model_validator
 
 from app.templates.base import (
+    DecorZone,
     Features,
     ParamConstraint,
     PrintPart,
@@ -41,6 +42,8 @@ from app.templates.parts.shell import SKIRT_MM, FloorPart, RoofPart, WallPart
 _INVERTED = np.diag([1.0, -1.0, -1.0])
 _UPRIGHT = np.eye(3)
 WIDTH_MAX_MM = 350.0
+DECOR_KEEPOUT_MM = 4.0   # 장식이 개구부·결합부·모서리에서 떨어지는 거리
+DECOR_MAX_DEPTH_MM = 1.0  # 장식 홈 깊이·돌기 높이 상한
 
 
 class HouseParams(TemplateParams):
@@ -276,6 +279,59 @@ class HouseTemplate(Template):
             entrance_count=len(p.doors.sides) + len(p.ports.sides),
             extra=extra,
         )
+
+    # ── 장식 영역 ──
+
+    def decor_zones(self, p: HouseParams) -> list[DecorZone]:
+        """바깥 벽 네 면(파내기·돋을새김)과, 경사·둥근 지붕이면 지붕 윗면 앞·뒤 경사면(파내기만).
+        평 지붕 윗면은 (뒤집어 출력하므로) 베드에 닿는 면이라 뺀다."""
+        sh = make_shell(p)
+        t = p.walls.thickness_mm
+        v1 = sh.wall_top - top_clearance(p) + MARGIN_MM  # 스커트·지붕판 아래 (keepout 이 다시 띄운다)
+        wb = window_bottom(p)
+        ud = upper_door(p)
+        zones: list[DecorZone] = []
+        for face in ("front", "back", "left", "right"):
+            length = sh.wall_length(face)
+            cx, cy = sh.wall_center(face)
+            ox, oy = sh.outward(face)
+            surface = (cx + ox * t / 2, cy + oy * t / 2, 0.0)
+            obstacles: list[tuple[float, float, float, float]] = []
+            if face in p.doors.sides:
+                r = p.doors.width_mm / 2
+                obstacles.append((-r, 0.0, r, arch_height(p.doors.width_mm)))
+            if face in p.ports.sides:
+                r = p.ports.diameter_mm / 2 + t  # 플랜지 고리 포함
+                obstacles.append((-r, 0.0, r, arch_height(2 * r)))
+            if face in openings.window_sides(p.windows):
+                rw = p.windows.diameter_mm / 2
+                obstacles.append((-rw, wb, rw, wb + lens_height(p.windows.diameter_mm)))
+            if ud is not None and ud[0] == face:
+                r = ud[2] / 2
+                obstacles.append((-r, ud[1], r, ud[1] + arch_height(ud[2])))
+                obstacles.append((-length / 2, 0.0, length / 2, ud[1]))  # 착지판이 아래를 덮는다
+            zones.append(DecorZone(
+                face=face, mode="relief", max_depth_mm=DECOR_MAX_DEPTH_MM, keepout_mm=DECOR_KEEPOUT_MM,
+                u0=-length / 2, u1=length / 2, v0=0.0, v1=v1, obstacles=tuple(obstacles), part_key="body",
+                print_inverted=body_inverted(p), thickness_field="walls.thickness_mm", surface=surface,
+            ))
+        if is_cap(p) and p.roof.kind == "pitched":
+            # 경사 지붕 앞·뒤 경사면을 기울어진 벽으로: u = 용마루 방향(바깥에서 읽는 방향), v = 처마에서 용마루 쪽으로
+            # (둥근 지붕은 곡면이라 홈 벽과 표면이 예각을 이루어 지원하지 않는다)
+            a = math.radians(p.roof.pitch_deg)
+            z_eave = eave_height(p) + shell.pitched_eave_lift(t, p.roof.pitch_deg)
+            slope_len = (p.depth_mm / 2) / math.cos(a)
+            k = max(DECOR_KEEPOUT_MM, t)
+            for sign, x_sign in ((-1.0, 1.0), (1.0, -1.0)):  # 앞 경사면(−Y 쪽), 뒤 경사면(+Y 쪽)
+                zones.append(DecorZone(
+                    face="roof", mode="engrave", max_depth_mm=DECOR_MAX_DEPTH_MM, keepout_mm=0.0,
+                    u0=-p.width_mm / 2 + k, u1=p.width_mm / 2 - k, v0=k, v1=slope_len - k, part_key="roof",
+                    print_inverted=False, thickness_field="walls.thickness_mm",
+                    surface=(0.0, sign * p.depth_mm / 2, z_eave),
+                    x_dir=(x_sign, 0.0, 0.0),
+                    z_dir=(0.0, sign * math.sin(a), math.cos(a)),
+                ))
+        return zones
 
     @staticmethod
     def _part_keys(p: HouseParams) -> list[str]:

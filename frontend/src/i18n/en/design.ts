@@ -217,6 +217,19 @@ const en: Record<string, string> = {
   "출력 파트 {n}개 (서포트 없이 출력하는 자세 기준)": "{n} print parts (sizes in the support-free print orientation)",
   "조립형 구조물은 파트를 따로 출력해 끼워 맞춰요. STL은 파트 {n}개가 zip 하나로, 3MF는 파일 하나에 파트를 모두 담아요.":
     "Assembled structures print as separate parts that fit together. STL comes as one zip with {n} part files; 3MF holds every part in one file.",
+  // 장식 (lib/templates.ts describeDecor, ItemList)
+  "장식": "Decoration",
+  "줄무늬": "Stripes",
+  "점무늬": "Dots",
+  "비늘무늬": "Scales",
+  "벽돌무늬": "Brick",
+  "물결무늬": "Wave",
+  "벌집무늬": "Honeycomb",
+  "바깥 벽": "Outer walls",
+  "파내기": "engraved",
+  "돋을새김": "relief",
+  "각인 '{text}' ({face}, 글자 {h}mm)": "Engraving '{text}' ({face}, {h}mm letters)",
+  "{pattern} ({mode}, {face}, 깊이 {d}mm)": "{pattern} ({mode}, {face}, {d}mm deep)",
 };
 
 export default en;

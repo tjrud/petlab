@@ -17,6 +17,7 @@ from build123d import Align, Box, Cylinder, Part, Pos, Rot
 from pydantic import Field
 
 from app.templates.base import (
+    DecorZone,
     Features,
     Opening,
     ParamConstraint,
@@ -24,6 +25,9 @@ from app.templates.base import (
     Template,
     TemplateParams,
 )
+
+DECOR_KEEPOUT_MM = 4.0   # 장식이 출입구·모서리·지붕판에서 떨어지는 거리
+DECOR_MAX_DEPTH_MM = 1.0  # 장식 홈 깊이·돌기 높이 상한
 
 _BOTTOM = (Align.CENTER, Align.CENTER, Align.MIN)
 _CUT = 1.0  # 불리언 연산이 면과 정확히 겹치지 않도록 잘라내는 형상을 이만큼 연장
@@ -196,6 +200,25 @@ class HideoutTemplate(Template):
     def print_rotation(self, p: HideoutParams) -> np.ndarray:
         # X 축 기준 180° 회전: 지붕이 베드에 닿도록 뒤집는다.
         return np.diag([1.0, -1.0, -1.0])
+
+    def decor_zones(self, p: HideoutParams) -> list[DecorZone]:
+        """바깥 벽 네 면 (파내기·돋을새김). 지붕 윗면은 뒤집어 출력할 때 베드에 닿는 면이라 홈 바닥이 오버행이 되어 뺀다."""
+        W, D, H, t = p.width_mm, p.depth_mm, p.height_mm, p.wall_thickness_mm
+        r = p.entrance_diameter_mm / 2
+        door = (-r, 0.0, r, 2 * r)
+        zones = []
+        for face, length, surface, has_door in (
+            ("front", W, (0.0, -D / 2, 0.0), True),
+            ("back", W, (0.0, D / 2, 0.0), p.entrance_count >= 2),
+            ("left", D, (-W / 2, 0.0, 0.0), False),
+            ("right", D, (W / 2, 0.0, 0.0), False),
+        ):
+            zones.append(DecorZone(
+                face=face, mode="relief", max_depth_mm=DECOR_MAX_DEPTH_MM, keepout_mm=DECOR_KEEPOUT_MM,
+                u0=-length / 2, u1=length / 2, v0=0.0, v1=H - t, obstacles=(door,) if has_door else (),
+                part_key="body", print_inverted=True, thickness_field="wall_thickness_mm", surface=surface,
+            ))
+        return zones
 
     def features(self, p: HideoutParams) -> Features:
         two = p.entrance_count >= 2

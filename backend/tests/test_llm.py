@@ -359,3 +359,46 @@ def test_mock_two_story_house_with_outside_ramp(req, rules):
     assert other.items[0].template == "house" and other.items[0].params.windows.count == 3
     assert other.items[0].params.roof.kind == "pitched"
     assert _mock(req, "집 하나").items[0].template == "hideout"  # '집' 만으로는 은신처
+
+
+# ── 장식 명세 (decor) ────────────────────────────────────────
+
+
+def test_decor_spec_accepts_pattern_and_text_and_rejects_bad_text():
+    item = json.loads(json.dumps(VALID["items"][0]))
+    item["decor"] = {"kind": "pattern", "pattern": "honeycomb", "density": 2, "direction": 45, "depth_mm": 0.6,
+                     "face": "walls", "mode": "engrave"}
+    spec = parse_spec(json.dumps({**VALID, "items": [item]}))
+    assert to_item_specs(spec)[0].decor["pattern"] == "honeycomb"
+    item["decor"] = {"kind": "text", "text": "뽀송이 Mochi-01", "face": "left", "height_mm": 15, "depth_mm": 0.6}
+    assert to_item_specs(parse_spec(json.dumps({**VALID, "items": [item]})))[0].decor["text"] == "뽀송이 Mochi-01"
+    assert to_item_specs(parse_spec(json.dumps(VALID)))[0].decor is None  # decor 생략 가능 (옛 출력)
+    for bad in ({"kind": "text", "text": "😀", "face": "left", "height_mm": 15, "depth_mm": 0.6},
+                {"kind": "text", "text": "열세글자가넘어가는긴이름입니다", "face": "left", "height_mm": 15, "depth_mm": 0.6},
+                {"kind": "pattern", "pattern": "plaid", "density": 2, "direction": 0, "depth_mm": 0.6, "face": "walls", "mode": "engrave"},
+                {"kind": "text", "text": "Mochi", "face": "left", "height_mm": 15, "depth_mm": 0.6, "svg": "<path/>"}):
+        item["decor"] = bad
+        with pytest.raises(ValidationError):
+            parse_spec(json.dumps({**VALID, "items": [item]}))
+
+
+def test_api_schema_decor_has_no_regex_and_states_charset():
+    schema = api_schema()
+    text = schema["$defs"]["TextDecor"]["properties"]["text"]
+    assert "pattern" not in text and "한글" in text["description"]
+    assert set(schema["$defs"]["PatternDecor"]["properties"]["pattern"]["enum"]) == {
+        "stripes", "dots", "scales", "brick", "wave", "honeycomb"}
+    decor = schema["$defs"]["HideoutItem"]["properties"]["decor"]
+    assert any(opt.get("type") == "null" for opt in decor["anyOf"])
+    from app.llm.prompts import SYSTEM_PROMPT
+    assert "decor" in SYSTEM_PROMPT and "안전 치수" in SYSTEM_PROMPT
+
+
+def test_mock_understands_engraving_and_patterns(req):
+    spec = _mock(req, "은신처 왼쪽에 '뽀송이'라고 새겨 주세요")
+    assert spec.items[0].decor.kind == "text" and spec.items[0].decor.text == "뽀송이"
+    spec = _mock(req, "벌집 무늬 은신처")
+    assert spec.items[0].decor.kind == "pattern" and spec.items[0].decor.pattern == "honeycomb"
+    spec = _mock(req, "터널에 줄무늬")
+    assert spec.items[0].template == "tunnel" and spec.items[0].decor is None
+    assert _mock(req, "은신처").items[0].decor is None

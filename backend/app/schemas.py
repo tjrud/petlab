@@ -133,6 +133,7 @@ class ItemOut(BaseModel):
     print_size_mm: list[float]     # 출력 자세 [X, Y, Z] (파트가 여럿이면 본체)
     mesh_url: str | None           # 케이지 좌표계로 배치된 STL (배치 실패 시 null)
     parts: list[PartOut] = []      # 출력 파트 (STL 은 파트별 파일, 3MF 는 한 파일에 여러 객체)
+    decor: dict | None = None      # 장식 명세 (무늬 또는 글귀 각인). 없으면 null
 
 
 class VersionSummary(BaseModel):

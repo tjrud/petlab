@@ -104,6 +104,8 @@ class PrintingRules(_Strict):
     overhang_area_tolerance_mm2: Annotated[float, Field(ge=0)]
     build_volume_mm: tuple[PositiveMM, PositiveMM, PositiveMM]
     plate_spacing_mm: Annotated[float, Field(ge=0)]
+    # 장식(무늬·각인) 최소 형상 크기 (선 폭·점 지름·글자 획)
+    min_feature_mm: PositiveMM
     tessellation_tolerance_mm: PositiveMM
     tessellation_angular_tolerance_deg: PositiveMM
 

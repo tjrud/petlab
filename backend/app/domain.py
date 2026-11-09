@@ -145,6 +145,9 @@ class BuiltItem:
     placement: Placement | None = None
     # 출력 파트 목록 (비어 있으면 본체 하나 = print_mesh). 메시 건전성·벽 두께 실측·오버행·출력 공간은 파트 단위로 본다
     parts: list[BuiltPart] = field(default_factory=list)
+    # 장식 명세(JSON)와 장식을 얹으며 난 경고 (줄임·뺌). 형상에는 이미 반영되어 있다
+    decor: dict | None = None
+    decor_issues: list = field(default_factory=list)
 
     @property
     def print_parts(self) -> list[BuiltPart]:

@@ -110,6 +110,25 @@ export type Placement = { x_mm: number; y_mm: number; rotation_deg: number };
 /** 출력 파트 하나 (집처럼 조립형 구조물은 본체·지붕·층판 등 여러 개) */
 export type ItemPart = { key: string; name_ko: string; size_mm: number[] };
 
+/** 장식 명세: 무늬 또는 글귀 각인 (backend/app/templates/decor.py) */
+export type PatternDecor = {
+  kind: "pattern";
+  pattern: "stripes" | "dots" | "scales" | "brick" | "wave" | "honeycomb";
+  density: 1 | 2 | 3;
+  direction: 0 | 45 | 90;
+  depth_mm: number;
+  face: "walls" | "front" | "back" | "left" | "right" | "roof";
+  mode: "engrave" | "relief";
+};
+export type TextDecor = {
+  kind: "text";
+  text: string;
+  face: "front" | "back" | "left" | "right" | "roof";
+  height_mm: number;
+  depth_mm: number;
+};
+export type Decor = PatternDecor | TextDecor;
+
 export type Item = {
   index: number;
   template: string;
@@ -124,6 +143,8 @@ export type Item = {
   mesh_url: string | null;
   /** 출력 파트. 옛 서버 응답에는 없을 수 있어요 (그러면 본체 하나) */
   parts?: ItemPart[];
+  /** 장식 (무늬·글귀 각인). 없으면 null. 줄이거나 뺀 경우는 검증 이슈(decor_reduced·decor_skipped)로 온다 */
+  decor?: Decor | null;
 };
 
 export type Severity = "error" | "warning" | "info";

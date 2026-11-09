@@ -16,6 +16,7 @@ from app.geometry.mesh import part_to_mesh, to_print_orientation
 from app.layout.placer import attach_satisfied, place_all
 from app.rules.loader import PrintingRules, RuleBook, SizeRules
 from app.templates.base import ParamConstraint, RuleContext, Template, TemplateParams
+from app.templates.decor import PatternDecor, apply_decor, parse_decor
 from app.templates.registry import get_template
 from app.validation.autofix import clamp_params, constraint_violations, shrink_params
 from app.validation.checks import validate_all
@@ -31,6 +32,7 @@ class ItemSpec:
     template: str
     params: dict
     hint: PlacementHint = field(default_factory=PlacementHint)
+    decor: dict | None = None  # 장식 명세 (templates/decor.py 의 PatternDecor | TextDecor). 없으면 None
 
 
 @dataclass(frozen=True)
@@ -52,7 +54,8 @@ class EngineContext:
     @property
     def rule_ctx(self) -> RuleContext:
         return RuleContext(self.size_rules, self.min_wall_mm, self.count,
-                           printing_max_overhang_deg=self.rules.printing.max_overhang_deg)
+                           printing_max_overhang_deg=self.rules.printing.max_overhang_deg,
+                           min_feature_mm=self.rules.printing.min_feature_mm)
 
 
 @dataclass
@@ -62,17 +65,31 @@ class EngineResult:
 
 
 def build_item(
-    index: int, template: Template, params: TemplateParams, hint: PlacementHint, printing: PrintingRules
+    index: int, template: Template, params: TemplateParams, hint: PlacementHint, printing: PrintingRules,
+    decor: dict | None = None, rule_ctx: RuleContext | None = None,
 ) -> BuiltItem:
+    """형상 생성. decor 가 있으면(장식 명세) 파트 분할 뒤 파트별로 장식을 얹고 조립 형상은 그 파트들의 합으로 만든다.
+    장식이 없으면 예전과 똑같은 경로·바이트다."""
     tol, ang = printing.tessellation_tolerance_mm, printing.tessellation_angular_tolerance_deg
+    decor_issues: list[Issue] = []
     part = template.build(params)
+    print_parts = template.print_parts(params, built=part)
+    decorated = False
+    if decor is not None and rule_ctx is not None:
+        label = _label(template, index)
+        print_parts, decor_issues = apply_decor(print_parts, template, params, parse_decor(decor), rule_ctx,
+                                                item_index=index, label_ko=label)
+        decorated = not any(i.code == "decor_skipped" for i in decor_issues) or len(decor_issues) == 0
+        if decorated:
+            part = print_parts[0].part
+            for pp in print_parts[1:]:
+                part = part + pp.part
     mesh = part_to_mesh(part, tol, ang)
     lo, hi = mesh.bounds
     mesh.apply_translation([-(lo[0] + hi[0]) / 2, -(lo[1] + hi[1]) / 2, -lo[2]])
     print_mesh = to_print_orientation(mesh, template.print_rotation(params))
     # 출력 파트: 파트가 하나뿐인 템플릿은 예전과 똑같은 메시(조립 형상 = 본체)를 쓴다 (파일 바이트가 바뀌지 않게)
     parts: list[BuiltPart] = []
-    print_parts = template.print_parts(params, built=part)
     if len(print_parts) > 1:
         for pp in print_parts:
             pmesh = part_to_mesh(pp.part, tol, ang)
@@ -89,6 +106,8 @@ def build_item(
         template=template,
         params=params,
         parts=parts,
+        decor=decor,
+        decor_issues=decor_issues,
     )
 
 
@@ -128,6 +147,25 @@ def attach_constraints(template: Template, hint: PlacementHint, targets: dict[in
     )]
 
 
+def decor_constraints(template: Template, params: TemplateParams, decor: dict | None, ctx: RuleContext
+                      ) -> list[ParamConstraint]:
+    """각인(파내기)을 넣는 면의 벽은 최소 벽 두께 + 깊이 이상이어야 한다: 장식을 줄이기 전에 벽을 두껍게 보정한다."""
+    if decor is None:
+        return []
+    try:
+        d = parse_decor(decor)
+    except ValueError:
+        return []
+    if d is None or (isinstance(d, PatternDecor) and d.mode == "relief"):
+        return []
+    fields = {z.thickness_field for z in template.decor_zones(params)
+              if z.thickness_field and (d.face == "walls" and z.face != "roof" or z.face == d.face)}
+    need = ctx.min_wall_mm + d.depth_mm
+    return [ParamConstraint(
+        f, min=need, reason_ko=f"각인 깊이 {d.depth_mm:g}mm 를 빼고도 벽이 최소 두께 {ctx.min_wall_mm:g}mm 이상 남도록 두껍게 했습니다",
+    ) for f in sorted(fields)]
+
+
 def _prepare(spec: ItemSpec, index: int, ctx: EngineContext,
              extra: list[ParamConstraint] | None = None) -> tuple[Template, TemplateParams, list[Issue]] | Issue:
     try:
@@ -141,8 +179,8 @@ def _prepare(spec: ItemSpec, index: int, ctx: EngineContext,
         return Issue(code="invalid_params", severity=Severity.error, item_index=index,
                      message_ko=f"{_label(template, index)}: 파라미터가 허용 범위를 벗어났습니다.",
                      details={"errors": e.errors(include_url=False, include_context=False)})
-    params, issues = clamp_params(template, params, ctx.rule_ctx, _height_constraint(template, ctx) + list(extra or []),
-                                  index, _label(template, index))
+    cons = _height_constraint(template, ctx) + decor_constraints(template, params, spec.decor, ctx.rule_ctx) + list(extra or [])
+    params, issues = clamp_params(template, params, ctx.rule_ctx, cons, index, _label(template, index))
     return template, params, issues
 
 
@@ -186,7 +224,7 @@ def _shrink_to_fit(items: list[BuiltItem], ctx: EngineContext, report: Validatio
                                       _height_constraint(t, ctx), item.index, item.label_ko)
             if p2 == item.params or any(i.severity == Severity.error for i in issues):
                 continue
-            candidate = build_item(item.index, t, p2, item.hint, ctx.rules.printing)
+            candidate = build_item(item.index, t, p2, item.hint, ctx.rules.printing, item.decor, ctx.rule_ctx)
             trial = [candidate if it.index == item.index else it for it in items]
             trial_failed = place_all(trial, ctx.cage, gap)
             if candidate.placement is not None and len(trial_failed) < len(failed):
@@ -228,13 +266,15 @@ def run_engine(specs: list[ItemSpec], ctx: EngineContext, measure_thickness: boo
         template, params, issues = prepared
         report.extend(issues)
         try:
-            items.append(build_item(i, template, params, spec.hint, ctx.rules.printing))
+            items.append(build_item(i, template, params, spec.hint, ctx.rules.printing, spec.decor, ctx.rule_ctx))
         except Exception as e:  # 형상 커널 오류 등
             log.exception("build failed: %s", spec)
             report.extend([Issue(code="build_failed", severity=Severity.error, item_index=i,
                                  message_ko=f"{_label(template, i)}: 형상 생성에 실패했습니다 ({type(e).__name__}).")])
 
     _shrink_to_fit(items, ctx, report)
+    for it in items:  # 장식을 줄이거나 뺀 경고 (공간 보정으로 다시 만든 항목은 그때의 결과)
+        report.extend(it.decor_issues)
     report.extend(_attach_issues(items))
     report.extend(validate_all(
         items, ctx.cage, ctx.size_rules, ctx.rules.printing, ctx.min_wall_mm,
