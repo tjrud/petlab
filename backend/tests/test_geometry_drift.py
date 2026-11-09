@@ -391,6 +391,37 @@ GOLDEN_DIGESTS: list[tuple[str, str, str, str]] = [
 ]
 
 
+# 조립형 집(장식 없음): 장식 영역(PR 2) 이전 코드에서 뽑은 조립 형상·본체·파트별 출력 메시 해시
+HOUSE_GOLDEN_DIGESTS: list[tuple[str, str, str, str, dict]] = [
+    ('house', '{"depth_mm": 131.0, "doors": {"sides": ["front"], "width_mm": 75.0}, "floor": {"enabled": false, "thickness_mm": 3.0}, "floors": {"climb": "internal_ramp", "count": 1, "exit_side": "back", "level_height_mm": 100.0, "plate_thickness_mm": 3.0, "ramp_width_mm": 80.0, "slope_deg": 30.0}, "height_mm": 110.0, "ports": {"diameter_mm": 75.0, "flange_mm": 3.0, "sides": []}, "roof": {"kind": "flat", "pitch_deg": 50, "tip_deg": 50}, "walls": {"thickness_mm": 3.0}, "width_mm": 160.0, "windows": {"count": 0, "diameter_mm": 4.0}}',
+     '31e94ef6925893317ab56b13f2cad87758cd484c69fa2c6ea046773b281c7342',
+     'fdad9cc50d9033efc30233c07edd0f0a59680eb6b68fc32e482951651f7f9071',
+     {}),
+    ('house', '{"depth_mm": 131.0, "doors": {"sides": ["front"], "width_mm": 75.0}, "floor": {"enabled": false, "thickness_mm": 3.0}, "floors": {"climb": "internal_ramp", "count": 1, "exit_side": "back", "level_height_mm": 100.0, "plate_thickness_mm": 3.0, "ramp_width_mm": 80.0, "slope_deg": 30.0}, "height_mm": 190, "ports": {"diameter_mm": 75.0, "flange_mm": 3.0, "sides": []}, "roof": {"kind": "pitched", "pitch_deg": 50, "tip_deg": 50}, "walls": {"thickness_mm": 3.0}, "width_mm": 160.0, "windows": {"count": 0, "diameter_mm": 4.0}}',
+     'bba621e32ab2d97b63bc06024298e7a01db9e5c2703d90a05cb68926a640d07c',
+     '9fcc6278ccd1389e196d7ace5f9e998f7803d72069d10eb29f1a85b1044b76e3',
+     {"body": "9fcc6278ccd1389e196d7ace5f9e998f7803d72069d10eb29f1a85b1044b76e3", "roof": "e859c6232bad0c9742d59553820318f129953f1347623fa3651498165368069f"}),
+    ('house', '{"depth_mm": 131.0, "doors": {"sides": ["front"], "width_mm": 75.0}, "floor": {"enabled": false, "thickness_mm": 3.0}, "floors": {"climb": "external_ramp", "count": 2, "exit_side": "back", "level_height_mm": 110, "plate_thickness_mm": 3.0, "ramp_width_mm": 80.0, "slope_deg": 30.0}, "height_mm": 220, "ports": {"diameter_mm": 75.0, "flange_mm": 3.0, "sides": []}, "roof": {"kind": "flat", "pitch_deg": 50, "tip_deg": 50}, "walls": {"thickness_mm": 3.0}, "width_mm": 160.0, "windows": {"count": 0, "diameter_mm": 4.0}}',
+     '9ace91a77f04b07ad0ebaae5caff93ed2321d1c40c33141e0f4497f23cc980b7',
+     '76aaf3ea1128bc3326924cb4e69b8c981c78737e78a3adcefdf949cc37101644',
+     {"body": "76aaf3ea1128bc3326924cb4e69b8c981c78737e78a3adcefdf949cc37101644", "roof": "42f29424c09dc5145c26e27195b7c5527621190f1f7fafbd09401928233ba933", "floor2": "5bcd92c606fb08a0f4a286fd1360fdfe53fcb0cb14164377a55d7baaf4d9385f"}),
+]
+
+
+@pytest.mark.parametrize("key,params_json,mesh_digest,print_digest,part_digests", HOUSE_GOLDEN_DIGESTS,
+                         ids=["house-flat", "house-pitched", "house-two-external"])
+def test_house_without_decor_bytes_are_unchanged(rules, key, params_json, mesh_digest, print_digest, part_digests):
+    from app.domain import PlacementHint
+    from app.services.engine import build_item
+    from app.templates.registry import get_template
+
+    t = get_template(key)
+    it = build_item(0, t, t.Params(**json.loads(params_json)), PlacementHint(), rules.printing)
+    assert hashlib.sha256(it.mesh.export(file_type="stl")).hexdigest() == mesh_digest
+    assert hashlib.sha256(it.print_mesh.export(file_type="stl")).hexdigest() == print_digest
+    assert {p.key: hashlib.sha256(p.print_mesh.export(file_type="stl")).hexdigest() for p in it.parts} == part_digests
+
+
 @pytest.mark.parametrize("key,params_json,mesh_digest,print_digest", GOLDEN_DIGESTS,
                          ids=[f"{k}-{i}" for i, (k, *_) in enumerate(GOLDEN_DIGESTS)])
 def test_existing_template_bytes_are_unchanged(rules, key, params_json, mesh_digest, print_digest):
@@ -445,3 +476,18 @@ def test_house_version_caches_every_part_and_exports_them(tmp_path):
         assert exported_parts(export(c, d)) == parts
         assert cached_files(tmp_path, d) == files
         assert export(c, d, "3mf").status_code == 200
+
+
+def test_decor_is_stored_and_reapplied_on_regeneration(tmp_path, revalidations):
+    """장식 명세가 버전에 저장되고, 캐시를 비워 다시 만들어도 같은 바이트(다시 검증 없이)로 나온다."""
+    with TestClient(create_app(settings(tmp_path))) as c:
+        d = make_design(c, "은신처 왼쪽에 'Mochi-01'이라고 새겨 주세요")
+        [it] = d["current"]["items"]
+        assert it["decor"] == {"kind": "text", "text": "Mochi-01", "face": "left", "height_mm": 15, "depth_mm": 0.6}
+        assert it["params"]["wall_thickness_mm"] == pytest.approx(3.6)  # 각인 깊이만큼 두꺼워짐
+        row = version_row(c)
+        assert row.items[0]["decor"] == it["decor"] and row.effective_spec["items"][0]["decor"] == it["decor"]
+        before = cached_files(tmp_path, d)
+        wipe_cache(tmp_path)
+        assert export(c, d).status_code == 200
+        assert cached_files(tmp_path, d) == before and revalidations == []
