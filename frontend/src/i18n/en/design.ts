@@ -184,7 +184,7 @@ const en: Record<string, string> = {
   "턱 높이": "Lip height",
   "안쪽 깊이": "Inner depth",
   "꼭대기 구멍": "Top opening",
-  "지붕 경사": "Roof slope",
+  "지붕 기울기": "Roof slope",
   "경사로": "None (ramp)",
   "{n}단": "{n} steps",
   "{n}개": "{n}",
@@ -239,7 +239,7 @@ const en: Record<string, string> = {
   "바닥판": "Floor plate",
   "바닥판 두께": "Floor plate thickness",
   "지붕 모양": "Roof shape",
-  // "지붕 경사" 는 물속 동굴과 같은 키라 위(Roof slope)에서 함께 번역한다
+  "지붕 경사": "Roof pitch",
   "지붕 꼭대기 각도": "Roof tip angle",
   "층 수": "Floors",
   "2층 바닥 높이": "Second-floor height",

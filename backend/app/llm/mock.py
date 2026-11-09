@@ -167,6 +167,19 @@ TUNNEL_SHAPES_EN = (
     ("pointed_arch", re.compile(r"\bpointed\b")),
     ("round_arch", re.compile(r"\b(?:round(?:ed)?|semi-?circular|arched)\b")),
 )
+# 어항에서 파이프·튜브(pipe·tube)는 터널을 부르는 흔한 말이라(AQUARIUM_KEYWORDS) 단면 모양 요청으로 읽지 않는다.
+# 둥근 관(tube) 단면은 천장 꼭대기가 둥글어 공기가 남기 쉬우니(tunnel_flat_ceiling 경고), 원통·원형처럼 모양을
+# 콕 집어 말했을 때만 고른다 (어항 프롬프트의 단면 규칙과 같다). 나머지 단면 낱말은 케이지와 같다
+AQUARIUM_TUNNEL_SHAPES_KO = (
+    ("tube", ("원통", "둥근 관", "원형", "둥근 파이프", "둥근 튜브")),
+    *TUNNEL_SHAPES_KO[1:],
+)
+AQUARIUM_TUNNEL_SHAPES_EN = (
+    ("tube", re.compile(r"\b(?:cylindrical|(?<!semi-)circular|round (?:tubes?|tubing|pipes?))\b")),
+    *TUNNEL_SHAPES_EN[1:],
+)
+assert [s for s, _ in AQUARIUM_TUNNEL_SHAPES_KO] == [s for s, _ in TUNNEL_SHAPES_KO]
+assert [s for s, _ in AQUARIUM_TUNNEL_SHAPES_EN] == [s for s, _ in TUNNEL_SHAPES_EN]
 VENTS_EN = (re.compile(_NUM_EN + r"\s*(?:air[ -]?|ventilation |vent )?(?:vents?|holes?)\b"),
             re.compile(r"\b(?:vents?|ventilation holes?|air ?holes?)\b[^\d]{0,8}?(\d+)\b(?!\s*(?:mm|cm|\.\d))"))
 _DOOR_EN = r"(?:entrances?|entry|entries|doors?|doorways?|openings?)"
@@ -300,16 +313,18 @@ def _scaled(template, params: dict, factor: float) -> dict:
     return out
 
 
-def _apply_numbers(key: str, text: str, params: dict) -> dict:
+def _apply_numbers(key: str, text: str, params: dict, aquarium: bool = False) -> dict:
     out = dict(params)
     low = _en(text)
     if key == "tunnel":
-        for shape, words in TUNNEL_SHAPES_KO:
+        shapes_ko, shapes_en = ((AQUARIUM_TUNNEL_SHAPES_KO, AQUARIUM_TUNNEL_SHAPES_EN) if aquarium
+                                else (TUNNEL_SHAPES_KO, TUNNEL_SHAPES_EN))
+        for shape, words in shapes_ko:
             if any(w in text for w in words):
                 out["shape"] = shape
                 break
         else:
-            for shape, rx in TUNNEL_SHAPES_EN:
+            for shape, rx in shapes_en:
                 if rx.search(low):
                     out["shape"] = shape
                     break
@@ -445,7 +460,8 @@ class MockInterpreter:
                 for it in items:
                     if it["template"] in targets:
                         t = registry[it["template"]]
-                        it["params"] = _apply_numbers(t.key, text, _scaled(t, it["params"], factor))
+                        it["params"] = _apply_numbers(t.key, text, _scaled(t, it["params"], factor),
+                                                      aquarium=is_aquarium(req))
                         if zone:
                             it["placement"]["zone"] = zone
                         if grouped:
@@ -465,7 +481,8 @@ class MockInterpreter:
 
         for key in requested:
             t = registry[key]
-            params = _apply_numbers(key, text, _scaled(t, t.default_params(ctx).model_dump(), factor))
+            params = _apply_numbers(key, text, _scaled(t, t.default_params(ctx).model_dump(), factor),
+                                    aquarium=is_aquarium(req))
             items.append({
                 "template": key,
                 "params": params,

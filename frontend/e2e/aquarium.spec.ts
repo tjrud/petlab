@@ -135,7 +135,7 @@ test("어항: 종을 바꾸면 크기·수조 칸이 바뀌고, 물속 동굴을
   await items.getByRole("button", { name: /물속 동굴 #\d/ }).click();
   await expect(items.getByText("수조 기준에 맞춰 구성했습니다", { exact: false })).toBeVisible();
   await expect(page.locator("dt", { hasText: /^꼭대기 구멍$/ })).toBeVisible();
-  await expect(page.locator("dt", { hasText: /^지붕 경사$/ })).toBeVisible();
+  await expect(page.locator("dt", { hasText: /^지붕 기울기$/ })).toBeVisible();
   await expect(page.locator("dd", { hasText: /^45°$/ })).toBeVisible();
 
   // 수정 요청 예시도 어항용 (환기구가 없다)
@@ -378,12 +378,40 @@ test("영어 화면: 어항 수조 칸·출력 안내·결과 화면이 영어",
   await page.waitForURL(/\/en\/designs\/[0-9a-f]{32}/);
   await expect(itemList(page, /^Structures \(\d+\)$/).getByRole("button", { name: /Underwater cave #1/ })).toBeVisible();
   await expect(page.getByTestId("viewer").getByText("Tank 588 × 288 mm · Water depth 274 mm")).toBeVisible();
+  // 물속 동굴의 지붕 기울기는 Roof slope (집의 지붕 경사 Roof pitch 와 다른 사전 열쇠)
+  await itemList(page, /^Structures \(\d+\)$/).getByRole("button", { name: /Underwater cave #1/ }).click();
+  await expect(page.locator("dt", { hasText: /^Roof slope$/ })).toBeVisible();
+  await expect(page.locator("dt", { hasText: /^Roof pitch$/ })).toHaveCount(0);
   const validation = page.getByRole("region", { name: "Safety & print check" });
   await expect(validation.getByRole("heading", { name: "Notes (1)" })).toBeVisible();
   await expect(validation).not.toHaveText(/[가-힣]/);
   const download = page.getByRole("region", { name: "Download" });
   await expect(download.getByRole("heading", { name: "Print safety for aquarium pieces" })).toBeVisible();
   await expect(download).not.toHaveText(/[가-힣]/);
+});
+
+test("영어 화면: 햄스터 집의 지붕 경사는 main 그대로 Roof pitch (물속 동굴의 Roof slope 와 섞이지 않는다)", async ({ page }) => {
+  await login(page, "/");
+  const h = await page.request.post(`${API}/habitats`, {
+    data: { species: "hamster", size: "syrian", count: 1, cage: { width_mm: 1000, depth_mm: 500, height_mm: 500 } },
+  });
+  expect(h.status()).toBe(201);
+  const d = await page.request.post(`${API}/designs`, {
+    data: { habitat_id: (await h.json()).id, prompt: "경사 지붕 집을 만들어 주세요" },
+  });
+  expect(d.status()).toBe(201);
+  const { id } = (await d.json()) as { id: string };
+
+  await page.goto(`/en/designs/${id}`);
+  // 구조물 이름표는 서버 카탈로그(main 그대로 "집" → "house")가 번역한다
+  await itemList(page, /^Structures \(\d+\)$/).getByRole("button", { name: /^house #1/i }).click();
+  await expect(page.locator("dt", { hasText: /^Roof pitch$/ })).toBeVisible();
+  await expect(page.locator("dd", { hasText: /^50°$/ })).toBeVisible();
+  await expect(page.locator("dt", { hasText: /^Roof slope$/ })).toHaveCount(0);
+
+  await page.goto(`/designs/${id}`);
+  await itemList(page).getByRole("button", { name: /^집 #1/ }).click();
+  await expect(page.locator("dt", { hasText: /^지붕 경사$/ })).toBeVisible();
 });
 
 test("가상 케이지는 어항 종을 고를 수 없고, 임시 저장에 남은 어항 종은 기본값으로 바뀐다", async ({ page }) => {

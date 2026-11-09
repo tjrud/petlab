@@ -31,7 +31,8 @@ export const PARAM_LABELS: Record<string, string> = {
   basin_depth_mm: "안쪽 깊이",
   // 물속 동굴 (단위는 formatParam 이 값 뒤에 붙인다)
   top_opening_mm: "꼭대기 구멍",
-  roof_slope_deg: "지붕 경사",
+  // 집(house)의 roof.pitch_deg "지붕 경사"(Roof pitch)와 다른 낱말: 번역 사전은 한국어 원문이 열쇠라 같으면 영어도 하나뿐이다
+  roof_slope_deg: "지붕 기울기",
   shape: "단면 모양",
   path: "휘는 모양",
   // 집(house) 템플릿: 중첩 파라미터는 점 표기 키로 보여 준다

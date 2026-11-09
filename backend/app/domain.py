@@ -7,8 +7,10 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 import numpy as np
+import shapely
 import trimesh
 from shapely import affinity
+from shapely.errors import GEOSException
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
@@ -112,8 +114,15 @@ def access_strip(rect: Rect, direction: tuple[int, int], depth: float) -> Rect:
 def mesh_footprint(mesh: trimesh.Trimesh) -> Polygon:
     """메시를 XY 평면에 투영한 외곽 폴리곤 (내부 구멍은 채움)."""
     mask = np.abs(mesh.face_normals[:, 2]) > 1e-6
-    polys = [Polygon(tri[:, :2]) for tri in mesh.triangles[mask]]
-    merged = unary_union([p for p in polys if p.area > 1e-9]).buffer(0)
+    polys = [p for p in (Polygon(tri[:, :2]) for tri in mesh.triangles[mask]) if p.area > 1e-9]
+    try:
+        merged = unary_union(polys)
+    except GEOSException:
+        # 투영한 삼각형이 거의 겹치는 이음매에서 부동소수점 겹침 계산이 위상 오류를 낼 때가 있다
+        # (예: 내경 20·벽 3mm 뾰족 아치 S자 터널 78°: 'Ring edge missing'). 메시는 닫혀 있고 합집합만 실패하니,
+        # 좌표를 1e-6mm 격자에 맞춰 다시 합친다. 원래 경로로 합쳐지던 형상은 이 경로를 지나지 않아 그대로다
+        merged = shapely.union_all(polys, grid_size=1e-6)
+    merged = merged.buffer(0)
     if merged.geom_type == "MultiPolygon":
         # 투영한 삼각형이 맞닿은 이음매(거리 0)인데 부동소수점 때문에 합쳐지지 않고 조각으로 갈라질 때가 있다
         # (예: 내경 20·벽 3mm 둥근 관 터널의 옆면 띠 2mm 가 떨어져 바닥 윤곽이 좁아지고, 벽과의 틈 검사가 없는 틈을 잰다).

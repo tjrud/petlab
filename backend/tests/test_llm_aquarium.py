@@ -473,3 +473,42 @@ def test_mock_hamster_house_and_decor_unchanged(rules):
     assert spec.items[1].placement.attach_to.item_index == 0
     spec = mock(rules, "줄무늬 은신처", species="hamster", size="syrian", count=1)
     assert spec.items[0].decor is not None and spec.items[0].decor.pattern == "stripes"
+
+
+@pytest.mark.parametrize("prompt,lang", [("새우가 지나갈 파이프 하나 만들어 주세요", "ko"), ("파이프 하나", "ko"),
+                                         ("튜브 하나랑 동굴", "ko"), ("a pipe for my shrimp", "en"), ("a pipe", "en"),
+                                         ("a tube and a cave", "en"), ("some tubing", "en")])
+def test_mock_aquarium_pipe_words_are_tunnels_not_tube_shape(rules, prompt, lang):
+    """어항의 파이프·튜브(pipe·tube)는 터널을 부르는 흔한 말이다: 둥근 관 단면을 고르지 않고 기본 뾰족 아치로 둔다
+    (둥근 관을 고르면 엔진이 바로 그 단면에 tunnel_flat_ceiling 경고를 낸다)."""
+    spec = mock(rules, prompt, size="shrimp", language=lang)
+    tunnel = next(it for it in spec.items if it.template == "tunnel")
+    assert tunnel.params.shape == "pointed_arch"
+    out = run_engine(to_item_specs(spec), EngineContext(TANK, "aquarium", "shrimp", 10, rules))
+    assert out.report.passed and not [i for i in out.report.issues if i.code == "tunnel_flat_ceiling"]
+
+
+@pytest.mark.parametrize("prompt,lang,shape", [("원통형 터널", "ko", "tube"), ("둥근 관 하나", "ko", "tube"),
+                                               ("원형 파이프", "ko", "tube"), ("둥근 파이프 하나", "ko", "tube"),
+                                               ("a cylindrical tunnel", "en", "tube"), ("a circular pipe", "en", "tube"),
+                                               ("a round tube", "en", "tube"), ("a semi-circular tunnel", "en", "round_arch"),
+                                               ("네모난 파이프", "ko", "box"), ("a square pipe", "en", "box"),
+                                               ("둥근 아치 터널", "ko", "round_arch")])
+def test_mock_aquarium_explicit_tunnel_shape_words(rules, prompt, lang, shape):
+    """단면 모양을 콕 집어 말하면 그 모양을 고른다 (원통·원형·cylindrical·circular·round tube 는 둥근 관)."""
+    spec = mock(rules, prompt, size="shrimp", language=lang)
+    assert templates_of(spec) == ["tunnel"] and spec.items[0].params.shape == shape
+
+
+def test_mock_aquarium_revision_pipe_word_keeps_shape(rules):
+    v1 = mock(rules, "터널 하나")
+    v2 = mock(rules, "파이프를 더 길게", previous=v1)
+    assert v2.items[0].params.shape == "pointed_arch"
+
+
+@pytest.mark.parametrize("prompt,lang", [("튜브 터널", "ko"), ("파이프 터널", "ko"), ("a tube please", "en"),
+                                         ("a pipe tunnel", "en")])
+def test_mock_hamster_tube_words_still_pick_tube_shape(rules, prompt, lang):
+    """케이지(햄스터)는 main 그대로: 튜브·파이프·tube·pipe 는 둥근 관 단면이다."""
+    spec = mock(rules, prompt, species="hamster", size="syrian", count=1, language=lang)
+    assert templates_of(spec) == ["tunnel"] and spec.items[0].params.shape == "tube"

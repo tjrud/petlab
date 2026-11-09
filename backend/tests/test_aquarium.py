@@ -882,3 +882,49 @@ def test_shrimp_tube_tunnel_footprint_is_whole(rules):
     w, d = it.size_xy(0)
     assert it.footprint.area == pytest.approx(w * d, abs=1.0)
     assert res.report.passed, res.report.errors
+
+
+# S자 터널 중 바닥 윤곽 합집합(unary_union)에서 GEOS 위상 오류가 나던 조합 (어항의 가는 내경 × #35 S자 경로).
+# 메시는 닫혀 있는데 발자국 계산이 실패해 build_failed 로 항목이 통째로 빠졌다
+GEOS_FAILING_TUNNELS = [
+    ("shrimp", {"path": "s_curve", "bend_angle_deg": 78}),  # 뾰족 아치 기본값 (내경 20·벽 3·길이 120)
+    ("nano_fish", {"path": "s_curve", "bend_angle_deg": 45, "wall_thickness_mm": 2.4}),
+    ("nano_fish", {"shape": "tube", "path": "s_curve", "bend_angle_deg": 90, "inner_diameter_mm": 22.7,
+                   "wall_thickness_mm": 2}),
+    ("nano_fish", {"shape": "box", "path": "s_curve", "bend_angle_deg": 70}),
+]
+
+
+@pytest.mark.parametrize("size,overrides", GEOS_FAILING_TUNNELS)
+def test_s_curve_tunnel_footprint_survives_geos_topology_errors(rules, size, overrides):
+    c = actx(rules, size=size)
+    p = {**defaults("tunnel", c), **overrides}
+    res = run_engine([ItemSpec("tunnel", p)], c, measure_thickness=False)
+    assert not by_code(res.report, "build_failed")
+    assert res.report.passed, res.report.errors
+    [it] = res.items
+    assert {k: getattr(it.params, k) for k in overrides} == overrides  # 요청한 단면·경로·치수 그대로
+    fp = it.footprint
+    assert fp.geom_type == "Polygon" and fp.is_valid
+    (x0, y0), (x1, y1) = it.mesh.bounds[0][:2], it.mesh.bounds[1][:2]
+    assert fp.bounds == pytest.approx((x0, y0, x1, y1), abs=0.1)  # 윤곽이 메시 전체를 덮는다 (조각만 남지 않는다)
+
+
+def test_mesh_footprint_fallback_matches_fast_path(rules, monkeypatch):
+    """합집합이 GEOS 오류를 내면 1e-6mm 격자로 다시 합친다: 잘 합쳐지는 메시에서도 결과가 같은 윤곽이다."""
+    from shapely.errors import GEOSException
+
+    from app import domain
+    c = actx(rules, size="shrimp")
+    it = run_engine([ItemSpec("tunnel", {**defaults("tunnel", c), "path": "s_curve", "bend_angle_deg": 60})], c,
+                    measure_thickness=False).items[0]
+    fast = domain.mesh_footprint(it.mesh)
+
+    def broken_union(_geoms):
+        raise GEOSException("TopologyException: Ring edge missing")
+
+    monkeypatch.setattr(domain, "unary_union", broken_union)
+    slow = domain.mesh_footprint(it.mesh)
+    assert slow.geom_type == "Polygon" and slow.is_valid
+    assert slow.area == pytest.approx(fast.area, rel=1e-4)
+    assert slow.symmetric_difference(fast).area < 1.0
