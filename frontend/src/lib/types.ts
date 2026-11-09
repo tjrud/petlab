@@ -109,7 +109,7 @@ export type Item = {
   index: number;
   template: string;
   label_ko: string;
-  params: Record<string, number>;
+  params: Record<string, number | string>;
   reason_ko: string;
   placement: Placement | null;
   size_mm: number[];

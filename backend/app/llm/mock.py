@@ -83,6 +83,25 @@ RAMP_EN = re.compile(r"\b(?:ramps?|slopes?|sloped|inclines?)\b")
 U_BEND_EN = re.compile(r"\b(?:u[ -]?(?:shaped?|turns?|bend)|uturns?)\b")
 CURVE_EN = re.compile(r"\b(?:curved?|curving|curvy|bent|bends?|bendy|l[ -]?shaped?|elbow|angled)\b")
 STRAIGHT_EN = re.compile(r"\bstraight\b")
+# "tunnel's bend" 처럼 소유격 's 뒤의 단어는 S자가 아니다
+# "house-shaped tunnel" 의 house 는 은신처가 아니라 터널 단면 모양
+HOUSE_SHAPE_EN = re.compile(r"\bhouse[ -]?shaped?\b")
+S_CURVE_EN = re.compile(r"(?<!['’])\b(?:s[ -]?(?:shaped?|curves?|bends?)|zig-?zag|wavy|snaking)\b")
+# 터널 단면 모양 (먼저 맞는 것)
+TUNNEL_SHAPES_KO = (
+    ("tube", ("원통", "튜브", "파이프", "둥근 관", "원형")),
+    ("box", ("네모", "사각", "직사각")),
+    ("house", ("집 모양", "집모양", "삼각", "오각", "지붕 모양")),
+    ("pointed_arch", ("뾰족",)),
+    ("round_arch", ("둥근", "둥글게", "반원")),
+)
+TUNNEL_SHAPES_EN = (
+    ("tube", re.compile(r"\b(?:tubes?|pipes?|cylindrical|circular)\b")),
+    ("box", re.compile(r"\b(?:square|boxy|box-shaped|rectangular)\b")),
+    ("house", re.compile(r"\b(?:house[ -]?shaped?|peaked|a-frame|triangular|gabled?)\b")),
+    ("pointed_arch", re.compile(r"\bpointed\b")),
+    ("round_arch", re.compile(r"\b(?:round(?:ed)?|semi-?circular|arched)\b")),
+)
 VENTS_EN = (re.compile(_NUM_EN + r"\s*(?:air[ -]?|ventilation |vent )?(?:vents?|holes?)\b"),
             re.compile(r"\b(?:vents?|ventilation holes?|air ?holes?)\b[^\d]{0,8}?(\d+)\b(?!\s*(?:mm|cm|\.\d))"))
 _DOOR_EN = r"(?:entrances?|entry|entries|doors?|doorways?|openings?)"
@@ -100,7 +119,12 @@ def _en(text: str) -> str:
 
 def _find_templates(text: str) -> list[str]:
     found = []
+    # "집 모양 터널" 의 "집" 은 은신처가 아니라 터널 단면 모양이다 (같은 길이로 바꿔 위치는 그대로)
+    if "터널" in text:
+        text = text.replace("집 모양", "＿ 모양").replace("집모양", "＿모양")
     low = _en(text)
+    if TEMPLATE_KEYWORDS_EN["tunnel"].search(low):
+        low = HOUSE_SHAPE_EN.sub(lambda mm: "_" * len(mm.group(0)), low)
     for key, words in TEMPLATE_KEYWORDS.items():
         positions = [text.find(w) for w in words if w in text]
         m = TEMPLATE_KEYWORDS_EN[key].search(low)
@@ -143,12 +167,28 @@ def _apply_numbers(key: str, text: str, params: dict) -> dict:
     out = dict(params)
     low = _en(text)
     if key == "tunnel":
+        for shape, words in TUNNEL_SHAPES_KO:
+            if any(w in text for w in words):
+                out["shape"] = shape
+                break
+        else:
+            for shape, rx in TUNNEL_SHAPES_EN:
+                if rx.search(low):
+                    out["shape"] = shape
+                    break
+    if key == "tunnel" and (any(w in text for w in ("S자", "s자", "에스자", "지그재그")) or S_CURVE_EN.search(low)):
+        out["path"] = "s_curve"
+        out["bend_angle_deg"] = 60
+    elif key == "tunnel":
         if any(w in text for w in ("U자", "유턴")) or U_BEND_EN.search(low):
             out["bend_angle_deg"] = 180
+            out["path"] = "arc"
         elif any(w in text for w in ("곡선", "구부러", "휘어", "ㄱ자", "꺾")) or CURVE_EN.search(low):
             out["bend_angle_deg"] = 90
+            out["path"] = "arc"
         elif "직선" in text or STRAIGHT_EN.search(low):
             out["bend_angle_deg"] = 0
+            out["path"] = "arc"
     if key == "ramp":
         if "계단" in text:
             m = re.search(r"(\d+)\s*단", text)

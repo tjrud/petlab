@@ -300,3 +300,88 @@ def test_out_of_range_rejected():
                     (SandBathParams, dict(lid=True))]:
         with pytest.raises(ValidationError):
             cls(**kw)
+
+
+# ── 터널 단면 모양·S자 ─────────────────────────────────────
+
+
+@pytest.mark.parametrize("shape", ["pointed_arch", "round_arch", "tube", "box", "house"])
+def test_tunnel_shapes_straight_print_without_supports(shape):
+    """곧은 터널은 어느 단면이든 서포트 없이 출력된다 (둥근 아치·관·네모는 세워서)."""
+    p = TunnelParams(length_mm=200, inner_diameter_mm=60, wall_thickness_mm=3, shape=shape)
+    m = assert_printable(TUNNEL, p)
+    assert m.extents[2] == pytest.approx(outer_height(p), abs=0.05)
+    assert m.extents[0] == pytest.approx(66, abs=0.05)
+    pm = to_print_orientation(m, TUNNEL.print_rotation(p))
+    if shape in ("round_arch", "tube", "box"):
+        assert pm.extents[2] == pytest.approx(200, abs=0.05)  # 세워서
+    else:
+        assert pm.extents[2] == pytest.approx(outer_height(p), abs=0.05)
+    assert TUNNEL.features(p).extra["bent_needs_support"] is False
+
+
+@pytest.mark.parametrize("shape", ["pointed_arch", "round_arch", "tube", "box", "house"])
+def test_tunnel_shapes_keep_a_passage_of_the_inner_diameter(shape):
+    """지름 = 내경인 원(통과 기준)이 단면 안쪽에 들어간다: 원 둘레의 점이 모두 안쪽(빈 곳)에 있다."""
+    p = TunnelParams(length_mm=200, inner_diameter_mm=60, wall_thickness_mm=3, shape=shape)
+    m = part_to_mesh(TUNNEL.build(p))
+    r = 30 - 0.3
+    cz = 30.0 if shape != "tube" else 33.0  # 관은 바닥 벽(3mm) 위에 원이 놓인다
+    pts = [[r * math.cos(a), -100.0, cz + r * math.sin(a)] for a in np.linspace(0, 2 * math.pi, 72)]
+    if shape != "tube":
+        pts = [q for q in pts if q[2] > 0.5]  # 바닥이 열린 단면은 바닥 아래를 보지 않는다
+    assert not m.contains(np.array(pts)).any()
+
+
+@pytest.mark.parametrize("shape", ["round_arch", "tube", "box"])
+def test_bent_round_or_box_tunnel_needs_supports_and_says_so(shape):
+    p = TunnelParams(length_mm=200, inner_diameter_mm=60, bend_angle_deg=90, wall_thickness_mm=3, shape=shape)
+    m = part_to_mesh(TUNNEL.build(p))
+    assert mesh_health(m).ok
+    assert overhang_area(to_print_orientation(m, TUNNEL.print_rotation(p)), 45) > 100
+    assert TUNNEL.features(p).extra["bent_needs_support"] is True
+
+
+@pytest.mark.parametrize("shape", ["pointed_arch", "house"])
+def test_s_curve_tunnel_prints_and_exits_backwards(shape):
+    p = TunnelParams(length_mm=200, inner_diameter_mm=60, bend_angle_deg=60, path="s_curve", shape=shape)
+    m = assert_printable(TUNNEL, p)
+    assert set(TUNNEL.features(p).access_sides) == {"front", "back"}
+    # S자는 시작·끝 단면이 같은 방향(Y)을 보고, 옆으로 비켜난다
+    assert m.extents[0] > 66 + 20
+    assert end_side(60, "s_curve") == "back" and end_side(60) == "left" and end_side(90, "s_curve") == "back"
+
+
+def test_s_curve_bend_limit(rules):
+    c = ctx(rules)
+    # S자는 반씩 휘므로 같은 길이면 한 방향 곡선보다 덜 휠 수 있고, 한 번에 90° 를 넘지 않는다
+    p = TunnelParams(length_mm=250, inner_diameter_mm=70, bend_angle_deg=120, path="s_curve")
+    bend = [k for k in TUNNEL.constraints(p, c) if k.field == "bend_angle_deg"]
+    assert bend and bend[0].max <= 90 and bend[0].max == pytest.approx(min(90, math.degrees(125 / 70)))
+
+
+def test_old_tunnel_params_keep_the_same_shape():
+    """shape·path 가 없던 저장 설계는 예전 모양(뾰족 아치, 한 방향 곡선) 그대로 만든다."""
+    p = TUNNEL.load_stored_params({"length_mm": 200, "inner_diameter_mm": 60, "bend_angle_deg": 90, "wall_thickness_mm": 3})
+    assert p.shape == "pointed_arch" and p.path == "arc"
+
+
+def test_s_curve_limit_reason_from_max_length(rules):
+    c = RuleContext(rules.size_rules("hamster", "dwarf"), rules.min_wall_for("hamster", "dwarf"))
+    p = TunnelParams(length_mm=100, inner_diameter_mm=55, bend_angle_deg=90, path="s_curve")
+    bend = [k for k in TUNNEL.constraints(p, c) if k.field == "bend_angle_deg"][0]
+    assert bend.max == pytest.approx(math.degrees(50 / 55))
+    assert "S자를 한 번에" in bend.reason_ko and "U자" not in bend.reason_ko
+
+
+def test_mock_tunnel_edits_reset_s_curve_and_ignore_possessives():
+    from app.llm.mock import _apply_numbers, _find_templates
+
+    s = {"bend_angle_deg": 60, "path": "s_curve"}
+    assert _apply_numbers("tunnel", "터널을 U자로 바꿔 주세요", s) == {"bend_angle_deg": 180, "path": "arc"}
+    assert _apply_numbers("tunnel", "ㄱ자로 꺾어 주세요", s)["path"] == "arc"
+    arc = {"bend_angle_deg": 90, "path": "arc"}
+    assert _apply_numbers("tunnel", "make the tunnel's bend gentler", arc)["path"] == "arc"
+    assert _apply_numbers("tunnel", "an S-shaped tunnel", arc)["path"] == "s_curve"
+    assert _find_templates("a house-shaped tunnel") == ["tunnel"]
+    assert _find_templates("a house and a tunnel") == ["hideout", "tunnel"]

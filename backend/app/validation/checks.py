@@ -269,11 +269,12 @@ def check_overhang(items: list[BuiltItem], printing: PrintingRules) -> list[Issu
     for it in items:
         area = overhang_area(it.print_mesh, printing.max_overhang_deg)
         if area > printing.overhang_area_tolerance_mm2:
-            out.append(_warn(
-                "support_needed",
-                f"{it.label_ko}: {printing.max_overhang_deg:g}° 를 넘는 오버행 {area:.0f}mm² 가 있어 서포트 없이 출력하기 어렵습니다.",
-                item_index=it.index, details={"overhang_area_mm2": area},
-            ))
+            # 휜 터널의 둥근·네모 단면처럼 세워서 출력할 수 없어 서포트가 필요한 경우는 고를 수 있는 대안을 알려 준다
+            msg = (f"{it.label_ko}: 휜 터널을 이 단면으로 만들면 지붕 안쪽에 서포트가 필요해요 (오버행 {area:.0f}mm²). "
+                   "서포트 없이 출력하려면 끝이 뾰족한 아치나 집 모양 단면을 고르세요."
+                   if it.features.extra.get("bent_needs_support") else
+                   f"{it.label_ko}: {printing.max_overhang_deg:g}° 를 넘는 오버행 {area:.0f}mm² 가 있어 서포트 없이 출력하기 어렵습니다.")
+            out.append(_warn("support_needed", msg, item_index=it.index, details={"overhang_area_mm2": area}))
     return out
 
 
