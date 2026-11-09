@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, create_model
 from app.domain import PlacementHint, Rotation, Zone
 from app.services.engine import ItemSpec
 from app.templates.base import Side
+from app.templates.decor import DecorSpec
 from app.templates.registry import all_templates
 
 MAX_ITEMS = 8
@@ -65,6 +66,11 @@ def _item_model(template) -> type[BaseModel]:
         template=(Literal[template.key], Field(description=f"{template.display_name_ko}: {template.description_ko}")),
         params=(template.Params, ...),
         placement=(LLMPlacement, ...),
+        decor=(DecorSpec | None, Field(  # type: ignore[valid-type]
+            default=None,
+            description="장식 (안전과 무관한 바깥 벽·지붕 윗면에만). 무늬(pattern) 또는 글귀 각인(text) 중 하나. "
+                        "이름 새기기·무늬 요청이 없으면 null. 은신처(hideout)·집(house)에서만 쓸 수 있다",
+        )),
         reason_ko=(str, Field(description="이 구조물과 값을 고른 이유 (응답 언어로 한두 문장, 지정이 없으면 한국어)")),
     )
 
@@ -96,7 +102,8 @@ def parse_spec(text: str) -> BaseModel:
 
 def to_item_specs(spec: BaseModel) -> list[ItemSpec]:
     return [
-        ItemSpec(template=it.template, params=it.params.model_dump(), hint=it.placement.to_hint())
+        ItemSpec(template=it.template, params=it.params.model_dump(), hint=it.placement.to_hint(),
+                 decor=it.decor.model_dump(mode="json") if getattr(it, "decor", None) is not None else None)
         for it in spec.items  # type: ignore[attr-defined]
     ]
 
@@ -107,7 +114,7 @@ def to_item_specs(spec: BaseModel) -> list[ItemSpec]:
 
 _UNSUPPORTED = {
     "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf",
-    "minLength", "maxLength", "minItems", "maxItems", "default", "discriminator", "title",
+    "minLength", "maxLength", "minItems", "maxItems", "default", "discriminator", "title", "pattern",
 }
 
 
@@ -132,7 +139,13 @@ def _sanitize(node: Any) -> Any:
         node["anyOf"] = node.pop("oneOf")
     for k in _UNSUPPORTED:
         node.pop(k, None)
-    out = {k: _sanitize(v) for k, v in node.items()}
+    out = {}
+    for k, v in node.items():
+        if k in ("properties", "$defs") and isinstance(v, dict):
+            # 속성·정의 이름은 스키마 키워드가 아니다 ("pattern" 이라는 속성을 지우지 않게) → 값만 정리한다
+            out[k] = {name: _sanitize(sub) for name, sub in v.items()}
+        else:
+            out[k] = _sanitize(v)
     if out.get("type") == "object" and "properties" in out:
         out["additionalProperties"] = False
         out["required"] = list(out["properties"].keys())  # 모든 값을 LLM 이 명시적으로 고르게 한다

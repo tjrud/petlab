@@ -34,6 +34,15 @@ HOUSE_PITCHED = ("경사 지붕", "뾰족 지붕", "박공")
 HOUSE_ROUNDED = ("둥근 지붕", "아치 지붕")
 HOUSE_PORT = ("터널 연결", "터널이 붙는", "터널을 붙")
 HOUSE_FLOOR = ("바닥판",)
+# 장식: 무늬 종류 키워드와 각인 요청
+PATTERN_WORDS_KO = (("stripes", ("줄무늬", "줄 무늬", "스트라이프")), ("dots", ("점무늬", "물방울", "도트")),
+                    ("scales", ("비늘",)), ("brick", ("벽돌",)), ("wave", ("물결",)), ("honeycomb", ("벌집",)))
+PATTERN_WORDS_EN = (("stripes", re.compile(r"\bstripe[sd]?\b")), ("dots", re.compile(r"\b(?:dots?|polka)\b")),
+                    ("scales", re.compile(r"\bscales?\b")), ("brick", re.compile(r"\bbricks?\b")),
+                    ("wave", re.compile(r"\bwav(?:e|es|y)\b")), ("honeycomb", re.compile(r"\bhoneycomb\b")))
+ENGRAVE_KO = re.compile(r"[\"'“‘]([가-힣A-Za-z0-9 \-]{1,12})[\"'”’]\s*(?:라고|이라고|을|를|라는|이라는)?\s*(?:새겨|각인|적어|써)")
+ENGRAVE_KO2 = re.compile(r"([가-힣A-Za-z0-9\-]{1,12})\s*(?:라고|이라고)\s*(?:새겨|각인|적어|써)")
+ENGRAVE_EN = re.compile(r"(?:engrave|carve|write|inscribe)\s+[\"'“‘]([가-힣A-Za-z0-9 \-]{1,12})[\"'”’]")
 
 ZONE_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
     ("front_left", ("왼쪽 앞", "앞쪽 왼", "좌측 앞")),
@@ -132,6 +141,23 @@ ENTRANCE_EN = (re.compile(r"\b" + _DOOR_EN + r"\b[^\d]{0,10}(\d+(?:\.\d+)?)\s*(m
 
 def _num(word: str) -> int:
     return int(word) if word.isdigit() else _NUMBER_WORDS[word]
+
+
+def _find_decor(text: str) -> dict | None:
+    """장식 명세: 따옴표 글귀 각인, 또는 무늬 키워드. 없으면 None."""
+    low = _en(text)
+    m = ENGRAVE_KO.search(text) or ENGRAVE_KO2.search(text) or ENGRAVE_EN.search(text)
+    if m:
+        return {"kind": "text", "text": m.group(1).strip(), "face": "left", "height_mm": 15, "depth_mm": 0.6}
+    for key, words in PATTERN_WORDS_KO:
+        if any(w in text for w in words):
+            return {"kind": "pattern", "pattern": key, "density": 2, "direction": 0, "depth_mm": 0.6,
+                    "face": "walls", "mode": "engrave"}
+    for key, rx in PATTERN_WORDS_EN:
+        if rx.search(low):
+            return {"kind": "pattern", "pattern": key, "density": 2, "direction": 0, "depth_mm": 0.6,
+                    "face": "walls", "mode": "engrave"}
+    return None
 
 
 def _apply_house(text: str, low: str, out: dict) -> dict:
@@ -296,6 +322,7 @@ class MockInterpreter:
         zone = _find_zone(text)
         grouped = _grouped(text)
         factor = _scale_factor(text)
+        decor = _find_decor(text)
 
         items: list[dict] = []
         if req.previous is not None:
@@ -318,6 +345,8 @@ class MockInterpreter:
                             it["placement"]["zone"] = zone
                         if grouped:
                             it["placement"]["group"] = "g1"
+                        if decor and it["template"] in ("hideout", "house"):
+                            it["decor"] = decor
                 requested = [k for k in requested if k not in existing]
         elif not requested:
             requested = ["hideout"]
@@ -336,6 +365,7 @@ class MockInterpreter:
                     "rotation": None,
                     "attach_to": None,
                 },
+                "decor": decor if key in ("hideout", "house") else None,
                 "reason_ko": self._reason_en(req, key) if en else
                              f"요구사항에서 '{TEMPLATE_NAMES_KO[key]}'을(를) 찾아 {req.habitat.species_name_ko} "
                              f"{req.size_rules.display_name} 기준값으로 구성했습니다.",

@@ -234,6 +234,8 @@ def _version_records(llm_spec: dict, engine: EngineResult) -> tuple[list[dict], 
             # 출력 파트 (조립형 구조물은 2~3개). 파트가 하나뿐이면 본체 하나
             "parts": [{"key": part.key, "name_ko": part.name_ko, "size_mm": [float(v) for v in part.print_mesh.extents]}
                       for part in it.print_parts],
+            # 장식 명세 (형상 재생성 때 같은 장식을 다시 얹는다)
+            "decor": it.decor,
         })
     if effective_items:
         effective["items"] = effective_items
@@ -653,6 +655,7 @@ class DesignService:
                           if it["placement"] else None),
                 parts=[PartOut(**part) for part in _stored_parts(it)] or [PartOut(key="body", name_ko="본체",
                                                                                    size_mm=it["print_size_mm"])],
+                decor=it.get("decor"),
             )
             for it in v.items
         ]
@@ -728,7 +731,7 @@ class DesignService:
         try:
             t = get_template(it["template"])
             built = build_item(it["index"], t, t.load_stored_params(it["params"]), _stored_hint(it),
-                               self.rules.printing)
+                               self.rules.printing, it.get("decor"), self._engine_ctx(design.habitat).rule_ctx)
         except Exception as e:  # 템플릿 삭제·파라미터 스키마 변경·형상 커널 오류
             log.exception("mesh regeneration failed: design=%s v=%s item=%s", design.id, v.version, it)
             raise MeshRegenerationError(

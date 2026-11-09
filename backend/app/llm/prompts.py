@@ -41,6 +41,9 @@ SYSTEM_PROMPT = """\
 - 2층 집에 바깥 램프를 두려면(floors.climb=external_ramp) ramp 항목을 하나 추가하고, 그 placement.attach_to 에
   {item_index: 집 항목의 인덱스, side: 집의 floors.exit_side} 를 적어 램프 꼭대기가 착지판에 닿게 하세요.
   램프 높이는 집의 2층 바닥 높이(floors.level_height_mm)와 같게 적습니다. 그 밖의 항목은 attach_to 를 null 로 둡니다.
+- 이름 새기기·무늬 요청은 항목의 decor(무늬 pattern 또는 글귀 text)로 표현하고, 안전 치수(출입구·창·벽 두께 기준)는 바꾸지
+  마세요. 장식은 은신처·집의 바깥 벽과 경사·둥근 지붕 윗면에만 들어가며, 파내기 각인은 벽을 깊이만큼 더 두껍게 적으면 좋습니다.
+  요청이 없으면 decor 는 null 입니다.
 - 설계 수정 요청이면 직전 설계를 바탕으로, 요청된 부분만 바꾼 전체 설계를 다시 출력하세요.
 - summary_ko, reason_ko, notes_ko 는 보호자가 읽기 쉬운 한국어로 씁니다. 단, 사용자 메시지에 "응답 언어" 지시가 있으면
   그 언어로 씁니다 (필드 이름은 언어와 상관없이 그대로 둡니다).
