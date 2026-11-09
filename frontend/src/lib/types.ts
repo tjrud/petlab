@@ -1,5 +1,7 @@
 // 백엔드 API 스키마 (backend/app/schemas.py) 와 맞춘 타입
 
+import type { ParamValue } from "@/lib/templates";
+
 export type Role = "member" | "admin";
 
 export type User = {
@@ -105,16 +107,23 @@ export type Habitat = {
 
 export type Placement = { x_mm: number; y_mm: number; rotation_deg: number };
 
+/** 출력 파트 하나 (집처럼 조립형 구조물은 본체·지붕·층판 등 여러 개) */
+export type ItemPart = { key: string; name_ko: string; size_mm: number[] };
+
 export type Item = {
   index: number;
   template: string;
   label_ko: string;
-  params: Record<string, number | string>;
+  /** 집(house) 템플릿은 부품별로 중첩된 값, 면 목록(string[]), 참/거짓도 들어 있다 */
+  params: Record<string, ParamValue>;
   reason_ko: string;
   placement: Placement | null;
   size_mm: number[];
+  /** 출력 자세 크기 (파트가 여럿이면 본체) */
   print_size_mm: number[];
   mesh_url: string | null;
+  /** 출력 파트. 옛 서버 응답에는 없을 수 있어요 (그러면 본체 하나) */
+  parts?: ItemPart[];
 };
 
 export type Severity = "error" | "warning" | "info";
