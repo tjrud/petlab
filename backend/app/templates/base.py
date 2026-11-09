@@ -5,6 +5,8 @@
   - constraints(): 종 규칙·출력 규칙·파라미터 상호 관계에서 나오는 동적 허용 범위
   - build(): build123d 형상 생성 (사용 자세, 바닥 Z=0, XY 중심 원점)
   - print_rotation(): 출력 자세 회전 (서포트 없이 출력 가능한 방향)
+  - print_parts(): 출력 파트 목록 (기본은 build() 형상 하나. 한 덩어리로 서포트 없이 출력할 수 없는 조립형
+    구조물은 본체·지붕·층판처럼 2~3개 파트로 나눈다)
   - features(): 검증에 쓰는 설계 특징 (벽 두께, 개구부, 출입 방향 등)
 
 LLM 은 Params 값만 결정한다. 형상은 오직 build() 가 만든다.
@@ -84,12 +86,29 @@ class Features:
 
 
 @dataclass(frozen=True)
+class PrintPart:
+    """출력 파트 하나: 파트 자신의 좌표계 형상과 그 출력 자세 회전.
+
+    key 는 파일 이름에 쓰는 ASCII 식별자(body, roof, floor …), name_ko 는 화면에 보이는 이름.
+    조립 형상(build())과 파트 형상은 같은 치수를 써야 하며, 파트별로 메시 건전성·벽 두께 실측·오버행·출력 공간을 검사한다.
+    """
+
+    name_ko: str
+    part: Part
+    rotation: np.ndarray
+    key: str = "body"
+
+
+@dataclass(frozen=True)
 class RuleContext:
     """템플릿이 동적 범위를 계산할 때 쓰는 규칙 값."""
 
     size: SizeRules
     min_wall_mm: float  # max(종 갉음 기준, 출력 최소 벽)
     count: int = 1  # 함께 지내는 마릿수 (마릿수에 따라 달라지는 규칙용)
+    # 서포트 없이 출력할 수 있는 최대 오버행(printing.yaml). 출력 자세가 지붕 경사 같은 파라미터를 제한할 때 쓴다.
+    # None 이면(옛 호출) 출력 규칙 기반 제약은 내지 않는다
+    printing_max_overhang_deg: float | None = None
 
     @property
     def hideout_min_entrances(self) -> int:
@@ -144,6 +163,13 @@ class Template(ABC):
     def print_rotation(self, p: TemplateParams) -> np.ndarray:
         """사용 자세 → 출력 자세 회전 행렬(3x3). 기본: 그대로 출력."""
         return np.eye(3)
+
+    def print_parts(self, p: TemplateParams, built: Part | None = None) -> list[PrintPart]:
+        """출력 파트 목록. 기본: build() 형상 하나를 print_rotation() 자세로 (built 가 있으면 다시 만들지 않는다).
+
+        여러 파트로 나누는 템플릿은 이를 덮어쓴다. 파트는 사용 자세·조립 위치 그대로 두고 rotation 으로만 출력 자세를
+        정한다. 케이지 배치·겹침·끼임·출입구 검사는 build() 의 조립 형상으로 한다."""
+        return [PrintPart("본체", built if built is not None else self.build(p), self.print_rotation(p))]
 
     @abstractmethod
     def features(self, p: TemplateParams) -> Features:

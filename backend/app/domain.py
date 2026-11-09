@@ -36,6 +36,9 @@ class PlacementHint:
     zone: Zone = "auto"
     group: str | None = None
     rotation: Rotation | None = None
+    # (대상 항목 인덱스, 대상의 측면): 이 항목의 뒷면(back, 램프라면 꼭대기 쪽)을 대상 항목의 그 측면에 맞대어 놓는다.
+    # 2층 집의 바깥 램프처럼 두 구조물을 잇는 힌트. 붙일 자리가 없으면 배치기가 일반 방식으로 놓고 경고한다
+    attach_to: tuple[int, Side] | None = None
 
 
 @dataclass(frozen=True)
@@ -117,19 +120,40 @@ def mesh_footprint(mesh: trimesh.Trimesh) -> Polygon:
 
 
 @dataclass
+class BuiltPart:
+    """출력 파트 하나의 메시 (파트 단위 검사·내보내기용)."""
+
+    key: str  # 파일 이름에 쓰는 ASCII 식별자 (본체는 "body")
+    name_ko: str
+    mesh: trimesh.Trimesh  # 파트 형상 (검사용. 자세는 상관없다)
+    print_mesh: trimesh.Trimesh  # 출력 자세 (베드 Z=0)
+
+
+@dataclass
 class BuiltItem:
     """형상까지 생성된 설계 항목."""
 
     index: int
     key: str
     features: Features
-    mesh: trimesh.Trimesh  # 사용 자세, 로컬 좌표 (XY AABB 중심 = 원점, 바닥 Z=0)
-    print_mesh: trimesh.Trimesh  # 출력 자세 (베드 Z=0)
+    mesh: trimesh.Trimesh  # 사용 자세, 로컬 좌표 (XY AABB 중심 = 원점, 바닥 Z=0). 여러 파트면 조립 형상
+    print_mesh: trimesh.Trimesh  # 출력 자세 (베드 Z=0). 여러 파트면 첫 파트(본체)
     footprint: Polygon  # 로컬 XY 발자국
     hint: PlacementHint = field(default_factory=PlacementHint)
     template: Template | None = None
     params: TemplateParams | None = None
     placement: Placement | None = None
+    # 출력 파트 목록 (비어 있으면 본체 하나 = print_mesh). 메시 건전성·벽 두께 실측·오버행·출력 공간은 파트 단위로 본다
+    parts: list[BuiltPart] = field(default_factory=list)
+
+    @property
+    def print_parts(self) -> list[BuiltPart]:
+        """검사·내보내기용 파트 목록. 파트가 따로 없으면 본체 하나."""
+        return self.parts or [BuiltPart("body", "본체", self.mesh, self.print_mesh)]
+
+    def part_label_ko(self, part: BuiltPart) -> str:
+        """이슈 문구용 파트 이름. 파트가 하나뿐이면 항목 이름 그대로 (기존 문구가 바뀌지 않게)."""
+        return f"{self.label_ko} ({part.name_ko})" if len(self.parts) > 1 else self.label_ko
 
     @property
     def label_ko(self) -> str:
