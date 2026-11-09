@@ -10,23 +10,25 @@ const HIGHLIGHTS = ["안전 기준 자동 검증", "3D로 미리 보기", "STL·
 
 // 오른쪽 그림에 띄우는 구조물 이름표 (위치는 그림 상자 안쪽 비율)
 const PARTS = [
-  { label: "은신처", color: TEMPLATE_COLORS.hideout, pos: "left-[6%] top-[12%] -rotate-3" },
+  // 은신처는 위 가운데 물속 동굴과 겹치지 않게 조금 아래에 둔다 (좁은 md 화면의 영어 이름표까지)
+  { label: "은신처", color: TEMPLATE_COLORS.hideout, pos: "left-[6%] top-[20%] -rotate-3" },
   { label: "터널", color: TEMPLATE_COLORS.tunnel, pos: "right-[6%] top-[22%] rotate-2" },
   { label: "램프·계단", color: TEMPLATE_COLORS.ramp, pos: "left-[8%] bottom-[18%] rotate-2" },
   { label: "모래목욕통", color: TEMPLATE_COLORS.sand_bath, pos: "right-[5%] bottom-[10%] -rotate-2" },
   { label: "물속 동굴", color: TEMPLATE_COLORS.cave, pos: "left-1/2 top-[1%] -translate-x-1/2 rotate-1" },
 ];
 
-// 입력창 아래 예시. 누르면 그 문장으로 설계하기 화면이 열린다 (species 가 있으면 그 종을 골라 둔다)
-const EXAMPLES: readonly { ko: string; species?: string }[] = [
-  { ko: "출입구가 두 개 있는 은신처를 만들어 주세요" },
-  { ko: "케이지 한쪽에 놓을 긴 터널이 필요해요" },
-  { ko: "완만한 경사로를 하나 만들어 주세요" },
-  { ko: "새우가 숨을 수 있는 작은 동굴을 만들어 주세요", species: "aquarium" },
+// 입력창 아래 예시. 누르면 그 문장으로 설계하기 화면이 열린다. 종(과 문장에 나온 동물의 크기 구분)을 함께 넘겨
+// 설계하기 화면이 전에 고른 다른 종(어항 등)으로 이 요청을 설계하지 않게 한다
+const EXAMPLES: readonly { ko: string; species: string; size?: string }[] = [
+  { ko: "출입구가 두 개 있는 은신처를 만들어 주세요", species: "hamster" },
+  { ko: "케이지 한쪽에 놓을 긴 터널이 필요해요", species: "hamster" },
+  { ko: "완만한 경사로를 하나 만들어 주세요", species: "hamster" },
+  { ko: "새우가 숨을 수 있는 작은 동굴을 만들어 주세요", species: "aquarium", size: "shrimp" },
 ];
 
-const designHref = (prompt: string, species?: string) =>
-  `/design?prompt=${encodeURIComponent(prompt)}${species ? `&species=${encodeURIComponent(species)}` : ""}`;
+const designHref = (prompt: string, species: string, size?: string) =>
+  `/design?${new URLSearchParams({ prompt, species, ...(size ? { size } : {}) })}`;
 
 export default async function Hero() {
   const lang = await getLang();
@@ -78,10 +80,10 @@ export default async function Hero() {
           </form>
           <div className="mt-3 flex max-w-xl flex-wrap items-center gap-2 text-sm">
             <span className="text-stone-500">{t("예시")}</span>
-            {EXAMPLES.map(({ ko, species }) => ({ e: t(ko), species })).map(({ e, species }) => (
+            {EXAMPLES.map(({ ko, species, size }) => ({ e: t(ko), species, size })).map(({ e, species, size }) => (
               <Link
                 key={e}
-                href={designHref(e, species)}
+                href={designHref(e, species, size)}
                 className="rounded-full border border-stone-200 bg-white/80 px-3 py-1 text-stone-700 hover:border-amber-300 hover:bg-amber-50"
               >
                 {e}
@@ -112,7 +114,7 @@ export default async function Hero() {
           {PARTS.map((p) => (
             <span
               key={p.label}
-              className={`absolute ${p.pos} flex items-center gap-1.5 rounded-full border border-stone-200 bg-white px-3 py-1.5 text-sm font-medium text-stone-700 shadow-sm`}
+              className={`absolute ${p.pos} flex items-center gap-1.5 whitespace-nowrap rounded-full border border-stone-200 bg-white px-3 py-1.5 text-sm font-medium text-stone-700 shadow-sm`}
             >
               <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: p.color }} />
               {t(p.label)}

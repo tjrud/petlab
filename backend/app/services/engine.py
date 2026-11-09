@@ -54,6 +54,18 @@ class EngineContext:
         return RuleContext(self.size_rules, self.min_wall_mm, self.count)
 
     @property
+    def height_limit_mm(self) -> float | None:
+        """어항: 구조물 최대 높이 (물 깊이 − 구조물 위 최소 물 깊이). 케이지는 None."""
+        aquatic = self.size_rules.aquatic
+        return None if aquatic is None else self.cage.height_mm - aquatic.structure_top_clearance_mm
+
+    @property
+    def fit_ctx(self) -> RuleContext:
+        """새 설계를 보정할 때 쓰는 규칙 문맥. 어항이면 높이 한도를 함께 줘, 높이를 맞추려고 다른 값도 바꿔야 하는
+        템플릿(물속 동굴의 지붕)이 그 값을 조정하게 한다. 저장된 버전을 다시 검증할 때(revalidate)는 rule_ctx 를 쓴다."""
+        return RuleContext(self.size_rules, self.min_wall_mm, self.count, height_limit_mm=self.height_limit_mm)
+
+    @property
     def habitat(self) -> Habitat:
         """사육 환경 (cage / aquarium)."""
         return self.rules.habitat(self.species)
@@ -99,25 +111,60 @@ def build_item(
     )
 
 
-def _height_constraint(template: Template, ctx: EngineContext) -> list[ParamConstraint]:
-    if not template.height_field:
-        return []
+def _height_constraint(template: Template, ctx: EngineContext, params: TemplateParams) -> list[ParamConstraint]:
     aquatic = ctx.size_rules.aquatic
     if aquatic is not None:
-        # 어항: Cage.height_mm 은 물 깊이(바닥재 위 ~ 수면). 구조물 위로 헤엄쳐 지나가고 수면 가까이에서 숨 쉴 물 깊이를 남긴다
+        # 어항: Cage.height_mm 은 물 깊이(바닥재 위 ~ 수면). 구조물 위로 헤엄쳐 지나가고 수면 가까이에서 숨 쉴 물 깊이를 남긴다.
+        # 높이 파라미터가 없는 템플릿(터널)도 높이를 정하는 파라미터(내경·벽 두께)로 맞춘다
+        if _min_water_depth(template, ctx) is not None:
+            return []  # 가장 낮게 만들어도 들어가지 않는다: _too_shallow 가 오류 하나로 알린다
         c = aquatic.structure_top_clearance_mm
         limit = ctx.cage.height_mm - c
-        return [ParamConstraint(
-            template.height_field, max=limit, source="geometry",
-            reason_ko=f"생물이 구조물 위로 지나가고 수면 가까이에서 숨 쉴 수 있도록 높이를 {limit:g}mm(물 깊이 − {c:g}mm) "
-                      "이하로 맞췄습니다.",
-        )]
+        return template.height_limit_constraints(
+            params, ctx.rule_ctx, limit,
+            f"생물이 구조물 위로 지나가고 수면 가까이에서 숨 쉴 수 있도록 높이를 {limit:g}mm(물 깊이 − {c:g}mm) "
+            "이하로 맞췄습니다.",
+        )
+    if not template.height_field:
+        return []
     P = ctx.size_rules.gap_trap.passable_min_mm
     limit = ctx.cage.height_mm - P
     return [ParamConstraint(
         template.height_field, max=limit, source="geometry",
         reason_ko=f"케이지 천장과의 틈에 끼이지 않도록 높이를 {limit:g}mm(천장 높이 − {P:g}mm) 이하로 맞췄습니다.",
     )]
+
+
+def _min_water_depth(template: Template, ctx: EngineContext) -> tuple[float, float] | None:
+    """어항: 이 템플릿을 가장 낮게 만들어도 높이 한도(물 깊이 − 구조물 위 최소 물 깊이)를 넘으면
+    (그 최소 높이, 필요한 물 깊이). 들어가거나 케이지면 None."""
+    aquatic = ctx.size_rules.aquatic
+    limit = ctx.height_limit_mm
+    if aquatic is None or limit is None:
+        return None
+    need = template.min_height_mm(ctx.rule_ctx)
+    if need is None or need <= limit + 1e-6:
+        return None
+    return need, need + aquatic.structure_top_clearance_mm
+
+
+def _too_shallow(template: Template, ctx: EngineContext, index: int, label: str) -> Issue | None:
+    """물이 얕아 이 구조물을 어떻게 만들어도 위에 물 깊이를 남길 수 없으면 오류 하나 (높이 보정 문구 대신)."""
+    found = _min_water_depth(template, ctx)
+    if found is None:
+        return None
+    need, depth_need = found
+    aquatic = ctx.size_rules.aquatic
+    assert aquatic is not None
+    c = aquatic.structure_top_clearance_mm
+    return Issue(
+        code="water_too_shallow", severity=Severity.error, item_index=index,
+        message_ko=(f"{label}: 물 깊이 {ctx.cage.height_mm:g}mm 로는 만들 수 없습니다. 생물이 구조물 위로 지나가고 "
+                    f"수면 가까이에서 숨 쉴 수 있도록 위에 {c:g}mm 를 남기면, 가장 낮게 만들어도 높이가 {need:g}mm 라 "
+                    f"물 깊이가 {depth_need:g}mm 이상이어야 합니다."),
+        details={"water_depth_mm": ctx.cage.height_mm, "min_water_depth_mm": depth_need, "min_height_mm": need,
+                 "clearance_mm": c},
+    )
 
 
 def _label(template: Template, index: int) -> str:
@@ -145,15 +192,18 @@ def _prepare(spec: ItemSpec, index: int, ctx: EngineContext) -> tuple[Template, 
         return Issue(code="invalid_params", severity=Severity.error, item_index=index,
                      message_ko=f"{_label(template, index)}: 파라미터가 허용 범위를 벗어났습니다.",
                      details={"errors": e.errors(include_url=False, include_context=False)})
-    params, issues = clamp_params(template, params, ctx.rule_ctx, _height_constraint(template, ctx),
-                                  index, _label(template, index))
-    return template, params, issues
+    label = _label(template, index)
+    params, issues = clamp_params(template, params, ctx.fit_ctx, _height_constraint(template, ctx, params),
+                                  index, label)
+    shallow = _too_shallow(template, ctx, index, label)
+    return template, params, issues + ([shallow] if shallow is not None else [])
 
 
 def _shrink_to_fit(items: list[BuiltItem], ctx: EngineContext, report: ValidationReport) -> None:
     gap = ctx.size_rules.gap_trap
     aquarium = ctx.size_rules.aquatic is not None
-    failed = place_all(items, ctx.cage, gap)
+    # 어항: 휜 터널처럼 사각형이 아닌 바닥 윤곽 사이의 실제 틈도 피한다 (케이지 배치 결과는 그대로 둔다)
+    failed = place_all(items, ctx.cage, gap, exact_gaps=aquarium)
     tried: set[int] = set()
     while failed:
         item = next((f for f in failed if f.index not in tried), None)
@@ -163,13 +213,14 @@ def _shrink_to_fit(items: list[BuiltItem], ctx: EngineContext, report: Validatio
         t, base = item.template, item.params
         assert base is not None
         for factor in SHRINK_STEPS:
-            p2, issues = clamp_params(t, shrink_params(t, base, factor), ctx.rule_ctx,
-                                      _height_constraint(t, ctx), item.index, item.label_ko)
+            shrunk = shrink_params(t, base, factor)
+            p2, issues = clamp_params(t, shrunk, ctx.fit_ctx, _height_constraint(t, ctx, shrunk),
+                                      item.index, item.label_ko)
             if p2 == item.params or any(i.severity == Severity.error for i in issues):
                 continue
             candidate = build_item(item.index, t, p2, item.hint, ctx.rules.printing)
             trial = [candidate if it.index == item.index else it for it in items]
-            trial_failed = place_all(trial, ctx.cage, gap)
+            trial_failed = place_all(trial, ctx.cage, gap, exact_gaps=aquarium)
             if candidate.placement is not None and len(trial_failed) < len(failed):
                 items[:] = trial
                 failed = trial_failed
@@ -182,7 +233,7 @@ def _shrink_to_fit(items: list[BuiltItem], ctx: EngineContext, report: Validatio
                 )])
                 break
         else:
-            failed = place_all(items, ctx.cage, gap)  # 원래 상태로 배치 복원
+            failed = place_all(items, ctx.cage, gap, exact_gaps=aquarium)  # 원래 상태로 배치 복원
 
 
 def run_engine(specs: list[ItemSpec], ctx: EngineContext, measure_thickness: bool = True) -> EngineResult:
@@ -224,8 +275,11 @@ def revalidate(items: list[BuiltItem], ctx: EngineContext) -> ValidationReport:
             report.extend([_not_allowed(it.label_ko, it.index, it.key, ctx)])
             continue
         if it.template is not None and it.params is not None:
+            shallow = _too_shallow(it.template, ctx, it.index, it.label_ko)
+            if shallow is not None:
+                report.extend([shallow])
             report.extend(constraint_violations(it.template, it.params, ctx.rule_ctx,
-                                                _height_constraint(it.template, ctx), it.index, it.label_ko))
+                                                _height_constraint(it.template, ctx, it.params), it.index, it.label_ko))
     report.extend(validate_all(
         items, ctx.cage, ctx.size_rules, ctx.rules.printing, ctx.min_wall_mm, count=ctx.count,
         buoyancy=ctx.buoyancy,

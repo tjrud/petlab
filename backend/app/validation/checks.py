@@ -4,6 +4,7 @@
 각 검사 함수는 Issue 목록을 반환한다.
 
 어항 크기 구분(size.aquatic 이 있음)에서는 Cage 가 수조 안쪽(가로·세로)과 물 깊이(바닥재 위 ~ 수면)를 뜻한다.
+바닥·부피 기준만 겉 크기로 적혀 있어, 그 둘을 비교할 때는 유리 두께 어림을 더한 겉 크기를 쓴다.
 문구에 '케이지' 대신 '수조'를 쓰고, 천장 틈 검사 대신 수조 부피·넘어짐·물속 무게·터널 공기 안내를 더한다.
 """
 
@@ -326,54 +327,78 @@ def check_build_volume(items: list[BuiltItem], printing: PrintingRules) -> list[
 
 
 def check_enclosure(cage: Cage, size: SizeRules) -> list[Issue]:
-    """케이지(수조) 바닥이 최소 기준보다 작으면 경고 (긴 변·짧은 변끼리 비교, 설계는 막지 않음). 기준이 없으면 건너뛴다."""
+    """케이지(수조) 바닥이 최소 기준보다 작으면 경고 (긴 변·짧은 변끼리 비교, 설계는 막지 않음). 기준이 없으면 건너뛴다.
+    어항: 기준('60cm' 등급 60×30cm)은 수조 겉 크기라, 입력한 안쪽 가로·세로에 유리 두께 어림을 더해 비교한다."""
     if size.enclosure_min_floor_mm is None:
         return []
     need_long, need_short = size.enclosure_min_floor_mm
-    long_side = max(cage.width_mm, cage.depth_mm)
-    short_side = min(cage.width_mm, cage.depth_mm)
+    w, d = tank_outer_floor_mm(cage, size) if is_aquarium(size) else (cage.width_mm, cage.depth_mm)
+    long_side = max(w, d)
+    short_side = min(w, d)
     if long_side + 1e-6 < need_long or short_side + 1e-6 < need_short:
+        details: dict = {"floor_mm": [cage.width_mm, cage.depth_mm], "recommended_mm": [need_long, need_short]}
         if is_aquarium(size):
-            msg = (f"수조 바닥 {cage.width_mm:g}×{cage.depth_mm:g}mm 가 {size.display_name} 권장 최소 "
-                   f"{need_long:g}×{need_short:g}mm 보다 작습니다. 더 큰 수조를 권장합니다.")
+            g = size.aquatic.glass_thickness_assumed_mm
+            msg = (f"수조 겉 크기가 약 {w:g}×{d:g}mm(안쪽 {cage.width_mm:g}×{cage.depth_mm:g}mm에 유리 두께 {g:g}mm를 "
+                   f"더해 어림)로 {size.display_name} 최소 기준 {need_long:g}×{need_short:g}mm 보다 작습니다. "
+                   "더 큰 수조를 권장합니다.")
+            details |= {"outer_floor_mm": [w, d], "glass_mm": g}
         else:
             msg = (f"케이지 바닥 {cage.width_mm:g}×{cage.depth_mm:g}mm 가 {size.display_name} 사육장 최소 기준 "
                    f"{need_long:g}×{need_short:g}mm 보다 작습니다. 더 넓은 사육장을 권장합니다.")
-        return [_warn(
-            "cage_below_recommended", msg,
-            details={"floor_mm": [cage.width_mm, cage.depth_mm], "recommended_mm": [need_long, need_short]},
-        )]
+        return [_warn("cage_below_recommended", msg, details=details)]
     return []
 
 
-def tank_volume_l(cage: Cage, size: SizeRules) -> float:
-    """수조 부피 어림 (L): 가로 × 세로 × (물 깊이 + 바닥재 어림 두께 + 수면 위 여유).
-    수조 부피 기준은 외형(전체 높이) 치수로 적혀 있는데, 입력은 바닥재 위 ~ 수면 물 깊이라 둘을 더한다."""
+def tank_outer_floor_mm(cage: Cage, size: SizeRules) -> tuple[float, float]:
+    """어항: 수조 겉 가로·세로 어림 (mm) = 입력한 안쪽 치수 + 유리 2장.
+    바닥·부피 기준은 겉 크기로 적혀 있고, 입력(과 배치·틈 검사)은 안쪽 치수라 비교할 때만 바꾼다."""
     aq = size.aquatic
     assert aq is not None
-    return cage.width_mm * cage.depth_mm * (cage.height_mm + aq.substrate_depth_assumed_mm + aq.air_gap_mm) / 1e6
+    g = aq.glass_thickness_assumed_mm
+    return cage.width_mm + 2 * g, cage.depth_mm + 2 * g
+
+
+def tank_volume_l(cage: Cage, size: SizeRules) -> float:
+    """수조 부피 어림 (L), 겉 크기 기준: (안쪽 가로·세로 + 유리 2장) × (물 깊이 + 바닥재 어림 두께 + 수면 위 여유 + 바닥 유리).
+    표준 부피(예: 60×30×30cm = 54L)는 겉 치수로 계산한 총부피인데, 입력은 수조 안쪽 가로·세로와
+    바닥재 위 ~ 수면 물 깊이라 둘을 더한다."""
+    aq = size.aquatic
+    assert aq is not None
+    w, d = tank_outer_floor_mm(cage, size)
+    h = cage.height_mm + aq.substrate_depth_assumed_mm + aq.air_gap_mm + aq.glass_thickness_assumed_mm
+    return w * d * h / 1e6
 
 
 def check_tank_volume(cage: Cage, size: SizeRules, count: int = 1) -> list[Issue]:
-    """어항: 수조 부피가 최소 부피·마리당 부피 × 마릿수보다 작으면 경고 (설계는 막지 않음)."""
+    """어항: 수조 부피가 최소 부피·마리당 부피 × 마릿수보다 작으면 경고 (설계는 막지 않음).
+    최소 부피는 하한일 뿐이라, 규칙 파일에 종별 권장 부피 안내(volume_note_ko)가 있고 수조가 그 기준보다 작으면 참고로 덧붙인다."""
     aq = size.aquatic
     if aq is None:
         return []
     volume = tank_volume_l(cage, size)
+    out: list[Issue] = []
     per_animal = aq.volume_l_per_animal
     by_count = count * per_animal if per_animal is not None else 0.0
     need = max(aq.min_volume_l, by_count)
-    if volume >= need - 1e-9:
-        return []
-    s, a = aq.substrate_depth_assumed_mm, aq.air_gap_mm
-    if by_count > aq.min_volume_l:
-        msg = (f"수조 부피가 약 {volume:.0f}L(물 깊이에 바닥재 {s:g}mm·윗여유 {a:g}mm를 더해 어림)로 "
-               f"{count}마리 기준 권장 최소 {need:g}L 보다 작습니다.")
-    else:
-        msg = (f"수조 부피가 약 {volume:.0f}L(물 깊이에 바닥재 {s:g}mm·윗여유 {a:g}mm를 더해 어림)로 "
-               f"{size.display_name} 권장 최소 {need:g}L 보다 작습니다.")
-    return [_warn("tank_volume_below_recommended", msg,
-                  details={"volume_l": volume, "need_l": need, "per_animal_l": per_animal})]
+    if volume < need - 1e-9:
+        s, a, g = aq.substrate_depth_assumed_mm, aq.air_gap_mm, aq.glass_thickness_assumed_mm
+        # 부피는 내려서 보인다: 반올림하면 53.8L 가 '약 54L … 최소 54L 보다 작습니다'처럼 스스로 어긋나 보인다
+        shown = math.floor(volume)
+        # 부피 기준이 겉 크기라 어림 방법을 함께 적는다 (안쪽 치수 + 유리, 물 깊이 + 바닥재·윗여유·바닥 유리)
+        if by_count > aq.min_volume_l:
+            msg = (f"수조 부피가 약 {shown}L(안쪽 치수에 유리 두께 {g:g}mm, 물 깊이에 바닥재 {s:g}mm·윗여유 {a:g}mm를 "
+                   f"더한 겉 크기로 어림)로 {count}마리 기준 권장 최소 {need:g}L 보다 작습니다.")
+        else:
+            # 최소 부피는 법령·감정서의 하한이라 '권장'이 아니라 '최소 기준'이라고 쓴다 (종별 권장치는 아래 안내)
+            msg = (f"수조 부피가 약 {shown}L(안쪽 치수에 유리 두께 {g:g}mm, 물 깊이에 바닥재 {s:g}mm·윗여유 {a:g}mm를 "
+                   f"더한 겉 크기로 어림)로 {size.display_name} 최소 기준 {need:g}L 보다 작습니다.")
+        out.append(_warn("tank_volume_below_recommended", msg,
+                         details={"volume_l": volume, "need_l": need, "per_animal_l": per_animal}))
+    if aq.volume_note_ko is not None and aq.volume_note_below_l is not None and volume < aq.volume_note_below_l - 1e-9:
+        out.append(_info("tank_volume_species_note", aq.volume_note_ko,
+                         details={"volume_l": volume, "note_below_l": aq.volume_note_below_l}))
+    return out
 
 
 def check_count(count: int, size: SizeRules) -> list[Issue]:
@@ -403,9 +428,12 @@ def check_tip_over(items: list[BuiltItem], size: SizeRules) -> list[Issue]:
         base = min(x1 - x0, y1 - y0)
         h = it.height_mm
         if base <= 0 or h / base > r + 1e-9:
+            # 높이는 올리고 바닥은 내려서 보인다: 반올림하면 90.4/60.2 가 '90mm … 60mm 의 1.5배를 넘어'처럼
+            # 기준과 같은 비율로 보일 수 있다 (올린 높이 ÷ 내린 바닥은 언제나 실제 비율 이상)
+            h_shown, base_shown = math.ceil(h - 1e-9), math.floor(base + 1e-9)
             out.append(_warn(
                 "tip_over_risk",
-                f"{it.label_ko}: 높이 {h:.0f}mm 가 바닥 짧은 변 {base:.0f}mm 의 {r:g}배를 넘어 물속에서 넘어지기 쉽습니다. "
+                f"{it.label_ko}: 높이 {h_shown}mm 가 바닥 짧은 변 {base_shown}mm 의 {r:g}배를 넘어 물속에서 넘어지기 쉽습니다. "
                 "바닥을 넓히거나 높이를 낮춰 주세요.",
                 item_index=it.index,
                 details={"height_mm": h, "base_mm": base, "ratio": h / base if base > 0 else None, "max_ratio": r},

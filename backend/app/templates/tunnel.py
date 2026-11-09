@@ -27,6 +27,8 @@ from app.templates.base import (
 # 꼭대기 직선부가 시작되는 접점의 각도(꼭대기 기준). 50° 이면 직선부 오버행 = 90-50 = 40° (< 45°)
 TIP_ANGLE_DEG = 50.0
 _CUT = 1.0
+MIN_INNER_FIELD_MM, MAX_INNER_FIELD_MM = 12.0, 130.0  # inner_diameter_mm 필드 범위
+MIN_WALL_FIELD_MM, MAX_WALL_FIELD_MM = 1.0, 8.0  # wall_thickness_mm 필드 범위
 
 
 class TunnelParams(TemplateParams):
@@ -35,12 +37,12 @@ class TunnelParams(TemplateParams):
         description="터널 중심선 길이 mm. 종별 최대 길이(몸길이의 2배) 이하. 일반 프린터(220mm)에 들어가려면 200mm 이하 권장",
     )
     inner_diameter_mm: float = Field(
-        60, ge=12, le=130, description="터널 안쪽 폭(=내경) mm. 종별 최소 내경 이상"
+        60, ge=MIN_INNER_FIELD_MM, le=MAX_INNER_FIELD_MM, description="터널 안쪽 폭(=내경) mm. 종별 최소 내경 이상"
     )
     bend_angle_deg: float = Field(
         0, ge=0, le=180, description="수평면에서 휘는 각도(도). 0=직선, 90=ㄱ자 곡선, 180=U자"
     )
-    wall_thickness_mm: float = Field(3, ge=1.0, le=8, description="벽 두께 mm")
+    wall_thickness_mm: float = Field(3, ge=MIN_WALL_FIELD_MM, le=MAX_WALL_FIELD_MM, description="벽 두께 mm")
 
 
 def _arch(rad: float, leg_top: float, bottom: float) -> object:
@@ -68,9 +70,18 @@ def profile(p: TunnelParams):
     return outer - inner
 
 
+def arch_height(inner_diameter_mm: float, wall_thickness_mm: float) -> float:
+    """아치 단면 바깥 높이 = r + (r + t)/cos(TIP_ANGLE)."""
+    r = inner_diameter_mm / 2
+    return r + (r + wall_thickness_mm) / math.cos(math.radians(TIP_ANGLE_DEG))
+
+
 def outer_height(p: TunnelParams) -> float:
-    r = p.inner_diameter_mm / 2
-    return r + (r + p.wall_thickness_mm) / math.cos(math.radians(TIP_ANGLE_DEG))
+    return arch_height(p.inner_diameter_mm, p.wall_thickness_mm)
+
+
+def _floor1(x: float) -> float:
+    return math.floor(x * 10 + 1e-6) / 10
 
 
 def bend_radius(p: TunnelParams) -> float | None:
@@ -117,9 +128,39 @@ class TunnelTemplate(Template):
             wall_thickness_mm=ctx.default_wall_mm,
         )
 
+    def min_height_mm(self, ctx: RuleContext) -> float:
+        """종별 최소 내경·최소 벽 두께로 만든 가장 낮은 터널 높이."""
+        inner = min(MAX_INNER_FIELD_MM, max(MIN_INNER_FIELD_MM, ctx.size.tunnel_min_inner_diameter_mm))
+        t = min(MAX_WALL_FIELD_MM, max(MIN_WALL_FIELD_MM, ctx.min_wall_mm))
+        return math.ceil(arch_height(inner, t) * 10 - 1e-6) / 10
+
+    def height_limit_constraints(
+        self, p: TunnelParams, ctx: RuleContext, limit_mm: float, reason_ko: str
+    ) -> list[ParamConstraint]:
+        """터널 높이는 내경과 벽 두께로 정해진다: 높이가 limit_mm 이하가 되도록 내경(필요하면 벽 두께도) 상한을 둔다."""
+        k = 1 / math.cos(math.radians(TIP_ANGLE_DEG))
+        t = max(p.wall_thickness_mm, ctx.min_wall_mm)
+        inner_min = max(MIN_INNER_FIELD_MM, ctx.size.tunnel_min_inner_diameter_mm)
+        out: list[ParamConstraint] = []
+        # 최소 내경으로도 높으면 벽 두께를 줄인다 (높이 = r(1 + k) + t·k)
+        t_fit = (limit_mm - inner_min / 2 * (1 + k)) / k
+        if t > t_fit + 1e-9:
+            t = max(ctx.min_wall_mm, MIN_WALL_FIELD_MM, _floor1(t_fit))
+            out.append(ParamConstraint("wall_thickness_mm", max=t, source="geometry", reason_ko=reason_ko))
+        out.append(ParamConstraint(
+            "inner_diameter_mm", max=_floor1(2 * (limit_mm - t * k) / (1 + k)), source="geometry", reason_ko=reason_ko,
+        ))
+        return out
+
     def constraints(self, p: TunnelParams, ctx: RuleContext) -> list[ParamConstraint]:
         s = ctx.size
         d = max(p.inner_diameter_mm, s.tunnel_min_inner_diameter_mm)
+        limit = ctx.height_limit_mm
+        if limit is not None and self.min_height_mm(ctx) <= limit + 1e-6:
+            # 어항 높이 한도(엔진이 따로 준다)가 줄일 내경을 미리 반영해 길이 하한·휨 한계를 계산한다
+            inner_cap = self.height_limit_constraints(p, ctx, limit, "")[-1].max
+            assert inner_cap is not None
+            d = max(min(d, inner_cap), s.tunnel_min_inner_diameter_mm)
         max_len = s.tunnel_max_length_mm  # None: 길이 상한 없음 (어항)
         shape_min = 1.5 * d
         if max_len is not None and shape_min > max_len:

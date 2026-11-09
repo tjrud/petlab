@@ -13,7 +13,14 @@ from app.i18n import HANGUL, catalog
 from app.llm.anthropic_client import AnthropicInterpreter
 from app.llm.base import HabitatInfo, InterpretRequest, LLMRefusalError
 from app.llm.mock import MockInterpreter
-from app.llm.prompts import SYSTEM_PROMPT, build_user_message, english_instruction, template_catalog
+from app.llm.prompts import (
+    MATERIAL_RULE,
+    MATERIAL_RULE_KEY,
+    SYSTEM_PROMPT,
+    build_user_message,
+    english_instruction,
+    template_catalog,
+)
 from app.llm.spec import api_schema, design_spec_model, parse_spec, template_keys, to_item_specs
 from app.rules.loader import AQUARIUM_TEMPLATES, CAGE_TEMPLATES
 from app.services.engine import EngineContext, run_engine
@@ -150,6 +157,12 @@ def test_user_message_for_aquarium(rules, size):
     assert '"터널 최대 길이(mm)": "없음' in head
     assert '"만들 수 있는 구조물": "cave(물속 동굴), tunnel(터널)만' in head
     assert '"속이 빈 닫힌 공간": "금지' in head
+    # 소재 안전은 화면의 출력·설치 안내(글10)를 따른다: 모델이 '안전하다'·'무독성'이라 단정하거나 코팅을 권하지 않게
+    assert f'"{MATERIAL_RULE_KEY}": "단정 금지' in head
+    for phrase in ("'안전하다'", "'무독성이다'", "코팅·레진", "화면의 출력·설치 안내를 따르라고만"):
+        assert phrase in MATERIAL_RULE and phrase in head, phrase
+    for part in ("summary_ko", "reason_ko", "notes_ko"):
+        assert part in MATERIAL_RULE, part
     catalog_part = msg.split("## 사용 가능한 템플릿")[1].split("## 보호자 요구사항")[0]
     assert [t["template"] for t in json.loads(catalog_part)] == ["tunnel", "cave"]
 
@@ -159,7 +172,7 @@ def test_user_message_for_hamster_has_no_aquarium_rows(rules):
     head, rest = msg.split("## 사용 가능한 템플릿")
     assert '"케이지 내부 치수(mm)"' in head and '"램프 최대 경사(도)": 30.0' in head
     assert '"모래목욕통 최소 내부 [가로, 세로](mm)": [\n    200.0,\n    200.0\n  ]' in head
-    for absent in ("물 깊이", "어항", "물속 동굴", "만들 수 있는 구조물", "속이 빈"):
+    for absent in ("물 깊이", "어항", "물속 동굴", "만들 수 있는 구조물", "속이 빈", MATERIAL_RULE_KEY):
         assert absent not in head, absent
     templates = [t["template"] for t in json.loads(rest.split("## 보호자 요구사항")[0])]
     assert templates == ["hideout", "tunnel", "ramp", "sand_bath"]
@@ -265,13 +278,36 @@ def test_mock_aquarium_keywords(rules):
     assert spec.notes_ko == ["구체적인 구조물 언급이 없어 기본 물속 동굴 1개로 설계했습니다."]
 
 
+@pytest.mark.parametrize("prompt,lang", [("출입구가 앞뒤에 있는 동굴", "ko"), ("a cave open front and back", "en"),
+                                         ("앞뒤가 뚫린 동굴", "ko"), ("a cave open at both ends", "en")])
+def test_mock_cave_door_phrases_are_not_placement(rules, prompt, lang):
+    """'앞뒤에'(뒤에)·'front and back'(front)은 출입구 개수를 말하는 것이지 수조 앞·뒤에 놓으라는 말이 아니다."""
+    [item] = mock(rules, prompt, language=lang).items
+    assert item.template == "cave" and item.params.entrance_count == 2
+    assert item.placement.zone == "auto"
+
+
+@pytest.mark.parametrize("prompt,lang,zone", [("왼쪽에 앞뒤가 뚫린 동굴", "ko", "left"),
+                                              ("뒤쪽에 출입구가 앞뒤에 있는 동굴", "ko", "back"),
+                                              ("a cave open front and back on the left", "en", "left")])
+def test_mock_cave_door_phrases_keep_real_zone_requests(rules, prompt, lang, zone):
+    assert mock(rules, prompt, language=lang).items[0].placement.zone == zone
+
+
+def test_mock_swim_through_verb_is_not_a_tunnel(rules):
+    """'헤엄쳐 지나갈 수 있는 동굴'의 동사 swim through 는 터널을 더하지 않는다 (이름씨 swim-through 는 터널)."""
+    assert templates_of(mock(rules, "a cave that fish can swim through", language="en")) == ["cave"]
+    assert templates_of(mock(rules, "two swim throughs", language="en")) == ["tunnel"]
+    assert templates_of(mock(rules, "a swimthrough", language="en")) == ["tunnel"]
+
+
 def test_mock_aquarium_reason_text(rules):
     spec = mock(rules, "동굴")
-    assert spec.items[0].reason_ko == ("요구사항에서 '물속 동굴'을(를) 찾아 나노 어종 (네온·엠버 테트라, 보라라스 등 성체 3cm 이하) "
-                                       "수조 기준에 맞춰 구성했습니다.")
+    assert spec.items[0].reason_ko == ("요구사항에서 '물속 동굴'을(를) 찾아 나노 어종 (네온·엠버 테트라 등, 꼬리지느러미 뺀 몸길이 "
+                                       "2~3cm) 수조 기준에 맞춰 구성했습니다.")
     en = catalog().translate(spec.items[0].reason_ko)
     assert en == ("Found 'Underwater cave' in your request and used the standard tank values for the "
-                  "Nano fish (neon and ember tetras, Boraras, etc.; adults up to 3 cm).")
+                  "Nano fish (neon and ember tetras, etc.; adult body length 2–3 cm, not counting the tail fin).")
     spec = mock(rules, "a cave and a ramp", language="en", size="community")
     assert spec.items[0].reason_ko == ("Found 'Underwater cave' in your request and used the standard tank values "
                                        "for the Community tank (shrimp, nano and small fish kept together).")
@@ -328,7 +364,7 @@ def test_mock_output_runs_clean_for_every_aquarium_size(rules):
 def test_rule_file_strings_have_english_without_hamster(rules):
     c = catalog()
     entry = rules.species_entry("aquarium")
-    texts = [entry.display_name, *entry.print_notes_ko]
+    texts = [entry.display_name, *entry.print_notes_ko, entry.size_hint_ko]
     for size in entry.sizes.values():
         texts += [size.display_name] + ([size.min_count_warning_ko] if size.min_count_warning_ko else [])
     for t in texts:
@@ -342,7 +378,7 @@ def test_size_name_messages_are_species_neutral_in_english(rules):
     nano = rules.size_rules("aquarium", "nano_fish").display_name
     out = c.translate(f"물속 동굴 #1: 출입구 15mm 가 {nano} 기준 최소 20mm 보다 작습니다.")
     assert out == ("Underwater cave #1: Entrance 15 mm is smaller than the 20 mm minimum for the "
-                   "Nano fish (neon and ember tetras, Boraras, etc.; adults up to 3 cm).")
+                   "Nano fish (neon and ember tetras, etc.; adult body length 2–3 cm, not counting the tail fin).")
     out = c.translate(f"물속 동굴 #1: 출입구 폭 15 → 20 로 보정했습니다. {nano} 출입구는 최소 20mm 이상이어야 합니다")
     assert "hamster" not in out.lower() and not HANGUL.search(out), out
     assert c.translate(f"{nano} 터널 내경은 최소 20mm 이상이어야 합니다").startswith("Tunnel inner diameter for the Nano fish")
@@ -352,3 +388,6 @@ def test_size_name_messages_are_species_neutral_in_english(rules):
     assert c.translate("요구사항에서 '은신처'을(를) 찾아 햄스터 골든 (시리안) 기준값으로 구성했습니다.") == \
         "Found 'Hideout' in your request and used the standard Hamster values for a Golden (Syrian) hamster."
     assert c.translate("드워프 (정글리안·캠벨·로보로브스키)") == "Dwarf hamster (Djungarian, Campbell's, Roborovski)"
+    # 저장된 옛 설계·검증 문구의 옛 나노 어종 이름도 그대로 번역된다
+    assert c.translate("나노 어종 (네온·엠버 테트라, 보라라스 등 성체 3cm 이하)") == \
+        "Nano fish (neon and ember tetras, Boraras, etc.; adults up to 3 cm)"

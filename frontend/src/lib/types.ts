@@ -87,6 +87,11 @@ export type AquaticRules = {
   substrate_depth_assumed_mm: number;
   /** 수조 부피를 어림할 때 더하는 수면 위 여유 mm */
   air_gap_mm: number;
+  /**
+   * 수조 유리 두께 어림 mm. 입력은 수조 안쪽 치수인데 바닥·부피 기준은 겉 크기라, 비교할 때만 더한다
+   * (옛 서버 응답에는 없을 수 있어요 → 0)
+   */
+  glass_thickness_assumed_mm?: number;
   /** 수조 최소 부피 L */
   min_volume_l: number;
   /** 마리당 필요한 부피 L (출처가 없으면 null: 마릿수 비례 부피는 보지 않는다) */
@@ -124,6 +129,8 @@ export type SpeciesOption = {
   max_count?: number;
   /** 출력·설치 안내 (영어 화면이면 서버가 항목마다 번역해 보낸다) */
   print_notes_ko?: string[];
+  /** 크기 구분을 고를 때 보일 안내 (어항: 몸길이 기준·아주 작은 종). 없으면 null, 영어 화면이면 서버가 번역해 보낸다 */
+  size_hint_ko?: string | null;
 };
 
 export type SpeciesResponse = {

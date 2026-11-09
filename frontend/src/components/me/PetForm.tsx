@@ -153,7 +153,10 @@ export default function PetForm({
   }, [nameId]);
 
   const errors = submitted ? validate(values, species, today, t) : {};
-  const sizes = species.find((s) => s.key === values.species)?.sizes ?? [];
+  const speciesOpt = species.find((s) => s.key === values.species);
+  const sizes = speciesOpt?.sizes ?? [];
+  /** 크기 구분을 고르는 기준 (어항: 몸길이 재는 법·아주 작은 종). 서버가 화면 언어로 보낸다 */
+  const sizeHint = speciesOpt?.size_hint_ko ?? null;
   /** 사육 환경 종류: 어항이면 수조·물 깊이 낱말과 수조 프리셋 */
   const kind = speciesKind(species, values.species);
   const aquarium = kind === "aquarium";
@@ -265,6 +268,11 @@ export default function PetForm({
           <FieldError id={id("size-error")} message={errors.size} />
         </div>
       </div>
+      {sizeHint && (
+        <p data-testid="size-hint" className="-mt-2 text-xs text-stone-500">
+          {sizeHint}
+        </p>
+      )}
 
       <fieldset>
         <legend className={ui.label}>{t("성별")}</legend>
@@ -346,7 +354,7 @@ export default function PetForm({
         </legend>
         <p className="mb-2 text-xs text-stone-500">
           {t("저장해 두면 설계할 때 자동으로 채워져요. 모르면 비워 두어도 돼요.")}
-          {aquarium && <> {t("물 깊이는 바닥재 위부터 수면까지 재 주세요.")}</>}
+          {aquarium && <> {t("가로·세로는 수조 안쪽 치수(유리 안쪽 사이)로, 물 깊이는 바닥재 위부터 수면까지 재 주세요. 바닥·부피 기준은 유리 두께를 더한 겉 크기로 비교해요.")}</>}
         </p>
         <div className="mb-3 flex flex-wrap gap-2">
           {presetsFor(kind).map((p) => {

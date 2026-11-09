@@ -24,7 +24,7 @@ function DesignRow({ d }: { d: DesignListItem }) {
           <span className={`${ui.badge} shrink-0`}>v{d.latest_version}</span>
         </div>
         <p className="mt-1 truncate text-sm text-stone-600">
-          {t(d.habitat.species_name_ko)} · {t(d.habitat.size_name_ko)}
+          {t("{species} · {size}", { species: t(d.habitat.species_name_ko), size: t(d.habitat.size_name_ko) })}
           {d.pet_name && <> · {d.pet_name}</>} ·{" "}
           {kindOf(d.habitat) === "aquarium" ? (
             t("{w}×{d}mm · 물 깊이 {h}mm", { w: cage.width_mm, d: cage.depth_mm, h: cage.height_mm })

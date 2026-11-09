@@ -18,27 +18,46 @@ import {
   DEFAULT_MAX_COUNT,
   DIM_LABELS,
   dimInputLabel,
+  floorShortfall,
+  glassOf,
   kindOf,
   maxCountOf,
   speciesKind,
+  TANK_PRESET_GLASS_MM,
   tankVolumeShortfall,
 } from "@/lib/habitatKind";
 import type { HabitatKind, Me, Pet, SpeciesResponse } from "@/lib/types";
 
-// 구조물 하나를 요청하는 예시 (템플릿마다 하나). 어항은 동굴·터널만 만들 수 있다
-const EXAMPLE_PROMPTS: Record<HabitatKind, readonly string[]> = {
-  cage: [
-    "출입구가 두 개 있는 은신처를 만들어 주세요",
-    "케이지 한쪽에 놓을 긴 터널이 필요해요",
-    "완만한 경사로를 하나 만들어 주세요",
-    "모래 목욕용 통을 하나 만들고 싶어요",
-  ],
-  aquarium: [
-    "새우가 숨을 수 있는 작은 동굴을 만들어 주세요",
-    "네온 테트라 무리가 지나갈 터널과 동굴을 만들어 주세요",
-    "코리도라스용으로 앞뒤가 뚫린 동굴 두 개",
-  ],
-};
+// 구조물 하나를 요청하는 예시 (템플릿마다 하나)
+const CAGE_EXAMPLE_PROMPTS: readonly string[] = [
+  "출입구가 두 개 있는 은신처를 만들어 주세요",
+  "케이지 한쪽에 놓을 긴 터널이 필요해요",
+  "완만한 경사로를 하나 만들어 주세요",
+  "모래 목욕용 통을 하나 만들고 싶어요",
+];
+
+// 어항 예시는 고른 크기 구분에 맞춘다. 설계는 고른 크기 구분의 틈·구멍 기준을 따르므로, 예시에 다른 크기 구분의 동물이
+// 나오면(새우 기준에 코리도라스 등) 그 동물이 끼는 크기로 설계되고도 검증을 통과한다. 그래서 크기 구분마다 그 구분에 드는
+// 동물만 이름을 들고, 모르는 크기 구분이면 동물 이름이 없는 예시만 보인다. 어항은 동굴·터널만 만들 수 있다
+const AQUARIUM_NEUTRAL_EXAMPLES: readonly string[] = [
+  "앞뒤가 뚫린 동굴을 하나 만들어 주세요",
+  "터널 하나와 동굴 하나를 만들어 주세요",
+];
+const AQUARIUM_EXAMPLE_PROMPTS = new Map<string, readonly string[]>([
+  ["shrimp", ["새우가 숨을 수 있는 작은 동굴을 만들어 주세요", ...AQUARIUM_NEUTRAL_EXAMPLES]],
+  ["nano_fish", ["네온 테트라 무리가 지나갈 터널과 동굴을 만들어 주세요", "앞뒤가 뚫린 동굴을 하나 만들어 주세요"]],
+  ["small_fish", ["코리도라스용으로 앞뒤가 뚫린 동굴 두 개", "터널 하나와 동굴 하나를 만들어 주세요"]],
+  ["community", ["새우와 작은 물고기가 함께 숨을 수 있는 동굴을 만들어 주세요", ...AQUARIUM_NEUTRAL_EXAMPLES]],
+]);
+
+/** 요구사항 단계의 예시 요청 (케이지는 템플릿마다 하나, 어항은 고른 크기 구분의 예시) */
+function examplePromptsFor(kind: HabitatKind, size: string): readonly string[] {
+  return kind === "aquarium" ? (AQUARIUM_EXAMPLE_PROMPTS.get(size) ?? AQUARIUM_NEUTRAL_EXAMPLES) : CAGE_EXAMPLE_PROMPTS;
+}
+
+/** 처음 열 때 고르는 종·크기. 주소로 받은 요청(?prompt=)에 종이 없으면 이 종의 요청으로 본다 */
+const DEFAULT_SPECIES = "hamster";
+const DEFAULT_SIZE = "syrian";
 
 const COUNT_MIN = 1;
 
@@ -63,13 +82,6 @@ export function WizardSkeleton() {
       </p>
     </div>
   );
-}
-
-/** 케이지 바닥이 최소 기준보다 작은지 (긴 변·짧은 변끼리 비교, 서버 check_enclosure 와 같다) */
-function cageBelowRecommended(cage: { w: number; d: number }, min: [number, number] | null | undefined): boolean {
-  if (!min) return false;
-  const [needLong, needShort] = min;
-  return Math.max(cage.w, cage.d) < needLong || Math.min(cage.w, cage.d) < needShort;
 }
 
 /** 사육 환경 입력 오류: 가로·세로·높이(어항은 물 깊이) 순서로 확인한 뒤 마릿수를 본다 (안내 순서도 같다) */
@@ -111,16 +123,20 @@ export default function NewDesignWizard() {
   const wantedPet = searchParams.get("pet");
   // /design?prompt=...: 메인 화면 입력창에 적은 요청. 요구사항 칸에 미리 채운다
   const wantedPrompt = searchParams.get("prompt")?.trim().slice(0, 2000) || null;
-  // /design?species=aquarium: 메인 화면의 어항 예시처럼 종을 골라 두고 들어온 경우 (?pet= 이 있으면 반려동물이 정한다)
-  const wantedSpecies = searchParams.get("species");
+  // /design?species=aquarium: 메인 화면의 예시처럼 종을 골라 두고 들어온 경우 (?pet= 이 있으면 반려동물이 정한다).
+  // 종 없이 요청(?prompt=)만 받으면 기본 종의 요청으로 본다: 이 화면은 숨김 상태로 남아 있어, 그러지 않으면 전에 고른
+  // 어항이 남아 햄스터 요청을 어항으로 설계한다 (새로 고침으로 열 때처럼 기본 종으로 연다)
+  const wantedSpecies = searchParams.get("species") ?? (wantedPrompt && !wantedPet ? DEFAULT_SPECIES : null);
+  // /design?species=aquarium&size=shrimp: 예시 문장에 나온 동물의 크기 구분까지 골라 두고 들어온 경우 (?species= 와 함께만 쓴다)
+  const wantedSize = searchParams.get("size");
   const petSelectId = useId();
   const [meta, setMeta] = useState<SpeciesResponse | null>(null);
   const [metaError, setMetaError] = useState<string | null>(null);
   const [authError, setAuthError] = useState<ApiError | null>(null);
   const [step, setStep] = useState<Step>(1);
 
-  const [species, setSpecies] = useState("hamster");
-  const [size, setSize] = useState("syrian");
+  const [species, setSpecies] = useState(DEFAULT_SPECIES);
+  const [size, setSize] = useState(DEFAULT_SIZE);
   const [count, setCount] = useState(1);
   const [cage, setCage] = useState<Cage>({ w: 600, d: 400, h: 300 });
   const [prompt, setPrompt] = useState("");
@@ -134,7 +150,10 @@ export default function NewDesignWizard() {
   const [emailBlocked, setEmailBlocked] = useEmailBlocked();
 
   const [pets, setPets] = useState<Pet[] | null>(null);
-  /** 값을 채워 온 반려동물 (종·크기를 고쳐도 그대로 두고, "직접 입력"을 고르면 지운다) */
+  /**
+   * 값을 채워 온 반려동물. 크기·치수·마릿수를 고쳐도 그대로 두고, "직접 입력"을 고르거나 다른 종으로 바꾸면 지운다
+   * (서버는 종이 다른 반려동물로 사육 환경을 만들지 않는다)
+   */
   const [petId, setPetId] = useState<string | null>(null);
   const [petNotice, setPetNotice] = useState<string | null>(null);
   const [quota, setQuota] = useState<Quota | null>(null);
@@ -146,6 +165,29 @@ export default function NewDesignWizard() {
   useEffect(() => {
     petIdRef.current = petId;
   }, [petId]);
+  // 종을 바꿀 때 고른 반려동물의 종을 보려고 읽는 목록과, 주소의 ?species= 가 지금 종과 같은지 보려고 읽는 종 (렌더 중에는 읽지 않는다)
+  const petsRef = useRef<Pet[] | null>(null);
+  useEffect(() => {
+    petsRef.current = pets;
+  }, [pets]);
+  const speciesRef = useRef(species);
+  useEffect(() => {
+    speciesRef.current = species;
+  }, [species]);
+
+  /**
+   * 다른 종으로 바꿀 때: 고른 반려동물이 그 종이 아니면 연결을 끊고 알린다. 입력해 둔 값은 그대로 둔다.
+   * (종이 다른 반려동물을 그대로 보내면 서버가 사육 환경을 만들지 않는다)
+   */
+  const unlinkPetOfOtherSpecies = useCallback(
+    (nextSpecies: string) => {
+      const id = petIdRef.current;
+      if (!id || petsRef.current?.find((p) => p.id === id)?.species === nextSpecies) return;
+      setPetId(null);
+      setPetNotice(t("종을 바꿔서 반려동물 연결을 해제했어요. 아래 값을 확인해 주세요."));
+    },
+    [t],
+  );
 
   // 설계를 만든 뒤 결과 화면으로 이동하는 동안 true. router.push 를 이 transition 안에서 부르므로
   // 이동이 끝나면 저절로 false 가 된다 (다른 이동에 밀려 이 화면에 그대로 남는 경우도)
@@ -171,7 +213,9 @@ export default function NewDesignWizard() {
       setCount(d.count);
       setCage(d.cage);
       setPrompt(d.prompt);
-      setPetId(d.petId);
+      // 종이 다른 반려동물은 다시 연결하지 않는다 (서버가 받지 않는다. 목록을 아직 못 받았으면 설계할 때 한 번 더 거른다)
+      const pet = d.petId ? petsRef.current?.find((p) => p.id === d.petId) : undefined;
+      setPetId(pet && pet.species !== d.species ? null : d.petId);
       setHabitatId(null);
       setStep(2);
     },
@@ -206,20 +250,27 @@ export default function NewDesignWizard() {
     };
   }, [t]);
 
-  // 주소의 ?species= 은 종 목록을 받은 뒤 들어올 때마다 한 번 적용한다 (?prompt= 과 같이 bfcacheId 로 구분).
-  // 목록에 없는 종이면 무시한다. 크기는 그 종의 첫 크기, 마릿수는 그 종의 상한 안으로
+  // 주소의 ?species=(와 ?size=)는 종 목록을 받은 뒤 들어올 때마다 한 번 적용한다 (?prompt= 과 같이 bfcacheId 로 구분).
+  // 목록에 없는 종·크기는 무시한다. 이미 그 종이면 고른 크기·마릿수·반려동물을 그대로 둔다 (?size= 가 있으면 크기만 바꾼다).
+  // 다른 종이면 종 고르기와 같이 크기는 ?size= 또는 그 종의 첫 크기, 마릿수는 그 종의 상한 안으로 바꾸고,
+  // 그 종이 아닌 반려동물은 연결을 끊는다
   const appliedSpeciesParam = useRef<string | null>(null);
   useEffect(() => {
     const next = wantedSpecies && !wantedPet ? meta?.species.find((s) => s.key === wantedSpecies) : undefined;
     if (!next) return;
-    const key = `${bfcacheId}|${next.key}`;
+    const key = `${bfcacheId}|${next.key}|${wantedSize ?? ""}`;
     if (appliedSpeciesParam.current === key) return;
     appliedSpeciesParam.current = key;
-    setSpecies(next.key);
-    setSize(next.sizes[0]?.key ?? "");
-    setCount((c) => capCount(c, maxCountOf(next)));
+    const nextSize = next.sizes.find((s) => s.key === wantedSize)?.key;
+    const sameSpecies = speciesRef.current === next.key;
+    if (sameSpecies && !nextSize) return;
+    setSize(nextSize ?? next.sizes[0]?.key ?? "");
     setHabitatId(null);
-  }, [wantedSpecies, wantedPet, meta, bfcacheId]);
+    if (sameSpecies) return;
+    setSpecies(next.key);
+    setCount((c) => capCount(c, maxCountOf(next)));
+    unlinkPetOfOtherSpecies(next.key);
+  }, [wantedSpecies, wantedSize, wantedPet, meta, bfcacheId, unlinkPetOfOtherSpecies]);
 
   // 반려동물을 고를 때 마릿수를 그 종의 상한 안으로 줄이려고 종 목록을 읽는다 (렌더 중에는 읽지 않는다)
   const metaRef = useRef<SpeciesResponse | null>(null);
@@ -292,6 +343,8 @@ export default function NewDesignWizard() {
   const maxCount = speciesOpt?.max_count ?? DEFAULT_MAX_COUNT;
   const countNote = countWarning(sizeOpt, count);
   const volumeShort = tankVolumeShortfall({ width_mm: cage.w, depth_mm: cage.d, height_mm: cage.h }, sizeOpt, count);
+  // 바닥 최소 기준 (서버 check_enclosure 와 같다. 어항은 안쪽 치수에 유리 두께를 더한 겉 크기로 비교)
+  const floorShort = floorShortfall({ width_mm: cage.w, depth_mm: cage.d }, sizeOpt);
 
   const habitatErrors = habitatErrorsOf(cage, count, kind, maxCount, t);
   // 종 목록을 받았는데 고른 크기가 그 종에 없으면(반려동물·임시 저장에서 채운 옛 값 등) 크기를 다시 고르게 한다
@@ -319,7 +372,8 @@ export default function NewDesignWizard() {
           size,
           count,
           cage: { width_mm: cage.w, depth_mm: cage.d, height_mm: cage.h },
-          pet_id: petId,
+          // 종이 다른 반려동물은 서버가 받지 않는다. 종을 바꿀 때 연결을 끊지만, 임시 저장에서 되살린 값 등도 한 번 더 거른다
+          pet_id: selectedPet && selectedPet.species !== species ? null : petId,
         });
         hid = h.id;
         setHabitatId(hid);
@@ -338,7 +392,11 @@ export default function NewDesignWizard() {
       else if (isEmailUnverified(e)) setEmailBlocked(true); // 위쪽 안내로 알려 준다 (로그인 상태도 다시 확인한다)
       else if (e instanceof ApiError && e.code === "design_quota_exceeded" && quota && quota.limit !== null)
         setQuota({ ...quota, used: Math.max(quota.used, quota.limit), remaining: 0 }); // 아래 안내로 알려 준다
-      else {
+      else if (e instanceof ApiError && e.code === "pet_species_mismatch") {
+        // 고른 반려동물의 종이 그사이 바뀌었다(다른 탭에서 고친 경우 등): 연결을 끊어 다시 누르면 설계되게 한다
+        setPetId(null);
+        setError(t("고른 반려동물과 종이 달라서 반려동물 연결을 해제했어요. 다시 누르면 반려동물 연결 없이 설계해요."));
+      } else {
         setError(errorText(e, t("설계 중 문제가 생겼어요. 다시 시도해 주세요.")));
         // 실패한 요청도 횟수에 들어가므로 남은 횟수를 다시 불러온다
         api
@@ -484,12 +542,14 @@ export default function NewDesignWizard() {
                 className="w-full rounded-lg border border-stone-300 bg-white px-3 py-2"
                 value={species}
                 onChange={(e) => {
-                  // 크기는 새 종의 첫 크기로, 마릿수는 새 종의 상한 안으로 (이전 종의 크기가 남아 있지 않게)
+                  // 크기는 새 종의 첫 크기로, 마릿수는 새 종의 상한 안으로 (이전 종의 크기가 남아 있지 않게).
+                  // 고른 반려동물이 새 종이 아니면 연결을 끊는다
                   const next = meta?.species.find((s) => s.key === e.target.value);
                   setSpecies(e.target.value);
                   setSize(next?.sizes[0]?.key ?? "");
                   if (next) setCount((c) => capCount(c, maxCountOf(next)));
                   resetHabitat();
+                  unlinkPetOfOtherSpecies(e.target.value);
                 }}
               >
                 {(meta?.species ?? [{ key: "hamster", display_name: t("햄스터"), sizes: [] }]).map((s) => (
@@ -540,6 +600,12 @@ export default function NewDesignWizard() {
                 </label>
               ))}
             </div>
+            {/* 크기 구분을 고르는 기준 (어항: 몸길이 재는 법·아주 작은 종). 서버가 화면 언어로 보낸다 */}
+            {speciesOpt?.size_hint_ko && (
+              <p data-testid="size-hint" className="mt-2 text-xs text-stone-500">
+                {speciesOpt.size_hint_ko}
+              </p>
+            )}
             {countNote && <p className="mt-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{countNote}</p>}
           </fieldset>
 
@@ -568,7 +634,10 @@ export default function NewDesignWizard() {
             </div>
             {aquarium && (
               <p className="mb-3 text-xs text-stone-500">
-                {t("수조 버튼은 흔한 수조의 겉 크기예요. 물 깊이는 수조 높이에서 바닥재 약 5cm와 수면 위 여유 약 3cm를 뺀 값으로 채워요.")}
+                {t(
+                  "수조 버튼 이름은 흔한 수조의 겉 크기예요. 누르면 유리 두께 {g}mm를 빼서 안쪽 가로·세로를 채우고, 물 깊이는 수조 높이에서 바닥 유리와 바닥재 약 5cm, 수면 위 여유 약 3cm를 뺀 값으로 채워요. 내 수조와 다르면 고쳐 주세요.",
+                  { g: TANK_PRESET_GLASS_MM },
+                )}
               </p>
             )}
             <div className="grid grid-cols-3 gap-3">
@@ -591,19 +660,25 @@ export default function NewDesignWizard() {
             </div>
             <p className="mt-2 text-xs text-stone-500">
               {aquarium
-                ? t("가로·세로는 수조 안쪽 치수로, 물 깊이는 바닥재 위부터 수면까지 재 주세요.")
+                ? t("가로·세로는 수조 안쪽 치수(유리 안쪽 사이)로, 물 깊이는 바닥재 위부터 수면까지 재 주세요. 바닥·부피 기준은 유리 두께를 더한 겉 크기로 비교해요.")
                 : t("바닥재를 깐 상태의 내부 공간 기준으로 재 주세요.")}
             </p>
-            {sizeOpt?.enclosure_min_floor_mm && cageBelowRecommended(cage, sizeOpt.enclosure_min_floor_mm) && (
+            {floorShort && (
               <p className="mt-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
                 {aquarium
-                  ? t("수조 바닥 최소 기준은 {w}×{d}cm예요. 설계는 할 수 있지만 더 큰 수조를 권장해요.", {
-                      w: sizeOpt.enclosure_min_floor_mm[0] / 10,
-                      d: sizeOpt.enclosure_min_floor_mm[1] / 10,
-                    })
+                  ? t(
+                      "수조 바닥 최소 기준은 겉 크기 {w}×{d}cm예요. 입력한 안쪽 치수에 유리 두께 {g}mm를 더하면 약 {ow}×{od}mm라 모자라요. 설계는 할 수 있지만 더 큰 수조를 권장해요.",
+                      {
+                        w: floorShort.minMm[0] / 10,
+                        d: floorShort.minMm[1] / 10,
+                        g: floorShort.glassMm,
+                        ow: floorShort.floorMm[0],
+                        od: floorShort.floorMm[1],
+                      },
+                    )
                   : t("사육장 바닥 최소 기준은 {w}×{d}cm예요. 설계는 할 수 있지만 더 넓은 사육장을 권장해요.", {
-                      w: sizeOpt.enclosure_min_floor_mm[0] / 10,
-                      d: sizeOpt.enclosure_min_floor_mm[1] / 10,
+                      w: floorShort.minMm[0] / 10,
+                      d: floorShort.minMm[1] / 10,
                     })}
               </p>
             )}
@@ -611,9 +686,10 @@ export default function NewDesignWizard() {
               <p className="mt-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
                 {volumeShort.byCount
                   ? t(
-                      "수조 부피가 약 {v}L(물 깊이에 바닥재 {s}mm·수면 위 여유 {a}mm를 더해 어림)로 {count}마리 기준 권장 최소 {need}L보다 작아요. 설계는 할 수 있지만 더 큰 수조를 권장해요.",
+                      "수조 부피가 약 {v}L(안쪽 치수에 유리 두께 {g}mm, 물 깊이에 바닥재 {s}mm·수면 위 여유 {a}mm를 더한 겉 크기로 어림)로 {count}마리 기준 권장 최소 {need}L보다 작아요. 설계는 할 수 있지만 더 큰 수조를 권장해요.",
                       {
-                        v: Math.round(volumeShort.volumeL),
+                        v: Math.floor(volumeShort.volumeL), // 내림: 반올림하면 '약 54L … 최소 54L보다 작아요'처럼 보일 수 있다
+                        g: glassOf(volumeShort.aquatic),
                         s: volumeShort.aquatic.substrate_depth_assumed_mm,
                         a: volumeShort.aquatic.air_gap_mm,
                         count,
@@ -621,9 +697,10 @@ export default function NewDesignWizard() {
                       },
                     )
                   : t(
-                      "수조 부피가 약 {v}L(물 깊이에 바닥재 {s}mm·수면 위 여유 {a}mm를 더해 어림)로 권장 최소 {need}L보다 작아요. 설계는 할 수 있지만 더 큰 수조를 권장해요.",
+                      "수조 부피가 약 {v}L(안쪽 치수에 유리 두께 {g}mm, 물 깊이에 바닥재 {s}mm·수면 위 여유 {a}mm를 더한 겉 크기로 어림)로 최소 기준 {need}L보다 작아요. 설계는 할 수 있지만 더 큰 수조를 권장해요.",
                       {
-                        v: Math.round(volumeShort.volumeL),
+                        v: Math.floor(volumeShort.volumeL),
+                        g: glassOf(volumeShort.aquatic),
                         s: volumeShort.aquatic.substrate_depth_assumed_mm,
                         a: volumeShort.aquatic.air_gap_mm,
                         need: Math.round(volumeShort.needL * 10) / 10,
@@ -694,7 +771,7 @@ export default function NewDesignWizard() {
             onChange={(e) => setPrompt(e.target.value)}
           />
           <div className="flex flex-wrap gap-2">
-            {EXAMPLE_PROMPTS[kind].map((p) => (
+            {examplePromptsFor(kind, size).map((p) => (
               <button
                 key={p}
                 type="button"

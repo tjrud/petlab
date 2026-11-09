@@ -64,7 +64,7 @@ export default function PetCard({
             {pet.name}
           </h3>
           <p className="mt-0.5 text-sm text-stone-600">
-            {t(pet.species_name_ko)} · {t(pet.size_name_ko)}
+            {t("{species} · {size}", { species: t(pet.species_name_ko), size: t(pet.size_name_ko) })}
           </p>
         </div>
       </div>

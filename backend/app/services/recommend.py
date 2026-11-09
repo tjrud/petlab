@@ -3,7 +3,8 @@
 회원마다 분류(은신처·터널·경사로·모래목욕통·케이지 전체·가상 케이지 배치·기타)별 관심도를 계산해 작품 점수에 더한다.
   - 내 설계에 들어 있는 구조물 (템플릿 → 분류)
   - 내 가상 케이지 배치안에 놓은 에셋 (에셋 키 → 분류), 배치안이 있으면 "가상 케이지 배치"
-  - 등록한 반려동물 (있으면 "케이지 전체"·"가상 케이지 배치", 배치 예시의 종·크기가 같으면 더)
+  - 등록한 케이지 반려동물 (있으면 "케이지 전체"·"가상 케이지 배치", 배치 예시의 종·크기가 같으면 더).
+    어항 생물은 케이지·가상 케이지 배치를 쓰지 않으므로 세지 않는다
   - 탐색에서 본·내려받은·담아 온 작품의 분류 (최근 90일)
 여기에 인기(내려받기 수)와 새로움(30일 기준 감쇠)을 더하고, 내 작품은 빼고, 이미 내려받은 작품은 낮춘다.
 로그인하지 않았으면 인기와 새로움만 쓴다.
@@ -13,6 +14,7 @@ from __future__ import annotations
 
 import math
 from collections import Counter
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
@@ -59,8 +61,15 @@ def _norm(c: Counter) -> dict[str, float]:
     return {k: v / top for k, v in c.items()} if top else {}
 
 
-def profile(db: Session, user: User) -> dict:
-    """관심도 (출처별로 따로 둔다: 추천 까닭을 말하려고)"""
+# 종 키 → 사육 환경 (cage / aquarium). 모르는 종은 cage 로 돌려주는 함수 (DesignService.habitat_kind)
+HabitatOf = Callable[[str], str]
+
+
+def profile(db: Session, user: User, habitat_of: HabitatOf | None = None) -> dict:
+    """관심도 (출처별로 따로 둔다: 추천 까닭을 말하려고)
+
+    habitat_of 를 주면 케이지에서 키우는 반려동물만 "케이지 전체"·"가상 케이지 배치" 관심으로 센다
+    (어항 생물만 등록한 회원에게 햄스터 케이지·가상 케이지 배치를 "반려동물 케이지에 맞는 작품"으로 권하지 않는다)."""
     designs = Counter()
     latest = (
         select(DesignVersion.items)
@@ -84,6 +93,8 @@ def profile(db: Session, user: User) -> dict:
                 layouts[cat] += 1
 
     pets = db.execute(select(Pet.species, Pet.size).where(Pet.owner_id == user.id)).all()
+    if habitat_of is not None:
+        pets = [(sp, sz) for sp, sz in pets if habitat_of(sp) == "cage"]
 
     events = Counter()
     since = datetime.now(timezone.utc) - timedelta(days=90)
@@ -119,13 +130,14 @@ def _hands_on(item: MarketItem) -> float:
     return (1.0 if viewable else 0.0) + (0.3 if has_image else 0.0)
 
 
-def recommend(db: Session, user: User | None, limit: int = 12) -> list[tuple[MarketItem, str]]:
+def recommend(db: Session, user: User | None, limit: int = 12,
+              habitat_of: HabitatOf | None = None) -> list[tuple[MarketItem, str]]:
     items = db.scalars(
         select(MarketItem).options(selectinload(MarketItem.owner), selectinload(MarketItem.files))
         .order_by(MarketItem.created_at.desc()).limit(300)
     ).all()
     now = datetime.now(timezone.utc)
-    prof = profile(db, user) if user else None
+    prof = profile(db, user, habitat_of) if user else None
     scored: list[tuple[float, MarketItem, str]] = []
     mine: list[tuple[float, MarketItem, str]] = []
     for it in items:

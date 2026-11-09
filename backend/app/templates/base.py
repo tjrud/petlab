@@ -90,6 +90,9 @@ class RuleContext:
     size: SizeRules
     min_wall_mm: float  # max(종 기준(케이지: 갉음 내구성, 어항: 물속 내구성), 출력 최소 벽)
     count: int = 1  # 함께 지내는 마릿수 (마릿수에 따라 달라지는 규칙용)
+    # 어항: 구조물 최대 높이 (물 깊이 − 구조물 위 최소 물 깊이). 엔진이 새 설계를 보정할 때만 준다.
+    # 높이를 이 안에 맞추려면 다른 값도 바꿔야 하는 템플릿(물속 동굴: 지붕 높이)이 그 값을 함께 조정할 때 쓴다
+    height_limit_mm: float | None = None
 
     @property
     def hideout_min_entrances(self) -> int:
@@ -136,6 +139,20 @@ class Template(ABC):
 
     def default_params(self, ctx: RuleContext | None = None) -> TemplateParams:
         return self.Params()
+
+    def min_height_mm(self, ctx: RuleContext) -> float | None:
+        """규칙 안에서 만들 수 있는 가장 낮은 외형 높이 (어항 물 깊이와 비교). 모르면 None (비교하지 않음)."""
+        return None
+
+    def height_limit_constraints(
+        self, p: TemplateParams, ctx: RuleContext, limit_mm: float, reason_ko: str
+    ) -> list[ParamConstraint]:
+        """외형 높이를 limit_mm 이하로 맞추는 제약. 기본: 높이 파라미터(height_field) 상한, 없으면 없음.
+
+        높이 파라미터가 없는 템플릿(터널: 내경·벽 두께로 높이가 정해진다)은 높이를 정하는 파라미터의 상한으로 바꿔 준다."""
+        if not self.height_field:
+            return []
+        return [ParamConstraint(self.height_field, max=limit_mm, source="geometry", reason_ko=reason_ko)]
 
     @abstractmethod
     def constraints(self, p: TemplateParams, ctx: RuleContext) -> list[ParamConstraint]:

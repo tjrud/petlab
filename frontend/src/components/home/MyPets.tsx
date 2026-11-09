@@ -26,7 +26,7 @@ function PetRow({ pet }: { pet: Pet }) {
           {pet.name}
         </p>
         <p className="truncate text-sm text-stone-600">
-          {t(pet.species_name_ko)} · {t(pet.size_name_ko)}
+          {t("{species} · {size}", { species: t(pet.species_name_ko), size: t(pet.size_name_ko) })}
           {pet.cage && (
             <>
               {" "}

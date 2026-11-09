@@ -424,9 +424,10 @@ def _record(db: Session, user: User | None, item: MarketItem, kind: str) -> bool
 
 @router.get("/recommended", response_model=list[MarketItemSummary], summary="맞춤 추천 (로그인하면 내 설계·배치안·반려동물·본 작품 기준)")
 def recommended(limit: int = Query(default=12, ge=1, le=48), db: Session = Depends(get_db),
-                user: User | None = Depends(get_optional_user)):
+                svc: DesignService = Depends(get_service), user: User | None = Depends(get_optional_user)):
+    # 케이지 반려동물만 "케이지 전체"·"가상 케이지 배치" 관심으로 센다 (어항 생물은 케이지를 쓰지 않는다)
     return [MarketItemSummary(**_summary_fields(it), reason_ko=reason)
-            for it, reason in recommend.recommend(db, user, limit)]
+            for it, reason in recommend.recommend(db, user, limit, habitat_of=svc.habitat_kind)]
 
 
 @router.get("/items/{item_id}", response_model=MarketItemOut, summary="작품 보기 (누구나)")

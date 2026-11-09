@@ -73,7 +73,9 @@ AQUARIUM_KEYWORDS_RX: dict[str, re.Pattern[str]] = {
 AQUARIUM_KEYWORDS_EN: dict[str, re.Pattern[str]] = {
     "cave": re.compile(r"\b(?:caves?|caverns?|grott(?:o|os|oes)|hide ?outs?|hides?|hidey(?: ?holes?)?"
                        r"|hiding (?:places?|spots?)|shelters?|houses?|huts?|dens?|retreats?)\b"),
-    "tunnel": re.compile(r"\b(?:tunnels?|tubes?|tubing|pipes?|passages?|burrows?|swim[ -]?throughs?)\b"),
+    # swim-through 는 이름씨(물고기가 지나가는 관)만 터널로 읽는다: 'a cave fish can swim through'의 동사는 빼고
+    #   여러 개를 뜻하는 'swim throughs' 는 받는다
+    "tunnel": re.compile(r"\b(?:tunnels?|tubes?|tubing|pipes?|passages?|burrows?|swim-?throughs?|swim throughs)\b"),
     "ramp": TEMPLATE_KEYWORDS_EN["ramp"],
     "sand_bath": re.compile(r"\b(?:sand ?baths?|dust ?baths?)\b"),
 }
@@ -156,6 +158,15 @@ def _find_templates(text: str, aquarium: bool = False) -> list[str]:
                 text = ko_rx.sub(_blank, text)
             low = rx_of[key].sub(_blank, low)
     return [k for _, k in sorted(found)]
+
+
+def _without_door_phrases(text: str) -> str:
+    """물속 동굴 출입구 개수를 말하는 말(앞뒤·양쪽·front and back …)을 같은 길이의 빈칸으로 지운 소문자 글.
+    '출입구가 앞뒤에 있는 동굴'의 '뒤에', 'open front and back'의 front 를 배치 위치로 읽지 않게 한다."""
+    low = _en(text)
+    for w in CAVE_THROUGH + CAVE_ONE_DOOR:
+        low = low.replace(w, " " * len(w))
+    return CAVE_THROUGH_EN.sub(_blank, low)
 
 
 def _find_zone(text: str) -> str | None:
@@ -281,7 +292,8 @@ class MockInterpreter:
                          if en else f"{species}에는 만들 수 없는 구조물이라 제외했습니다: {names}")
         requested = [k for k in requested if k in registry and k in allowed]
 
-        zone = _find_zone(text)
+        # 어항: 동굴 출입구 개수를 말하는 말(앞뒤·front and back)은 위치 요청이 아니다
+        zone = _find_zone(_without_door_phrases(text) if is_aquarium(req) else text)
         grouped = _grouped(text)
         factor = _scale_factor(text)
 

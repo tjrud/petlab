@@ -17,7 +17,7 @@ from pydantic import (
 )
 
 from app.names import normalize_nickname
-from app.rules.loader import Habitat
+from app.rules.loader import MAX_HABITAT_COUNT, Habitat
 
 # DB 에 저장되는 값의 형식 (Postgres 는 NUL 문자·int4 범위를 넘는 정수를 거부하므로 입력 단계에서 막는다)
 ID_RE = re.compile(r"[0-9a-f]{32}")  # 서버 코드에서는 항상 fullmatch 로 쓴다 (파이썬 re 의 $ 는 끝 줄바꿈 앞에서도 맞으므로 ^…$ 로 검사하지 않는다)
@@ -67,8 +67,8 @@ Title = Annotated[str, Text1, Field(min_length=1, max_length=100), AfterValidato
 
 # 사육 환경 종류 (규칙 파일 species.<종>.habitat: cage / aquarium). 어항이면 CageIn 은 수조 안쪽 가로·세로와 물 깊이다
 HabitatKind = Habitat
-# 입력할 수 있는 마릿수의 전체 상한. 종별 상한(규칙 파일 max_count)은 서비스가 확인한다 (DesignService.check_habitat)
-MAX_HABITAT_COUNT = 200
+# 입력할 수 있는 마릿수의 전체 상한은 MAX_HABITAT_COUNT (app/rules/loader.py: 규칙 파일 max_count 도 이 값 이하).
+# 종별 상한(규칙 파일 max_count)은 서비스가 확인한다 (DesignService.check_habitat)
 
 
 class CageIn(BaseModel):

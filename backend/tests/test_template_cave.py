@@ -9,7 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.geometry.mesh import mesh_health, part_to_mesh, to_print_orientation
-from app.templates.base import RuleContext
+from app.templates.base import ParamConstraint, RuleContext
 from app.templates.cave import (
     CaveParams,
     CaveTemplate,
@@ -354,6 +354,63 @@ def test_autofix_converges_without_conflict(rules, size, start):
     assert violated(fixed, c) == set()
     assert geometry_ok(fixed)
     assert mesh_health(mesh_of(fixed)).ok
+    # 꼭대기 구멍은 요청한 폭을 (커진) 가로·세로가 허용하는 만큼 지킨다: 보정 순서 때문에 더 줄지 않는다
+    P = c.size.gap_trap.passable_min_mm
+    assert fixed.top_opening_mm == pytest.approx(max(P, min(start["top_opening_mm"], max_top_opening(fixed))))
+
+
+def test_top_opening_max_uses_the_footprint_other_constraints_set(rules):
+    """세로가 출입구 때문에 60 → 66 으로 커지면 꼭대기 구멍 상한도 66 기준(50)이다 (예전: 60 기준 44 로 줄였다가 최소 45 로
+    다시 올려 '60 → 45 … 최소 45mm 이상이어야' 라는 어긋난 문구가 났다)."""
+    c = ctx(rules, "small_fish")
+    start = CaveParams(width_mm=80, depth_mm=60, entrance_diameter_mm=60, top_opening_mm=60, wall_thickness_mm=3)
+    fixed, issues = clamp_params(T, start, c)
+    assert fixed.depth_mm == 66
+    assert fixed.top_opening_mm == 50 == min(60, max_top_opening(fixed))
+    [msg] = [i.message_ko for i in issues if i.details["field"] == "top_opening_mm"]
+    assert msg == ("물속 동굴: 꼭대기 구멍 폭 60 → 50 로 보정했습니다. "
+                   "지붕 경사면이 남도록 꼭대기 구멍은 안쪽 폭보다 10mm 이상 작아야 합니다")
+    assert violated(fixed, c) == set()
+
+
+def test_min_height_mm_is_lowest_cave_the_rules_allow(rules):
+    """가장 낮은 동굴: 종별 최소 출입구·적용 최소 벽·최소 지붕 경사(출력 40° 이상)에 꼭대기 구멍을 가장 넓힌 것."""
+    for size in AQUARIUM_SIZES:
+        c = ctx(rules, size)
+        s = c.size
+        slope = max(40.0, s.aquatic.ceiling_min_slope_deg)
+        P = s.gap_trap.passable_min_mm
+        t = c.min_wall_mm
+        side = max(50.0, P + 2 * t + 10, s.entrance_min_diameter_mm + 4 * t)  # 필드 하한 50
+        lowest = CaveParams(width_mm=side, depth_mm=side, entrance_diameter_mm=s.entrance_min_diameter_mm,
+                            top_opening_mm=side - 2 * t - 10, roof_slope_deg=slope, wall_thickness_mm=t)
+        # 외형 높이 필드 하한(30mm)보다 낮게는 만들지 않는다 (새우)
+        assert T.min_height_mm(c) == pytest.approx(max(30.0, math.ceil(min_height(lowest) * 10 - 1e-6) / 10))
+        lowest = lowest.model_copy(update={"height_mm": T.min_height_mm(c)})
+        assert violated(lowest, c) == set()
+
+
+@pytest.mark.parametrize("size", AQUARIUM_SIZES)
+@pytest.mark.parametrize("extra", [0.0, 3.0, 12.0, 40.0])
+def test_height_limit_fits_default_cave_without_conflict(rules, size, extra):
+    """높이 한도(어항: 물 깊이 − 구조물 위 물 깊이)가 가장 낮은 동굴 이상이면 기본 동굴을 충돌 없이 그 안에 맞춘다."""
+    base = ctx(rules, size, count=6)
+    limit = T.min_height_mm(base) + extra
+    c = RuleContext(base.size, base.min_wall_mm, 6, height_limit_mm=limit)
+    height_max = ParamConstraint("height_mm", max=limit)
+    fixed, issues = clamp_params(T, T.default_params(base), c, [height_max])
+    assert not [i for i in issues if i.code == "param_conflict"], issues
+    assert fixed.height_mm <= limit + 1e-9 and min_height(fixed) <= limit + 1e-9
+    assert violated(fixed, base) == set()  # 한도 없이 다시 검증해도 (저장된 버전 재검증) 통과
+    assert geometry_ok(fixed)
+
+
+def test_height_limit_below_lowest_cave_changes_nothing(rules):
+    """가장 낮은 동굴도 들어가지 않으면 템플릿은 지붕을 바꾸지 않는다 (엔진이 필요한 물 깊이를 한 번만 알린다)."""
+    base = ctx(rules, "small_fish", count=6)
+    c = RuleContext(base.size, base.min_wall_mm, 6, height_limit_mm=T.min_height_mm(base) - 0.5)
+    p = T.default_params(base)
+    assert T.constraints(p, c) == T.constraints(p, base)
 
 
 def test_params_reject_out_of_range():

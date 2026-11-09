@@ -63,7 +63,7 @@ export default function PlannerHeader({
               species.species.filter(isCageSpecies).flatMap((sp) =>
                 sp.sizes.map((z) => (
                   <option key={`${sp.key}/${z.key}`} value={`${sp.key}/${z.key}`}>
-                    {t(sp.display_name)} · {t(z.display_name)}
+                    {t("{species} · {size}", { species: t(sp.display_name), size: t(z.display_name) })}
                   </option>
                 )),
               )

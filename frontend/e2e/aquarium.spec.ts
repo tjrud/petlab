@@ -2,9 +2,13 @@
 // 결과 화면에 수조 낱말·물속 무게 안내·출력 안전 안내가 나오는지. 가상 케이지는 어항 종을 받지 않는다.
 import { expect, type Page, test } from "@playwright/test";
 
+import { signup } from "./support";
+
 const SHOTS = process.env.E2E_SCREENSHOT_DIR;
 const ADMIN = { username: "admin", password: "e2e-admin-password" };
 const POST_HREF = "/community/4f64bf7ac33d43e89d5d034a93ca2760";
+const API = "http://localhost:8000";
+const RUN = Date.now().toString(36).slice(-5); // 실행마다 다른 아이디 (같은 DB 를 재사용해도 겹치지 않게)
 
 async function login(page: Page, next = "/design") {
   await page.goto(`/login?next=${encodeURIComponent(next)}`);
@@ -49,14 +53,22 @@ test("어항: 종을 바꾸면 크기·수조 칸이 바뀌고, 물속 동굴을
   // 수조 낱말·프리셋·물 깊이 안내
   await expect(wizard.getByText("수조 크기와 물 깊이 (mm)")).toBeVisible();
   await expect(wizard.getByLabel("케이지 가로 (mm)")).toHaveCount(0);
-  await expect(wizard.getByText("가로·세로는 수조 안쪽 치수로, 물 깊이는 바닥재 위부터 수면까지 재 주세요.")).toBeVisible();
+  await expect(
+    wizard.getByText(
+      "가로·세로는 수조 안쪽 치수(유리 안쪽 사이)로, 물 깊이는 바닥재 위부터 수면까지 재 주세요. 바닥·부피 기준은 유리 두께를 더한 겉 크기로 비교해요.",
+    ),
+  ).toBeVisible();
+  // 크기 구분 안내: 몸길이 기준과 아주 작은 종은 합사 수조 (서버 size_hint_ko)
+  await expect(wizard.getByTestId("size-hint")).toContainText("꼬리지느러미를 뺀 길이");
+  await expect(wizard.getByTestId("size-hint")).toContainText("'합사 수조'");
   for (const name of ["30큐브 30×30×30cm", "45×30×30cm", "60×30×36cm", "60×45×45cm", "90×45×45cm"]) {
     await expect(wizard.getByRole("button", { name, exact: true })).toBeVisible();
   }
+  // 버튼 이름은 겉 크기, 채우는 값은 안쪽 치수(유리 6mm 를 뺀다)와 물 깊이(바닥 유리·바닥재 5cm·윗여유 3cm 를 뺀다)
   await wizard.getByRole("button", { name: "60×30×36cm", exact: true }).click();
-  await expect(wizard.getByLabel("수조 가로 (mm)")).toHaveValue("600");
-  await expect(wizard.getByLabel("수조 세로 (mm)")).toHaveValue("300");
-  await expect(wizard.getByLabel("물 깊이 (mm)")).toHaveValue("280");
+  await expect(wizard.getByLabel("수조 가로 (mm)")).toHaveValue("588");
+  await expect(wizard.getByLabel("수조 세로 (mm)")).toHaveValue("288");
+  await expect(wizard.getByLabel("물 깊이 (mm)")).toHaveValue("274");
 
   // 출력 안전 안내 (종 규칙의 안내 문구 + 커뮤니티 글)
   const wizardNotice = wizard.getByTestId("aquarium-print-notice");
@@ -78,9 +90,11 @@ test("어항: 종을 바꾸면 크기·수조 칸이 바뀌고, 물속 동굴을
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/aquarium-wizard.png`, fullPage: true });
   await next.click();
 
-  // 2. 요구사항: 어항 예시만 (경사로·모래 목욕 예시는 없다)
-  await expect(page.getByText("· 10마리 · 수조 600×300mm · 물 깊이 280mm", { exact: false })).toBeVisible();
+  // 2. 요구사항: 어항 예시만 (경사로·모래 목욕 예시는 없다). 동물 이름이 든 예시는 고른 크기 구분(나노 어종)의 것만
+  await expect(page.getByText("· 10마리 · 수조 588×288mm · 물 깊이 274mm", { exact: false })).toBeVisible();
   await expect(page.getByRole("button", { name: "완만한 경사로를 하나 만들어 주세요" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "코리도라스용으로 앞뒤가 뚫린 동굴 두 개" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "새우가 숨을 수 있는 작은 동굴을 만들어 주세요" })).toHaveCount(0);
   await page.getByRole("button", { name: "네온 테트라 무리가 지나갈 터널과 동굴을 만들어 주세요" }).click();
   await expect(page.getByLabel("요구사항")).toHaveValue("네온 테트라 무리가 지나갈 터널과 동굴을 만들어 주세요");
   const meshLoaded = page.waitForResponse((r) => r.url().includes("/parts/") && r.status() === 200);
@@ -93,18 +107,20 @@ test("어항: 종을 바꾸면 크기·수조 칸이 바뀌고, 물속 동굴을
   await expect(items.getByRole("button", { name: /터널 #\d/ })).toBeVisible();
   const viewer = page.getByTestId("viewer");
   await expect(viewer.locator("canvas")).toBeVisible();
-  await expect(viewer.getByText("수조 600 × 300 mm · 물 깊이 280 mm")).toBeVisible();
+  await expect(viewer.getByText("수조 588 × 288 mm · 물 깊이 274 mm")).toBeVisible();
   await expect(viewer.getByText("물 (바닥재 위~수면)")).toBeVisible();
   await expect(viewer.getByText(/케이지/)).toHaveCount(0);
-  await expect(page.getByText("수조 600×300mm · 물 깊이 280mm").first()).toBeVisible(); // 제목 줄
+  await expect(page.getByText("수조 588×288mm · 물 깊이 274mm").first()).toBeVisible(); // 제목 줄
 
   const validation = page.getByRole("region", { name: "안전·출력 검증" });
   await expect(validation.getByText("통과", { exact: true })).toBeVisible();
   await expect(
     validation.getByText("수조 적합, 물 깊이, 겹침, 끼임 틈새, 벽 두께, 넘어짐, 서포트 없는 출력을 모두 확인했어요."),
   ).toBeVisible();
-  // 물속 무게·터널 공기 빼기는 '자동 보정'이 아니라 '참고'로 보인다
-  await expect(validation.getByRole("heading", { name: "참고 (2)" })).toBeVisible();
+  // 물속 무게·터널 공기 빼기는 '자동 보정'이 아니라 '참고'로 보인다.
+  // 60×30×36cm 수조(겉 크기로 어림 64.8L)는 100L 보다 작아 나노 어종 권장 부피 안내도 참고로 붙는다
+  await expect(validation.getByRole("heading", { name: "참고 (3)" })).toBeVisible();
+  await expect(validation.getByText("54L는 최소 기준일 뿐이에요.", { exact: false })).toBeVisible();
   await expect(validation.getByText("출력물의 물속 무게는 모두 합쳐 약", { exact: false })).toBeVisible();
   await expect(validation.getByText("수평으로 놓으면 꼭대기를 따라 공기가 남아 뜰 수 있어요", { exact: false })).toBeVisible();
   await expect(validation.getByRole("heading", { name: /자동 보정한 내용/ })).toHaveCount(0);
@@ -151,6 +167,189 @@ test("메인의 어항 예시를 누르면 어항 종을 고른 채 설계하기
   await expect(wizard.getByLabel("물 깊이 (mm)")).toBeVisible();
 });
 
+test("메인 예시는 종(어항은 크기까지)을 정해 열어, 전에 고른 어항이 햄스터 예시에 남지 않는다", async ({ page }) => {
+  // 설계하기 화면은 다른 화면에 다녀와도 숨김 상태로 남아 있어 고른 종이 그대로다: 예시가 종을 정해 주어야 한다
+  await login(page, "/");
+  const wizard = page.getByRole("region", { name: "사육 환경을 알려 주세요" });
+  const speciesSelect = wizard.getByRole("combobox", { name: "종", exact: true });
+  const openExample = async (name: string) => {
+    if (new URL(page.url()).pathname !== "/") {
+      await page.getByRole("link", { name: "NestForge 홈" }).click(); // 화면 안 이동 (새로 고침하지 않는다)
+      await page.waitForURL((url) => url.pathname === "/");
+    }
+    await page.getByRole("link", { name, exact: true }).click();
+    await page.waitForURL((url) => url.pathname === "/design" && url.searchParams.get("prompt") === name);
+  };
+  /** 다음을 눌러 요구사항 단계의 요약 줄을 본다 (들어올 때의 효과가 모두 적용된 뒤) */
+  const summaryAfterNext = async (text: string) => {
+    await wizard.getByRole("button", { name: "다음" }).click();
+    await expect(page.getByText(text, { exact: false })).toBeVisible();
+    await page.getByRole("button", { name: "이전" }).click();
+  };
+
+  // 햄스터 예시: 종을 정해 열지만 기본 크기(골든)는 그대로
+  await openExample("완만한 경사로를 하나 만들어 주세요");
+  expect(new URL(page.url()).searchParams.get("species")).toBe("hamster");
+  await expect(speciesSelect).toHaveValue("hamster");
+  await summaryAfterNext("햄스터 골든 (시리안) · 1마리 · 케이지");
+
+  // 어항 예시는 문장에 나온 새우의 크기 구분까지 정한다 (어항에서 다른 크기를 골라 두었어도)
+  await openExample("새우가 숨을 수 있는 작은 동굴을 만들어 주세요");
+  expect(new URL(page.url()).searchParams.get("size")).toBe("shrimp");
+  await expect(speciesSelect).toHaveValue("aquarium");
+  await expect(sizeRadio(page, "shrimp")).toBeChecked();
+  await pickSize(page, "nano_fish");
+  await expect(sizeRadio(page, "nano_fish")).toBeChecked();
+  await openExample("새우가 숨을 수 있는 작은 동굴을 만들어 주세요");
+  await expect(sizeRadio(page, "shrimp")).toBeChecked();
+
+  // 그 뒤 햄스터 예시를 누르면 햄스터 케이지로 돌아온다 (어항 동굴로 설계하지 않는다)
+  await openExample("완만한 경사로를 하나 만들어 주세요");
+  await expect(speciesSelect).toHaveValue("hamster");
+  await expect(wizard.getByLabel("케이지 가로 (mm)")).toBeVisible();
+  await expect(wizard.getByLabel("물 깊이 (mm)")).toHaveCount(0);
+  await wizard.getByRole("button", { name: "다음" }).click();
+  await expect(page.getByLabel("요구사항")).toHaveValue("완만한 경사로를 하나 만들어 주세요");
+  await expect(page.getByRole("button", { name: "모래 목욕용 통을 하나 만들고 싶어요" })).toBeVisible(); // 케이지 예시
+  await page.getByRole("button", { name: "이전" }).click();
+
+  // 같은 종의 예시를 다시 누르면 고른 크기를 그대로 둔다
+  await pickSize(page, "syrian");
+  await openExample("케이지 한쪽에 놓을 긴 터널이 필요해요");
+  await summaryAfterNext("햄스터 골든 (시리안) · 1마리 · 케이지");
+});
+
+test("반려동물을 고른 뒤 다른 종으로 바꾸면 반려동물 연결을 끊고, 반려동물 없이 설계한다", async ({ page }) => {
+  await signup(page, { username: `aqpet_${RUN}`, nickname: `어항${RUN}`, password: "aqua-pet-pass-321" }, { next: "/" });
+  const created = await page.request.post(`${API}/me/pets`, {
+    data: { name: "콩이", species: "hamster", size: "syrian", cage: { width_mm: 600, depth_mm: 400, height_mm: 300 } },
+  });
+  expect(created.status()).toBe(201);
+  const petId = ((await created.json()) as { id: string }).id;
+
+  // "이 아이로 설계하기"로 들어오면 반려동물로 채운다. 크기를 바꿔도 연결은 그대로
+  await page.goto(`/design?pet=${petId}`);
+  const wizard = page.getByRole("region", { name: "사육 환경을 알려 주세요" });
+  const petSelect = wizard.getByRole("combobox", { name: "내 반려동물" });
+  const speciesSelect = wizard.getByRole("combobox", { name: "종", exact: true });
+  const unlinked = wizard.getByText("종을 바꿔서 반려동물 연결을 해제했어요. 아래 값을 확인해 주세요.");
+  await expect(petSelect).toHaveValue(petId);
+  await pickSize(page, "dwarf");
+  await expect(petSelect).toHaveValue(petId);
+  await expect(unlinked).toHaveCount(0);
+
+  // 종을 어항으로 바꾸면 연결을 끊고 알린다 (서버는 종이 다른 반려동물로 사육 환경을 만들지 않는다)
+  await speciesSelect.selectOption("aquarium");
+  await expect(petSelect).toHaveValue("");
+  await expect(unlinked).toBeVisible();
+  await wizard.getByRole("button", { name: "60×30×36cm", exact: true }).click();
+  await wizard.getByLabel("마릿수").fill("10");
+  await wizard.getByRole("button", { name: "다음" }).click();
+  await expect(page.getByText("어항 (담수 관상어·새우) 새우", { exact: false })).toBeVisible();
+  await expect(page.getByText("콩이 ·", { exact: false })).toHaveCount(0);
+  await page.getByRole("button", { name: "새우가 숨을 수 있는 작은 동굴을 만들어 주세요" }).click();
+  const habitatSent = page.waitForRequest((r) => r.method() === "POST" && new URL(r.url()).pathname === "/habitats");
+  await page.getByRole("button", { name: "맞춤 설계 받기" }).click();
+  expect((await habitatSent).postDataJSON()).toMatchObject({ species: "aquarium", size: "shrimp", pet_id: null });
+  await page.waitForURL(/\/designs\/[0-9a-f]{32}$/);
+  await expect(itemList(page).getByRole("button", { name: /물속 동굴 #1/ })).toBeVisible();
+
+  // 메인의 어항 예시(?species=aquarium)로 종이 바뀔 때도 같다
+  await page.goto(`/design?pet=${petId}`);
+  await expect(petSelect).toHaveValue(petId);
+  await expect(speciesSelect).toHaveValue("hamster");
+  await page.getByRole("link", { name: "NestForge 홈" }).click();
+  await page.waitForURL((url) => url.pathname === "/");
+  await page.getByRole("link", { name: "새우가 숨을 수 있는 작은 동굴을 만들어 주세요" }).click();
+  await page.waitForURL((url) => url.pathname === "/design");
+  await expect(speciesSelect).toHaveValue("aquarium");
+  await expect(petSelect).toHaveValue("");
+  await expect(unlinked).toBeVisible();
+
+  // 그래도 서버가 종이 다르다고 거절하면(다른 탭에서 반려동물의 종을 고친 경우 등) 연결을 끊고, 다시 누르면 설계된다
+  await page.goto(`/design?pet=${petId}`);
+  await expect(petSelect).toHaveValue(petId);
+  await page.route(`${API}/habitats`, (route) =>
+    route.request().method() === "POST"
+      ? route.fulfill({
+          status: 422,
+          json: { detail: { code: "pet_species_mismatch", message_ko: "반려동물 정보와 종이 다릅니다." } },
+        })
+      : route.continue(),
+  );
+  await wizard.getByRole("button", { name: "다음" }).click();
+  await page.getByRole("button", { name: "완만한 경사로를 하나 만들어 주세요" }).click();
+  await page.getByRole("button", { name: "맞춤 설계 받기" }).click();
+  await expect(
+    page.getByRole("alert").getByText("고른 반려동물과 종이 달라서 반려동물 연결을 해제했어요. 다시 누르면 반려동물 연결 없이 설계해요."),
+  ).toBeVisible();
+  await page.unroute(`${API}/habitats`);
+  const retried = page.waitForRequest((r) => r.method() === "POST" && new URL(r.url()).pathname === "/habitats");
+  await page.getByRole("button", { name: "맞춤 설계 받기" }).click();
+  expect((await retried).postDataJSON()).toMatchObject({ species: "hamster", pet_id: null });
+  await page.waitForURL(/\/designs\/[0-9a-f]{32}$/);
+});
+
+test("어항 요구사항 예시는 고른 크기 구분의 동물만 이름을 든다", async ({ page }) => {
+  await login(page);
+  const wizard = page.getByRole("region", { name: "사육 환경을 알려 주세요" });
+  await wizard.getByRole("combobox", { name: "종", exact: true }).selectOption("aquarium");
+  await wizard.getByRole("button", { name: "60×30×36cm", exact: true }).click();
+  await wizard.getByLabel("마릿수").fill("10");
+  const chip = (name: string) => page.getByRole("button", { name, exact: true });
+  const SHRIMP = "새우가 숨을 수 있는 작은 동굴을 만들어 주세요";
+  const NEON = "네온 테트라 무리가 지나갈 터널과 동굴을 만들어 주세요";
+  const CORY = "코리도라스용으로 앞뒤가 뚫린 동굴 두 개";
+  const MIXED = "새우와 작은 물고기가 함께 숨을 수 있는 동굴을 만들어 주세요";
+  const cases: [string, string, string[]][] = [
+    ["shrimp", SHRIMP, [NEON, CORY, MIXED]],
+    ["nano_fish", NEON, [SHRIMP, CORY, MIXED]],
+    // 코리도라스 동굴을 새우 기준(구멍 20mm)으로 만들지 않게: 코리도라스 예시는 소형 어종에서만
+    ["small_fish", CORY, [SHRIMP, NEON, MIXED]],
+    ["community", MIXED, [SHRIMP, NEON, CORY]],
+  ];
+  for (const [size, shown, hidden] of cases) {
+    await pickSize(page, size);
+    await wizard.getByRole("button", { name: "다음" }).click();
+    await expect(chip(shown)).toBeVisible();
+    for (const name of hidden) await expect(chip(name)).toHaveCount(0);
+    // 동물 이름이 없는 예시는 어느 크기 구분에서나 하나 이상 보인다
+    await expect(chip("앞뒤가 뚫린 동굴을 하나 만들어 주세요").or(chip("터널 하나와 동굴 하나를 만들어 주세요")).first()).toBeVisible();
+    await page.getByRole("button", { name: "이전" }).click();
+  }
+});
+
+test("메인 그림의 이름표: 물속 동굴·은신처는 한 줄로, 다른 이름표와 겹치지 않는다 (좁은 화면·영어 포함)", async ({ page }) => {
+  for (const [path, cave, hideout] of [
+    ["/", "물속 동굴", "은신처"],
+    ["/en", "Underwater cave", "Hideout"],
+  ] as const) {
+    // 그림은 md(768px) 이상에서 보인다. 영어 이름표가 가장 긴 좁은 폭부터 넓은 폭까지
+    for (const width of [768, 800, 834, 900, 1024, 1400]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(path);
+      const chips = page.locator('section[aria-labelledby="hero-title"] div[aria-hidden] > span');
+      await expect(chips).toHaveCount(5);
+      const boxes = await chips.evaluateAll((els) =>
+        els.map((e) => {
+          const r = e.getBoundingClientRect();
+          return { text: e.textContent?.trim() ?? "", left: r.left, top: r.top, right: r.right, bottom: r.bottom, height: r.height };
+        }),
+      );
+      for (const label of [cave, hideout]) {
+        const a = boxes.find((b) => b.text === label);
+        expect(a, `${path} ${width}px: ${label}`).toBeDefined();
+        expect(a!.height, `${path} ${width}px: ${label} 한 줄`).toBeLessThan(45);
+        for (const b of boxes) {
+          if (b === a) continue;
+          const overlap = Math.min(a!.right, b.right) > Math.max(a!.left, b.left) && Math.min(a!.bottom, b.bottom) > Math.max(a!.top, b.top);
+          expect(overlap, `${path} ${width}px: ${label} × ${b.text}`).toBe(false);
+        }
+      }
+    }
+  }
+});
+
 test("영어 화면: 어항 수조 칸·출력 안내·결과 화면이 영어", async ({ page, context }) => {
   await login(page);
   await context.addCookies([{ name: "lang", value: "en", url: "http://localhost:3000" }]);
@@ -167,13 +366,18 @@ test("영어 화면: 어항 수조 칸·출력 안내·결과 화면이 영어",
   const wizardNotice = wizard.getByTestId("aquarium-print-notice");
   await expect(wizardNotice.getByRole("heading", { name: "Print safety for aquarium pieces" })).toBeVisible();
   await expect(wizardNotice).not.toHaveText(/[가-힣]/); // 안내 항목도 서버가 영어로 보낸다
+  await expect(wizard.getByTestId("size-hint")).toContainText("Body length means the adult length without the tail fin.");
   await wizard.getByLabel("Number of pets").fill("5");
   await page.getByRole("button", { name: "Next" }).click();
+  // 영어 크기 이름에 동물 이름이 들어 있어 종 이름을 다시 붙이지 않는다
+  await expect(
+    page.getByText("Shrimp (cherry, bee and other dwarf shrimp only) · 5 animal(s) · Tank 588×288mm · Water depth 274mm"),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Make a small cave where shrimp can hide" }).click();
   await page.getByRole("button", { name: "Get a custom design" }).click();
   await page.waitForURL(/\/en\/designs\/[0-9a-f]{32}/);
   await expect(itemList(page, /^Structures \(\d+\)$/).getByRole("button", { name: /Underwater cave #1/ })).toBeVisible();
-  await expect(page.getByTestId("viewer").getByText("Tank 600 × 300 mm · Water depth 280 mm")).toBeVisible();
+  await expect(page.getByTestId("viewer").getByText("Tank 588 × 288 mm · Water depth 274 mm")).toBeVisible();
   const validation = page.getByRole("region", { name: "Safety & print check" });
   await expect(validation.getByRole("heading", { name: "Notes (1)" })).toBeVisible();
   await expect(validation).not.toHaveText(/[가-힣]/);

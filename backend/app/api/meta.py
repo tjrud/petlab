@@ -53,6 +53,7 @@ def species(request: Request) -> dict:
                 "templates": list(sp.allowed_templates),  # 이 종에 만들 수 있는 구조물 (템플릿 키)
                 "max_count": sp.max_count,                # 입력할 수 있는 최대 마릿수
                 "print_notes_ko": list(sp.print_notes_ko),  # 출력·설치 안내 (영어 요청이면 항목마다 번역)
+                "size_hint_ko": sp.size_hint_ko,            # 크기 구분을 고를 때 보일 안내 (없으면 null)
             }
             for key, sp in rules.species_file.species.items()
         ],

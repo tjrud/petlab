@@ -13,7 +13,8 @@ from collections.abc import Iterable
 
 from app.i18n import catalog
 from app.llm.base import InterpretRequest
-from app.templates.cave import PRINT_MIN_ROOF_SLOPE_DEG
+from app.templates.base import RuleContext
+from app.templates.cave import PRINT_MIN_ROOF_SLOPE_DEG, CaveTemplate
 from app.templates.registry import all_templates
 
 SYSTEM_PROMPT = """\
@@ -107,11 +108,19 @@ def _size_rules(req: InterpretRequest, aquarium: bool) -> dict[str, object]:
         rules["구조물 최대 높이(mm) — 물 깊이 − 구조물 위 최소 물 깊이"] = round(
             h.cage.height_mm - aq.structure_top_clearance_mm, 1)
         rules["높이 ÷ 바닥 짧은 변 최대 — 출력물은 물속에서 가벼워 쉽게 넘어진다"] = aq.max_height_to_base_ratio
+        if "tunnel" in allowed:
+            rules["터널 높이 — 내경 × 약 1.28 + 벽 두께 × 약 1.56 (높이 파라미터가 따로 없다). 구조물 최대 높이를 넘으면 "
+                  "내경을 줄인다"] = "내경과 벽 두께로 정해짐"
     if "cave" in allowed:
         slope = max(PRINT_MIN_ROOF_SLOPE_DEG, aq.ceiling_min_slope_deg if aq is not None else 0.0)
         rules["물속 동굴 지붕 경사 최소(도) — 안쪽 천장에 공기가 남지 않고 서포트 없이 출력되도록"] = slope
         rules["물속 동굴 꼭대기 구멍 최소 폭(mm) — 공기가 빠지는 구멍이자 몸이 끼지 않는 통과 폭"] = s.gap_trap.passable_min_mm
         rules["물속 동굴 최소 출입구 개수 (이 마릿수 기준) — 2개면 앞뒤로 뚫린 관통형"] = entrances
+        # 동굴 최소 높이는 가로·세로와 꼭대기 구멍에 따라 달라진다: 얕은 수조에서 큰 동굴을 고르지 않게 알려 준다
+        rules["물속 동굴 최소 높이 — 출입구 높이(폭의 약 1.28배) + 벽 두께 2배 + 지붕 높이. 지붕 높이는 "
+              "(가로·세로 중 짧은 쪽 안쪽 폭 − 꼭대기 구멍 폭)에 비례하므로, 구조물 최대 높이에 맞추려면 가로·세로를 줄이거나 "
+              "꼭대기 구멍을 넓힌다. 가장 작게 만든 동굴의 높이(mm)"] = CaveTemplate().min_height_mm(
+            RuleContext(s, req.min_wall_mm, h.count))
     names = {t.key: t.display_name_ko for t in all_templates()}
     can = [f"{k}({names[k]})" for k in dict.fromkeys(req.allowed_templates) if k in names]
     cannot = [f"{k}({names[k]})" for k in names if k not in allowed]
@@ -119,7 +128,19 @@ def _size_rules(req: InterpretRequest, aquarium: bool) -> dict[str, object]:
                                                        if cannot else "")
     rules["속이 빈 닫힌 공간"] = ("금지 — 물이 돌지 않는 닫힌 빈 공간은 물을 썩게 하고 공기가 갇혀 뜨게 합니다. "
                             "템플릿 형상이 이를 보장하므로 템플릿 밖의 형상(덮개·막힌 방 등)을 제안하지 마세요")
+    # 소재 안전은 서버가 화면에 따로 보이는 출력·설치 안내(print_notes_ko, 커뮤니티 글10 과 같은 조건)가 정한다.
+    # 모델이 일반 상식("PLA 는 무독성이라 안전")으로 그 안내와 어긋나는 말을 쓰지 않게 막는다
+    rules[MATERIAL_RULE_KEY] = MATERIAL_RULE
     return rules
+
+
+# 어항 사용자 메시지의 소재 안내 줄 (테스트가 이 줄이 들어가는지 본다)
+MATERIAL_RULE_KEY = "출력 소재·코팅·접착제"
+MATERIAL_RULE = (
+    "단정 금지 — 서버가 화면에 출력·설치 안전 안내를 따로 보여 줍니다(어항 수질에 안전하다고 증명된 3D 출력 소재는 없다는 "
+    "입장). summary_ko·reason_ko·notes_ko 에서 어떤 소재(PLA·PETG 등)가 어항에 '안전하다'·'무독성이다'·'생분해되니 괜찮다'·"
+    "'물에 녹는다'고 단정하지 말고, 코팅·레진·에폭시·일반 실리콘·접착제를 권하지 마세요. 보호자가 소재·출력·세척·접착을 물으면 "
+    "화면의 출력·설치 안내를 따르라고만 짧게 적으세요(응답 언어로)")
 
 
 def build_user_message(req: InterpretRequest) -> str:

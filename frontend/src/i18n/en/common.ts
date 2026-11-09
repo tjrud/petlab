@@ -19,6 +19,8 @@ const en: Record<string, string> = {
   "수조 세로 (mm)": "Tank depth (mm)",
   "물 깊이 (mm)": "Water depth (mm)",
   "수조 {w}×{d}mm · 물 깊이 {h}mm": "Tank {w}×{d}mm · Water depth {h}mm",
+  // 종 · 크기 한 줄 (카드·목록). 영어 크기 이름에는 동물 이름이 들어 있어(예: "Golden (Syrian) hamster") 크기만 보인다
+  "{species} · {size}": "{size}",
   // 수조 프리셋 (겉 크기 이름. 숫자만 있는 이름도 t() 로 보이므로 같은 값을 둔다)
   "30큐브 30×30×30cm": "30 cm cube 30×30×30cm",
   "45×30×30cm": "45×30×30cm",
@@ -29,6 +31,8 @@ const en: Record<string, string> = {
   "어항 (담수 관상어·새우)": "Aquarium (freshwater fish and shrimp)",
   "새우 (체리·비 새우 등 소형 새우만 키울 때)": "Shrimp (cherry, bee and other dwarf shrimp only)",
   "나노 어종 (네온·엠버 테트라, 보라라스 등 성체 3cm 이하)": "Nano fish (neon and ember tetras, Boraras, etc.; adults up to 3 cm)",
+  "나노 어종 (네온·엠버 테트라 등, 꼬리지느러미 뺀 몸길이 2~3cm)":
+    "Nano fish (neon and ember tetras, etc.; adult body length 2–3 cm, not counting the tail fin)",
   "소형 어종 (코리도라스·베타·구피 등 성체 7.5cm 이하, 몸높이 3cm 이하)":
     "Small fish (Corydoras, bettas, guppies, etc.; adults up to 7.5 cm long and 3 cm tall)",
   "합사 수조 (새우·나노·소형 어종을 함께 키울 때)": "Community tank (shrimp, nano and small fish kept together)",

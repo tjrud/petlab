@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -238,11 +239,64 @@ def test_aquatic_keys_are_required(rules_copy):
 
 
 @pytest.mark.parametrize("key,value", [("ceiling_min_slope_deg", 90), ("min_volume_l", 0),
-                                       ("max_height_to_base_ratio", 0), ("air_gap_mm", -1)])
+                                       ("max_height_to_base_ratio", 0), ("air_gap_mm", -1),
+                                       ("glass_thickness_assumed_mm", -1)])
 def test_aquatic_value_ranges(rules_copy, key, value):
     _edit_species(rules_copy, lambda d: _aq(d, "nano_fish")["aquatic"].update({key: value}))
     with pytest.raises(RuleFileError, match=key):
         load_rules(rules_copy)
+
+
+def test_aquatic_glass_thickness_is_required(rules_copy):
+    """입력(안쪽 치수)과 바닥·부피 기준(겉 크기)을 맞추는 유리 두께 어림은 빠뜨리면 기동 때 잡는다."""
+    _edit_species(rules_copy, lambda d: _aq(d, "nano_fish")["aquatic"].pop("glass_thickness_assumed_mm"))
+    with pytest.raises(RuleFileError, match="glass_thickness_assumed_mm"):
+        load_rules(rules_copy)
+
+
+def test_tank_glass_thickness_assumption(rules):
+    """[임시] 흔한 30~60cm 수조 유리 5T·6T 중 두꺼운 쪽: 안쪽을 잰 표준 60×30cm 수조가 기준 미달로 나오지 않게."""
+    for size in AQUARIUM_SIZES:
+        assert rules.size_rules("aquarium", size).aquatic.glass_thickness_assumed_mm == 6
+
+
+def test_print_notes_follow_post_10(rules):
+    """출력·설치 안내는 커뮤니티 글10(content/community-drafts/10-aquarium.md)의 조건과 같다."""
+    notes = rules.species_entry("aquarium").print_notes_ko
+
+    def note(head: str) -> str:
+        [n] = [n for n in notes if n.startswith(f"{head}:")]
+        return n
+
+    # 글10 '수조별로': 새우·달팽이는 무착색 PETG 와 스테인리스·티타늄 노즐만 (달팽이는 물고기 수조에도 흔하다)
+    assert "새우·달팽이가 있는 수조" in note("소재") and "무착색 PETG로 출력하세요" in note("소재")
+    assert "스테인리스나 티타늄" in note("노즐") and "새우·달팽이가 있는 수조라면 꼭 바꾸세요" in note("노즐")
+    # 사포질은 씻고 담그기 전에: 가루와 새로 드러난 면도 담가 두는 동안 빠지게 (글10: PLA 미세입자는 해롭다)
+    before = note("넣기 전")
+    assert before.index("사포") < before.index("물로만 씻") < before.index("담갔다가")
+    # 근거 문서 placement_on_base_glass: 바닥을 파는 물고기면 바닥 유리에 놓고, 출입구가 묻히지 않게
+    placing = note("바닥에 놓기")
+    assert "코리도라스" in placing and "바닥 유리에 바로 놓고" in placing and "출입구가 묻히지 않게" in placing
+    assert "위에 돌을 얹지" in placing
+    heads = [n.split(":")[0] for n in notes[1:]]
+    assert heads.index("넣기 전") < heads.index("넣을 때") < heads.index("바닥에 놓기") < heads.index("넣은 뒤")
+    # 글10 의 입장: '안전하다'가 아니라 '위험이 낮아 보인다'
+    assert notes[0].startswith("어항 수질에 안전하다고 증명된 3D 출력 소재는 없어요")
+
+
+def test_aquarium_size_hint_and_nano_label(rules):
+    """나노 어종 이름은 길이 기준(꼬리지느러미 뺀 몸길이)과 하한(2cm)을 적고 보라라스 속 전체를 넣지 않는다.
+    SL 20mm 미만 종은 끼임 기준이 더 엄격한 합사 수조로 안내한다 (근거 문서 [nano_fish] gap_trap.safe_max_mm)."""
+    aq = rules.species_entry("aquarium")
+    nano = rules.size_rules("aquarium", "nano_fish")
+    community = rules.size_rules("aquarium", "community")
+    assert "꼬리지느러미 뺀 몸길이 2~3cm" in nano.display_name and "보라라스" not in nano.display_name
+    assert aq.size_hint_ko is not None
+    assert "꼬리지느러미를 뺀 길이" in aq.size_hint_ko and "보라라스 마이크로스" in aq.size_hint_ko
+    assert f"'{community.display_name.split(' (')[0]}'" in aq.size_hint_ko  # '합사 수조'
+    # 보라라스 마이크로스(SL 13mm)의 끼임 어림(체고의 40%) 약 1.3mm: 합사 수조 기준은 그보다 작고 나노 어종 기준은 크다
+    assert community.gap_trap.safe_max_mm < 1.3 < nano.gap_trap.safe_max_mm
+    assert rules.species_entry("hamster").size_hint_ko is None
 
 
 def test_aquarium_requires_buoyancy(rules_copy):
@@ -359,4 +413,112 @@ def test_aquarium_tunnel_max_length_optional_but_checked(rules_copy):
     """어항 터널은 길이 상한이 없다(null). 적으면 케이지와 같은 하한 검사를 받는다."""
     _edit_species(rules_copy, lambda d: _aq(d, "nano_fish").update(tunnel_max_length_mm=50))
     with pytest.raises(RuleFileError, match="tunnel_max_length_mm"):
+        load_rules(rules_copy)
+
+
+# ── 템플릿 필드 범위와 규칙 값 (규칙 파일만 바꿔도 구조물을 하나도 못 만들게 되는 값을 기동 때 잡는다) ──
+
+
+def test_template_field_limits_match_templates():
+    """로더의 템플릿 필드 상한 상수가 동굴·터널 템플릿 필드와 같은지 (순환 import 때문에 값을 따로 둔다)."""
+    from app.rules import loader
+    from app.templates.cave import CaveParams
+    from app.templates.tunnel import TunnelParams
+    from app.validation.autofix import field_bounds
+
+    assert field_bounds(CaveParams, "wall_thickness_mm")[1] == loader.CAVE_WALL_FIELD_MAX_MM
+    assert field_bounds(CaveParams, "entrance_count")[1] == loader.CAVE_ENTRANCE_COUNT_FIELD_MAX
+    assert field_bounds(CaveParams, "roof_slope_deg")[1] == loader.CAVE_ROOF_SLOPE_FIELD_MAX_DEG
+    assert field_bounds(CaveParams, "entrance_diameter_mm")[1] == loader.CAVE_ENTRANCE_FIELD_MAX_MM
+    assert field_bounds(CaveParams, "top_opening_mm")[1] == loader.CAVE_TOP_OPENING_FIELD_MAX_MM
+    assert field_bounds(TunnelParams, "inner_diameter_mm")[1] == loader.TUNNEL_INNER_FIELD_MAX_MM
+    assert field_bounds(TunnelParams, "wall_thickness_mm")[1] == loader.TUNNEL_WALL_FIELD_MAX_MM
+
+
+@pytest.mark.parametrize("size,edit,key", [
+    ("small_fish", lambda s: s.update(min_wall_thickness_mm=4), "min_wall_thickness_mm"),
+    ("nano_fish", lambda s: s["hideout_min_entrances"].update(single=3, group=3), "hideout_min_entrances.single"),
+    ("nano_fish", lambda s: s["hideout_min_entrances"].update(group=3), "hideout_min_entrances.group"),
+    ("nano_fish", lambda s: s["aquatic"].update(ceiling_min_slope_deg=70), "aquatic.ceiling_min_slope_deg"),
+    # 기본 출입구는 최소 + 5mm 라 필드 상한(120) − 5 를 넘으면 기본 동굴도 만들 수 없다
+    ("nano_fish", lambda s: s.update(entrance_min_diameter_mm=116), "entrance_min_diameter_mm"),
+    ("small_fish", lambda s: s["gap_trap"].update(passable_min_mm=146), "gap_trap.passable_min_mm"),
+    ("small_fish", lambda s: s.update(tunnel_min_inner_diameter_mm=126), "tunnel_min_inner_diameter_mm"),
+])
+def test_aquarium_values_outside_cave_and_tunnel_fields_rejected(rules_copy, size, edit, key):
+    """동굴·터널 필드 범위를 넘는 값이면 그 크기 구분의 모든 동굴이 보정 충돌로 막힌다: 서버가 기동하지 않게 한다."""
+    _edit_species(rules_copy, lambda d: edit(_aq(d, size)))
+    with pytest.raises(RuleFileError, match=rf"(?s)'{size}'.*{re.escape(key)}"):
+        load_rules(rules_copy)
+
+
+def test_hamster_tunnel_inner_outside_field_rejected(rules_copy):
+    _edit_species(rules_copy, lambda d: d["species"]["hamster"]["sizes"]["syrian"].update(
+        tunnel_min_inner_diameter_mm=126, tunnel_max_length_mm=400))
+    with pytest.raises(RuleFileError, match=r"(?s)'syrian'.*tunnel_min_inner_diameter_mm"):
+        load_rules(rules_copy)
+
+
+def test_values_at_field_limits_still_load_and_make_a_cave(rules_copy):
+    """경계 값(필드 상한 그대로)은 받고, 그 값으로도 기본 동굴이 보정 충돌 없이 만들어진다."""
+    from app.templates.base import RuleContext
+    from app.templates.cave import CaveTemplate
+    from app.validation.autofix import clamp_params
+
+    def edit(d):
+        s = _aq(d, "nano_fish")
+        s.update(min_wall_thickness_mm=3.2, entrance_min_diameter_mm=115)
+        s["hideout_min_entrances"].update(single=2, group=2)
+        s["aquatic"].update(ceiling_min_slope_deg=65)
+        s["gap_trap"].update(passable_min_mm=145)
+    _edit_species(rules_copy, edit)
+    rb = load_rules(rules_copy)
+    ctx = RuleContext(rb.size_rules("aquarium", "nano_fish"), rb.min_wall_for("aquarium", "nano_fish"), 10)
+    t = CaveTemplate()
+    _, issues = clamp_params(t, t.default_params(ctx), ctx)
+    assert not [i for i in issues if i.code == "param_conflict"], issues
+
+
+def test_printing_min_wall_above_cave_wall_limit_rejected(rules_copy):
+    """적용 최소 벽 = max(종 기준, 출력 최소 벽): 출력 최소 벽이 동굴 벽 두께 상한을 넘어도 동굴을 만들 수 없다."""
+    p = rules_copy / "printing.yaml"
+    data = yaml.safe_load(p.read_text(encoding="utf-8"))
+    data["min_wall_mm"] = 3.5
+    p.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    with pytest.raises(RuleFileError, match=r"(?s)printing\.yaml.*min_wall_mm 3\.5.*cave.*3\.2"):
+        load_rules(rules_copy)
+
+
+def test_max_count_bounded_by_api_cap(rules_copy):
+    """규칙 파일의 최대 마릿수가 API 전체 상한(200)을 넘으면 /species 가 API 가 거부하는 마릿수를 알리게 된다."""
+    from app.rules.loader import MAX_HABITAT_COUNT
+    from app.schemas import HabitatIn
+
+    assert HabitatIn.model_fields["count"].metadata[-1].le == MAX_HABITAT_COUNT  # API 와 같은 상수
+    _edit_species(rules_copy, lambda d: d["species"]["aquarium"].update(max_count=MAX_HABITAT_COUNT))
+    assert load_rules(rules_copy).species_entry("aquarium").max_count == MAX_HABITAT_COUNT
+    _edit_species(rules_copy, lambda d: d["species"]["aquarium"].update(max_count=MAX_HABITAT_COUNT + 1))
+    with pytest.raises(RuleFileError, match=r"(?s)species\.aquarium\.max_count"):
+        load_rules(rules_copy)
+
+
+def test_volume_note_values(rules):
+    """종별 권장 부피 안내 (54L 는 하한일 뿐): 나노·소형·합사 수조에만 있고 100L 미만에서 안내한다."""
+    for size in ("nano_fish", "small_fish", "community"):
+        aq = rules.size_rules("aquarium", size).aquatic
+        assert aq.volume_note_below_l == 100 and aq.volume_note_ko.startswith("54L는 최소 기준일 뿐이에요.")
+    small = rules.size_rules("aquarium", "small_fish").aquatic.volume_note_ko
+    assert "코리도라스 무리는 80L 이상" in small and "160L" in small and "100L 이상" in small
+    shrimp = rules.size_rules("aquarium", "shrimp").aquatic
+    assert shrimp.volume_note_ko is None and shrimp.volume_note_below_l is None
+
+
+@pytest.mark.parametrize("edit,match", [
+    (lambda a: a.pop("volume_note_below_l"), "volume_note_ko 와 volume_note_below_l"),
+    (lambda a: a.pop("volume_note_ko"), "volume_note_ko 와 volume_note_below_l"),
+    (lambda a: a.update(volume_note_below_l=54), "volume_note_below_l 은 min_volume_l 보다"),
+])
+def test_volume_note_pair_rules(rules_copy, edit, match):
+    _edit_species(rules_copy, lambda d: edit(_aq(d, "small_fish")["aquatic"]))
+    with pytest.raises(RuleFileError, match=match):
         load_rules(rules_copy)

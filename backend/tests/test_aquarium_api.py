@@ -48,7 +48,7 @@ def test_species_lists_habitat_templates_and_count_limits(client, rules):
     assert [s["key"] for s in species][0] == "hamster"  # 화면의 기본 종
     ham = species[0]
     assert ham["habitat"] == "cage" and ham["templates"] == ["hideout", "tunnel", "ramp", "sand_bath"]
-    assert ham["max_count"] == 10 and ham["print_notes_ko"] == []
+    assert ham["max_count"] == 10 and ham["print_notes_ko"] == [] and ham["size_hint_ko"] is None
     for s in ham["sizes"]:
         assert s["layout_rules"]["tunnel_max_length_mm"] > 0 and len(s["enclosure_min_floor_mm"]) == 2
         assert s["max_recommended_count"] == 1 and s["count_warning_ko"]
@@ -57,6 +57,7 @@ def test_species_lists_habitat_templates_and_count_limits(client, rules):
     aq = next(s for s in species if s["key"] == "aquarium")
     assert aq["habitat"] == "aquarium" and aq["templates"] == ["cave", "tunnel"] and aq["max_count"] == 200
     assert aq["print_notes_ko"] == list(rules.species_entry("aquarium").print_notes_ko) and len(aq["print_notes_ko"]) >= 5
+    assert aq["size_hint_ko"] == rules.species_entry("aquarium").size_hint_ko and "합사 수조" in aq["size_hint_ko"]
     sizes = {s["key"]: s for s in aq["sizes"]}
     assert list(sizes) == ["shrimp", "nano_fish", "small_fish", "community"]
     for s in sizes.values():
@@ -70,6 +71,7 @@ def test_species_lists_habitat_templates_and_count_limits(client, rules):
     assert nano["enclosure_min_floor_mm"] == [600, 300] and nano["min_recommended_count"] == 10
     assert nano["aquatic"]["min_volume_l"] == 54 and nano["aquatic"]["volume_l_per_animal"] == 1.5
     assert nano["aquatic"]["structure_top_clearance_mm"] == 30
+    assert nano["aquatic"]["glass_thickness_assumed_mm"] == 6  # 화면도 같은 식으로 겉 크기를 어림한다
     assert sizes["community"]["min_recommended_count"] is None and sizes["community"]["min_count_warning_ko"] is None
 
 
@@ -85,6 +87,36 @@ def test_species_translates_print_notes_list_in_english(client, rules, monkeypat
     aq = species_out(client, "aquarium", **{"X-Lang": "en"})
     assert aq["print_notes_ko"] == [f"EN note {i}" for i in range(len(notes))]
     assert species_out(client, "aquarium")["print_notes_ko"] == list(notes)  # 한국어 요청은 그대로
+
+
+def test_species_size_hint_and_print_notes_in_english(client, rules):
+    """크기 구분 안내(size_hint_ko)와 출력·설치 안내는 영어 요청이면 실제 카탈로그로 바뀐다 (한국어·'hamster' 없이)."""
+    from app.i18n import HANGUL
+
+    aq = species_out(client, "aquarium", **{"X-Lang": "en"})
+    assert aq["size_hint_ko"].startswith("Body length means the adult length without the tail fin.")
+    assert "'Community tank'" in aq["size_hint_ko"]
+    nano = next(s for s in aq["sizes"] if s["key"] == "nano_fish")
+    assert nano["display_name"] == "Nano fish (neon and ember tetras, etc.; adult body length 2–3 cm, not counting the tail fin)"
+    for text in (aq["size_hint_ko"], *aq["print_notes_ko"]):
+        assert not HANGUL.search(text) and "hamster" not in text.lower(), text
+    notes = aq["print_notes_ko"]
+    assert any("shrimp or snails" in n and n.startswith("Material:") for n in notes)
+    assert any("shrimp or snails" in n and n.startswith("Nozzle:") for n in notes)
+    assert any(n.startswith("Before adding: first sand") for n in notes)
+    assert any(n.startswith("Setting it down:") and "Corydoras" in n for n in notes)
+    assert species_out(client, "hamster", **{"X-Lang": "en"})["size_hint_ko"] is None
+
+
+def test_species_exposes_volume_note_in_both_languages(client, rules):
+    """종별 권장 부피 안내(54L 는 하한일 뿐)를 /species 로 알리고, 영어 요청이면 영어로 바꾼다."""
+    note = rules.size_rules("aquarium", "small_fish").aquatic.volume_note_ko
+    ko = {s["key"]: s for s in species_out(client, "aquarium")["sizes"]}
+    assert ko["small_fish"]["aquatic"]["volume_note_ko"] == note
+    assert ko["small_fish"]["aquatic"]["volume_note_below_l"] == 100
+    assert ko["shrimp"]["aquatic"]["volume_note_ko"] is None
+    en = {s["key"]: s for s in species_out(client, "aquarium", **{"X-Lang": "en"})["sizes"]}
+    assert en["small_fish"]["aquatic"]["volume_note_ko"].startswith("54 L is only the minimum.")
 
 
 # ── 사육 환경: 마릿수·종·habitat_kind ─────────────────────────
@@ -293,6 +325,35 @@ def test_recommend_counts_caves_as_hideouts(client):
         prof = recommend.profile(db, user)
         assert prof["designs"] == {"hideout": 1.0}
         assert recommend.recommend(db, user) == []  # 탐색 작품이 없어도 어항 설계가 있어 깨지지 않는다
+
+
+def test_recommend_does_not_treat_aquarium_pets_as_cage_pets(client):
+    """어항 생물만 등록한 회원에게 햄스터 케이지·가상 케이지 배치를 '반려동물 케이지에 맞는 작품'으로 권하지 않는다."""
+    from app.models import Pet
+
+    signup(client, "maker_b")
+    fish = signup(client, "fish_owner")
+    with client.app.state.session_factory() as db:
+        maker = db.scalar(select(User).where(User.username == "maker_b"))
+        owner = db.scalar(select(User).where(User.username == "fish_owner"))
+        for title, cat in (("햄스터 케이지", "cage"), ("배치 예시", "layout"), ("은신처", "hideout")):
+            db.add(MarketItem(owner_id=maker.id, title=title, description="-", category=cat))
+        db.add(Pet(owner_id=owner.id, name="네온", species="aquarium", size="nano_fish"))
+        db.commit()
+        owner_id = owner.id
+    cage_reason = "반려동물 케이지에 맞는 작품이에요"
+    use(client, fish)
+    rec = client.get("/market/recommended").json()
+    assert len(rec) == 3 and not [x for x in rec if x["reason_ko"] == cage_reason]
+    with client.app.state.session_factory() as db:
+        owner = db.get(User, owner_id)
+        assert recommend.profile(db, owner, client.app.state.design_service.habitat_kind)["has_pets"] is False
+        assert recommend.profile(db, owner)["has_pets"] is True  # 사육 환경을 모르면 예전처럼 모든 반려동물을 센다
+        # 케이지 반려동물(햄스터)이 있으면 예전처럼 케이지 작품을 권한다
+        db.add(Pet(owner_id=owner_id, name="햄찌", species="hamster", size="syrian"))
+        db.commit()
+    rec = client.get("/market/recommended").json()
+    assert {x["title"] for x in rec if x["reason_ko"] == cage_reason} == {"햄스터 케이지", "배치 예시"}
 
 
 # ── 모의 해석기: 어항 키워드 ─────────────────────────────────

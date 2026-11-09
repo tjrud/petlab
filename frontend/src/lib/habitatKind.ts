@@ -1,6 +1,7 @@
 // 사육 환경 종류(케이지·어항)를 알아내고, 종류에 따라 달라지는 낱말·프리셋·어림 계산을 모아 둔다.
 // 케이지 문구는 원래 문구 그대로다 (햄스터 화면은 바뀌지 않는다).
 // 어항이면 높이 칸에 물 깊이(바닥재 위~수면)를 받는다. 서버도 사육 환경의 height_mm 을 물 깊이로 본다.
+// 어항 가로·세로는 수조 안쪽 치수다 (배치·틈 검사가 안쪽 벽 기준). 바닥·부피 기준만 겉 크기라 비교할 때 유리 두께를 더한다.
 
 import type { TFunction } from "@/i18n/translate";
 import type { AquaticRules, Cage, HabitatKind, SizeOption, SpeciesOption } from "@/lib/types";
@@ -71,21 +72,70 @@ export function enclosureSummary(kind: HabitatKind, c: Cage, t: TFunction): stri
 }
 
 /**
- * 어항 수조 프리셋. 이름은 흔히 파는 수조의 겉 크기(가로×세로×높이)이고,
- * 물 깊이는 수조 높이에서 바닥재 약 5cm·수면 위 여유 약 3cm 를 뺀 값이다.
+ * 수조 버튼이 겉 크기에서 안쪽 치수·물 깊이를 어림할 때 쓰는 값 mm.
+ * species.yaml 어항 aquatic 의 유리 두께(glass_thickness_assumed_mm)·윗여유(air_gap_mm), 물고기 구분 바닥재 두께와 같다.
+ */
+export const TANK_PRESET_GLASS_MM = 6;
+const TANK_PRESET_SUBSTRATE_MM = 50;
+const TANK_PRESET_AIR_GAP_MM = 30;
+
+/** 겉 크기 W×D×H mm 수조의 안쪽 가로·세로(유리 2장을 뺀다)와 물 깊이(바닥 유리·바닥재·수면 위 여유를 뺀다) */
+const tankPreset = (label: string, w: number, d: number, h: number) => ({
+  label,
+  w: w - 2 * TANK_PRESET_GLASS_MM,
+  d: d - 2 * TANK_PRESET_GLASS_MM,
+  h: h - TANK_PRESET_GLASS_MM - TANK_PRESET_SUBSTRATE_MM - TANK_PRESET_AIR_GAP_MM,
+});
+
+/**
+ * 어항 수조 프리셋. 이름은 흔히 파는 수조의 겉 크기(가로×세로×높이)이고, 값은 입력 칸이 받는 안쪽 치수와 물 깊이다
+ * (예: 60×30×36cm → 588×288mm, 물 깊이 274mm). 서버는 이 값에 유리 두께를 다시 더해 겉 크기 기준(바닥·부피)과 비교한다.
  * 이름이 숫자뿐인 것도 t() 로 보이므로 영어 사전에 같은 값을 둔다.
  */
 export const TANK_PRESETS = [
-  { label: "30큐브 30×30×30cm", w: 300, d: 300, h: 220 },
-  { label: "45×30×30cm", w: 450, d: 300, h: 220 },
-  { label: "60×30×36cm", w: 600, d: 300, h: 280 },
-  { label: "60×45×45cm", w: 600, d: 450, h: 370 },
-  { label: "90×45×45cm", w: 900, d: 450, h: 370 },
+  tankPreset("30큐브 30×30×30cm", 300, 300, 300),
+  tankPreset("45×30×30cm", 450, 300, 300),
+  tankPreset("60×30×36cm", 600, 300, 360),
+  tankPreset("60×45×45cm", 600, 450, 450),
+  tankPreset("90×45×45cm", 900, 450, 450),
 ] as const;
 
-/** 수조 부피 어림 L: 가로 × 세로 × (물 깊이 + 바닥재 어림 두께 + 수면 위 여유). 서버 checks.tank_volume_l 과 같은 식 */
+/** 유리 두께 어림 mm (옛 서버 응답에 없으면 0: 입력값 그대로 비교) */
+export const glassOf = (a: AquaticRules) => a.glass_thickness_assumed_mm ?? 0;
+
+/** 수조 겉 가로·세로 어림 mm = 안쪽 치수 + 유리 2장. 서버 checks.tank_outer_floor_mm 과 같은 식 */
+export function tankOuterFloorMm(c: Pick<Cage, "width_mm" | "depth_mm">, a: AquaticRules): [number, number] {
+  const g = glassOf(a);
+  return [c.width_mm + 2 * g, c.depth_mm + 2 * g];
+}
+
+/**
+ * 수조 부피 어림 L (겉 크기 기준): 겉 가로 × 겉 세로 × (물 깊이 + 바닥재 어림 두께 + 수면 위 여유 + 바닥 유리).
+ * 서버 checks.tank_volume_l 과 같은 식 (54L 같은 표준 부피는 겉 치수로 계산한 총부피다)
+ */
 export function tankVolumeL(c: Cage, a: AquaticRules): number {
-  return (c.width_mm * c.depth_mm * (c.height_mm + a.substrate_depth_assumed_mm + a.air_gap_mm)) / 1e6;
+  const [w, d] = tankOuterFloorMm(c, a);
+  return (w * d * (c.height_mm + a.substrate_depth_assumed_mm + a.air_gap_mm + glassOf(a))) / 1e6;
+}
+
+export type FloorShortfall = {
+  /** 비교한 바닥 [가로, 세로] mm (어항은 유리 두께를 더한 겉 크기, 케이지는 입력값) */
+  floorMm: [number, number];
+  /** 최소 기준 [긴 변, 짧은 변] mm */
+  minMm: [number, number];
+  /** 더한 유리 두께 mm (케이지는 0) */
+  glassMm: number;
+};
+
+/** 바닥이 최소 기준보다 작으면 그 내용, 아니면(또는 기준이 없으면) null. 긴 변·짧은 변끼리 비교 (서버 check_enclosure 와 같다) */
+export function floorShortfall(c: Pick<Cage, "width_mm" | "depth_mm">, size: SizeOption | null | undefined): FloorShortfall | null {
+  const min = size?.enclosure_min_floor_mm;
+  if (!min) return null;
+  const a = size?.aquatic;
+  const [w, d] = a ? tankOuterFloorMm(c, a) : [c.width_mm, c.depth_mm];
+  const [needLong, needShort] = min;
+  const below = Math.max(w, d) + 1e-6 < needLong || Math.min(w, d) + 1e-6 < needShort;
+  return below ? { floorMm: [w, d], minMm: [needLong, needShort], glassMm: a ? glassOf(a) : 0 } : null;
 }
 
 export type TankVolumeShortfall = {

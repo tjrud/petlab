@@ -30,6 +30,19 @@ HABITAT_TEMPLATES: dict[str, tuple[str, ...]] = {"cage": CAGE_TEMPLATES, "aquari
 # 터널 템플릿 length_mm 의 하한 (app/templates/tunnel.py TunnelParams). 템플릿을 import 하면 순환하므로 값만 둔다.
 # 둘이 같은지는 tests/test_rules.py 가 확인한다
 TUNNEL_LENGTH_FIELD_MIN_MM = 80.0
+# 템플릿 필드 상한 (app/templates/cave.py CaveParams, tunnel.py TunnelParams). 위와 같은 까닭으로 값만 두고
+# tests/test_rules.py 가 같은지 확인한다. 규칙 값이 이를 넘으면 그 크기 구분의 구조물을 하나도 만들 수 없다
+CAVE_WALL_FIELD_MAX_MM = 3.2
+CAVE_ENTRANCE_COUNT_FIELD_MAX = 2
+CAVE_ROOF_SLOPE_FIELD_MAX_DEG = 65.0
+CAVE_ENTRANCE_FIELD_MAX_MM = 120.0
+CAVE_TOP_OPENING_FIELD_MAX_MM = 150.0
+TUNNEL_INNER_FIELD_MAX_MM = 130.0
+TUNNEL_WALL_FIELD_MAX_MM = 8.0
+# 기본 파라미터는 종별 최소 출입구·통과 폭·터널 내경에 이만큼 더해 올린다 (cave/tunnel default_params)
+DEFAULT_SIZE_MARGIN_MM = 5.0
+# 입력할 수 있는 마릿수의 전체 상한 (API HabitatIn.count). 종별 max_count 는 이 값을 넘을 수 없다
+MAX_HABITAT_COUNT = 200
 
 
 class _Strict(BaseModel):
@@ -62,7 +75,8 @@ class HideoutEntranceRule(_Strict):
 
 
 class AquaticRules(_Strict):
-    """어항(물속) 크기 구분에만 있는 기준. 키는 모두 있어야 한다 (volume_l_per_animal 만 null 가능)."""
+    """어항(물속) 크기 구분에만 있는 기준. 키는 모두 있어야 한다 (volume_l_per_animal 만 null 가능).
+    volume_note_ko·volume_note_below_l 은 적지 않아도 된다 (둘 다 적거나 둘 다 뺀다)."""
 
     # 동굴 안쪽 천장(모서리선)이 꼭대기 구멍 쪽으로 오르는 최소 경사 (공기가 갇히지 않게)
     ceiling_min_slope_deg: Degrees
@@ -71,11 +85,27 @@ class AquaticRules(_Strict):
     # 수조 전체 부피를 어림할 때 쓰는 바닥재 두께·수면 위 여유
     substrate_depth_assumed_mm: NonNegativeMM
     air_gap_mm: NonNegativeMM
+    # 수조 유리 두께 어림. 입력 가로·세로는 수조 안쪽인데 바닥·부피 기준(예: 60×30cm, 54L)은 겉 크기라,
+    # 바닥·부피를 비교할 때 안쪽 치수에 이 두께를 더해 겉 크기로 바꾼다 (배치·틈 검사는 안쪽 치수 그대로)
+    glass_thickness_assumed_mm: NonNegativeMM
     # 수조 최소 부피 (L), 마리당 부피 (L, 없으면 null)
     min_volume_l: Annotated[float, Field(gt=0)]
     volume_l_per_animal: Annotated[float, Field(gt=0)] | None
     # 구조물 높이 ÷ 바닥 짧은 변 상한 (물속에서 넘어지지 않게)
     max_height_to_base_ratio: Annotated[float, Field(gt=0)]
+    # 최소 부피(min_volume_l)는 하한일 뿐이라 종마다 더 큰 권장 부피가 있을 때의 안내 문구와,
+    # 수조가 이 부피(L)보다 작으면 그 안내를 띄운다 (설계는 막지 않는 참고). 없으면 안내하지 않는다
+    volume_note_ko: str | None = None
+    volume_note_below_l: Annotated[float, Field(gt=0)] | None = None
+
+    @model_validator(mode="after")
+    def _check_volume_note(self) -> "AquaticRules":
+        if (self.volume_note_ko is None) != (self.volume_note_below_l is None):
+            raise ValueError("aquatic.volume_note_ko 와 volume_note_below_l 은 둘 다 적거나 둘 다 null 이어야 합니다")
+        if self.volume_note_below_l is not None and self.volume_note_below_l <= self.min_volume_l:
+            raise ValueError("aquatic.volume_note_below_l 은 min_volume_l 보다 커야 합니다 "
+                             "(최소 부피보다 큰 권장 부피를 안내하는 값)")
+        return self
 
 
 class BuoyancyRules(_Strict):
@@ -171,10 +201,12 @@ class SpeciesEntry(_Strict):
     habitat: Habitat = "cage"
     # 이 종에 만들 수 있는 구조물 (템플릿 키). 없으면 케이지 기본값 (어항은 반드시 적는다)
     templates: tuple[str, ...] | None = None
-    # 입력할 수 있는 최대 마릿수
-    max_count: Count = 10
+    # 입력할 수 있는 최대 마릿수 (API 전체 상한 MAX_HABITAT_COUNT 이하)
+    max_count: Annotated[int, Field(ge=1, le=MAX_HABITAT_COUNT)] = 10
     # 출력·설치 안내 문구 (어항 소재·세척 조건 등)
     print_notes_ko: tuple[str, ...] = ()
+    # 크기 구분을 고를 때 함께 보일 안내 (어항: 몸길이를 재는 기준, 어느 구분에도 맞지 않는 아주 작은 종). 없으면 null
+    size_hint_ko: str | None = None
     # 물속 무게 계산용 밀도 (어항은 필수)
     buoyancy: BuoyancyRules | None = None
     sizes: dict[str, SizeRules] = Field(min_length=1)
@@ -207,7 +239,36 @@ class SpeciesEntry(_Strict):
             self._check_cage(where)
         else:
             self._check_aquarium(where)
+        self._check_template_bounds(where)
         return self
+
+    def _check_template_bounds(self, where: str) -> None:
+        """규칙 값이 템플릿 필드 범위를 넘으면 그 크기 구분의 구조물을 하나도 만들 수 없다 (모든 설계가 보정 충돌로 막힌다).
+        기본 파라미터는 최소값에 DEFAULT_SIZE_MARGIN_MM 를 더하므로 그만큼 여유를 둔다."""
+        m = DEFAULT_SIZE_MARGIN_MM
+        allowed = self.allowed_templates
+        for skey, s in self.sizes.items():
+            checks: list[tuple[str, float, float]] = []  # (규칙 키, 값, 상한)
+            if "cave" in allowed:
+                checks += [
+                    ("min_wall_thickness_mm", s.min_wall_thickness_mm, CAVE_WALL_FIELD_MAX_MM),
+                    ("hideout_min_entrances.single", s.hideout_min_entrances.single, CAVE_ENTRANCE_COUNT_FIELD_MAX),
+                    ("hideout_min_entrances.group", s.hideout_min_entrances.group, CAVE_ENTRANCE_COUNT_FIELD_MAX),
+                    ("entrance_min_diameter_mm", s.entrance_min_diameter_mm, CAVE_ENTRANCE_FIELD_MAX_MM - m),
+                    ("gap_trap.passable_min_mm", s.gap_trap.passable_min_mm, CAVE_TOP_OPENING_FIELD_MAX_MM - m),
+                ]
+                if s.aquatic is not None:
+                    checks.append(("aquatic.ceiling_min_slope_deg", s.aquatic.ceiling_min_slope_deg,
+                                   CAVE_ROOF_SLOPE_FIELD_MAX_DEG))
+            if "tunnel" in allowed:
+                checks += [
+                    ("min_wall_thickness_mm", s.min_wall_thickness_mm, TUNNEL_WALL_FIELD_MAX_MM),
+                    ("tunnel_min_inner_diameter_mm", s.tunnel_min_inner_diameter_mm, TUNNEL_INNER_FIELD_MAX_MM - m),
+                ]
+            for key, value, limit in checks:
+                if value > limit + 1e-9:
+                    raise ValueError(f"{where} 크기 구분 '{skey}': {key} {value:g} 이(가) 만들 수 있는 구조물의 "
+                                     f"범위를 넘습니다 (최대 {limit:g})")
 
     def _check_cage(self, where: str) -> None:
         if self.buoyancy is not None:
@@ -325,4 +386,16 @@ def load_rules(rules_dir: Path) -> RuleBook:
         printing = PrintingRules.model_validate(_read_yaml(printing_path))
     except ValidationError as e:
         raise RuleFileError(f"printing.yaml 검증 실패:\n{e}") from e
+    _check_printing_wall(species_file, printing)
     return RuleBook(species_file=species_file, printing=printing, source_dir=str(rules_dir))
+
+
+def _check_printing_wall(species_file: SpeciesFile, printing: PrintingRules) -> None:
+    """적용 최소 벽 = max(종 기준, 출력 최소 벽) 이 템플릿 벽 두께 상한을 넘으면 그 구조물을 만들 수 없다.
+    종 기준은 SpeciesEntry 가 확인하므로 여기서는 출력 최소 벽(printing.yaml)이 넘는 경우를 잡는다."""
+    limits = {"cave": CAVE_WALL_FIELD_MAX_MM, "tunnel": TUNNEL_WALL_FIELD_MAX_MM}
+    for key, sp in species_file.species.items():
+        for template, limit in limits.items():
+            if template in sp.allowed_templates and printing.min_wall_mm > limit + 1e-9:
+                raise RuleFileError(f"printing.yaml 검증 실패: min_wall_mm {printing.min_wall_mm:g} 이(가) "
+                                    f"{sp.display_name}({key}) 의 {template} 벽 두께 상한 {limit:g} 을(를) 넘습니다")

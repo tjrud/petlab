@@ -1,6 +1,7 @@
 """어항(담수 관상어·새우) 엔진·검증 테스트 (저장소 규칙 파일 사용).
 
 Cage 는 어항에서 수조 안쪽 가로·세로와 물 깊이(바닥재 위 ~ 수면)를 뜻한다.
+바닥·부피 기준은 겉 크기라, 그 둘만 안쪽 치수에 유리 두께 어림(6mm)을 더해 비교한다.
 """
 
 from __future__ import annotations
@@ -14,13 +15,17 @@ from app.domain import Cage, Placement, PlacementHint
 from app.services.engine import EngineContext, ItemSpec, build_item, revalidate, run_engine
 from app.templates.base import Features
 from app.templates.cave import CaveTemplate
+from app.templates.cave import min_height as cave_min_height
 from app.templates.registry import get_template
 from app.templates.tunnel import TunnelTemplate
 from app.validation import checks
 from tests.helpers import box_item
 
 SPECIES = "aquarium"
-NANO_TANK = Cage(600, 300, 280)  # 60×30×36cm 수조, 바닥재 50·윗여유 30mm 를 뺀 물 깊이
+NANO_TANK = Cage(600, 300, 280)  # 수조 안쪽 600×300mm·물 깊이 280mm (겉 크기로 어림하면 약 69.9L)
+# 흔한 60×30×36cm 수조(유리 6mm)를 안내대로 잰 값: 안쪽 588×288mm, 물 깊이 360 − 바닥 유리 6 − 바닥재 50 − 윗여유 30
+#   → 겉 크기로 어림한 부피 600 × 300 × 360 = 64.8L
+STD_60_TANK = Cage(588, 288, 274)
 HANGUL = re.compile(r"[가-힣]")
 
 
@@ -153,11 +158,152 @@ def test_height_clamped_to_water_depth_minus_clearance(rules, size, clearance):
     assert res.report.passed, res.report.errors
 
 
-def test_water_too_shallow_for_cave_is_param_conflict(rules):
-    c = actx(rules, size="small_fish", cage=Cage(600, 300, 120), count=6)  # 120 − 75 = 45mm < 동굴 최소 높이
+@pytest.mark.parametrize("size,depth", [("small_fish", 120), ("small_fish", 100), ("small_fish", 143),
+                                        ("community", 144)])
+def test_water_too_shallow_for_cave_is_one_clear_error(rules, size, depth):
+    """가장 작게 만들어도 들어가지 않으면 높이 보정·충돌 문구 대신, 필요한 물 깊이를 밝힌 오류 하나만 낸다."""
+    c = actx(rules, size=size, cage=Cage(600, 300, depth), count=6)
+    need = CaveTemplate().min_height_mm(c.rule_ctx)  # 종별 최소 출입구·벽·지붕 경사에 꼭대기 구멍을 가장 넓힌 동굴
+    assert need == {"small_fish": 68.3, "community": 69.4}[size]
     res = run_engine([ItemSpec("cave", defaults("cave", c))], c)
-    assert [i for i in by_code(res.report, "param_conflict") if i.details["field"] == "height_mm"]
+    assert codes(res.report.errors) == ["water_too_shallow"]
+    err = res.report.errors[0]
+    assert err.item_index == 0
+    assert err.message_ko == (
+        f"물속 동굴 #1: 물 깊이 {depth}mm 로는 만들 수 없습니다. 생물이 구조물 위로 지나가고 수면 가까이에서 숨 쉴 수 있도록 "
+        f"위에 75mm 를 남기면, 가장 낮게 만들어도 높이가 {need:g}mm 라 물 깊이가 {need + 75:g}mm 이상이어야 합니다.")
+    assert err.details["min_water_depth_mm"] == pytest.approx(need + 75)
+    # '높이를 45mm 이하로 맞췄습니다'처럼 어긋나는 보정 문구를 함께 내지 않는다
+    assert not [i for i in res.report.issues if i.code in ("param_adjusted", "param_conflict")]
     assert not res.report.passed
+    assert codes(revalidate(res.items, c).errors) == ["water_too_shallow"]
+
+
+def test_shallow_tank_lowers_cave_roof_instead_of_failing(rules):
+    """45×30×24cm 수조(물 깊이 160): 기본 동굴(102×86, 높이 92)은 한도 85mm 를 넘지만, 꼭대기 구멍을 넓혀 지붕을 낮추면 들어간다."""
+    c = actx(rules, size="small_fish", cage=Cage(450, 300, 160), count=6)
+    base = CaveTemplate().default_params(c.rule_ctx)
+    res = run_engine([ItemSpec("cave", base.model_dump())], c)
+    assert res.report.passed, res.report.errors
+    p = res.items[0].params
+    assert res.items[0].height_mm == pytest.approx(85, abs=1e-3)
+    assert (p.width_mm, p.depth_mm) == (base.width_mm, base.depth_mm)  # 바닥 크기는 그대로
+    assert p.top_opening_mm > base.top_opening_mm
+    assert cave_min_height(p) <= 85 + 1e-9
+    fixed = {i.details["field"]: i.message_ko for i in by_code(res.report, "param_adjusted")}
+    assert set(fixed) == {"height_mm", "top_opening_mm"}
+    assert fixed["top_opening_mm"] == (
+        f"물속 동굴 #1: 꼭대기 구멍 폭 50 → {p.top_opening_mm:g} 로 보정했습니다. "
+        "물이 얕아 동굴을 높이 85mm(물 깊이 − 75mm) 안에 맞추려고 함께 조정했습니다")
+    assert revalidate(res.items, c).passed
+
+
+@pytest.mark.parametrize("depth", [144, 150, 152, 166, 167])
+def test_shallow_tank_cave_fits_down_to_minimum_water_depth(rules, depth):
+    """구멍을 가장 넓혀도 높으면 지붕 경사 → 벽 두께 → 출입구 폭을 종 기준까지 줄인다 (모두 종 기준 이상)."""
+    c = actx(rules, size="small_fish", cage=Cage(450, 300, depth), count=6)
+    s = c.size_rules
+    res = run_engine([ItemSpec("cave", defaults("cave", c))], c)
+    assert res.report.passed, res.report.errors
+    p = res.items[0].params
+    assert res.items[0].height_mm <= depth - 75 + 1e-6
+    assert p.entrance_diameter_mm >= s.entrance_min_diameter_mm
+    assert p.wall_thickness_mm >= c.min_wall_mm
+    assert p.roof_slope_deg >= 40 and p.top_opening_mm >= s.gap_trap.passable_min_mm
+    assert not by_code(res.report, "param_conflict")
+
+
+def test_shallow_tank_big_cave_shrinks_short_side_when_top_opening_maxes_out(rules):
+    """꼭대기 구멍은 150mm 까지만 넓힐 수 있어, 큰 동굴은 짧은 변을 줄여 지붕을 낮춘다."""
+    c = actx(rules, size="small_fish", cage=Cage(900, 450, 200), count=6)
+    res = run_engine([ItemSpec("cave", dict(width_mm=250, depth_mm=220, height_mm=150, entrance_diameter_mm=60,
+                                            top_opening_mm=50, wall_thickness_mm=3))], c)
+    assert res.report.passed, res.report.errors
+    p = res.items[0].params
+    assert p.top_opening_mm == 150 and p.width_mm == 250 and p.depth_mm < 220
+    assert res.items[0].height_mm <= 125 + 1e-6
+
+
+def test_top_opening_max_uses_the_grown_footprint_in_engine(rules):
+    """세로가 출입구 때문에 커지면 꼭대기 구멍 상한도 그만큼 커진다 (예전 세로로 구멍을 줄여 높이 충돌이 나던 경우)."""
+    c = actx(rules, size="community", cage=Cage(900, 450, 250), count=6)
+    res = run_engine([ItemSpec("cave", dict(width_mm=174, depth_mm=50, entrance_diameter_mm=120, top_opening_mm=150,
+                                            wall_thickness_mm=2.4))], c)
+    assert not by_code(res.report, "param_conflict")
+    p = res.items[0].params
+    assert p.depth_mm == pytest.approx(124.8) and p.top_opening_mm == pytest.approx(110)
+    assert res.report.passed, res.report.errors
+
+
+# ── 터널 높이 (구조물 위 최소 물 깊이) ─────────────────────────
+
+
+def test_tunnel_inner_diameter_clamped_to_water_clearance(rules):
+    """터널은 높이 파라미터가 없어도 내경으로 높이를 맞춘다 (높이 = 내경 × 약 1.28 + 벽 두께 × 약 1.56)."""
+    c = actx(rules, size="small_fish", cage=Cage(300, 300, 220), count=6)
+    res = run_engine([ItemSpec("tunnel", {**defaults("tunnel", c), "inner_diameter_mm": 120})], c)
+    it = res.items[0]
+    assert it.params.inner_diameter_mm == pytest.approx(109.8)
+    assert 144 < it.height_mm <= 145 + 1e-6
+    fixed = [i for i in by_code(res.report, "param_adjusted") if i.details["field"] == "inner_diameter_mm"]
+    assert [i.message_ko for i in fixed] == [
+        "터널 #1: 터널 안쪽 폭(=내경) 120 → 109.8 로 보정했습니다. 생물이 구조물 위로 지나가고 수면 가까이에서 숨 쉴 수 "
+        "있도록 높이를 145mm(물 깊이 − 75mm) 이하로 맞췄습니다."]
+    assert res.report.passed, res.report.errors
+
+
+def test_default_tunnel_in_shallow_tank_keeps_clearance(rules):
+    c = actx(rules, size="small_fish", cage=Cage(600, 300, 140), count=6)
+    res = run_engine([ItemSpec("tunnel", defaults("tunnel", c))], c)
+    assert res.items[0].height_mm <= 65 + 1e-6
+    assert res.items[0].params.inner_diameter_mm >= c.size_rules.tunnel_min_inner_diameter_mm
+    assert res.report.passed, res.report.errors
+
+
+def test_thick_walled_tunnel_lowers_wall_to_fit(rules):
+    c = actx(rules, size="small_fish", cage=Cage(600, 300, 140), count=6)
+    res = run_engine([ItemSpec("tunnel", {**defaults("tunnel", c), "wall_thickness_mm": 8})], c)
+    p = res.items[0].params
+    assert c.min_wall_mm <= p.wall_thickness_mm < 8
+    assert p.inner_diameter_mm >= c.size_rules.tunnel_min_inner_diameter_mm
+    assert res.items[0].height_mm <= 65 + 1e-6
+    assert res.report.passed, res.report.errors
+
+
+def test_tunnel_too_tall_for_water_flagged_on_revalidate(rules):
+    deep = actx(rules, size="small_fish", cage=Cage(300, 300, 400), count=6)
+    res = run_engine([ItemSpec("tunnel", {**defaults("tunnel", deep), "inner_diameter_mm": 120})], deep)
+    assert res.report.passed and res.items[0].params.inner_diameter_mm == 120
+    report = revalidate(res.items, actx(rules, size="small_fish", cage=Cage(300, 300, 220), count=6))
+    errs = [i for i in by_code(report, "param_out_of_range") if i.details["field"] == "inner_diameter_mm"]
+    assert errs and "높이를 145mm(물 깊이 − 75mm) 이하로" in errs[0].message_ko
+    assert not report.passed
+
+
+def test_tunnel_in_water_too_shallow_for_any_tunnel(rules):
+    c = actx(rules, size="community", cage=Cage(600, 300, 100), count=6)
+    res = run_engine([ItemSpec("tunnel", {**defaults("tunnel", c), "inner_diameter_mm": 60})], c)
+    assert codes(res.report.errors) == ["water_too_shallow"]
+    need = TunnelTemplate().min_height_mm(c.rule_ctx)
+    assert res.report.errors[0].message_ko.startswith("터널 #1: 물 깊이 100mm 로는 만들 수 없습니다.")
+    assert res.report.errors[0].details["min_water_depth_mm"] == pytest.approx(need + 75)
+
+
+def test_tunnel_with_enough_water_is_unchanged(rules):
+    c = actx(rules, size="small_fish", cage=NANO_TANK, count=6)
+    p = defaults("tunnel", c)
+    res = run_engine([ItemSpec("tunnel", p)], c)
+    assert res.items[0].params.model_dump() == p
+    assert not by_code(res.report, "param_adjusted")
+
+
+def test_hamster_tunnel_has_no_height_limit(rules):
+    """케이지 터널은 예전처럼 천장 틈 검사만 받는다 (내경을 높이에 맞춰 줄이지 않는다)."""
+    c = hctx(rules, cage=Cage(600, 400, 120))
+    res = run_engine([ItemSpec("tunnel", {**defaults("tunnel", c), "inner_diameter_mm": 90})], c)
+    assert res.items[0].params.inner_diameter_mm == 90
+    assert not [i for i in by_code(res.report, "param_adjusted") if i.details["field"] == "inner_diameter_mm"]
+    assert not by_code(res.report, "water_too_shallow")
 
 
 def test_revalidate_flags_cave_taller_than_water_limit(rules):
@@ -185,34 +331,65 @@ def test_tank_volume_below_minimum(rules):
     nano = rules.size_rules(SPECIES, "nano_fish")
     tank = Cage(300, 300, 200)
     issues = checks.check_tank_volume(tank, nano, count=10)
-    assert codes(issues) == ["tank_volume_below_recommended"]
+    assert codes(issues) == ["tank_volume_below_recommended", "tank_volume_species_note"]
     i = issues[0]
     assert i.severity == "warning"
-    # 300 × 300 × (200 + 바닥재 50 + 윗여유 30) = 25.2L
-    assert i.details == {"volume_l": pytest.approx(25.2), "need_l": 54, "per_animal_l": 1.5}
-    assert i.message_ko == (f"수조 부피가 약 25L(물 깊이에 바닥재 50mm·윗여유 30mm를 더해 어림)로 "
-                            f"{nano.display_name} 권장 최소 54L 보다 작습니다.")
+    # 겉 크기로 어림: (300 + 유리 2 × 6)² × (200 + 바닥재 50 + 윗여유 30 + 바닥 유리 6) = 27.84L
+    assert i.details == {"volume_l": pytest.approx(27.84, abs=0.01), "need_l": 54, "per_animal_l": 1.5}
+    # 54L 는 법령·감정서의 하한이라 '권장 최소'가 아니라 '최소 기준'
+    assert i.message_ko == (f"수조 부피가 약 27L(안쪽 치수에 유리 두께 6mm, 물 깊이에 바닥재 50mm·윗여유 30mm를 더한 "
+                            f"겉 크기로 어림)로 {nano.display_name} 최소 기준 54L 보다 작습니다.")
 
 
 def test_tank_volume_per_animal(rules):
     nano = rules.size_rules(SPECIES, "nano_fish")
-    assert checks.check_tank_volume(NANO_TANK, nano, count=10) == []  # 64.8L ≥ max(54, 15)
-    issues = checks.check_tank_volume(NANO_TANK, nano, count=50)  # 50 × 1.5 = 75L > 64.8L
-    assert codes(issues) == ["tank_volume_below_recommended"]
+    assert codes(checks.check_tank_volume(STD_60_TANK, nano, count=10)) == ["tank_volume_species_note"]  # 64.8L ≥ 54
+    issues = checks.check_tank_volume(STD_60_TANK, nano, count=50)  # 50 × 1.5 = 75L > 64.8L
+    assert codes(issues) == ["tank_volume_below_recommended", "tank_volume_species_note"]
     assert issues[0].details["need_l"] == pytest.approx(75)
-    assert issues[0].message_ko == ("수조 부피가 약 65L(물 깊이에 바닥재 50mm·윗여유 30mm를 더해 어림)로 "
-                                    "50마리 기준 권장 최소 75L 보다 작습니다.")
+    assert issues[0].details["volume_l"] == pytest.approx(64.8)
+    # 64.8L 는 내려서 64L 로 보인다 (반올림하면 65L)
+    assert issues[0].message_ko == ("수조 부피가 약 64L(안쪽 치수에 유리 두께 6mm, 물 깊이에 바닥재 50mm·윗여유 30mm를 "
+                                    "더한 겉 크기로 어림)로 50마리 기준 권장 최소 75L 보다 작습니다.")
     small = rules.size_rules(SPECIES, "small_fish")
-    msg = checks.check_tank_volume(NANO_TANK, small, count=12)[0].message_ko  # 12 × 5.6 = 67.2L
+    msg = checks.check_tank_volume(STD_60_TANK, small, count=12)[0].message_ko  # 12 × 5.6 = 67.2L
     assert "12마리 기준 권장 최소 67.2L" in msg
+
+
+@pytest.mark.parametrize("size,cage,count", [
+    ("nano_fish", Cage(588, 288, 213), 10),   # 겉 600×300×299 = 53.82L: 반올림하면 '약 54L … 최소 기준 54L 보다 작습니다'
+    ("nano_fish", Cage(588, 318, 215), 40),   # 겉 600×330×301 = 59.6L < 40 × 1.5 = 60L
+    ("shrimp", Cage(188, 138, 251), 5),       # 겉 200×150×317 = 9.51L < 10L
+])
+def test_tank_volume_shown_below_the_minimum_it_misses(rules, size, cage, count):
+    """부피를 내려서 보여 '약 54L … 54L 보다 작습니다'처럼 스스로 어긋나는 경고가 나오지 않는다."""
+    [warn] = [i for i in checks.check_tank_volume(cage, rules.size_rules(SPECIES, size), count)
+              if i.code == "tank_volume_below_recommended"]
+    shown = int(re.search(r"약 (\d+)L", warn.message_ko).group(1))
+    assert shown < warn.details["need_l"] and shown == int(warn.details["volume_l"])
+
+
+def test_tank_volume_species_note_for_corydoras_sized_tanks(rules):
+    """소형 어종: 54L 는 하한일 뿐이라 100L 보다 작은 수조에는 종별 권장 부피를 참고로 알린다 (경고 없이도)."""
+    small = rules.size_rules(SPECIES, "small_fish")
+    issues = checks.check_tank_volume(STD_60_TANK, small, count=6)  # 64.8L: 코리도라스 6마리
+    assert codes(issues) == ["tank_volume_species_note"]
+    note = issues[0]
+    assert note.severity == "info" and note.message_ko == small.aquatic.volume_note_ko
+    assert "코리도라스 무리는 80L 이상" in note.message_ko
+    assert note.details == {"volume_l": pytest.approx(64.8), "note_below_l": 100}
+    assert checks.check_tank_volume(Cage(900, 450, 370), small, count=6) == []  # 겉 912×462×456 ≈ 192L
+    c = actx(rules, size="small_fish", count=6)
+    res = run_engine([ItemSpec("cave", defaults("cave", c))], c)
+    assert by_code(res.report, "tank_volume_species_note") and res.report.passed
 
 
 def test_tank_volume_without_per_animal_rule_uses_minimum_only(rules):
     community = rules.size_rules(SPECIES, "community")
     assert community.aquatic.volume_l_per_animal is None
-    assert checks.check_tank_volume(NANO_TANK, community, count=200) == []
+    assert codes(checks.check_tank_volume(NANO_TANK, community, count=200)) == ["tank_volume_species_note"]
     shrimp = rules.size_rules(SPECIES, "shrimp")
-    assert checks.check_tank_volume(Cage(300, 300, 200), shrimp, count=50) == []  # 23.4L ≥ 10L
+    assert checks.check_tank_volume(Cage(300, 300, 200), shrimp, count=50) == []  # 겉 312×312×266 ≈ 25.9L ≥ 10L
     assert codes(checks.check_tank_volume(Cage(200, 150, 150), shrimp, count=5)) == ["tank_volume_below_recommended"]
 
 
@@ -227,14 +404,34 @@ def test_tank_volume_warning_in_engine_report(rules):
     assert res.report.passed  # 경고만, 설계는 막지 않는다
 
 
-@pytest.mark.parametrize("w,d,warn", [(600, 300, False), (300, 600, False), (450, 300, True), (600, 250, True)])
+@pytest.mark.parametrize("w,d,warn", [(600, 300, False), (300, 600, False), (450, 300, True), (600, 250, True),
+                                      # 흔한 60×30cm 수조를 안내대로 안쪽에서 잰 값 (유리 6mm·5mm): 기준을 채운다
+                                      (588, 288, False), (590, 290, False), (288, 588, False),
+                                      # 겉 크기로 어림해도 1mm 모자라다
+                                      (587, 300, True), (600, 287, True)])
 def test_tank_floor_below_recommended(rules, w, d, warn):
+    """바닥 기준('60cm' 등급 60×30cm)은 겉 크기라, 입력한 안쪽 치수에 유리 두께 어림 6mm 를 양쪽에 더해 비교한다."""
     nano = rules.size_rules(SPECIES, "nano_fish")
     issues = checks.check_enclosure(Cage(w, d, 280), nano)
     assert codes(issues) == (["cage_below_recommended"] if warn else [])
     if warn:
-        assert issues[0].message_ko == (f"수조 바닥 {w}×{d}mm 가 {nano.display_name} 권장 최소 600×300mm 보다 작습니다. "
-                                        "더 큰 수조를 권장합니다.")
+        assert issues[0].message_ko == (f"수조 겉 크기가 약 {w + 12}×{d + 12}mm(안쪽 {w}×{d}mm에 유리 두께 6mm를 더해 "
+                                        f"어림)로 {nano.display_name} 최소 기준 600×300mm 보다 작습니다. 더 큰 수조를 권장합니다.")
+        assert issues[0].details == {"floor_mm": [w, d], "recommended_mm": [600, 300],
+                                     "outer_floor_mm": [w + 12, d + 12], "glass_mm": 6}
+
+
+def test_standard_60cm_tank_measured_inside_meets_floor_and_volume(rules):
+    """법령·감정서의 최소 수조(60×30×30cm, 겉 크기 54L)를 안쪽 치수로 재 넣어도 바닥·부피 경고가 나오지 않는다."""
+    for glass in (5, 6):
+        tank = Cage(600 - 2 * glass, 300 - 2 * glass, 300 - glass - 50 - 30)  # 물 깊이: 바닥 유리·바닥재·윗여유를 뺀다
+        for size in ("nano_fish", "small_fish", "community"):
+            s = rules.size_rules(SPECIES, size)
+            assert checks.check_enclosure(tank, s) == [], (glass, size)
+            assert not by_code(checks.check_tank_volume(tank, s, count=1), "tank_volume_below_recommended"), (glass, size)
+    # 6mm 유리면 겉 크기 부피가 정확히 54L
+    assert checks.tank_volume_l(Cage(588, 288, 214), rules.size_rules(SPECIES, "nano_fish")) == pytest.approx(54.0)
+    assert checks.tank_outer_floor_mm(Cage(588, 288, 214), rules.size_rules(SPECIES, "nano_fish")) == (600, 300)
 
 
 def test_shrimp_has_no_floor_rule(rules):
@@ -324,6 +521,40 @@ def test_community_gap_range_and_placement(rules):
         assert not any(gt.is_trap(g) for g in (x0, 600 - x1, y0, 300 - y1))
 
 
+BENT_TUNNEL_CASES = [("small_fish", 45, "center"), ("community", 90, "center"), ("community", 45, "left")]
+
+
+@pytest.mark.parametrize("size,bend,zone", BENT_TUNNEL_CASES)
+def test_bent_tunnel_and_cave_in_same_zone_leave_no_trap_gap(rules, size, bend, zone):
+    """휜 터널은 바닥 사각형보다 윤곽이 작다: 사각형끼리 붙어도 실제 윤곽 사이에 끼임 틈이 남지 않게 배치한다."""
+    c = actx(rules, size=size, count=6)
+    tunnel = {**defaults("tunnel", c), "bend_angle_deg": bend, "length_mm": 200}
+    res = run_engine([ItemSpec("tunnel", tunnel, PlacementHint(zone=zone)),
+                      ItemSpec("cave", defaults("cave", c), PlacementHint(zone=zone))], c)
+    assert not by_code(res.report, "gap_trap")
+    assert res.report.passed, res.report.errors
+    gt = c.size_rules.gap_trap
+    a, b = (it.world_footprint for it in res.items)
+    assert not gt.is_trap(a.distance(b))
+
+
+@pytest.mark.parametrize("size,bend,zone", BENT_TUNNEL_CASES)
+def test_placer_exact_gaps_only_when_asked(rules, size, bend, zone):
+    """사각형 틈만 보면(케이지 배치처럼) 이 배치는 끼임 틈을 남긴다: exact_gaps 가 실제로 그 틈을 막는다."""
+    from app.layout.placer import place_all
+
+    c = actx(rules, size=size, count=6)
+    tp = TunnelTemplate().default_params(c.rule_ctx).model_copy(update={"bend_angle_deg": bend, "length_mm": 200})
+    cp = CaveTemplate().default_params(c.rule_ctx)
+    traps = {}
+    for exact in (False, True):
+        items = [build_item(0, TunnelTemplate(), tp, PlacementHint(zone=zone), rules.printing),
+                 build_item(1, CaveTemplate(), cp, PlacementHint(zone=zone), rules.printing)]
+        assert place_all(items, c.cage, c.size_rules.gap_trap, exact_gaps=exact) == []
+        traps[exact] = by_code(checks.check_gaps(items, c.cage, c.size_rules), "gap_trap")
+    assert traps[False] and not traps[True]
+
+
 def test_too_few_entrances_aquarium_wording(rules):
     nano = rules.size_rules(SPECIES, "nano_fish")
     c = actx(rules)
@@ -373,6 +604,15 @@ def test_tip_over_threshold(rules):
     tall = box_item(1, 100, 60, 91, x=300, y=100)
     assert codes(checks.check_tip_over([ok, tall], nano)) == ["tip_over_risk"]
     assert checks.check_tip_over([tall], rules.size_rules("hamster", "syrian")) == []
+
+
+@pytest.mark.parametrize("base,h", [(60.2, 90.4), (60, 90.4), (60.4, 90.7)])
+def test_tip_over_numbers_shown_exceed_the_ratio(rules, base, h):
+    """반올림하면 90.4/60.2 가 '높이 90mm … 60mm 의 1.5배를 넘어'(= 정확히 1.5배)로 보인다: 높이는 올리고 바닥은 내린다."""
+    nano = rules.size_rules(SPECIES, "nano_fish")
+    [i] = checks.check_tip_over([box_item(0, 100, base, h, x=100, y=100)], nano)
+    m = re.search(r"높이 (\d+)mm 가 바닥 짧은 변 (\d+)mm 의 1\.5배", i.message_ko)
+    assert m and int(m.group(1)) / int(m.group(2)) > 1.5
 
 
 def test_underwater_weight(rules):
@@ -448,6 +688,10 @@ def test_new_messages_translate_to_english(rules):
         "물속 동굴 #1: 출입구 앞 20mm 공간이 수조 벽에 막혀 있습니다.",
         "test #1 와(과) 왼쪽 수조 벽 사이 틈 10.0mm 가 끼임 위험 구간(2~20mm)에 있습니다.",
         "수조 부피가 약 65L(물 깊이에 바닥재 50mm·윗여유 30mm를 더해 어림)로 50마리 기준 권장 최소 75L 보다 작습니다.",
+        "수조 부피가 약 64L(안쪽 치수에 유리 두께 6mm, 물 깊이에 바닥재 50mm·윗여유 30mm를 더한 겉 크기로 어림)로 "
+        "50마리 기준 권장 최소 75L 보다 작습니다.",
+        "수조 겉 크기가 약 462×312mm(안쪽 450×300mm에 유리 두께 6mm를 더해 어림)로 나노 어종 (네온·엠버 테트라 등, "
+        "꼬리지느러미 뺀 몸길이 2~3cm) 최소 기준 600×300mm 보다 작습니다. 더 큰 수조를 권장합니다.",
         "물속 동굴 #1: 높이 200mm 가 바닥 짧은 변 60mm 의 1.5배를 넘어 물속에서 넘어지기 쉽습니다. 바닥을 넓히거나 높이를 낮춰 주세요.",
     ]
     for s in samples:
@@ -455,3 +699,47 @@ def test_new_messages_translate_to_english(rules):
         assert not HANGUL.search(out), (s, out)
     assert "the tank wall" in c.translate("물속 동굴 #1: 출입구 앞 20mm 공간이 수조 벽에 막혀 있습니다.")
     assert c.translate(samples[6]).endswith("for 50 animals.")
+    assert c.translate(samples[7]) == (
+        "The tank holds about 64 L (estimated at outer size: the inner width and depth plus 6 mm glass, and the water "
+        "depth plus 50 mm of substrate and 30 mm of headroom), less than the recommended minimum of 75 L for 50 animals.")
+    assert c.translate(samples[8]) == (
+        "The tank's outer size is about 462×312 mm (estimated from the inner 450×300 mm plus 6 mm glass), smaller than "
+        "the minimum of 600×300 mm for Nano fish (neon and ember tetras, etc.; adult body length 2–3 cm, not counting "
+        "the tail fin). A larger tank is recommended.")
+
+
+def test_shallow_tank_messages_translate_to_english(rules):
+    """얕은 수조 보정·오류와 수조 부피 문구가 실제 엔진 결과 그대로 영어로 바뀐다."""
+    from app.i18n import catalog
+
+    c = catalog()
+    msgs, seen = [], set()
+    for size, cage, spec in [
+        ("small_fish", Cage(450, 300, 160), "cave"),
+        ("small_fish", Cage(900, 450, 150), {"width_mm": 250, "depth_mm": 220, "height_mm": 150,
+                                             "entrance_diameter_mm": 60, "top_opening_mm": 50, "wall_thickness_mm": 3}),
+        ("small_fish", Cage(600, 300, 120), "cave"),
+        ("community", Cage(600, 300, 100), "tunnel"),
+        ("small_fish", Cage(300, 300, 220), {"tunnel": 120}),
+    ]:
+        ctx = actx(rules, size=size, cage=cage, count=6)
+        if spec == "cave" or spec == "tunnel":
+            item = ItemSpec(spec, defaults(spec, ctx))
+        elif "tunnel" in spec:
+            item = ItemSpec("tunnel", {**defaults("tunnel", ctx), "inner_diameter_mm": spec["tunnel"]})
+        else:
+            item = ItemSpec("cave", spec)
+        res = run_engine([item], ctx)
+        msgs += [i.message_ko for i in res.report.issues]
+        seen |= {i.code for i in res.report.issues}
+    # 위 다섯 설계로 새 문구가 모두 나온다
+    assert {"param_adjusted", "water_too_shallow", "tank_volume_below_recommended", "tank_volume_species_note"} <= seen
+    assert any("함께 조정했습니다" in m for m in msgs)
+    for m in msgs:
+        out = c.translate(m)
+        assert not HANGUL.search(out), (m, out)
+    out = c.translate("물속 동굴 #1: 물 깊이 120mm 로는 만들 수 없습니다. 생물이 구조물 위로 지나가고 수면 가까이에서 숨 쉴 수 "
+                      "있도록 위에 75mm 를 남기면, 가장 낮게 만들어도 높이가 68.3mm 라 물 깊이가 143.3mm 이상이어야 합니다.")
+    assert out.endswith("so the water must be at least 143.3 mm deep.")
+    assert c.translate("수조 부피가 약 25L(물 깊이에 바닥재 50mm·윗여유 30mm를 더해 어림)로 나노 어종 (네온·엠버 테트라, "
+                       "보라라스 등 성체 3cm 이하) 최소 기준 54L 보다 작습니다.").startswith("The tank holds about 25 L")
