@@ -160,5 +160,6 @@
  "단면 모양. pointed_arch=끝이 뾰족한 아치(기본, 서포트 없이 출력), round_arch=둥근 아치, tube=둥근 관(바닥까지 막힘), box=네모, house=집 모양(경사 지붕, 서포트 없이 출력). 둥근 아치·관·네모는 곧은 터널이면 세워서 서포트 없이 출력하지만 휘면 서포트가 필요하다": "Cross-section shape. pointed_arch = arch with a pointed top (default, prints without supports), round_arch = round arch, tube = round tube (closed at the bottom), box = square, house = house shape (sloped roof, prints without supports). Straight round-arch, tube and box tunnels print standing up without supports, but curved ones need supports",
  "휘는 모양 (bend_angle_deg > 0 일 때). arc=한 방향으로 휨, s_curve=S자 (반씩 반대로 휨)": "Bend style (when bend_angle_deg > 0). arc = bends one way, s_curve = S-shape (half bends each way)",
  "S자 터널은 한 번에 90° 까지만 휠 수 있어 휘는 각도를 줄였습니다": "S-shaped tunnels can bend at most 90° each way, so the bend angle was reduced",
- "{0}: 휜 터널을 이 단면으로 만들면 지붕 안쪽에 서포트가 필요해요 (오버행 {1}mm²). 서포트 없이 출력하려면 끝이 뾰족한 아치나 집 모양 단면을 고르세요.": "{0}: a curved tunnel with this cross-section needs supports under the roof (overhang {1} mm²). To print without supports, choose the pointed-arch or house shape."
+ "{0}: 휜 터널을 이 단면으로 만들면 지붕 안쪽에 서포트가 필요해요 (오버행 {1}mm²). 서포트 없이 출력하려면 끝이 뾰족한 아치나 집 모양 단면을 고르세요.": "{0}: a curved tunnel with this cross-section needs supports under the roof (overhang {1} mm²). To print without supports, choose the pointed-arch or house shape.",
+ "{0} 터널은 최대 {1}mm 라 이 내경으로는 S자를 한 번에 {2}° 까지만 휠 수 있습니다": "Tunnels for {0} hamsters can be at most {1} mm long, so with this inner diameter an S-curve can bend only up to {2}° each way"
 }

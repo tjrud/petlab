@@ -83,7 +83,10 @@ RAMP_EN = re.compile(r"\b(?:ramps?|slopes?|sloped|inclines?)\b")
 U_BEND_EN = re.compile(r"\b(?:u[ -]?(?:shaped?|turns?|bend)|uturns?)\b")
 CURVE_EN = re.compile(r"\b(?:curved?|curving|curvy|bent|bends?|bendy|l[ -]?shaped?|elbow|angled)\b")
 STRAIGHT_EN = re.compile(r"\bstraight\b")
-S_CURVE_EN = re.compile(r"\b(?:s[ -]?(?:shaped?|curves?|bends?)|zig-?zag|wavy|snaking)\b")
+# "tunnel's bend" 처럼 소유격 's 뒤의 단어는 S자가 아니다
+# "house-shaped tunnel" 의 house 는 은신처가 아니라 터널 단면 모양
+HOUSE_SHAPE_EN = re.compile(r"\bhouse[ -]?shaped?\b")
+S_CURVE_EN = re.compile(r"(?<!['’])\b(?:s[ -]?(?:shaped?|curves?|bends?)|zig-?zag|wavy|snaking)\b")
 # 터널 단면 모양 (먼저 맞는 것)
 TUNNEL_SHAPES_KO = (
     ("tube", ("원통", "튜브", "파이프", "둥근 관", "원형")),
@@ -120,6 +123,8 @@ def _find_templates(text: str) -> list[str]:
     if "터널" in text:
         text = text.replace("집 모양", "＿ 모양").replace("집모양", "＿모양")
     low = _en(text)
+    if TEMPLATE_KEYWORDS_EN["tunnel"].search(low):
+        low = HOUSE_SHAPE_EN.sub(lambda mm: "_" * len(mm.group(0)), low)
     for key, words in TEMPLATE_KEYWORDS.items():
         positions = [text.find(w) for w in words if w in text]
         m = TEMPLATE_KEYWORDS_EN[key].search(low)
@@ -171,16 +176,19 @@ def _apply_numbers(key: str, text: str, params: dict) -> dict:
                 if rx.search(low):
                     out["shape"] = shape
                     break
-    if key == "tunnel" and (any(w in text for w in ("S자", "에스자", "지그재그")) or S_CURVE_EN.search(low)):
+    if key == "tunnel" and (any(w in text for w in ("S자", "s자", "에스자", "지그재그")) or S_CURVE_EN.search(low)):
         out["path"] = "s_curve"
         out["bend_angle_deg"] = 60
     elif key == "tunnel":
         if any(w in text for w in ("U자", "유턴")) or U_BEND_EN.search(low):
             out["bend_angle_deg"] = 180
+            out["path"] = "arc"
         elif any(w in text for w in ("곡선", "구부러", "휘어", "ㄱ자", "꺾")) or CURVE_EN.search(low):
             out["bend_angle_deg"] = 90
+            out["path"] = "arc"
         elif "직선" in text or STRAIGHT_EN.search(low):
             out["bend_angle_deg"] = 0
+            out["path"] = "arc"
     if key == "ramp":
         if "계단" in text:
             m = re.search(r"(\d+)\s*단", text)

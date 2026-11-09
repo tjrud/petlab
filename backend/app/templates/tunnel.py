@@ -209,25 +209,29 @@ class TunnelTemplate(Template):
                           f"{max_len:g}mm 까지만 요구합니다")
         else:
             min_reason = "터널 길이는 내경의 1.5배 이상이어야 합니다"
-        # S자는 반씩 휘므로 한 번 휘는 구간 길이가 절반이다 (굽힘 반경 ≥ 내경)
-        seg = 0.5 if p.path == "s_curve" else 1.0
-        bend_max = math.degrees(seg * p.length_mm / d)
+        # S자는 반씩 휘므로 한 번 휘는 구간 길이가 절반이다 (굽힘 반경 ≥ 내경). 한 번에 90° 까지
+        s_curve = p.path == "s_curve"
+        seg = 0.5 if s_curve else 1.0
+        cap = S_CURVE_MAX_DEG if s_curve else 180.0
+        bend_max = min(cap, math.degrees(seg * p.length_mm / d))
         bend_at_max = math.degrees(seg * max_len / d)  # 최대 길이까지 늘렸을 때의 휨 한계
-        if p.bend_angle_deg > bend_at_max + 1e-6:
+        if p.bend_angle_deg > min(cap, bend_at_max) + 1e-6 and bend_at_max < cap:
             # 최대 길이로 늘려도 닿지 않는 각도: 까닭(최대 길이)을 밝힌다
-            # 영어 카탈로그가 문장 단위로 찾을 수 있게 두 문장을 따로 둔다 (한국어 결과는 같다)
-            limit = min(180.0, bend_at_max)
-            if p.length_mm >= max_len - 1e-6:
+            # 영어 카탈로그가 문장 단위로 찾을 수 있게 문장을 따로 둔다 (한국어 결과는 같다)
+            limit = bend_at_max
+            if s_curve:
+                bend_reason = (f"{s.display_name} 터널은 최대 {max_len:g}mm 라 이 내경으로는 S자를 한 번에 "
+                               f"{limit:.0f}° 까지만 휠 수 있습니다")
+            elif p.length_mm >= max_len - 1e-6:
                 bend_reason = (f"{s.display_name} 터널은 최대 {max_len:g}mm 라 이 내경으로는 {limit:.0f}° "
                                "까지만 휠 수 있습니다 (U자는 만들 수 없어 끝 출입구 방향이 바뀔 수 있습니다)")
             else:
                 bend_reason = (f"지금 길이로는 {bend_max:.0f}°, {s.display_name} 터널은 최대 {max_len:g}mm 라 이 내경으로는 "
                                f"{limit:.0f}° 까지만 휠 수 있습니다 (U자는 만들 수 없어 끝 출입구 방향이 바뀔 수 있습니다)")
+        elif s_curve and p.bend_angle_deg > cap + 1e-6:
+            bend_reason = "S자 터널은 한 번에 90° 까지만 휠 수 있어 휘는 각도를 줄였습니다"
         else:
             bend_reason = "굽힘이 너무 급하면 몸이 돌아 나가기 어려워 휘는 각도를 줄였습니다"
-        if p.path == "s_curve" and bend_max > S_CURVE_MAX_DEG:
-            bend_max = S_CURVE_MAX_DEG
-            bend_reason = "S자 터널은 한 번에 90° 까지만 휠 수 있어 휘는 각도를 줄였습니다"
         return [
             ctx.wall_thickness_constraint(),
             ParamConstraint(

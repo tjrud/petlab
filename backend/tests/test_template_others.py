@@ -364,3 +364,24 @@ def test_old_tunnel_params_keep_the_same_shape():
     """shape·path 가 없던 저장 설계는 예전 모양(뾰족 아치, 한 방향 곡선) 그대로 만든다."""
     p = TUNNEL.load_stored_params({"length_mm": 200, "inner_diameter_mm": 60, "bend_angle_deg": 90, "wall_thickness_mm": 3})
     assert p.shape == "pointed_arch" and p.path == "arc"
+
+
+def test_s_curve_limit_reason_from_max_length(rules):
+    c = RuleContext(rules.size_rules("hamster", "dwarf"), rules.min_wall_for("hamster", "dwarf"))
+    p = TunnelParams(length_mm=100, inner_diameter_mm=55, bend_angle_deg=90, path="s_curve")
+    bend = [k for k in TUNNEL.constraints(p, c) if k.field == "bend_angle_deg"][0]
+    assert bend.max == pytest.approx(math.degrees(50 / 55))
+    assert "S자를 한 번에" in bend.reason_ko and "U자" not in bend.reason_ko
+
+
+def test_mock_tunnel_edits_reset_s_curve_and_ignore_possessives():
+    from app.llm.mock import _apply_numbers, _find_templates
+
+    s = {"bend_angle_deg": 60, "path": "s_curve"}
+    assert _apply_numbers("tunnel", "터널을 U자로 바꿔 주세요", s) == {"bend_angle_deg": 180, "path": "arc"}
+    assert _apply_numbers("tunnel", "ㄱ자로 꺾어 주세요", s)["path"] == "arc"
+    arc = {"bend_angle_deg": 90, "path": "arc"}
+    assert _apply_numbers("tunnel", "make the tunnel's bend gentler", arc)["path"] == "arc"
+    assert _apply_numbers("tunnel", "an S-shaped tunnel", arc)["path"] == "s_curve"
+    assert _find_templates("a house-shaped tunnel") == ["tunnel"]
+    assert _find_templates("a house and a tunnel") == ["hideout", "tunnel"]
