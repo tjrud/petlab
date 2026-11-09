@@ -2,6 +2,7 @@
 // 파라미터 이름은 한국어 원문으로 두고, 보여 줄 때 t(PARAM_LABELS[k]) 로 번역한다
 
 import type { TFunction } from "@/i18n/translate";
+import type { Decor } from "@/lib/types";
 
 export const TEMPLATE_COLORS: Record<string, string> = {
   hideout: "#d9a066",
@@ -126,4 +127,27 @@ export function formatParam(key: string, value: ParamValue, t: TFunction): strin
   if (key === "floors.count") return t("{n}층", { n: v });
   if (key.endsWith("_count") || key.endsWith(".count")) return t("{n}개", { n: v });
   return v;
+}
+
+const PATTERN_LABELS: Record<string, string> = {
+  stripes: "줄무늬",
+  dots: "점무늬",
+  scales: "비늘무늬",
+  brick: "벽돌무늬",
+  wave: "물결무늬",
+  honeycomb: "벌집무늬",
+};
+const DECOR_FACE_LABELS: Record<string, string> = { ...SIDE_LABELS, walls: "바깥 벽", roof: "지붕" };
+
+/** 장식 요약 한 줄: "줄무늬 (파내기, 바깥 벽)" / "각인 '뽀송이' (왼쪽)" */
+export function describeDecor(decor: Decor, t: TFunction): string {
+  const face = t(DECOR_FACE_LABELS[decor.face] ?? decor.face);
+  if (decor.kind === "text") return t("각인 '{text}' ({face}, 글자 {h}mm)", { text: decor.text, face, h: decor.height_mm });
+  const mode = t(decor.mode === "relief" ? "돋을새김" : "파내기");
+  return t("{pattern} ({mode}, {face}, 깊이 {d}mm)", {
+    pattern: t(PATTERN_LABELS[decor.pattern] ?? decor.pattern),
+    mode,
+    face,
+    d: decor.depth_mm,
+  });
 }

@@ -1,5 +1,5 @@
 import { useT } from "@/i18n/client";
-import { flattenParams, formatParam, PARAM_LABELS, TEMPLATE_COLORS } from "@/lib/templates";
+import { describeDecor, flattenParams, formatParam, PARAM_LABELS, TEMPLATE_COLORS } from "@/lib/templates";
 import type { Item } from "@/lib/types";
 
 export default function ItemList({
@@ -46,6 +46,11 @@ export default function ItemList({
                 {active && (
                   <div className="mt-2 space-y-2 text-sm">
                     <p className="text-stone-600">{it.reason_ko}</p>
+                    {it.decor && (
+                      <p className="rounded-lg bg-amber-50 px-2 py-1 text-xs text-amber-900" data-testid="decor-summary">
+                        {t("장식")}: {describeDecor(it.decor, t)}
+                      </p>
+                    )}
                     <dl className="grid grid-cols-2 gap-x-3 gap-y-1">
                       {flattenParams(it.params).map(([k, v]) => (
                         <div key={k} className="flex justify-between gap-2">
