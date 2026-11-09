@@ -2,6 +2,8 @@
 
 모든 기준값은 rules/species.yaml, rules/printing.yaml 에서 온다 (코드 하드코딩 금지).
 각 검사 함수는 Issue 목록을 반환한다.
+케이지 적합·겹침·끼임·출입구 막힘·개구부·오르기는 조립 형상(BuiltItem.mesh)으로, 메시 건전성·벽 두께 실측·오버행·
+출력 공간은 출력 파트(BuiltItem.print_parts) 단위로 본다 (여러 파트로 나뉘는 조립형 구조물).
 """
 
 from __future__ import annotations
@@ -36,20 +38,22 @@ def _warn(code: str, msg: str, **kw) -> Issue:
 def check_mesh(items: list[BuiltItem]) -> list[Issue]:
     out = []
     for it in items:
-        h = mesh_health(it.mesh)
-        if not h.ok:
-            reasons = []
-            if not h.watertight:
-                reasons.append("닫힌 형태(watertight)가 아님")
-            if not h.winding_consistent:
-                reasons.append("면 방향 불일치")
-            if h.watertight and h.volume_mm3 <= 0:
-                reasons.append("부피가 0 이하")
-            out.append(_err(
-                "mesh_invalid",
-                f"{it.label_ko}: 메시에 결함이 있어 출력 파일로 쓸 수 없습니다 ({', '.join(reasons)}).",
-                item_index=it.index, details={"watertight": h.watertight, "winding": h.winding_consistent},
-            ))
+        for part in it.print_parts:
+            h = mesh_health(part.mesh)
+            if not h.ok:
+                reasons = []
+                if not h.watertight:
+                    reasons.append("닫힌 형태(watertight)가 아님")
+                if not h.winding_consistent:
+                    reasons.append("면 방향 불일치")
+                if h.watertight and h.volume_mm3 <= 0:
+                    reasons.append("부피가 0 이하")
+                out.append(_err(
+                    "mesh_invalid",
+                    f"{it.part_label_ko(part)}: 메시에 결함이 있어 출력 파일로 쓸 수 없습니다 ({', '.join(reasons)}).",
+                    item_index=it.index, details={"watertight": h.watertight, "winding": h.winding_consistent,
+                                                  "part": part.key},
+                ))
     return out
 
 
@@ -242,15 +246,19 @@ def check_wall_thickness(items: list[BuiltItem], min_wall_mm: float, measure: bo
                 item_index=it.index, details={"designed_mm": designed, "min_mm": min_wall_mm},
             ))
             continue
-        if measure and it.mesh.is_watertight:
-            t = measure_thickness(it.mesh)
+        if not measure:
+            continue
+        for part in it.print_parts:
+            if not part.mesh.is_watertight:
+                continue
+            t = measure_thickness(part.mesh)
             if len(t):
                 p1 = float(np.percentile(t, 1))
                 if p1 < 0.9 * min_wall_mm:
                     out.append(_warn(
                         "wall_thin_measured",
-                        f"{it.label_ko}: 메시 측정 결과 일부 두께가 약 {p1:.1f}mm 로 기준 {min_wall_mm:g}mm 보다 얇습니다.",
-                        item_index=it.index, details={"measured_p1_mm": p1, "min_mm": min_wall_mm},
+                        f"{it.part_label_ko(part)}: 메시 측정 결과 일부 두께가 약 {p1:.1f}mm 로 기준 {min_wall_mm:g}mm 보다 얇습니다.",
+                        item_index=it.index, details={"measured_p1_mm": p1, "min_mm": min_wall_mm, "part": part.key},
                     ))
     return out
 
@@ -267,14 +275,17 @@ def overhang_area(mesh: trimesh.Trimesh, max_overhang_deg: float) -> float:
 def check_overhang(items: list[BuiltItem], printing: PrintingRules) -> list[Issue]:
     out = []
     for it in items:
-        area = overhang_area(it.print_mesh, printing.max_overhang_deg)
-        if area > printing.overhang_area_tolerance_mm2:
-            # 휜 터널의 둥근·네모 단면처럼 세워서 출력할 수 없어 서포트가 필요한 경우는 고를 수 있는 대안을 알려 준다
-            msg = (f"{it.label_ko}: 휜 터널을 이 단면으로 만들면 지붕 안쪽에 서포트가 필요해요 (오버행 {area:.0f}mm²). "
-                   "서포트 없이 출력하려면 끝이 뾰족한 아치나 집 모양 단면을 고르세요."
-                   if it.features.extra.get("bent_needs_support") else
-                   f"{it.label_ko}: {printing.max_overhang_deg:g}° 를 넘는 오버행 {area:.0f}mm² 가 있어 서포트 없이 출력하기 어렵습니다.")
-            out.append(_warn("support_needed", msg, item_index=it.index, details={"overhang_area_mm2": area}))
+        for part in it.print_parts:
+            area = overhang_area(part.print_mesh, printing.max_overhang_deg)
+            if area > printing.overhang_area_tolerance_mm2:
+                label = it.part_label_ko(part)
+                # 휜 터널의 둥근·네모 단면처럼 세워서 출력할 수 없어 서포트가 필요한 경우는 고를 수 있는 대안을 알려 준다
+                msg = (f"{label}: 휜 터널을 이 단면으로 만들면 지붕 안쪽에 서포트가 필요해요 (오버행 {area:.0f}mm²). "
+                       "서포트 없이 출력하려면 끝이 뾰족한 아치나 집 모양 단면을 고르세요."
+                       if it.features.extra.get("bent_needs_support") else
+                       f"{label}: {printing.max_overhang_deg:g}° 를 넘는 오버행 {area:.0f}mm² 가 있어 서포트 없이 출력하기 어렵습니다.")
+                out.append(_warn("support_needed", msg, item_index=it.index,
+                                 details={"overhang_area_mm2": area, "part": part.key}))
     return out
 
 
@@ -282,16 +293,17 @@ def check_build_volume(items: list[BuiltItem], printing: PrintingRules) -> list[
     out = []
     bx, by, bz = printing.build_volume_mm
     for it in items:
-        ex = it.print_mesh.extents
-        # 판 위에서 90° 돌려 놓을 수 있으므로 짧은 변·긴 변끼리 비교
-        fits_xy = min(ex[:2]) <= min(bx, by) + 1e-6 and max(ex[:2]) <= max(bx, by) + 1e-6
-        if not fits_xy or ex[2] > bz + 1e-6:
-            out.append(_warn(
-                "exceeds_build_volume",
-                f"{it.label_ko}: 출력 크기 {ex[0]:.0f}×{ex[1]:.0f}×{ex[2]:.0f}mm 가 기준 프린터 출력 공간 "
-                f"{bx:g}×{by:g}×{bz:g}mm 를 넘습니다.",
-                item_index=it.index, details={"extents_mm": [float(e) for e in ex]},
-            ))
+        for part in it.print_parts:
+            ex = part.print_mesh.extents
+            # 판 위에서 90° 돌려 놓을 수 있으므로 짧은 변·긴 변끼리 비교
+            fits_xy = min(ex[:2]) <= min(bx, by) + 1e-6 and max(ex[:2]) <= max(bx, by) + 1e-6
+            if not fits_xy or ex[2] > bz + 1e-6:
+                out.append(_warn(
+                    "exceeds_build_volume",
+                    f"{it.part_label_ko(part)}: 출력 크기 {ex[0]:.0f}×{ex[1]:.0f}×{ex[2]:.0f}mm 가 기준 프린터 출력 공간 "
+                    f"{bx:g}×{by:g}×{bz:g}mm 를 넘습니다.",
+                    item_index=it.index, details={"extents_mm": [float(e) for e in ex], "part": part.key},
+                ))
     return out
 
 

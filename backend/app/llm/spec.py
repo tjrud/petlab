@@ -17,9 +17,19 @@ from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from app.domain import PlacementHint, Rotation, Zone
 from app.services.engine import ItemSpec
+from app.templates.base import Side
 from app.templates.registry import all_templates
 
 MAX_ITEMS = 8
+
+
+class AttachTo(BaseModel):
+    """다른 항목의 한 면에 맞대어 놓는 힌트 (2층 집의 바깥 램프: 램프 꼭대기가 착지판에 닿게)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    item_index: int = Field(ge=0, lt=MAX_ITEMS, description="붙일 대상 항목의 items 배열 인덱스 (0부터)")
+    side: Side = Field(description="대상 항목의 어느 면에 붙일지 (집의 floors.exit_side 와 같게)")
 
 
 class LLMPlacement(BaseModel):
@@ -37,9 +47,15 @@ class LLMPlacement(BaseModel):
     rotation: Rotation | None = Field(
         description="회전(도). 출입구 방향을 특별히 요청한 경우만 지정하고, 보통은 null (배치기가 자동 결정)"
     )
+    attach_to: AttachTo | None = Field(
+        default=None,
+        description="다른 항목에 맞대어 놓기. 2층 집(house, floors.climb=external_ramp)의 바깥 램프(ramp)에만 "
+                    "{item_index: 집 항목 인덱스, side: 집의 floors.exit_side} 로 지정하고, 그 밖에는 null",
+    )
 
     def to_hint(self) -> PlacementHint:
-        return PlacementHint(zone=self.zone, group=self.group, rotation=self.rotation)
+        attach = (self.attach_to.item_index, self.attach_to.side) if self.attach_to is not None else None
+        return PlacementHint(zone=self.zone, group=self.group, rotation=self.rotation, attach_to=attach)
 
 
 def _item_model(template) -> type[BaseModel]:

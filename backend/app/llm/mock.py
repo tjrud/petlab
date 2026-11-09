@@ -22,8 +22,18 @@ TEMPLATE_KEYWORDS: dict[str, tuple[str, ...]] = {
     "tunnel": ("터널", "굴", "통로"),
     "ramp": ("계단", "램프", "경사로", "오르막"),
     "sand_bath": ("모래목욕", "모래 목욕", "모래통", "목욕통", "모래"),
+    # 조립형 집: 2층·지붕 모양·창·터널 연결 요청. "집" 만 말하면 은신처다
+    "house": ("2층", "이층", "복층", "경사 지붕", "뾰족 지붕", "둥근 지붕", "아치 지붕", "지붕 집", "창문", "터널 연결",
+              "터널이 붙는", "터널을 붙"),
 }
-TEMPLATE_NAMES_KO = {"hideout": "은신처", "tunnel": "터널", "ramp": "램프/계단", "sand_bath": "모래목욕통"}
+TEMPLATE_NAMES_KO = {"hideout": "은신처", "tunnel": "터널", "ramp": "램프/계단", "sand_bath": "모래목욕통", "house": "집"}
+# 집 부품 키워드
+HOUSE_TWO_FLOORS = ("2층", "이층", "복층")
+HOUSE_EXTERNAL = ("바깥 램프", "외부 램프", "바깥 경사로", "외부 경사로", "밖에 램프", "밖에 경사로")
+HOUSE_PITCHED = ("경사 지붕", "뾰족 지붕", "박공")
+HOUSE_ROUNDED = ("둥근 지붕", "아치 지붕")
+HOUSE_PORT = ("터널 연결", "터널이 붙는", "터널을 붙")
+HOUSE_FLOOR = ("바닥판",)
 
 ZONE_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
     ("front_left", ("왼쪽 앞", "앞쪽 왼", "좌측 앞")),
@@ -50,8 +60,18 @@ TEMPLATE_KEYWORDS_EN: dict[str, re.Pattern[str]] = {
     "tunnel": re.compile(r"\b(?:tunnels?|tubes?|burrows?|passages?)\b"),
     "ramp": re.compile(r"\b(?:ramps?|stairs?|stair ?cases?|steps?|slopes?|ladders?)\b"),
     "sand_bath": re.compile(r"\b(?:sand ?baths?|sand ?box(?:es)?|dust ?baths?|bath ?tubs?|baths?|sand)\b"),
+    "house": re.compile(r"\b(?:two[ -]?stor(?:y|ey|ies)|2[ -]?stor(?:y|ey)|second floor|upper floor|lofts?|"
+                        r"pitched roofs?|gabled? roofs?|peaked roofs?|rounded roofs?|arched roofs?|windows?|"
+                        r"tunnel (?:port|connection|connector))\b"),
 }
-TEMPLATE_NAMES_EN = {"hideout": "Hideout", "tunnel": "Tunnel", "ramp": "Ramp/stairs", "sand_bath": "Sand bath"}
+TEMPLATE_NAMES_EN = {"hideout": "Hideout", "tunnel": "Tunnel", "ramp": "Ramp/stairs", "sand_bath": "Sand bath",
+                     "house": "House"}
+HOUSE_TWO_FLOORS_EN = re.compile(r"\b(?:two[ -]?stor(?:y|ey|ies)|2[ -]?stor(?:y|ey)|second floor|upper floor|lofts?)\b")
+HOUSE_EXTERNAL_EN = re.compile(r"\b(?:outside|external|outer|exterior) (?:ramp|stairs?|slope)\b")
+HOUSE_PITCHED_EN = re.compile(r"\b(?:pitched|gabled?|peaked) roofs?\b")
+HOUSE_ROUNDED_EN = re.compile(r"\b(?:rounded|arched|round) roofs?\b")
+HOUSE_PORT_EN = re.compile(r"\btunnel (?:port|connection|connector)\b")
+HOUSE_FLOOR_EN = re.compile(r"\bfloor plate\b")
 
 # ZONE_KEYWORDS 와 같은 순서 (구체적인 모서리 → 한쪽 → 방향 없는 구석)
 ZONE_KEYWORDS_EN: list[tuple[str, re.Pattern[str]]] = [(_zone, re.compile(_rx)) for _zone, _rx in [
@@ -77,6 +97,7 @@ ADD_EN = re.compile(r"\b(?:add|another|one more|an extra|extra)\b")
 _NUMBER_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
                  "ten": 10, "eleven": 11, "twelve": 12}
 _NUM_EN = r"(\d+|" + "|".join(_NUMBER_WORDS) + r")"
+WINDOWS_EN = re.compile(_NUM_EN + r"\s*windows?\b")
 STEPS_EN = re.compile(r"\b(?:stairs?|stair ?cases?|steps?)\b")
 STEP_COUNT_EN = re.compile(_NUM_EN + r"[\s-]*(?:steps?|stairs?)\b")
 RAMP_EN = re.compile(r"\b(?:ramps?|slopes?|sloped|inclines?)\b")
@@ -113,6 +134,31 @@ def _num(word: str) -> int:
     return int(word) if word.isdigit() else _NUMBER_WORDS[word]
 
 
+def _apply_house(text: str, low: str, out: dict) -> dict:
+    """집 부품: 층·오르는 수단·지붕·창·연결부·바닥판 (중첩 파라미터는 사본을 고친다)."""
+    out = {k: (dict(v) if isinstance(v, dict) else v) for k, v in out.items()}
+    if any(w in text for w in HOUSE_TWO_FLOORS) or HOUSE_TWO_FLOORS_EN.search(low):
+        out["floors"]["count"] = 2
+        if any(w in text for w in HOUSE_EXTERNAL) or HOUSE_EXTERNAL_EN.search(low):
+            out["floors"]["climb"] = "external_ramp"
+            out["floors"]["exit_side"] = "back"
+            out["doors"]["sides"] = ["front"]
+    if any(w in text for w in HOUSE_PITCHED) or HOUSE_PITCHED_EN.search(low):
+        out["roof"]["kind"] = "pitched"
+    elif any(w in text for w in HOUSE_ROUNDED) or HOUSE_ROUNDED_EN.search(low):
+        out["roof"]["kind"] = "rounded"
+    if any(w in text for w in HOUSE_PORT) or HOUSE_PORT_EN.search(low):
+        out["ports"]["sides"] = ["left"]
+    if any(w in text for w in HOUSE_FLOOR) or HOUSE_FLOOR_EN.search(low):
+        out["floor"]["enabled"] = True
+    m = re.search(r"창(?:문)?[^\d]{0,8}?(\d+)\s*개", text) or WINDOWS_EN.search(low)
+    if m:
+        out["windows"]["count"] = min(4, _num(m.group(1)))
+    elif "창문" in text or re.search(r"\bwindows?\b", low):
+        out["windows"]["count"] = max(out["windows"].get("count", 0), 2)
+    return out
+
+
 def _en(text: str) -> str:
     return text.lower()
 
@@ -132,7 +178,11 @@ def _find_templates(text: str) -> list[str]:
             positions.append(m.start())
         if positions:
             found.append((min(positions), key))
-    return [k for _, k in sorted(found)]
+    keys = [k for _, k in sorted(found)]
+    if "house" in keys:
+        # "2층 집" 의 "집"·"house with windows" 의 "house" 는 은신처가 아니라 조립형 집이다
+        keys = [k for k in keys if k != "hideout"]
+    return keys
 
 
 def _find_zone(text: str) -> str | None:
@@ -198,6 +248,8 @@ def _apply_numbers(key: str, text: str, params: dict) -> dict:
             out["steps"] = _num(m.group(1)) if m else max(out.get("steps", 0), 3)
         elif any(w in text for w in ("경사로", "램프", "슬로프")) or RAMP_EN.search(low):
             out["steps"] = 0
+    if key == "house":
+        out = _apply_house(text, low, out)
     if key == "hideout":
         m = re.search(r"환기구[^\d]{0,8}?(\d+)\s*개", text)
         if m:
@@ -238,6 +290,8 @@ class MockInterpreter:
             notes.append(f"Left out because they aren't supported yet: {names}" if en
                          else f"아직 지원하지 않는 구조물이라 제외했습니다: {names}")
         requested = [k for k in requested if k in registry]
+        if "house" in requested and (any(w in text for w in HOUSE_EXTERNAL) or HOUSE_EXTERNAL_EN.search(_en(text))):
+            requested = [k for k in requested if k != "ramp"]  # 바깥 램프는 아래에서 attach_to 로 붙인다
 
         zone = _find_zone(text)
         grouped = _grouped(text)
@@ -280,17 +334,39 @@ class MockInterpreter:
                     "zone": zone or ("left" if grouped else "auto"),
                     "group": "g1" if grouped else None,
                     "rotation": None,
+                    "attach_to": None,
                 },
                 "reason_ko": self._reason_en(req, key) if en else
                              f"요구사항에서 '{TEMPLATE_NAMES_KO[key]}'을(를) 찾아 {req.habitat.species_name_ko} "
                              f"{req.size_rules.display_name} 기준값으로 구성했습니다.",
             })
 
+        # 2층 집에 바깥 램프: 램프 항목을 더하고 attach_to 로 잇는다 (램프 높이 = 2층 바닥 높이)
+        for idx, it in enumerate(items):
+            if it["template"] != "house" or it["params"]["floors"]["count"] != 2:
+                continue
+            if it["params"]["floors"]["climb"] != "external_ramp":
+                continue
+            already = any(x["template"] == "ramp" and (x["placement"].get("attach_to") or {}).get("item_index") == idx
+                          for x in items)
+            if already or len(items) >= MAX_ITEMS:
+                continue
+            ramp = registry["ramp"]
+            rp = ramp.default_params(ctx).model_dump()
+            rp["height_mm"] = it["params"]["floors"]["level_height_mm"]
+            items.append({
+                "template": "ramp", "params": rp,
+                "placement": {"zone": "auto", "group": None, "rotation": None,
+                              "attach_to": {"item_index": idx, "side": it["params"]["floors"]["exit_side"]}},
+                "reason_ko": ("A ramp attached to the house's second-floor landing." if en
+                              else "2층 집의 바깥 착지판에 닿는 램프입니다."),
+            })
+
         if not items:
             t = registry["hideout"]
             items.append({
                 "template": "hideout", "params": t.default_params(ctx).model_dump(),
-                "placement": {"zone": "auto", "group": None, "rotation": None},
+                "placement": {"zone": "auto", "group": None, "rotation": None, "attach_to": None},
                 "reason_ko": "Every structure was removed, so I kept the standard hideout." if en
                              else "구조물이 모두 제외되어 기본 은신처를 남겼습니다.",
             })
