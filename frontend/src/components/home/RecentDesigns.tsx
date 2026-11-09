@@ -4,6 +4,7 @@ import { Link, useT } from "@/i18n/client";
 
 import { LoadError, Skeleton, useLoad } from "@/components/home/Loadable";
 import { api } from "@/lib/api";
+import { kindOf } from "@/lib/habitatKind";
 import type { DesignListItem } from "@/lib/types";
 import { formatDate, ui } from "@/lib/ui";
 
@@ -24,7 +25,14 @@ function DesignRow({ d }: { d: DesignListItem }) {
         </div>
         <p className="mt-1 truncate text-sm text-stone-600">
           {t(d.habitat.species_name_ko)} · {t(d.habitat.size_name_ko)}
-          {d.pet_name && <> · {d.pet_name}</>} · {cage.width_mm}×{cage.depth_mm}×{cage.height_mm}mm
+          {d.pet_name && <> · {d.pet_name}</>} ·{" "}
+          {kindOf(d.habitat) === "aquarium" ? (
+            t("{w}×{d}mm · 물 깊이 {h}mm", { w: cage.width_mm, d: cage.depth_mm, h: cage.height_mm })
+          ) : (
+            <>
+              {cage.width_mm}×{cage.depth_mm}×{cage.height_mm}mm
+            </>
+          )}
         </p>
         <p className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-stone-500">
           <span>{t("{date} 수정", { date: formatDate(d.updated_at) })}</span>

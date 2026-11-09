@@ -9,10 +9,12 @@ import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 import { useT } from "@/i18n/client";
 import { api } from "@/lib/api";
 import { TEMPLATE_COLORS } from "@/lib/templates";
-import type { Cage, Item } from "@/lib/types";
+import type { Cage, HabitatKind, Item } from "@/lib/types";
 
 type Props = {
   cage: Cage;
+  /** 사육 환경 종류 (어항이면 높이가 물 깊이). 없으면 케이지 */
+  kind?: HabitatKind;
   items: Item[];
   selected: number | null;
   errorItems: Set<number>;
@@ -88,7 +90,7 @@ class MeshErrorBoundary extends Component<{ onError: () => void; children: React
   }
 }
 
-function CageBox({ cage }: { cage: Cage }) {
+function CageBox({ cage, kind }: { cage: Cage; kind: HabitatKind }) {
   const { width_mm: W, depth_mm: D, height_mm: H } = cage;
   const strip = Math.max(4, Math.min(W, D) * 0.012);
   return (
@@ -103,17 +105,34 @@ function CageBox({ cage }: { cage: Cage }) {
         <planeGeometry args={[W, strip]} />
         <meshBasicMaterial color="#f59e0b" />
       </mesh>
-      {/* 케이지 외곽 (반투명 + 모서리선) */}
-      <mesh position={[W / 2, D / 2, H / 2]}>
-        <boxGeometry args={[W, D, H]} />
-        <meshBasicMaterial color="#9bb7d4" transparent opacity={0.06} depthWrite={false} side={THREE.BackSide} />
-        <Edges color="#6b8fb5" />
-      </mesh>
+      {kind === "aquarium" ? (
+        <>
+          {/* 물 (바닥재 위~수면, 반투명 + 모서리선). 높이가 물 깊이다.
+              밑면을 바닥 그림과 같은 높이에 두면 두 면이 번갈아 비쳐(z-fighting) 얼룩이 지므로 1mm 띄운다 */}
+          <mesh position={[W / 2, D / 2, (H + 1) / 2]}>
+            <boxGeometry args={[W, D, H - 1]} />
+            <meshBasicMaterial color="#4fa3d9" transparent opacity={0.08} depthWrite={false} side={THREE.BackSide} />
+            <Edges color="#3a86bd" />
+          </mesh>
+          {/* 수면 */}
+          <mesh position={[W / 2, D / 2, H]}>
+            <planeGeometry args={[W, D]} />
+            <meshBasicMaterial color="#7cc4ec" transparent opacity={0.16} depthWrite={false} side={THREE.DoubleSide} />
+          </mesh>
+        </>
+      ) : (
+        /* 케이지 외곽 (반투명 + 모서리선) */
+        <mesh position={[W / 2, D / 2, H / 2]}>
+          <boxGeometry args={[W, D, H]} />
+          <meshBasicMaterial color="#9bb7d4" transparent opacity={0.06} depthWrite={false} side={THREE.BackSide} />
+          <Edges color="#6b8fb5" />
+        </mesh>
+      )}
     </group>
   );
 }
 
-export default function CageViewer({ cage, items, selected, errorItems, onSelect }: Props) {
+export default function CageViewer({ cage, kind = "cage", items, selected, errorItems, onSelect }: Props) {
   const t = useT();
   const { width_mm: W, depth_mm: D, height_mm: H } = cage;
   const S = Math.max(W, D, H);
@@ -130,12 +149,20 @@ export default function CageViewer({ cage, items, selected, errorItems, onSelect
     <div className="relative h-full w-full">
       <div className="pointer-events-none absolute left-3 top-3 z-10 space-y-0.5 rounded-lg bg-white/85 px-3 py-2 text-xs text-stone-600 shadow-sm">
         <p className="font-semibold text-stone-800">
-          {t("케이지 내부 {w} × {d} × {h} mm", { w: W, d: D, h: H })}
+          {kind === "aquarium"
+            ? t("수조 {w} × {d} mm · 물 깊이 {h} mm", { w: W, d: D, h: H })
+            : t("케이지 내부 {w} × {d} × {h} mm", { w: W, d: D, h: H })}
         </p>
         <p>
           <span className="mr-1 inline-block h-2 w-3 rounded-sm bg-amber-500 align-middle" />
           {t("앞(관찰 면)")}
         </p>
+        {kind === "aquarium" && (
+          <p>
+            <span className="mr-1 inline-block h-2 w-3 rounded-sm bg-sky-300 align-middle" />
+            {t("물 (바닥재 위~수면)")}
+          </p>
+        )}
       </div>
       {meshFailed && (
         <p
@@ -167,7 +194,7 @@ export default function CageViewer({ cage, items, selected, errorItems, onSelect
           shadow-camera-bottom={-S}
         />
         <group rotation={Z_UP_TO_Y_UP}>
-          <CageBox cage={cage} />
+          <CageBox cage={cage} kind={kind} />
           {placed.map((it) => (
             <MeshErrorBoundary key={`${it.mesh_url}`} onError={() => setFailedKey(meshesKey)}>
               <Suspense fallback={null}>

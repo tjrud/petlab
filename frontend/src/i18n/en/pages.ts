@@ -2,8 +2,8 @@
 const en: Record<string, string> = {
   // 레이아웃·메타데이터
   "NestForge – 햄스터 맞춤 케이지 구조물 설계": "NestForge – Custom cage accessories for hamsters",
-  "햄스터 케이지 치수에 맞춘 은신처·터널·경사로·모래목욕통 설계와 3D 프린팅 파일(STL·3MF).":
-    "Hideouts, tunnels, ramps and sand baths designed to fit your hamster's cage, with 3D printing files (STL, 3MF).",
+  "햄스터 케이지 치수에 맞춘 은신처·터널·경사로·모래목욕통, 어항에 넣을 물속 동굴·터널 설계와 3D 프린팅 파일(STL·3MF).":
+    "Hideouts, tunnels, ramps and sand baths designed to fit your hamster's cage, plus underwater caves and tunnels for aquariums, with 3D printing files (STL, 3MF).",
   "케이지 치수를 정하고 은신처·쳇바퀴·모래목욕통 같은 구조물을 놓아 보며 겹침과 끼임 틈을 미리 확인해요.":
     "Set your cage size, place hideouts, wheels and sand baths, and check for overlaps and trap gaps ahead of time.",
   "보호자들이 만든 은신처·터널·경사로 SKP·3MF·STL 파일과 가상 케이지 배치를 나누는 곳.":
@@ -49,10 +49,10 @@ const en: Record<string, string> = {
   "{page} / {total} 페이지": "Page {page} of {total}",
 
   // 메인: 소개
-  "햄스터 케이지 맞춤 구조물": "Custom accessories for hamster cages",
+  "햄스터 케이지·어항 맞춤 구조물": "Custom accessories for hamster cages and aquariums",
   "필요한 구조물을 적어 보세요": "Describe the structure you need",
-  "은신처, 터널, 계단, 모래목욕통. 원하는 구성과 위치를 적으면 케이지 치수에 맞게 설계하고, 3D 프린팅 파일(STL·3MF)로 받을 수 있어요.":
-    "Hideouts, tunnels, stairs, sand baths. Describe what you want and where, and we'll design it to fit your cage and give you 3D printing files (STL, 3MF).",
+  "은신처, 터널, 계단, 모래목욕통, 어항에 넣을 물속 동굴. 원하는 구성과 위치를 적으면 케이지나 수조 치수에 맞게 설계하고, 3D 프린팅 파일(STL·3MF)로 받을 수 있어요.":
+    "Hideouts, tunnels, stairs, sand baths, and underwater caves for aquariums. Describe what you want and where, and we'll design it to fit your cage or tank and give you 3D printing files (STL, 3MF).",
   "맞춤 설계 요청": "Custom design request",
   "원하는 구조물": "Structure you want",
   "예: 환기구가 있는 은신처": "e.g. A hideout with air vents",
@@ -67,17 +67,18 @@ const en: Record<string, string> = {
   "터널": "Tunnel",
   "램프·계단": "Ramp & stairs",
   "모래목욕통": "Sand bath",
+  "물속 동굴": "Underwater cave",
 
   // 메인: 이용 순서
   "이렇게 만들어요": "How it works",
   "세 단계로 진행돼요.": "It takes three steps.",
   "{n}단계": "Step {n}",
   "사육 환경 입력": "Describe your setup",
-  "종·크기·마릿수와 케이지 내부 치수를 고르고, 원하는 구조물을 적어요.":
-    "Choose the species, size, number of hamsters and inner cage dimensions, then describe the structure you want.",
+  "종·크기·마릿수와 케이지 내부 치수(어항은 수조 크기와 물 깊이)를 고르고, 원하는 구조물을 적어요.":
+    "Choose the species, size and number of animals, plus the inner cage dimensions (tank size and water depth for aquariums), then describe the structure you want.",
   "설계·안전 검증": "Design & safety check",
-  "적은 내용대로 구조물 치수를 정하고, 출입구 크기·오르는 높이·벽 두께 같은 안전·출력 기준을 확인해요.":
-    "We size the structure from your description and check safety and print rules like entrance size, climb height and wall thickness.",
+  "적은 내용대로 구조물 치수를 정하고, 출입구 크기·오르는 높이·벽 두께·물속 공기 빠짐 같은 안전·출력 기준을 확인해요.":
+    "We size the structure from your description and check safety and print rules like entrance size, climb height, wall thickness and air release underwater.",
   "3D 확인·프린팅 파일(STL·3MF)": "3D review & print files (STL, 3MF)",
   "3D로 돌려 보며 확인하고, 바꿀 부분은 글로 다시 요청해요. 끝나면 STL·3MF 파일로 내려받아요.":
     "Rotate it in 3D to check, and describe any changes in words. When you're done, download STL or 3MF files.",
@@ -85,8 +86,8 @@ const en: Record<string, string> = {
   // 메인: 주요 기능
   "주요 기능": "Features",
   "바로 가기": "Go",
-  "케이지 치수와 원하는 구조물을 적으면 치수에 맞춘 설계와 3D 프린팅 파일이 나와요.":
-    "Enter your cage size and the structure you want to get a design that fits, plus 3D printing files.",
+  "케이지나 수조 치수와 원하는 구조물을 적으면 치수에 맞춘 설계와 3D 프린팅 파일이 나와요.":
+    "Enter your cage or tank size and the structure you want to get a design that fits, plus 3D printing files.",
   "케이지 치수를 등록하고 은신처·쳇바퀴·모래목욕통을 놓아 보며 겹침과 끼임 틈을 미리 확인해요.":
     "Enter your cage size, place hideouts, wheels and sand baths, and check for overlaps and trap gaps ahead of time.",
   "보호자들이 만든 SKP·3MF·STL 파일과 가상 케이지 배치를 내려받고, 내가 만든 구조물을 올릴 수 있어요.":
@@ -97,8 +98,8 @@ const en: Record<string, string> = {
   "다른 보호자의 설계와 사육 이야기를 보고, 내 설계를 공유할 수 있어요.":
     "Read other owners' designs and care stories, and share your own designs.",
   "내 정보·반려동물": "My account & pets",
-  "반려동물과 케이지 정보를 등록해 두면 다음 설계 때 바로 불러올 수 있어요.":
-    "Save your pets and cage details to load them right away next time you design.",
+  "반려동물과 케이지·수조 정보를 등록해 두면 다음 설계 때 바로 불러올 수 있어요.":
+    "Save your pets and their cage or tank details to load them right away next time you design.",
 
   // 메인: 회원 영역
   "내 정보를 확인하는 중이에요": "Checking your account…",
@@ -159,8 +160,8 @@ const en: Record<string, string> = {
 
   // 종·크기 이름 (서버가 보내는 한국어 이름)
   "햄스터": "Hamster",
-  "골든 (시리안)": "Golden (Syrian)",
-  "드워프 (정글리안·캠벨·로보로브스키)": "Dwarf (Djungarian, Campbell's, Roborovski)",
+  "골든 (시리안)": "Golden (Syrian) hamster",
+  "드워프 (정글리안·캠벨·로보로브스키)": "Dwarf hamster (Djungarian, Campbell's, Roborovski)",
 };
 
 export default en;

@@ -6,8 +6,13 @@ import { useAuth } from "@/components/AuthProvider";
 import { clearDraft, ReloginNotice, useDraftBackup } from "@/components/DraftRelogin";
 import { EmailUnverifiedNotice } from "@/components/EmailVerification";
 import { useT } from "@/i18n/client";
+import type { HabitatKind } from "@/lib/types";
 
-const EXAMPLES = ["조금 더 크게 해 주세요", "환기구를 10개로 늘려 주세요", "오른쪽으로 옮겨 주세요"];
+// 수정 요청 예시. 어항 구조물(물속 동굴·터널)에는 환기구가 없다
+const EXAMPLES: Record<HabitatKind, readonly string[]> = {
+  cage: ["조금 더 크게 해 주세요", "환기구를 10개로 늘려 주세요", "오른쪽으로 옮겨 주세요"],
+  aquarium: ["조금 더 크게 해 주세요", "출입구를 더 넓게 해 주세요", "오른쪽으로 옮겨 주세요"],
+};
 
 export default function RevisePanel({
   baseVersion,
@@ -20,6 +25,7 @@ export default function RevisePanel({
   draftKey,
   loginNext,
   onSubmit,
+  kind = "cage",
 }: {
   baseVersion: number;
   latestVersion: number;
@@ -36,6 +42,8 @@ export default function RevisePanel({
   /** 다시 로그인한 뒤 돌아올 주소 */
   loginNext: string;
   onSubmit: (prompt: string) => Promise<boolean>;
+  /** 사육 환경 종류 (예시 문구가 달라진다). 없으면 케이지 */
+  kind?: HabitatKind;
 }) {
   const t = useT();
   const { status, user, emailUnverified } = useAuth();
@@ -79,14 +87,14 @@ export default function RevisePanel({
         aria-label={t("수정할 내용")}
         rows={3}
         maxLength={2000}
-        placeholder={t("예: 은신처를 조금 더 크게, 환기구는 더 많이")}
+        placeholder={kind === "aquarium" ? t("예: 동굴을 조금 더 크게, 출입구는 더 넓게") : t("예: 은신처를 조금 더 크게, 환기구는 더 많이")}
         className="w-full rounded-xl border border-stone-300 p-3 text-sm"
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
         disabled={busy}
       />
       <div className="flex flex-wrap gap-1.5">
-        {EXAMPLES.map((p) => (
+        {EXAMPLES[kind].map((p) => (
           <button
             key={p}
             type="button"

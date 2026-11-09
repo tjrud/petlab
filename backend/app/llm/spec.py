@@ -5,11 +5,14 @@ LLM 은 형상을 만들지 않는다. 이 스키마로
   - 각 템플릿의 파라미터 값
   - 배치 힌트(zone/group/rotation)와 설명
 만 낸다. 템플릿 레지스트리에서 스키마를 자동 생성하므로 템플릿을 추가하면 계약에도 반영된다.
+종마다 만들 수 있는 템플릿이 다르므로(케이지: 은신처·터널·램프·모래목욕통, 어항: 물속 동굴·터널) 모델·스키마는
+템플릿 키 묶음마다 따로 만들어 캐시한다.
 """
 
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from functools import lru_cache
 from typing import Annotated, Any, Literal, Union
 
@@ -53,29 +56,60 @@ def _item_model(template) -> type[BaseModel]:
     )
 
 
+def template_keys(templates: Iterable[str] | None = None) -> tuple[str, ...]:
+    """쓸 수 있는 템플릿 키를 레지스트리 순서로 정리한다 (캐시 열쇠). None 이면 등록된 모든 템플릿.
+
+    종마다 만들 수 있는 템플릿(규칙 파일 species.<종>.templates)만 계약에 넣을 때 쓴다.
+    순서·중복이 달라도 같은 집합이면 같은 모델·스키마를 쓴다. 모르는 키나 빈 목록은 ValueError."""
+    registered = [t.key for t in all_templates()]
+    if templates is None:
+        return tuple(registered)
+    wanted = set(templates)
+    unknown = sorted(wanted - set(registered))
+    if unknown:
+        raise ValueError(f"unknown template keys: {unknown}")
+    out = tuple(k for k in registered if k in wanted)
+    if not out:
+        raise ValueError("no templates allowed")
+    return out
+
+
 @lru_cache
-def item_union() -> Any:
-    models = tuple(_item_model(t) for t in all_templates())
+def _item_union(keys: tuple[str, ...]) -> Any:
+    by_key = {t.key: t for t in all_templates()}
+    models = tuple(_item_model(by_key[k]) for k in keys)
     if len(models) == 1:
         return models[0]
     return Annotated[Union[models], Field(discriminator="template")]  # type: ignore[valid-type]
 
 
+def item_union(templates: Iterable[str] | None = None) -> Any:
+    return _item_union(template_keys(templates))
+
+
 @lru_cache
-def design_spec_model() -> type[BaseModel]:
+def _design_spec_model(keys: tuple[str, ...]) -> type[BaseModel]:
     return create_model(
         "DesignSpec",
         __config__=ConfigDict(extra="forbid"),
         summary_ko=(str, Field(description="설계 요약 (보호자에게 보여줄 2~4문장, 응답 언어로. 지정이 없으면 한국어)")),
-        items=(list[item_union()], Field(min_length=1, max_length=MAX_ITEMS,  # type: ignore[valid-type]
-                                         description=f"구조물 목록 (1~{MAX_ITEMS}개)")),
+        items=(list[_item_union(keys)], Field(min_length=1, max_length=MAX_ITEMS,  # type: ignore[valid-type]
+                                              description=f"구조물 목록 (1~{MAX_ITEMS}개)")),
         notes_ko=(list[str], Field(description="주의사항·추가 안내 (응답 언어로, 없으면 빈 배열)")),
     )
 
 
-def parse_spec(text: str) -> BaseModel:
-    """LLM 출력 JSON 을 검증한다. 실패 시 pydantic.ValidationError."""
-    return design_spec_model().model_validate_json(text)
+def design_spec_model(templates: Iterable[str] | None = None) -> type[BaseModel]:
+    """DesignSpec 모델. templates 를 주면 그 템플릿만 받는다 (None: 등록된 모든 템플릿 — 저장된 버전 읽기용)."""
+    return _design_spec_model(template_keys(templates))
+
+
+def parse_spec(text: str, templates: Iterable[str] | None = None) -> BaseModel:
+    """LLM 출력 JSON 을 검증한다. 실패 시 pydantic.ValidationError.
+
+    templates: 이 종에 만들 수 있는 템플릿 키 (InterpretRequest.allowed_templates). 다른 템플릿은 스키마 위반이다.
+    None 이면 등록된 모든 템플릿 (저장된 버전을 다시 읽을 때)."""
+    return design_spec_model(templates).model_validate_json(text)
 
 
 def to_item_specs(spec: BaseModel) -> list[ItemSpec]:
@@ -124,10 +158,12 @@ def _sanitize(node: Any) -> Any:
 
 
 @lru_cache
-def _api_schema_cached() -> str:
-    return json.dumps(_sanitize(design_spec_model().model_json_schema()), ensure_ascii=False)
+def _api_schema_cached(keys: tuple[str, ...]) -> str:
+    return json.dumps(_sanitize(_design_spec_model(keys).model_json_schema()), ensure_ascii=False)
 
 
-def api_schema() -> dict:
-    """호출할 때마다 새 dict 를 돌려준다 (호출 측이 바꿔도 캐시 문자열은 그대로)."""
-    return json.loads(_api_schema_cached())
+def api_schema(templates: Iterable[str] | None = None) -> dict:
+    """구조화 출력용 JSON Schema. templates 를 주면 그 템플릿만 담는다 (None: 등록된 모든 템플릿).
+
+    호출할 때마다 새 dict 를 돌려준다 (호출 측이 바꿔도 캐시 문자열은 그대로)."""
+    return json.loads(_api_schema_cached(template_keys(templates)))

@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from app.templates.base import Template
+from app.templates.cave import CaveTemplate
 from app.templates.hideout import HideoutTemplate
 from app.templates.ramp import RampTemplate
 from app.templates.sand_bath import SandBathTemplate
 from app.templates.tunnel import TunnelTemplate
 
 _TEMPLATES: dict[str, Template] = {
-    t.key: t for t in (HideoutTemplate(), TunnelTemplate(), RampTemplate(), SandBathTemplate())
+    t.key: t for t in (HideoutTemplate(), TunnelTemplate(), RampTemplate(), SandBathTemplate(), CaveTemplate())
 }
 
 

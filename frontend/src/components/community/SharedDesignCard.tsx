@@ -1,5 +1,6 @@
 import { Link, useT } from "@/i18n/client";
 
+import { enclosureSummary, kindOf } from "@/lib/habitatKind";
 import type { SharedDesign } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
@@ -34,7 +35,7 @@ export default function SharedDesignCard({ design: d }: { design: SharedDesign }
       )}
       <p className="text-sm text-stone-600">
         {t("{species} {size} · {n}마리", { species: t(h.species_name_ko), size: t(h.size_name_ko), n: h.count })} ·{" "}
-        {t("케이지 {w}×{d}×{h}mm", { w: h.cage.width_mm, d: h.cage.depth_mm, h: h.cage.height_mm })}
+        {enclosureSummary(kindOf(h), h.cage, t)}
       </p>
       <Link href={href} className={`${ui.btnPrimary} w-full sm:w-auto`}>
         {t("3D로 보기")}

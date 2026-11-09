@@ -6,6 +6,7 @@ import { useId } from "react";
 import { IconPaw } from "@/components/home/icons";
 import { LoadError, Skeleton, useLoad } from "@/components/home/Loadable";
 import { api } from "@/lib/api";
+import { enclosureSummary, kindOf } from "@/lib/habitatKind";
 import type { Pet } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
@@ -30,7 +31,7 @@ function PetRow({ pet }: { pet: Pet }) {
             <>
               {" "}
               ·{" "}
-              {t("케이지 {w}×{d}×{h}mm", { w: pet.cage.width_mm, d: pet.cage.depth_mm, h: pet.cage.height_mm })}
+              {enclosureSummary(kindOf(pet), pet.cage, t)}
             </>
           )}
         </p>

@@ -22,8 +22,8 @@ const en: Record<string, string> = {
   "파일 형식": "File formats",
 
   // 크기 이름 (배치 예시)
-  "골든 (시리안)": "Golden (Syrian)",
-  "드워프 (정글리안·캠벨·로보로브스키)": "Dwarf (Djungarian, Campbell's, Roborovski)",
+  "골든 (시리안)": "Golden (Syrian) hamster",
+  "드워프 (정글리안·캠벨·로보로브스키)": "Dwarf hamster (Djungarian, Campbell's, Roborovski)",
 
   // 추천한 까닭 (서버 문구)
   "많이 내려받은 작품": "Popular download",

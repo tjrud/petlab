@@ -1,26 +1,46 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useId, useRef, useState, useTransition } from "react";
 
+import AquariumPrintNotice from "@/components/AquariumPrintNotice";
 import { useAuth } from "@/components/AuthProvider";
 import { clearDraft, ReloginNotice, useDraftBackup } from "@/components/DraftRelogin";
 import { EmailUnverifiedNotice, useEmailBlocked } from "@/components/EmailVerification";
 import LoginRequired from "@/components/LoginRequired";
-import { CAGE_DIMS, CAGE_LIMITS, CAGE_PRESETS, cageDimError } from "@/components/me/common";
+import { CAGE_LIMITS, cageDimError, presetsFor } from "@/components/me/common";
 import { Link, useRouter, useT } from "@/i18n/client";
+import type { TFunction } from "@/i18n/translate";
 import { api, ApiError, errorText, isAuthError, isEmailUnverified } from "@/lib/api";
-import type { Me, Pet, SpeciesResponse } from "@/lib/types";
+import {
+  capCount,
+  countWarning,
+  DEFAULT_MAX_COUNT,
+  DIM_LABELS,
+  dimInputLabel,
+  kindOf,
+  maxCountOf,
+  speciesKind,
+  tankVolumeShortfall,
+} from "@/lib/habitatKind";
+import type { HabitatKind, Me, Pet, SpeciesResponse } from "@/lib/types";
 
-// 구조물 하나를 요청하는 예시 (템플릿마다 하나)
-const EXAMPLE_PROMPTS = [
-  "출입구가 두 개 있는 은신처를 만들어 주세요",
-  "케이지 한쪽에 놓을 긴 터널이 필요해요",
-  "완만한 경사로를 하나 만들어 주세요",
-  "모래 목욕용 통을 하나 만들고 싶어요",
-];
+// 구조물 하나를 요청하는 예시 (템플릿마다 하나). 어항은 동굴·터널만 만들 수 있다
+const EXAMPLE_PROMPTS: Record<HabitatKind, readonly string[]> = {
+  cage: [
+    "출입구가 두 개 있는 은신처를 만들어 주세요",
+    "케이지 한쪽에 놓을 긴 터널이 필요해요",
+    "완만한 경사로를 하나 만들어 주세요",
+    "모래 목욕용 통을 하나 만들고 싶어요",
+  ],
+  aquarium: [
+    "새우가 숨을 수 있는 작은 동굴을 만들어 주세요",
+    "네온 테트라 무리가 지나갈 터널과 동굴을 만들어 주세요",
+    "코리도라스용으로 앞뒤가 뚫린 동굴 두 개",
+  ],
+};
 
-const LIMITS = { ...CAGE_LIMITS, count: [1, 10] } as const;
+const COUNT_MIN = 1;
 
 const LOGIN_MESSAGE = "로그인하면 설계를 만들 수 있어요";
 const LOGIN_DESCRIPTION = "회원이 되면 설계 내역이 저장되고 커뮤니티에 공유할 수 있어요.";
@@ -46,10 +66,23 @@ export function WizardSkeleton() {
 }
 
 /** 케이지 바닥이 최소 기준보다 작은지 (긴 변·짧은 변끼리 비교, 서버 check_enclosure 와 같다) */
-function cageBelowRecommended(cage: { w: number; d: number }, min: [number, number] | undefined): boolean {
+function cageBelowRecommended(cage: { w: number; d: number }, min: [number, number] | null | undefined): boolean {
   if (!min) return false;
   const [needLong, needShort] = min;
   return Math.max(cage.w, cage.d) < needLong || Math.min(cage.w, cage.d) < needShort;
+}
+
+/** 사육 환경 입력 오류: 가로·세로·높이(어항은 물 깊이) 순서로 확인한 뒤 마릿수를 본다 (안내 순서도 같다) */
+function habitatErrorsOf(cage: Cage, count: number, kind: HabitatKind, maxCount: number, t: TFunction): string[] {
+  const errs: string[] = [];
+  for (const [k, label] of DIM_LABELS[kind]) {
+    // 안내 문구는 cageDimError 와 같은 원문을 번역해 보인다 (한국어는 그대로)
+    if (cageDimError(k, cage[k], label))
+      errs.push(t("{label}는 {lo}~{hi}mm 사이로 입력해 주세요.", { label: t(label), lo: CAGE_LIMITS[k][0], hi: CAGE_LIMITS[k][1] }));
+  }
+  if (!Number.isInteger(count) || count < COUNT_MIN || count > maxCount)
+    errs.push(t("마릿수는 {min}~{max} 사이로 입력해 주세요.", { min: COUNT_MIN, max: maxCount }));
+  return errs;
 }
 
 /** 최근 24시간 설계 횟수를 모두 쓴 경우의 안내 */
@@ -78,6 +111,8 @@ export default function NewDesignWizard() {
   const wantedPet = searchParams.get("pet");
   // /design?prompt=...: 메인 화면 입력창에 적은 요청. 요구사항 칸에 미리 채운다
   const wantedPrompt = searchParams.get("prompt")?.trim().slice(0, 2000) || null;
+  // /design?species=aquarium: 메인 화면의 어항 예시처럼 종을 골라 두고 들어온 경우 (?pet= 이 있으면 반려동물이 정한다)
+  const wantedSpecies = searchParams.get("species");
   const petSelectId = useId();
   const [meta, setMeta] = useState<SpeciesResponse | null>(null);
   const [metaError, setMetaError] = useState<string | null>(null);
@@ -171,11 +206,34 @@ export default function NewDesignWizard() {
     };
   }, [t]);
 
+  // 주소의 ?species= 은 종 목록을 받은 뒤 들어올 때마다 한 번 적용한다 (?prompt= 과 같이 bfcacheId 로 구분).
+  // 목록에 없는 종이면 무시한다. 크기는 그 종의 첫 크기, 마릿수는 그 종의 상한 안으로
+  const appliedSpeciesParam = useRef<string | null>(null);
+  useEffect(() => {
+    const next = wantedSpecies && !wantedPet ? meta?.species.find((s) => s.key === wantedSpecies) : undefined;
+    if (!next) return;
+    const key = `${bfcacheId}|${next.key}`;
+    if (appliedSpeciesParam.current === key) return;
+    appliedSpeciesParam.current = key;
+    setSpecies(next.key);
+    setSize(next.sizes[0]?.key ?? "");
+    setCount((c) => capCount(c, maxCountOf(next)));
+    setHabitatId(null);
+  }, [wantedSpecies, wantedPet, meta, bfcacheId]);
+
+  // 반려동물을 고를 때 마릿수를 그 종의 상한 안으로 줄이려고 종 목록을 읽는다 (렌더 중에는 읽지 않는다)
+  const metaRef = useRef<SpeciesResponse | null>(null);
+  useEffect(() => {
+    metaRef.current = meta;
+  }, [meta]);
+
   const applyPet = useCallback((p: Pet) => {
     setPetId(p.id);
     setPetNotice(null);
     setSpecies(p.species);
     setSize(p.size);
+    const known = metaRef.current;
+    if (known) setCount((c) => capCount(c, maxCountOf(known.species.find((s) => s.key === p.species))));
     if (p.cage) setCage({ w: p.cage.width_mm, d: p.cage.depth_mm, h: p.cage.height_mm });
     setHabitatId(null);
   }, []);
@@ -227,21 +285,17 @@ export default function NewDesignWizard() {
   const sizeOpt = speciesOpt?.sizes.find((s) => s.key === size);
   const selectedPet = pets?.find((p) => p.id === petId) ?? null;
   const quotaExhausted = quota?.remaining === 0;
+  /** 사육 환경 종류: 케이지면 예전 화면 그대로, 어항이면 수조·물 깊이 낱말과 수조 프리셋 */
+  const kind = speciesKind(meta?.species, species);
+  const aquarium = kind === "aquarium";
+  const dims = DIM_LABELS[kind];
+  const maxCount = speciesOpt?.max_count ?? DEFAULT_MAX_COUNT;
+  const countNote = countWarning(sizeOpt, count);
+  const volumeShort = tankVolumeShortfall({ width_mm: cage.w, depth_mm: cage.d, height_mm: cage.h }, sizeOpt, count);
 
-  const habitatErrors = useMemo(() => {
-    const errs: string[] = [];
-    // 가로·세로·높이 순서로 확인한 뒤 마릿수를 본다 (안내 순서도 같다)
-    for (const [k, label] of CAGE_DIMS) {
-      // 안내 문구는 cageDimError 와 같은 원문을 번역해 보인다 (한국어는 그대로)
-      if (cageDimError(k, cage[k], label))
-        errs.push(
-          t("{label}는 {lo}~{hi}mm 사이로 입력해 주세요.", { label: t(label), lo: CAGE_LIMITS[k][0], hi: CAGE_LIMITS[k][1] }),
-        );
-    }
-    if (!Number.isInteger(count) || count < LIMITS.count[0] || count > LIMITS.count[1])
-      errs.push(t("마릿수는 {min}~{max} 사이로 입력해 주세요.", { min: LIMITS.count[0], max: LIMITS.count[1] }));
-    return errs;
-  }, [cage, count, t]);
+  const habitatErrors = habitatErrorsOf(cage, count, kind, maxCount, t);
+  // 종 목록을 받았는데 고른 크기가 그 종에 없으면(반려동물·임시 저장에서 채운 옛 값 등) 크기를 다시 고르게 한다
+  const sizeMissing = !!meta && !sizeOpt;
 
   // 사육 환경이 바뀌면 이전에 등록한 환경을 다시 쓰지 않는다
   const resetHabitat = () => setHabitatId(null);
@@ -369,7 +423,9 @@ export default function NewDesignWizard() {
               <p className="font-medium text-stone-800">{t("적어 주신 요청")}</p>
               <p className="mt-1 whitespace-pre-wrap break-words text-stone-700">{carriedPrompt}</p>
               <p className="mt-2 text-xs text-stone-500">
-                {t("케이지 정보를 확인하고 다음을 누르면 이 요청으로 설계해요. 다음 단계에서 고칠 수 있어요.")}
+                {aquarium
+                  ? t("수조 정보를 확인하고 다음을 누르면 이 요청으로 설계해요. 다음 단계에서 고칠 수 있어요.")
+                  : t("케이지 정보를 확인하고 다음을 누르면 이 요청으로 설계해요. 다음 단계에서 고칠 수 있어요.")}
               </p>
             </div>
           )}
@@ -401,7 +457,9 @@ export default function NewDesignWizard() {
               </select>
               <p className="mt-1.5 text-xs text-stone-600">
                 {selectedPet && !selectedPet.cage
-                  ? t("등록된 케이지 치수가 없어서 종·크기만 채웠어요. 아래 치수를 확인해 주세요.")
+                  ? kindOf(selectedPet, meta?.species) === "aquarium"
+                    ? t("등록된 수조 치수가 없어서 종·크기만 채웠어요. 아래 치수를 확인해 주세요.")
+                    : t("등록된 케이지 치수가 없어서 종·크기만 채웠어요. 아래 치수를 확인해 주세요.")
                   : t("고르면 종·크기와 케이지 치수가 채워져요. 채운 뒤에도 고칠 수 있어요.")}
               </p>
             </div>
@@ -426,7 +484,11 @@ export default function NewDesignWizard() {
                 className="w-full rounded-lg border border-stone-300 bg-white px-3 py-2"
                 value={species}
                 onChange={(e) => {
+                  // 크기는 새 종의 첫 크기로, 마릿수는 새 종의 상한 안으로 (이전 종의 크기가 남아 있지 않게)
+                  const next = meta?.species.find((s) => s.key === e.target.value);
                   setSpecies(e.target.value);
+                  setSize(next?.sizes[0]?.key ?? "");
+                  if (next) setCount((c) => capCount(c, maxCountOf(next)));
                   resetHabitat();
                 }}
               >
@@ -441,8 +503,8 @@ export default function NewDesignWizard() {
               <span className="mb-1 block text-sm font-medium">{t("마릿수")}</span>
               <input
                 type="number"
-                min={LIMITS.count[0]}
-                max={LIMITS.count[1]}
+                min={COUNT_MIN}
+                max={maxCount}
                 className="w-full rounded-lg border border-stone-300 px-3 py-2"
                 value={count}
                 onChange={(e) => {
@@ -478,15 +540,15 @@ export default function NewDesignWizard() {
                 </label>
               ))}
             </div>
-            {sizeOpt && count > sizeOpt.max_recommended_count && (
-              <p className="mt-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{sizeOpt.count_warning_ko}</p>
-            )}
+            {countNote && <p className="mt-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{countNote}</p>}
           </fieldset>
 
           <fieldset>
-            <legend className="mb-2 text-sm font-medium">{t("케이지 내부 치수 (mm)")}</legend>
+            <legend className="mb-2 text-sm font-medium">
+              {aquarium ? t("수조 크기와 물 깊이 (mm)") : t("케이지 내부 치수 (mm)")}
+            </legend>
             <div className="mb-3 flex flex-wrap gap-2">
-              {CAGE_PRESETS.map((p) => (
+              {presetsFor(kind).map((p) => (
                 <button
                   key={p.label}
                   type="button"
@@ -504,14 +566,19 @@ export default function NewDesignWizard() {
                 </button>
               ))}
             </div>
+            {aquarium && (
+              <p className="mb-3 text-xs text-stone-500">
+                {t("수조 버튼은 흔한 수조의 겉 크기예요. 물 깊이는 수조 높이에서 바닥재 약 5cm와 수면 위 여유 약 3cm를 뺀 값으로 채워요.")}
+              </p>
+            )}
             <div className="grid grid-cols-3 gap-3">
-              {CAGE_DIMS.map(([k, label]) => (
+              {dims.map(([k, label]) => (
                 <label key={k} className="block">
                   <span className="mb-1 block text-xs text-stone-500">{t(label)}</span>
                   <input
                     type="number"
                     inputMode="numeric"
-                    aria-label={t("케이지 {label} (mm)", { label: t(label) })}
+                    aria-label={dimInputLabel(kind, k, t)}
                     className="w-full rounded-lg border border-stone-300 px-3 py-2"
                     value={cage[k]}
                     onChange={(e) => {
@@ -522,19 +589,55 @@ export default function NewDesignWizard() {
                 </label>
               ))}
             </div>
-            <p className="mt-2 text-xs text-stone-500">{t("바닥재를 깐 상태의 내부 공간 기준으로 재 주세요.")}</p>
-            {sizeOpt && cageBelowRecommended(cage, sizeOpt.enclosure_min_floor_mm) && (
+            <p className="mt-2 text-xs text-stone-500">
+              {aquarium
+                ? t("가로·세로는 수조 안쪽 치수로, 물 깊이는 바닥재 위부터 수면까지 재 주세요.")
+                : t("바닥재를 깐 상태의 내부 공간 기준으로 재 주세요.")}
+            </p>
+            {sizeOpt?.enclosure_min_floor_mm && cageBelowRecommended(cage, sizeOpt.enclosure_min_floor_mm) && (
               <p className="mt-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
-                {t("사육장 바닥 최소 기준은 {w}×{d}cm예요. 설계는 할 수 있지만 더 넓은 사육장을 권장해요.", {
-                  w: sizeOpt.enclosure_min_floor_mm[0] / 10,
-                  d: sizeOpt.enclosure_min_floor_mm[1] / 10,
-                })}
+                {aquarium
+                  ? t("수조 바닥 최소 기준은 {w}×{d}cm예요. 설계는 할 수 있지만 더 큰 수조를 권장해요.", {
+                      w: sizeOpt.enclosure_min_floor_mm[0] / 10,
+                      d: sizeOpt.enclosure_min_floor_mm[1] / 10,
+                    })
+                  : t("사육장 바닥 최소 기준은 {w}×{d}cm예요. 설계는 할 수 있지만 더 넓은 사육장을 권장해요.", {
+                      w: sizeOpt.enclosure_min_floor_mm[0] / 10,
+                      d: sizeOpt.enclosure_min_floor_mm[1] / 10,
+                    })}
+              </p>
+            )}
+            {volumeShort && (
+              <p className="mt-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
+                {volumeShort.byCount
+                  ? t(
+                      "수조 부피가 약 {v}L(물 깊이에 바닥재 {s}mm·수면 위 여유 {a}mm를 더해 어림)로 {count}마리 기준 권장 최소 {need}L보다 작아요. 설계는 할 수 있지만 더 큰 수조를 권장해요.",
+                      {
+                        v: Math.round(volumeShort.volumeL),
+                        s: volumeShort.aquatic.substrate_depth_assumed_mm,
+                        a: volumeShort.aquatic.air_gap_mm,
+                        count,
+                        need: Math.round(volumeShort.needL * 10) / 10,
+                      },
+                    )
+                  : t(
+                      "수조 부피가 약 {v}L(물 깊이에 바닥재 {s}mm·수면 위 여유 {a}mm를 더해 어림)로 권장 최소 {need}L보다 작아요. 설계는 할 수 있지만 더 큰 수조를 권장해요.",
+                      {
+                        v: Math.round(volumeShort.volumeL),
+                        s: volumeShort.aquatic.substrate_depth_assumed_mm,
+                        a: volumeShort.aquatic.air_gap_mm,
+                        need: Math.round(volumeShort.needL * 10) / 10,
+                      },
+                    )}
               </p>
             )}
           </fieldset>
 
-          {habitatErrors.length > 0 && (
+          {aquarium && <AquariumPrintNotice notes={speciesOpt?.print_notes_ko ?? []} />}
+
+          {(habitatErrors.length > 0 || sizeMissing) && (
             <ul className="space-y-1 text-sm text-red-700">
+              {sizeMissing && <li>• {t("크기를 골라 주세요.")}</li>}
               {habitatErrors.map((e) => (
                 <li key={e}>• {e}</li>
               ))}
@@ -546,7 +649,7 @@ export default function NewDesignWizard() {
           <div className="flex justify-end">
             <button
               type="button"
-              disabled={habitatErrors.length > 0 || !meta}
+              disabled={habitatErrors.length > 0 || !meta || !sizeOpt}
               onClick={() => setStep(2)}
               className="rounded-xl bg-amber-500 px-6 py-3 font-semibold text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:bg-stone-300"
             >
@@ -563,26 +666,35 @@ export default function NewDesignWizard() {
           </h2>
           <p className="break-words text-sm text-stone-600">
             {selectedPet && <span className="font-medium text-stone-800">{selectedPet.name} · </span>}
-            {t("{species} {size} · {count}마리 · 케이지 {w}×{d}×{h}mm", {
-              species: speciesOpt?.display_name ?? "",
-              size: sizeOpt?.display_name ?? "",
-              count,
-              w: cage.w,
-              d: cage.d,
-              h: cage.h,
-            })}
+            {aquarium
+              ? t("{species} {size} · {count}마리 · 수조 {w}×{d}mm · 물 깊이 {h}mm", {
+                  species: speciesOpt?.display_name ?? "",
+                  size: sizeOpt?.display_name ?? "",
+                  count,
+                  w: cage.w,
+                  d: cage.d,
+                  h: cage.h,
+                })
+              : t("{species} {size} · {count}마리 · 케이지 {w}×{d}×{h}mm", {
+                  species: speciesOpt?.display_name ?? "",
+                  size: sizeOpt?.display_name ?? "",
+                  count,
+                  w: cage.w,
+                  d: cage.d,
+                  h: cage.h,
+                })}
           </p>
           <textarea
             aria-label={t("요구사항")}
             rows={5}
             maxLength={2000}
-            placeholder={t("예: 환기구가 있는 은신처를 만들어 주세요")}
+            placeholder={aquarium ? t("예: 새우가 숨을 수 있는 작은 동굴을 만들어 주세요") : t("예: 환기구가 있는 은신처를 만들어 주세요")}
             className="w-full rounded-xl border border-stone-300 p-4 leading-relaxed"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
           />
           <div className="flex flex-wrap gap-2">
-            {EXAMPLE_PROMPTS.map((p) => (
+            {EXAMPLE_PROMPTS[kind].map((p) => (
               <button
                 key={p}
                 type="button"

@@ -69,6 +69,29 @@ const en: Record<string, string> = {
     "Designs left in the last 24 hours: {n} · Failed requests count too.",
   "요구사항 해석 → 구조물 생성 → 안전 검증까지 최대 1분 정도 걸려요.":
     "Reading your request → building structures → safety checks can take up to about a minute.",
+  // 설계하기: 어항 (수조 치수·물 깊이, 경고, 예시)
+  "수조 정보를 확인하고 다음을 누르면 이 요청으로 설계해요. 다음 단계에서 고칠 수 있어요.":
+    "Check your tank details and press Next to design with this request. You can edit it in the next step.",
+  "등록된 수조 치수가 없어서 종·크기만 채웠어요. 아래 치수를 확인해 주세요.":
+    "No tank size is saved for this pet, so only species and size were filled in. Please check the dimensions below.",
+  "수조 크기와 물 깊이 (mm)": "Tank size and water depth (mm)",
+  "수조 버튼은 흔한 수조의 겉 크기예요. 물 깊이는 수조 높이에서 바닥재 약 5cm와 수면 위 여유 약 3cm를 뺀 값으로 채워요.":
+    "The tank buttons use common outer tank sizes. Water depth is filled in as the tank height minus about 5 cm of substrate and about 3 cm of space above the water.",
+  "가로·세로는 수조 안쪽 치수로, 물 깊이는 바닥재 위부터 수면까지 재 주세요.":
+    "Measure width and depth inside the tank, and water depth from the top of the substrate to the water surface.",
+  "수조 바닥 최소 기준은 {w}×{d}cm예요. 설계는 할 수 있지만 더 큰 수조를 권장해요.":
+    "The minimum recommended tank footprint is {w}×{d}cm. You can still design, but a larger tank is recommended.",
+  "수조 부피가 약 {v}L(물 깊이에 바닥재 {s}mm·수면 위 여유 {a}mm를 더해 어림)로 {count}마리 기준 권장 최소 {need}L보다 작아요. 설계는 할 수 있지만 더 큰 수조를 권장해요.":
+    "The tank holds about {v} L (estimated from the water depth plus {s} mm of substrate and {a} mm above the water), less than the recommended minimum of {need} L for {count} animals. You can still design, but a larger tank is recommended.",
+  "수조 부피가 약 {v}L(물 깊이에 바닥재 {s}mm·수면 위 여유 {a}mm를 더해 어림)로 권장 최소 {need}L보다 작아요. 설계는 할 수 있지만 더 큰 수조를 권장해요.":
+    "The tank holds about {v} L (estimated from the water depth plus {s} mm of substrate and {a} mm above the water), less than the recommended minimum of {need} L. You can still design, but a larger tank is recommended.",
+  "{species} {size} · {count}마리 · 수조 {w}×{d}mm · 물 깊이 {h}mm":
+    "{species} {size} · {count} animal(s) · Tank {w}×{d}mm · Water depth {h}mm",
+  "예: 새우가 숨을 수 있는 작은 동굴을 만들어 주세요": "e.g. Make a small cave where shrimp can hide",
+  // 어항 예시 요청 (영어 화면에서는 이 영어 문장이 요청으로 들어간다: 모의 해석기도 cave·tunnel·through 를 알아듣는다)
+  "새우가 숨을 수 있는 작은 동굴을 만들어 주세요": "Make a small cave where shrimp can hide",
+  "네온 테트라 무리가 지나갈 터널과 동굴을 만들어 주세요": "Make a tunnel and a cave for a school of neon tetras",
+  "코리도라스용으로 앞뒤가 뚫린 동굴 두 개": "Two pass-through caves for Corydoras",
 
   // 설계 결과 화면 (DesignView)
   "3D 뷰어 준비 중…": "Preparing 3D viewer…",
@@ -84,7 +107,9 @@ const en: Record<string, string> = {
 
   // 3D 뷰어 (CageViewer)
   "케이지 내부 {w} × {d} × {h} mm": "Cage interior {w} × {d} × {h} mm",
+  "수조 {w} × {d} mm · 물 깊이 {h} mm": "Tank {w} × {d} mm · Water depth {h} mm",
   "앞(관찰 면)": "Front (viewing side)",
+  "물 (바닥재 위~수면)": "Water (substrate to surface)",
   "일부 구조물의 3D 형상을 불러오지 못했어요. 이 버전을 만든 뒤 서비스가 바뀌어 형상을 다시 확인하지 못했을 수 있어요. 같은 요청으로 새 버전을 만들어 주세요.":
     "Couldn't load the 3D shape of some structures. The service may have changed since this version was made, so the shapes couldn't be rechecked. Please create a new version with the same request.",
 
@@ -94,9 +119,12 @@ const en: Record<string, string> = {
   "문제 {n}건": "{n} issue(s)",
   "케이지 적합, 겹침, 끼임 틈새, 벽 두께, 서포트 없는 출력을 모두 확인했어요.":
     "Checked cage fit, overlaps, pinch gaps, wall thickness, and support-free printing.",
+  "수조 적합, 물 깊이, 겹침, 끼임 틈새, 벽 두께, 넘어짐, 서포트 없는 출력을 모두 확인했어요.":
+    "Checked tank fit, water depth, overlaps, pinch gaps, wall thickness, tipping, and support-free printing.",
   "해결이 필요한 문제": "Issues to fix",
   "주의": "Warnings",
   "자동 보정한 내용": "Auto-corrected",
+  "참고": "Notes",
 
   // 수정 요청 (RevisePanel)
   "수정 요청": "Request changes",
@@ -109,6 +137,9 @@ const en: Record<string, string> = {
   "조금 더 크게 해 주세요": "Make it a bit bigger",
   "환기구를 10개로 늘려 주세요": "Increase the vents to 10",
   "오른쪽으로 옮겨 주세요": "Move it to the right",
+  // 어항 설계의 수정 요청 예시
+  "예: 동굴을 조금 더 크게, 출입구는 더 넓게": "e.g. Make the cave a bit bigger, with wider entrances",
+  "출입구를 더 넓게 해 주세요": "Make the entrances wider",
   "다시 설계하고 있어요…": "Redesigning…",
   "v{n} 기준으로 다시 설계": "Redesign from v{n}",
   "수정 요청도 최근 24시간 설계 횟수에 들어가요. 실패한 요청도 횟수에 포함돼요.":
@@ -130,6 +161,8 @@ const en: Record<string, string> = {
   "단 수": "Steps",
   "턱 높이": "Lip height",
   "안쪽 깊이": "Inner depth",
+  "꼭대기 구멍": "Top opening",
+  "지붕 경사": "Roof slope",
   "경사로": "None (ramp)",
   "{n}단": "{n} steps",
   "{n}개": "{n}",

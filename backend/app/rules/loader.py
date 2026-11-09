@@ -7,12 +7,25 @@ pydantic 으로 엄격하게 검증하므로(키 오타·누락·범위 오류 �
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+# 템플릿 키 목록만 담은 모듈 (다른 모듈을 import 하지 않아 순환이 생기지 않는다)
+from app.templates.keys import TEMPLATE_MODULES
+
 PositiveMM = Annotated[float, Field(gt=0)]
+NonNegativeMM = Annotated[float, Field(ge=0)]
+Degrees = Annotated[float, Field(gt=0, lt=90)]
+Count = Annotated[int, Field(ge=1)]
+
+Habitat = Literal["cage", "aquarium"]
+# 사육 환경별로 만들 수 있는 구조물. 종이 templates 를 적지 않으면 케이지 기본값을 쓴다
+CAGE_TEMPLATES: tuple[str, ...] = ("hideout", "tunnel", "ramp", "sand_bath")
+# 어항: 바닥이 열린 상자형 은신처는 물속에서 지붕 아래 공기가 갇혀 뜨고, 램프·모래목욕통은 어항에 맞지 않는다
+AQUARIUM_TEMPLATES: tuple[str, ...] = ("cave", "tunnel")
+HABITAT_TEMPLATES: dict[str, tuple[str, ...]] = {"cage": CAGE_TEMPLATES, "aquarium": AQUARIUM_TEMPLATES}
 
 # 터널 템플릿 length_mm 의 하한 (app/templates/tunnel.py TunnelParams). 템플릿을 import 하면 순환하므로 값만 둔다.
 # 둘이 같은지는 tests/test_rules.py 가 확인한다
@@ -48,28 +61,67 @@ class HideoutEntranceRule(_Strict):
         return self.group if count >= 2 else self.single
 
 
+class AquaticRules(_Strict):
+    """어항(물속) 크기 구분에만 있는 기준. 키는 모두 있어야 한다 (volume_l_per_animal 만 null 가능)."""
+
+    # 동굴 안쪽 천장(모서리선)이 꼭대기 구멍 쪽으로 오르는 최소 경사 (공기가 갇히지 않게)
+    ceiling_min_slope_deg: Degrees
+    # 구조물 꼭대기 위로 남길 최소 물 깊이
+    structure_top_clearance_mm: PositiveMM
+    # 수조 전체 부피를 어림할 때 쓰는 바닥재 두께·수면 위 여유
+    substrate_depth_assumed_mm: NonNegativeMM
+    air_gap_mm: NonNegativeMM
+    # 수조 최소 부피 (L), 마리당 부피 (L, 없으면 null)
+    min_volume_l: Annotated[float, Field(gt=0)]
+    volume_l_per_animal: Annotated[float, Field(gt=0)] | None
+    # 구조물 높이 ÷ 바닥 짧은 변 상한 (물속에서 넘어지지 않게)
+    max_height_to_base_ratio: Annotated[float, Field(gt=0)]
+
+
+class BuoyancyRules(_Strict):
+    """물속 무게(부력) 계산용 밀도 (g/cm³)."""
+
+    material_density_g_cm3: PositiveMM
+    water_density_g_cm3: PositiveMM
+
+    @model_validator(mode="after")
+    def _check_order(self) -> "BuoyancyRules":
+        if self.material_density_g_cm3 <= self.water_density_g_cm3:
+            raise ValueError("buoyancy.material_density_g_cm3 는 water_density_g_cm3 보다 커야 합니다 "
+                             "(물보다 가벼운 소재는 가라앉지 않는다)")
+        return self
+
+
 class SizeRules(_Strict):
     display_name: str
     entrance_min_diameter_mm: PositiveMM
     tunnel_min_inner_diameter_mm: PositiveMM
-    # 터널(플라스틱 튜브) 최대 길이: 몸길이의 2배 이하 (DTSchB)
-    tunnel_max_length_mm: PositiveMM
     gap_trap: GapTrapRule
     min_wall_thickness_mm: PositiveMM
-    max_ramp_angle_deg: Annotated[float, Field(gt=0, lt=90)]
-    max_climb_height_mm: PositiveMM
-    max_step_height_mm: PositiveMM
-    sand_bath_min_inner_mm: tuple[PositiveMM, PositiveMM]
-    sand_bath_min_depth_mm: PositiveMM
     # 은신처 출입구 최소 개수 (여러 마리가 함께 지낼 때 막다른 곳 방지)
     hideout_min_entrances: HideoutEntranceRule
-    # 사육장 최소 바닥 기준 [긴 변, 짧은 변]. 작으면 경고만 한다 (설계는 막지 않음)
-    enclosure_min_floor_mm: tuple[PositiveMM, PositiveMM]
-    max_recommended_count: Annotated[int, Field(ge=1)]
-    count_warning_ko: str
+    # ── 아래는 사육 환경·만들 수 있는 구조물에 따라 필요한 값 (없으면 null). 종 단위 검증(SpeciesEntry)이 필수 여부를 정한다
+    # 터널(플라스틱 튜브) 최대 길이: 몸길이의 2배 이하 (DTSchB). null 이면 길이 상한 없음 (어항)
+    tunnel_max_length_mm: PositiveMM | None = None
+    max_ramp_angle_deg: Degrees | None = None
+    max_climb_height_mm: PositiveMM | None = None
+    max_step_height_mm: PositiveMM | None = None
+    sand_bath_min_inner_mm: tuple[PositiveMM, PositiveMM] | None = None
+    sand_bath_min_depth_mm: PositiveMM | None = None
+    # 사육장 최소 바닥 기준 [긴 변, 짧은 변]. 작으면 경고만 한다 (설계는 막지 않음). null 이면 검사하지 않음
+    enclosure_min_floor_mm: tuple[PositiveMM, PositiveMM] | None = None
+    # 권장 최대·최소 마릿수와 그때 띄울 경고 (둘 다 있거나 둘 다 null)
+    max_recommended_count: Count | None = None
+    count_warning_ko: str | None = None
+    min_recommended_count: Count | None = None
+    min_count_warning_ko: str | None = None
+    # 어항(물속) 기준. 케이지 종은 null
+    aquatic: AquaticRules | None = None
 
     @model_validator(mode="after")
     def _check_floor_order(self) -> "SizeRules":
+        if self.enclosure_min_floor_mm is None:
+            return self
         long_side, short_side = self.enclosure_min_floor_mm
         if long_side < short_side:
             raise ValueError("enclosure_min_floor_mm 는 [긴 변, 짧은 변] 순서여야 합니다")
@@ -78,16 +130,109 @@ class SizeRules(_Strict):
     @model_validator(mode="after")
     def _check_tunnel_length(self) -> "SizeRules":
         # 최소 내경보다 짧은 터널은 터널이 아니고, 템플릿 길이 하한보다 짧으면 만들 수 없다 (값 오타를 기동 때 잡는다)
+        if self.tunnel_max_length_mm is None:
+            return self
         floor = max(self.tunnel_min_inner_diameter_mm, TUNNEL_LENGTH_FIELD_MIN_MM)
         if self.tunnel_max_length_mm < floor:
             raise ValueError(f"tunnel_max_length_mm 는 {floor:g} 이상이어야 합니다 "
                              "(터널 최소 내경과 템플릿 길이 하한 중 큰 값)")
         return self
 
+    @model_validator(mode="after")
+    def _check_count_pairs(self) -> "SizeRules":
+        # 마릿수 기준과 경고 문구는 함께 있어야 한다 (기준만 있으면 빈 경고, 문구만 있으면 쓰이지 않는 값)
+        for count_key, text_key in (("max_recommended_count", "count_warning_ko"),
+                                    ("min_recommended_count", "min_count_warning_ko")):
+            if (getattr(self, count_key) is None) != (getattr(self, text_key) is None):
+                raise ValueError(f"{count_key} 와 {text_key} 는 둘 다 적거나 둘 다 null 이어야 합니다")
+        if (self.max_recommended_count is not None and self.min_recommended_count is not None
+                and self.min_recommended_count > self.max_recommended_count):
+            raise ValueError("min_recommended_count 는 max_recommended_count 이하여야 합니다")
+        return self
+
+
+# 사육 환경별로 크기 구분마다 있어야 하는 값
+_CAGE_REQUIRED_FIELDS: tuple[str, ...] = ("enclosure_min_floor_mm", "max_recommended_count", "count_warning_ko")
+# 구조물별로 크기 구분마다 있어야 하는 값 (케이지)
+_TEMPLATE_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
+    "tunnel": ("tunnel_max_length_mm",),
+    "ramp": ("max_ramp_angle_deg", "max_climb_height_mm", "max_step_height_mm"),
+    "sand_bath": ("sand_bath_min_inner_mm", "sand_bath_min_depth_mm", "max_step_height_mm"),
+}
+# 어항 크기 구분에는 없어야 하는 값 (램프·모래목욕통·오르기 기준)
+_AQUARIUM_FORBIDDEN_FIELDS: tuple[str, ...] = (
+    "max_ramp_angle_deg", "max_climb_height_mm", "max_step_height_mm", "sand_bath_min_inner_mm", "sand_bath_min_depth_mm",
+)
+
 
 class SpeciesEntry(_Strict):
     display_name: str
+    # 사육 환경: cage(케이지) / aquarium(어항). 화면 문구·검사·만들 수 있는 구조물이 달라진다
+    habitat: Habitat = "cage"
+    # 이 종에 만들 수 있는 구조물 (템플릿 키). 없으면 케이지 기본값 (어항은 반드시 적는다)
+    templates: tuple[str, ...] | None = None
+    # 입력할 수 있는 최대 마릿수
+    max_count: Count = 10
+    # 출력·설치 안내 문구 (어항 소재·세척 조건 등)
+    print_notes_ko: tuple[str, ...] = ()
+    # 물속 무게 계산용 밀도 (어항은 필수)
+    buoyancy: BuoyancyRules | None = None
     sizes: dict[str, SizeRules] = Field(min_length=1)
+
+    @property
+    def allowed_templates(self) -> tuple[str, ...]:
+        return self.templates if self.templates is not None else CAGE_TEMPLATES
+
+    @model_validator(mode="after")
+    def _check_habitat(self) -> "SpeciesEntry":
+        # 오류 메시지에 종 이름·크기 키·필드 이름을 넣는다 (pydantic 위치 정보 species.<키> 와 함께 RuleFileError 로 보인다)
+        where = f"{self.display_name}({self.habitat})"
+        if self.templates is not None:
+            if not self.templates:
+                raise ValueError(f"{where}: templates 가 비어 있습니다")
+            unknown = [k for k in self.templates if k not in TEMPLATE_MODULES]
+            if unknown:
+                raise ValueError(f"{where}: templates 에 알 수 없는 템플릿 키가 있습니다: {unknown} "
+                                 f"(가능한 키: {sorted(TEMPLATE_MODULES)})")
+            if len(set(self.templates)) != len(self.templates):
+                raise ValueError(f"{where}: templates 에 같은 키가 두 번 있습니다: {list(self.templates)}")
+        elif self.habitat != "cage":
+            raise ValueError(f"{where}: habitat 이 cage 가 아니면 templates 를 적어야 합니다")
+        allowed = HABITAT_TEMPLATES[self.habitat]
+        bad = [k for k in self.allowed_templates if k not in allowed]
+        if bad:
+            raise ValueError(f"{where}: templates 의 {bad} 는 habitat {self.habitat} 에서 만들 수 없습니다 "
+                             f"(가능한 키: {list(allowed)})")
+        if self.habitat == "cage":
+            self._check_cage(where)
+        else:
+            self._check_aquarium(where)
+        return self
+
+    def _check_cage(self, where: str) -> None:
+        if self.buoyancy is not None:
+            raise ValueError(f"{where}: buoyancy 는 habitat aquarium 에만 적습니다")
+        required = list(_CAGE_REQUIRED_FIELDS)
+        for key in self.allowed_templates:
+            required += [f for f in _TEMPLATE_REQUIRED_FIELDS.get(key, ()) if f not in required]
+        for skey, s in self.sizes.items():
+            if s.aquatic is not None:
+                raise ValueError(f"{where} 크기 구분 '{skey}': aquatic 은 habitat aquarium 에만 적습니다")
+            missing = [f for f in required if getattr(s, f) is None]
+            if missing:
+                raise ValueError(f"{where} 크기 구분 '{skey}': {', '.join(missing)} 이(가) 필요합니다 "
+                                 f"(만들 수 있는 구조물: {list(self.allowed_templates)})")
+
+    def _check_aquarium(self, where: str) -> None:
+        if self.buoyancy is None:
+            raise ValueError(f"{where}: habitat aquarium 에는 buoyancy 가 필요합니다")
+        for skey, s in self.sizes.items():
+            if s.aquatic is None:
+                raise ValueError(f"{where} 크기 구분 '{skey}': habitat aquarium 에는 aquatic 이 필요합니다")
+            extra = [f for f in _AQUARIUM_FORBIDDEN_FIELDS if getattr(s, f) is not None]
+            if extra:
+                raise ValueError(f"{where} 크기 구분 '{skey}': {', '.join(extra)} 은(는) 어항에 쓰지 않으니 "
+                                 "null 로 두거나 지워 주세요")
 
 
 class SpeciesFile(_Strict):
@@ -126,6 +271,24 @@ class RuleBook(BaseModel):
             return self.species_file.species[species].sizes[size]
         except KeyError as e:
             raise KeyError(f"규칙이 정의되지 않은 종/크기입니다: {species}/{size}") from e
+
+    def species_entry(self, species: str) -> SpeciesEntry:
+        try:
+            return self.species_file.species[species]
+        except KeyError as e:
+            raise KeyError(f"규칙이 정의되지 않은 종입니다: {species}") from e
+
+    def habitat(self, species: str) -> Habitat:
+        """사육 환경 (cage / aquarium). 모르는 종이면 KeyError."""
+        return self.species_entry(species).habitat
+
+    def allowed_templates(self, species: str) -> tuple[str, ...]:
+        """이 종에 만들 수 있는 템플릿 키 (templates 를 적지 않은 케이지 종은 케이지 기본값)."""
+        return self.species_entry(species).allowed_templates
+
+    def buoyancy(self, species: str) -> BuoyancyRules | None:
+        """물속 무게 계산용 밀도 (어항 종만). 모르는 종이면 KeyError."""
+        return self.species_entry(species).buoyancy
 
     def min_wall_for(self, species: str, size: str) -> float:
         """적용 최소 벽 두께 = max(종 갉음 기준, 출력 최소 벽)."""

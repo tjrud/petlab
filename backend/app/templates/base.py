@@ -88,7 +88,7 @@ class RuleContext:
     """템플릿이 동적 범위를 계산할 때 쓰는 규칙 값."""
 
     size: SizeRules
-    min_wall_mm: float  # max(종 갉음 기준, 출력 최소 벽)
+    min_wall_mm: float  # max(종 기준(케이지: 갉음 내구성, 어항: 물속 내구성), 출력 최소 벽)
     count: int = 1  # 함께 지내는 마릿수 (마릿수에 따라 달라지는 규칙용)
 
     @property
@@ -101,15 +101,19 @@ class RuleContext:
         return max(3.0, self.min_wall_mm)
 
     def wall_thickness_constraint(self) -> ParamConstraint:
-        """벽 두께 최소 제약 (은신처·모래목욕통·터널 공통).
+        """벽 두께 최소 제약 (모든 템플릿 공통).
 
-        종 갉음 기준이 적용 최소 벽을 정하면 출처는 species, 출력 최소 벽이 더 두꺼우면 printing.
+        종 기준(케이지: 갉음, 어항: 물속 내구성)이 적용 최소 벽을 정하면 출처는 species, 출력 최소 벽이 더 두꺼우면 printing.
         """
+        if self.size.aquatic is not None:
+            reason = f"벽 두께는 최소 {self.min_wall_mm:g}mm 이상이어야 합니다 (물속 내구성·출력 기준)"
+        else:
+            reason = f"벽 두께는 최소 {self.min_wall_mm:g}mm 이상이어야 합니다 (갉음 내구성·출력 기준)"
         return ParamConstraint(
             "wall_thickness_mm",
             min=self.min_wall_mm,
             source="species" if self.size.min_wall_thickness_mm >= self.min_wall_mm else "printing",
-            reason_ko=f"벽 두께는 최소 {self.min_wall_mm:g}mm 이상이어야 합니다 (갉음 내구성·출력 기준)",
+            reason_ko=reason,
         )
 
 

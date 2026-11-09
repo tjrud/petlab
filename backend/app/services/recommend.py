@@ -21,7 +21,9 @@ from sqlalchemy.orm import Session, selectinload
 from app.models import CageLayout, Design, DesignVersion, MarketEvent, MarketItem, Pet, User
 from app.schemas import MARKET_CATEGORIES
 
-TEMPLATE_CATEGORY = {"hideout": "hideout", "tunnel": "tunnel", "ramp": "ramp", "sand_bath": "sand_bath"}
+# 설계 템플릿 → 탐색 분류. 어항의 물속 동굴(cave)도 숨는 곳이라 은신처로 본다
+TEMPLATE_CATEGORY = {"hideout": "hideout", "tunnel": "tunnel", "ramp": "ramp", "sand_bath": "sand_bath",
+                     "cave": "hideout"}
 CATEGORY_NAME = MARKET_CATEGORIES
 EVENT_WEIGHT = {"view": 1.0, "download": 3.0, "copy": 3.0}
 

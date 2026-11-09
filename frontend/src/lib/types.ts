@@ -52,37 +52,79 @@ export type Me = {
 
 export type Cage = { width_mm: number; depth_mm: number; height_mm: number };
 
-/** 가상 케이지 배치 검토에 쓰는 종·크기별 규칙 값 (backend/rules/species.yaml) */
+/** 사육 환경 종류: 케이지 / 어항 (어항이면 사육 환경의 높이는 물 깊이: 바닥재 위~수면) */
+export type HabitatKind = "cage" | "aquarium";
+
+/** 가상 케이지 배치 검토에 쓰는 종·크기별 규칙 값 (backend/rules/species.yaml). 케이지 종에만 있다 */
 export type LayoutRules = {
   gap_safe_max_mm: number;
   gap_passable_min_mm: number;
   entrance_min_diameter_mm: number;
   tunnel_min_inner_diameter_mm: number;
-  /** 터널 권장 최대 길이 mm (이 크기 구분에서 가장 작은 개체 몸길이의 2배, 독일 동물보호연맹 기준). 옛 서버 응답에는 없을 수 있어요 */
-  tunnel_max_length_mm?: number;
-  max_climb_height_mm: number;
-  max_step_height_mm: number;
+  /** 터널 권장 최대 길이 mm (이 크기 구분에서 가장 작은 개체 몸길이의 2배, 독일 동물보호연맹 기준). 옛 서버 응답에는 없을 수 있고, 기준이 없으면 null */
+  tunnel_max_length_mm?: number | null;
+  /** 오르는 구조물 최대 높이 mm (경사로를 만들 수 없는 종이면 null) */
+  max_climb_height_mm: number | null;
+  /** 한 번에 넘는 최대 턱 높이 mm (기준이 없으면 null) */
+  max_step_height_mm: number | null;
   /** 은신처 출입구 최소 개수 (혼자 키울 때) */
   hideout_min_entrances: number;
   /** 은신처 출입구 최소 개수 (여러 마리를 함께 키울 때, 서로 피할 수 있도록) */
   hideout_min_entrances_group?: number;
-  /** 모래목욕통 최소 안쪽 크기 [가로, 세로] mm */
-  sand_bath_min_inner_mm: [number, number];
-  /** 사육장 최소 바닥 기준 [긴 변, 짧은 변] mm */
-  enclosure_min_floor_mm: [number, number];
+  /** 모래목욕통 최소 안쪽 크기 [가로, 세로] mm (모래목욕통을 만들 수 없는 종이면 null) */
+  sand_bath_min_inner_mm: [number, number] | null;
+  /** 사육장 최소 바닥 기준 [긴 변, 짧은 변] mm (기준이 없으면 null) */
+  enclosure_min_floor_mm: [number, number] | null;
+};
+
+/** 어항 크기 구분의 기준 (케이지 종은 null) */
+export type AquaticRules = {
+  /** 동굴 안쪽 천장 최소 경사 ° */
+  ceiling_min_slope_deg: number;
+  /** 구조물 위에 남겨야 하는 최소 물 깊이 mm */
+  structure_top_clearance_mm: number;
+  /** 수조 부피를 어림할 때 더하는 바닥재 두께 mm */
+  substrate_depth_assumed_mm: number;
+  /** 수조 부피를 어림할 때 더하는 수면 위 여유 mm */
+  air_gap_mm: number;
+  /** 수조 최소 부피 L */
+  min_volume_l: number;
+  /** 마리당 필요한 부피 L (출처가 없으면 null: 마릿수 비례 부피는 보지 않는다) */
+  volume_l_per_animal: number | null;
+  /** 구조물 높이 ÷ 바닥 짧은 변 최대 비율 (넘어짐) */
+  max_height_to_base_ratio: number;
 };
 
 export type SizeOption = {
   key: string;
   display_name: string;
-  max_recommended_count: number;
-  count_warning_ko: string;
-  /** 사육장 최소 바닥 기준 [긴 변, 짧은 변] mm */
-  enclosure_min_floor_mm: [number, number];
-  layout_rules: LayoutRules;
+  /** 권장 최대 마릿수와 넘을 때의 경고 (없으면 null) */
+  max_recommended_count: number | null;
+  count_warning_ko: string | null;
+  /** 권장 최소 마릿수와 모자랄 때의 경고 (없으면 null, 옛 서버 응답에는 없을 수 있어요) */
+  min_recommended_count?: number | null;
+  min_count_warning_ko?: string | null;
+  /** 사육장 최소 바닥 기준 [긴 변, 짧은 변] mm (없으면 null) */
+  enclosure_min_floor_mm: [number, number] | null;
+  /** 가상 케이지 검토 기준 (어항 종은 null) */
+  layout_rules: LayoutRules | null;
+  /** 어항 기준 (케이지 종은 null, 옛 서버 응답에는 없을 수 있어요) */
+  aquatic?: AquaticRules | null;
 };
 
-export type SpeciesOption = { key: string; display_name: string; sizes: SizeOption[] };
+export type SpeciesOption = {
+  key: string;
+  display_name: string;
+  sizes: SizeOption[];
+  /** 사육 환경 (옛 서버 응답에는 없을 수 있어요 → 케이지) */
+  habitat?: HabitatKind;
+  /** 이 종에 만들 수 있는 구조물 (템플릿 키) */
+  templates?: string[];
+  /** 입력할 수 있는 최대 마릿수 (없으면 10) */
+  max_count?: number;
+  /** 출력·설치 안내 (영어 화면이면 서버가 항목마다 번역해 보낸다) */
+  print_notes_ko?: string[];
+};
 
 export type SpeciesResponse = {
   rules_reviewed: boolean;
@@ -101,6 +143,8 @@ export type Habitat = {
   count: number;
   cage: Cage;
   created_at: string;
+  /** 사육 환경 종류 (옛 서버 응답에는 없을 수 있어요 → 케이지) */
+  habitat_kind?: HabitatKind;
 };
 
 export type Placement = { x_mm: number; y_mm: number; rotation_deg: number };
@@ -201,6 +245,8 @@ export type Pet = {
   cage: Cage | null;
   created_at: string;
   updated_at: string;
+  /** 사육 환경 종류 (옛 서버 응답에는 없을 수 있어요 → 케이지) */
+  habitat_kind?: HabitatKind;
 };
 
 export type PetInput = {
@@ -287,6 +333,8 @@ export type CageLayoutSummary = {
   item_count: number;
   created_at: string;
   updated_at: string;
+  /** 사육 환경 종류 (가상 케이지는 케이지 종만 저장해요. 옛 서버 응답에는 없을 수 있어요) */
+  habitat_kind?: HabitatKind;
 };
 
 export type CageLayout = CageLayoutSummary & { items: LayoutItem[] };
@@ -343,6 +391,8 @@ export type LayoutSnapshot = {
   size_name_ko: string;
   cage: Cage;
   items: LayoutItem[];
+  /** 사육 환경 종류 (옛 서버 응답에는 없을 수 있어요 → 케이지) */
+  habitat_kind?: HabitatKind;
 };
 
 export type MarketItemSummary = {

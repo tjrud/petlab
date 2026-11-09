@@ -167,6 +167,63 @@ def test_tunnel_wide_and_short_has_no_conflict(rules, size):
     assert violated(TUNNEL, fixed, c) == set()
 
 
+# ── 터널: 어항 (길이 상한 없음) ─────────────────────────────
+
+AQUARIUM_SIZES = ("shrimp", "nano_fish", "small_fish", "community")
+
+
+def aq_ctx(rules, size, count=1) -> RuleContext:
+    return RuleContext(rules.size_rules("aquarium", size), rules.min_wall_for("aquarium", size), count)
+
+
+@pytest.mark.parametrize("size", AQUARIUM_SIZES)
+def test_aquarium_tunnel_defaults(rules, size):
+    """어항 터널: 기본 길이는 내경의 6배(80~200mm), 길이 상한 제약이 없고, 기본값은 규칙을 지키며 출력할 수 있다."""
+    c = aq_ctx(rules, size)
+    p = TUNNEL.default_params(c)
+    inner = math.ceil(c.size.tunnel_min_inner_diameter_mm + 5)
+    assert p.inner_diameter_mm == inner
+    assert p.length_mm == min(200, max(80, 6 * inner))
+    assert p.wall_thickness_mm == c.default_wall_mm and p.bend_angle_deg == 0
+    assert violated(TUNNEL, p, c) == set()
+    assert_printable(TUNNEL, p)
+    assert not [k for k in TUNNEL.constraints(p, c) if k.field == "length_mm" and k.max is not None]
+    # 길이 상한이 없으니 긴 U자 터널도 된다
+    long_u = p.model_copy(update={"length_mm": 600, "bend_angle_deg": 180})
+    assert violated(TUNNEL, long_u, c) == set()
+    wall = next(k for k in TUNNEL.constraints(p, c) if k.field == "wall_thickness_mm")
+    assert wall.reason_ko == f"벽 두께는 최소 {c.min_wall_mm:g}mm 이상이어야 합니다 (물속 내구성·출력 기준)"
+
+
+def test_aquarium_tunnel_reasons_do_not_mention_max_length(rules):
+    from app.validation.autofix import clamp_params
+
+    c = aq_ctx(rules, "small_fish")
+    p = TunnelParams(length_mm=80, inner_diameter_mm=50, bend_angle_deg=180, wall_thickness_mm=3)
+    fixed, issues = clamp_params(TUNNEL, p, c)
+    assert not [i for i in issues if i.code == "param_conflict"]
+    assert fixed.length_mm == 80 and fixed.bend_angle_deg < 180
+    msgs = [i.message_ko for i in issues]
+    assert any("굽힘이 너무 급하면" in m for m in msgs)
+    assert all("최대 길이" not in m and "U자" not in m and "2배" not in m for m in msgs)
+    # 아주 넓고 짧은 터널: 모양 기준(내경의 1.5배)을 그대로 요구한다
+    wide = TunnelParams(length_mm=80, inner_diameter_mm=130, bend_angle_deg=0, wall_thickness_mm=3)
+    fixed2, issues2 = clamp_params(TUNNEL, wide, c)
+    assert fixed2.length_mm == pytest.approx(195)
+    assert any(i.message_ko.endswith("터널 길이는 내경의 1.5배 이상이어야 합니다") for i in issues2)
+
+
+@pytest.mark.parametrize("kw", [
+    dict(length_mm=80, inner_diameter_mm=12, bend_angle_deg=0, wall_thickness_mm=2),
+    dict(length_mm=150, inner_diameter_mm=20, bend_angle_deg=90, wall_thickness_mm=2),
+])
+def test_small_bore_tunnel_builds_printable(kw):
+    """어항 크기(내경 15~20mm)의 가는 터널도 닫힌 메시로 서포트 없이 출력된다."""
+    p = TunnelParams(**kw)
+    m = assert_printable(TUNNEL, p, min_wall=p.wall_thickness_mm)
+    assert m.extents[2] == pytest.approx(outer_height(p), abs=0.05)
+
+
 # ── 램프 / 계단 ────────────────────────────────────────────
 
 

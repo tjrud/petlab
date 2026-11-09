@@ -208,8 +208,9 @@ function message(ko: string, vars: Vars = {}, names: Record<string, NameVar> = {
  *  - blocks: 출입구 앞 통로(strip)를 그 구조물이 막는지
  */
 function ruleTests(rules: LayoutRules | null) {
-  // 바닥에서 넘어갈 수 있는 낮은 물건(밥그릇·판 등)은 틈·통로를 막지 않는 것으로 봐요
-  const low = (a: CageAsset) => rules !== null && a.size[2] <= rules.max_step_height_mm;
+  // 바닥에서 넘어갈 수 있는 낮은 물건(밥그릇·판 등)은 틈·통로를 막지 않는 것으로 봐요 (턱 높이 기준이 없으면 낮은 물건도 없어요)
+  const step = rules?.max_step_height_mm ?? null;
+  const low = (a: CageAsset) => step !== null && a.size[2] <= step;
   const isTrap = (gap: number) =>
     rules !== null && gap > rules.gap_safe_max_mm + TOL && gap < rules.gap_passable_min_mm - TOL;
   const blocks = (strip: Pt[], o: { asset: CageAsset; poly: Pt[] }) => !low(o.asset) && overlapDepth(strip, o.poly) > TOL;
@@ -240,8 +241,8 @@ export function checkLayout(cage: Cage, items: LayoutItem[], rules: LayoutRules 
 
   const { low, isTrap, blocks } = ruleTests(rules);
 
-  // 케이지 자체가 최소 바닥 기준보다 작으면 (긴 변·짧은 변끼리 비교)
-  if (rules) {
+  // 케이지 자체가 최소 바닥 기준보다 작으면 (긴 변·짧은 변끼리 비교). 기준이 없는 크기 구분은 건너뛰어요
+  if (rules?.enclosure_min_floor_mm) {
     const [minLong, minShort] = rules.enclosure_min_floor_mm;
     const long = Math.max(W, D);
     const short = Math.min(W, D);
@@ -313,7 +314,7 @@ export function checkLayout(cage: Cage, items: LayoutItem[], rules: LayoutRules 
         );
       }
     }
-    if (asset.tunnelLengthMm !== undefined && rules.tunnel_max_length_mm !== undefined) {
+    if (asset.tunnelLengthMm !== undefined && rules.tunnel_max_length_mm != null) {
       if (asset.tunnelLengthMm > rules.tunnel_max_length_mm + TOL) {
         add(
           "warning",
@@ -328,7 +329,7 @@ export function checkLayout(cage: Cage, items: LayoutItem[], rules: LayoutRules 
       }
     }
     if (asset.climbHeightMm !== undefined) {
-      if (asset.climbHeightMm > rules.max_climb_height_mm + TOL) {
+      if (rules.max_climb_height_mm != null && asset.climbHeightMm > rules.max_climb_height_mm + TOL) {
         add(
           "warning",
           `climb:${item.id}`,
@@ -366,7 +367,7 @@ export function checkLayout(cage: Cage, items: LayoutItem[], rules: LayoutRules 
         item.id,
       );
     }
-    if (asset.sandBathInnerMm) {
+    if (asset.sandBathInnerMm && rules.sand_bath_min_inner_mm) {
       const [mw, md] = rules.sand_bath_min_inner_mm;
       const [iw, id] = asset.sandBathInnerMm;
       if (Math.max(iw, id) < Math.max(mw, md) - TOL || Math.min(iw, id) < Math.min(mw, md) - TOL) {
@@ -382,7 +383,7 @@ export function checkLayout(cage: Cage, items: LayoutItem[], rules: LayoutRules 
         );
       }
     }
-    if (asset.stepHeightMm !== undefined && asset.stepHeightMm > rules.max_step_height_mm + TOL) {
+    if (asset.stepHeightMm !== undefined && rules.max_step_height_mm != null && asset.stepHeightMm > rules.max_step_height_mm + TOL) {
       add(
         "warning",
         `step:${item.id}`,

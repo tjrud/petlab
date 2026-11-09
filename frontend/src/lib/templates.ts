@@ -8,6 +8,7 @@ export const TEMPLATE_COLORS: Record<string, string> = {
   tunnel: "#7fb0a0",
   ramp: "#b99ad6",
   sand_bath: "#e6cf8f",
+  cave: "#c98a6a", // 물속 동굴 (어항): 물 색(파랑)과 구별되는 테라코타
 };
 
 export const PARAM_LABELS: Record<string, string> = {
@@ -26,6 +27,9 @@ export const PARAM_LABELS: Record<string, string> = {
   steps: "단 수",
   lip_height_mm: "턱 높이",
   basin_depth_mm: "안쪽 깊이",
+  // 물속 동굴 (단위는 formatParam 이 값 뒤에 붙인다)
+  top_opening_mm: "꼭대기 구멍",
+  roof_slope_deg: "지붕 경사",
 };
 
 export function formatParam(key: string, value: number, t: TFunction): string {

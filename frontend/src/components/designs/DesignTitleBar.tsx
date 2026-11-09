@@ -1,6 +1,7 @@
 import { Link, useT } from "@/i18n/client";
 
 import DeleteDesignButton from "@/components/designs/DeleteDesignButton";
+import { enclosureSummary, kindOf } from "@/lib/habitatKind";
 import type { Design } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
@@ -60,7 +61,7 @@ export default function DesignTitleBar({ design, onDeleted }: { design: Design; 
       </div>
       <p className="text-sm text-stone-500">
         {t("{species} {size} · {n}마리", { species: t(h.species_name_ko), size: t(h.size_name_ko), n: h.count })} ·{" "}
-        {t("케이지 {w}×{d}×{h}mm", { w: h.cage.width_mm, d: h.cage.depth_mm, h: h.cage.height_mm })}
+        {enclosureSummary(kindOf(h), h.cage, t)}
       </p>
       {!design.is_owner && (
         <p role="note" className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">

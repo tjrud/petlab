@@ -44,6 +44,13 @@ def format_validation_errors(e: ValidationError | json.JSONDecodeError, limit: i
     return "\n".join(lines)
 
 
+def refusal_message(req: InterpretRequest) -> str:
+    """모델이 거절했을 때의 안내. 케이지(햄스터)는 예전 문구 그대로, 어항은 어항 구조물로 안내한다."""
+    if req.habitat.habitat == "aquarium":
+        return "요청하신 내용으로는 설계를 진행할 수 없어요. 어항에 넣을 구조물에 관한 요구사항으로 다시 입력해 주세요."
+    return "요청하신 내용으로는 설계를 진행할 수 없어요. 케이지 구조물에 관한 요구사항으로 다시 입력해 주세요."
+
+
 class AnthropicInterpreter:
     name = "anthropic"
 
@@ -77,14 +84,15 @@ class AnthropicInterpreter:
         client = anthropic.Anthropic(api_key=api_key, timeout=timeout_s, max_retries=SDK_MAX_RETRIES)
         return cls(client, model or "", max_retries, timeout_s=timeout_s, deadline_s=deadline_s)
 
-    def _call(self, messages: list[dict], timeout_s: float) -> Any:
+    def _call(self, messages: list[dict], timeout_s: float, templates: tuple[str, ...]) -> Any:
         try:
             return self.client.messages.create(
                 model=self.model,
                 max_tokens=MAX_TOKENS,
                 system=SYSTEM_PROMPT,
                 messages=messages,
-                output_config={"format": {"type": "json_schema", "schema": api_schema()}},
+                # 이 종에 만들 수 있는 템플릿만 담은 스키마 (어항에는 램프·모래목욕통·은신처가 없다)
+                output_config={"format": {"type": "json_schema", "schema": api_schema(templates)}},
                 timeout=timeout_s,
             )
         except anthropic.AuthenticationError as e:
@@ -113,15 +121,12 @@ class AnthropicInterpreter:
             attempts = attempt
             # SDK 재시도(1회)까지 포함해도 남은 시간을 넘지 않도록 시도당 타임아웃을 나눈다
             per_try = min(self.timeout_s, remaining / (SDK_MAX_RETRIES + 1))
-            resp = self._call(messages, per_try)
+            resp = self._call(messages, per_try, req.allowed_templates)
             if resp.stop_reason == "refusal":
-                raise LLMRefusalError(
-                    "요청하신 내용으로는 설계를 진행할 수 없어요. 케이지 구조물에 관한 요구사항으로 다시 입력해 주세요.",
-                    f"refusal: {getattr(resp, 'stop_details', None)}",
-                )
+                raise LLMRefusalError(refusal_message(req), f"refusal: {getattr(resp, 'stop_details', None)}")
             text = next((b.text for b in resp.content if getattr(b, "type", None) == "text"), "")
             try:
-                spec = parse_spec(text)
+                spec = parse_spec(text, req.allowed_templates)
                 return InterpretResult(spec=spec, provider=self.name, attempts=attempts)
             except (ValidationError, json.JSONDecodeError) as e:
                 last_errors = format_validation_errors(e)

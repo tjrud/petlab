@@ -169,8 +169,8 @@ const en: Record<string, string> = {
 
   // 종·크기 이름 (서버가 보내는 한국어 이름)
   "햄스터": "Hamster",
-  "골든 (시리안)": "Golden (Syrian)",
-  "드워프 (정글리안·캠벨·로보로브스키)": "Dwarf (Djungarian, Campbell's, Roborovski)",
+  "골든 (시리안)": "Golden (Syrian) hamster",
+  "드워프 (정글리안·캠벨·로보로브스키)": "Dwarf hamster (Djungarian, Campbell's, Roborovski)",
 };
 
 export default en;

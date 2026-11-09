@@ -11,6 +11,7 @@ import { useAuth } from "@/components/AuthProvider";
 import LayoutPreview from "@/components/market/LayoutPreview";
 import { fileIdOf, getAsset, registerFileAsset } from "@/lib/cageAssets";
 import { readDraft, writeDraft } from "@/lib/cagePlannerDoc";
+import { kindOf } from "@/lib/habitatKind";
 import { FORMAT_HINT, formatBytes, formatLabel, FormatChips, imageSrc, MARKET_PATH } from "@/components/market/common";
 import RetryAlert from "@/components/RetryAlert";
 import { AUTO_3D_BYTES, canDecodeNfm, isMeshFormat, needsCredentials } from "@/lib/meshUrl";
@@ -162,6 +163,11 @@ export default function MarketItemDetail({ id }: { id: string }) {
     const lay = it.layout;
     if (!lay) return;
     setActionError(null);
+    // 가상 케이지는 케이지에서 키우는 종만 (서버도 막지만, 로그인 전에는 이 브라우저의 작업으로 담기 전에 여기서 막아요)
+    if (kindOf(lay) !== "cage") {
+      setActionError(t("가상 케이지는 케이지에서 키우는 동물만 지원해요."));
+      return;
+    }
     if (user) {
       setCopying(true);
       try {

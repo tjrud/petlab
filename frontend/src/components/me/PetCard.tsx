@@ -5,10 +5,11 @@ import { useId, useState } from "react";
 
 import { IconPaw } from "@/components/home/icons";
 import { api, ApiError, errorText, isAuthError } from "@/lib/api";
+import { kindOf } from "@/lib/habitatKind";
 import type { Pet } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
-import { btnPrimarySm, formatCage, formatYmd, petAge, SEX_LABEL } from "./common";
+import { btnPrimarySm, formatEnclosure, formatYmd, petAge, SEX_LABEL } from "./common";
 
 /** 반려동물 한 마리 카드: 정보, 이 아이로 설계하기·수정·삭제(한 번 더 확인) */
 export default function PetCard({
@@ -33,6 +34,7 @@ export default function PetCard({
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const age = pet.birth_date ? petAge(pet.birth_date, t) : null;
+  const kind = kindOf(pet);
 
   // 이름을 굵게 보이려고 번역한 문장을 {name} 자리에서 나눈다
   const [confirmBefore, confirmAfter = ""] = t("{name} 정보를 삭제할까요? 이 아이로 만든 설계는 그대로 남아요.").split("{name}");
@@ -83,8 +85,8 @@ export default function PetCard({
         )}
         {pet.cage && (
           <div className="flex gap-2">
-            <dt className="w-14 shrink-0 text-stone-500">{t("케이지")}</dt>
-            <dd>{formatCage(pet.cage)}</dd>
+            <dt className="w-14 shrink-0 text-stone-500">{kind === "aquarium" ? t("수조") : t("케이지")}</dt>
+            <dd>{formatEnclosure(kind, pet.cage, t)}</dd>
           </div>
         )}
       </dl>

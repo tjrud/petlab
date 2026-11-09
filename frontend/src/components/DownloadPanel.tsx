@@ -2,8 +2,10 @@
 
 import { useState, type MouseEvent } from "react";
 
+import AquariumPrintNotice from "@/components/AquariumPrintNotice";
 import { Link, useLang, useT } from "@/i18n/client";
 import { api, errorFrom } from "@/lib/api";
+import type { HabitatKind } from "@/lib/types";
 
 const NETWORK_ERROR = "파일을 받지 못했어요. 잠시 후 다시 시도해 주세요.";
 
@@ -27,11 +29,17 @@ export default function DownloadPanel({
   version,
   allowed,
   partCount,
+  kind = "cage",
+  printNotes = null,
 }: {
   designId: string;
   version: number;
   allowed: boolean;
   partCount: number;
+  /** 사육 환경 종류. 어항이면 출력·설치 안전 안내를 함께 보여 준다 */
+  kind?: HabitatKind;
+  /** 어항 출력 안내 (종 규칙의 print_notes_ko). null 이면 아직 불러오는 중이라 안내를 띄우지 않는다 */
+  printNotes?: readonly string[] | null;
 }) {
   const t = useT();
   const lang = useLang();
@@ -110,6 +118,7 @@ export default function DownloadPanel({
           {t("검증 문제를 해결해야 파일을 내려받을 수 있어요. 위의 수정 요청란에 바꿀 내용을 적어 다시 설계하면 돼요.")}
         </p>
       )}
+      {kind === "aquarium" && printNotes !== null && <AquariumPrintNotice notes={printNotes} />}
       <Link
         href={`/order?design=${designId}&version=${version}`}
         className="block rounded-xl border border-stone-300 px-4 py-3 text-center font-medium hover:bg-stone-50"

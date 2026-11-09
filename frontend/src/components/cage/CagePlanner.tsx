@@ -34,6 +34,7 @@ import {
   snapPosition,
 } from "@/lib/cageLayout";
 import { histReducer, metaOf, readDraft, snapshotOf, writeDraft, type Doc, type Meta } from "@/lib/cagePlannerDoc";
+import { fallbackCageSpecies, kindOf, speciesKind } from "@/lib/habitatKind";
 import { withNext } from "@/lib/safeNext";
 import { PREVIEW_BG } from "@/lib/previewColors";
 import { uploadMarketFile } from "@/lib/marketUpload";
@@ -162,6 +163,16 @@ export default function CagePlanner() {
       window.removeEventListener(LAYOUTS_CHANGED, refreshLayouts);
     };
   }, [userId, refreshLayouts]);
+
+  // 가상 케이지는 케이지에서 키우는 종만 써요. 어항 종(이 브라우저의 임시 저장·담아 온 배치·옛 배치안에서 들어온 값)이면
+  // 검토 기준을 기본 케이지 종·크기로 바꾸고 알려요 (렌더 중 비교: 바꾼 뒤에는 조건이 풀려 한 번만 일어나요)
+  if (species && speciesKind(species.species, meta.species) === "aquarium") {
+    const fallback = fallbackCageSpecies(species.species);
+    setMeta((m) => ({ ...m, species: fallback.species, size: fallback.size, petId: null }));
+    setNotice({ kind: "error", text: t("가상 케이지는 케이지에서 키우는 동물만 지원해요. 검토 기준 종·크기를 기본값으로 바꿨어요.") });
+  }
+  /** 고를 수 있는 내 반려동물: 케이지에서 키우는 아이만 */
+  const cagePets = useMemo(() => pets && pets.filter((p) => kindOf(p, species?.species) === "cage"), [pets, species]);
 
   const sizeOpt = species?.species.find((s) => s.key === meta.species)?.sizes.find((z) => z.key === meta.size);
   const rules = sizeOpt?.layout_rules ?? null;
@@ -573,10 +584,15 @@ export default function CagePlanner() {
 
   const pickPet = useCallback(
     (p: Pet) => {
+      // 목록에는 케이지 종만 보이지만, 어항에서 키우는 아이는 여기서도 한 번 더 막아요
+      if (kindOf(p, species?.species) !== "cage") {
+        setNotice({ kind: "error", text: t("가상 케이지는 케이지에서 키우는 동물만 지원해요.") });
+        return;
+      }
       setMeta((m) => ({ ...m, species: p.species, size: p.size, petId: p.id }));
       if (p.cage) applyCage(p.cage);
     },
-    [applyCage],
+    [applyCage, species, t],
   );
 
   // ── 키보드 ──
@@ -870,7 +886,7 @@ export default function CagePlanner() {
               <CageSizePanel
                 cage={cage}
                 onApply={applyCage}
-                pets={pets}
+                pets={cagePets}
                 onPickPet={pickPet}
                 outsideCount={outsideCount}
                 onPullInside={pullAllInside}

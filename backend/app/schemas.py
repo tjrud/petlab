@@ -17,6 +17,7 @@ from pydantic import (
 )
 
 from app.names import normalize_nickname
+from app.rules.loader import Habitat
 
 # DB 에 저장되는 값의 형식 (Postgres 는 NUL 문자·int4 범위를 넘는 정수를 거부하므로 입력 단계에서 막는다)
 ID_RE = re.compile(r"[0-9a-f]{32}")  # 서버 코드에서는 항상 fullmatch 로 쓴다 (파이썬 re 의 $ 는 끝 줄바꿈 앞에서도 맞으므로 ^…$ 로 검사하지 않는다)
@@ -64,12 +65,18 @@ NewPassword = Annotated[str, Field(min_length=8, max_length=128)]
 Title = Annotated[str, Text1, Field(min_length=1, max_length=100), AfterValidator(_single_line)]
 
 
+# 사육 환경 종류 (규칙 파일 species.<종>.habitat: cage / aquarium). 어항이면 CageIn 은 수조 안쪽 가로·세로와 물 깊이다
+HabitatKind = Habitat
+# 입력할 수 있는 마릿수의 전체 상한. 종별 상한(규칙 파일 max_count)은 서비스가 확인한다 (DesignService.check_habitat)
+MAX_HABITAT_COUNT = 200
+
+
 class CageIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    width_mm: float = Field(ge=200, le=2000, description="케이지 내부 가로 mm")
-    depth_mm: float = Field(ge=200, le=2000, description="케이지 내부 세로 mm")
-    height_mm: float = Field(ge=100, le=1000, description="케이지 내부 높이 mm")
+    width_mm: float = Field(ge=200, le=2000, description="케이지 내부 가로 mm (어항: 수조 내부 가로)")
+    depth_mm: float = Field(ge=200, le=2000, description="케이지 내부 세로 mm (어항: 수조 내부 세로)")
+    height_mm: float = Field(ge=100, le=1000, description="케이지 내부 높이 mm (어항: 물 깊이, 바닥재 위~수면)")
 
 
 class HabitatIn(BaseModel):
@@ -77,7 +84,7 @@ class HabitatIn(BaseModel):
 
     species: str = Field(max_length=32, examples=["hamster"])
     size: str = Field(max_length=32, examples=["syrian"])
-    count: int = Field(ge=1, le=10)
+    count: int = Field(ge=1, le=MAX_HABITAT_COUNT, description="마릿수 (종별 상한은 /species 의 max_count)")
     cage: CageIn
     pet_id: EntityId | None = Field(default=None, description="내 반려동물 정보로 등록할 때")
 
@@ -89,6 +96,7 @@ class HabitatOut(BaseModel):
     species_name_ko: str
     size: str
     size_name_ko: str
+    habitat_kind: HabitatKind  # 규칙 파일에서 빠진 종은 cage
     count: int
     cage: CageIn
     created_at: datetime
@@ -308,6 +316,7 @@ class PetOut(BaseModel):
     species_name_ko: str
     size: str
     size_name_ko: str
+    habitat_kind: HabitatKind
     sex: str
     birth_date: date | None
     notes: str | None
@@ -356,6 +365,7 @@ class CageLayoutSummary(BaseModel):
     species: str
     size: str
     size_name_ko: str
+    habitat_kind: HabitatKind  # 가상 케이지는 케이지 종만 저장하지만, 옛 행·빠진 종도 cage 로 보인다
     pet_id: str | None
     cage: CageIn
     item_count: int
@@ -490,6 +500,7 @@ class LayoutSnapshot(BaseModel):
     species: str
     size: str
     size_name_ko: str = ""
+    habitat_kind: HabitatKind = "cage"
     cage: CageIn
     items: list[LayoutItemIn]
 

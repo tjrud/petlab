@@ -11,6 +11,7 @@ import re
 
 from app.i18n import catalog
 from app.llm.base import InterpretRequest, InterpretResult
+from app.llm.prompts import is_aquarium, pet_name_en
 from app.llm.spec import MAX_ITEMS, parse_spec
 from app.templates.base import RuleContext
 from app.templates.registry import all_templates
@@ -23,7 +24,8 @@ TEMPLATE_KEYWORDS: dict[str, tuple[str, ...]] = {
     "ramp": ("계단", "램프", "경사로", "오르막"),
     "sand_bath": ("모래목욕", "모래 목욕", "모래통", "목욕통", "모래"),
 }
-TEMPLATE_NAMES_KO = {"hideout": "은신처", "tunnel": "터널", "ramp": "램프/계단", "sand_bath": "모래목욕통"}
+TEMPLATE_NAMES_KO = {"hideout": "은신처", "tunnel": "터널", "ramp": "램프/계단", "sand_bath": "모래목욕통",
+                     "cave": "물속 동굴"}
 
 ZONE_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
     ("front_left", ("왼쪽 앞", "앞쪽 왼", "좌측 앞")),
@@ -51,7 +53,36 @@ TEMPLATE_KEYWORDS_EN: dict[str, re.Pattern[str]] = {
     "ramp": re.compile(r"\b(?:ramps?|stairs?|stair ?cases?|steps?|slopes?|ladders?)\b"),
     "sand_bath": re.compile(r"\b(?:sand ?baths?|sand ?box(?:es)?|dust ?baths?|bath ?tubs?|baths?|sand)\b"),
 }
-TEMPLATE_NAMES_EN = {"hideout": "Hideout", "tunnel": "Tunnel", "ramp": "Ramp/stairs", "sand_bath": "Sand bath"}
+TEMPLATE_NAMES_EN = {"hideout": "Hideout", "tunnel": "Tunnel", "ramp": "Ramp/stairs", "sand_bath": "Sand bath",
+                     "cave": "Underwater cave"}
+
+# 어항(habitat="aquarium") 요청용 키워드. 은신처·집처럼 숨을 곳을 뜻하는 말은 물속 동굴로 읽는다.
+# 순서대로 찾고 찾은 말은 지운다: '동굴'을 먼저 지워 터널 키워드 '굴'이 다시 잡지 않게 한다.
+# 어항의 '모래'는 바닥재라 모래목욕통으로 읽지 않는다 (모래목욕을 콕 집어 말했을 때만 만들 수 없다고 알린다)
+AQUARIUM_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "cave": ("동굴", "은신처", "숨숨집", "숨을 곳", "숨는 곳", "하우스", "집"),
+    "tunnel": ("터널", "통로", "파이프", "튜브", "굴"),
+    "ramp": TEMPLATE_KEYWORDS["ramp"],
+    "sand_bath": ("모래목욕", "모래 목욕", "목욕통"),
+}
+# 한 글자 '관'(파이프)은 따로 낱말일 때만 터널로 읽는다: 관상어·관찰·수족관·관리처럼 다른 낱말 속의 '관'은 뺀다.
+# 뒤에 조사(을·이·과·이랑 …)가 붙는 것은 받는다
+AQUARIUM_KEYWORDS_RX: dict[str, re.Pattern[str]] = {
+    "tunnel": re.compile(r"(?<![가-힣])관(?:을|를|이|가|은|는|도|과|와|에|의|만|으로|로|이랑|랑|하고|처럼)?(?![가-힣])"),
+}
+AQUARIUM_KEYWORDS_EN: dict[str, re.Pattern[str]] = {
+    "cave": re.compile(r"\b(?:caves?|caverns?|grott(?:o|os|oes)|hide ?outs?|hides?|hidey(?: ?holes?)?"
+                       r"|hiding (?:places?|spots?)|shelters?|houses?|huts?|dens?|retreats?)\b"),
+    "tunnel": re.compile(r"\b(?:tunnels?|tubes?|tubing|pipes?|passages?|burrows?|swim[ -]?throughs?)\b"),
+    "ramp": TEMPLATE_KEYWORDS_EN["ramp"],
+    "sand_bath": re.compile(r"\b(?:sand ?baths?|dust ?baths?)\b"),
+}
+assert list(AQUARIUM_KEYWORDS) == list(AQUARIUM_KEYWORDS_EN)
+assert set(AQUARIUM_KEYWORDS_RX) <= set(AQUARIUM_KEYWORDS)
+# 물속 동굴 출입구 개수: 앞뒤로 뚫린(관통형) 2개 / 앞만 뚫린 1개
+CAVE_THROUGH = ("앞뒤", "관통", "양쪽")
+CAVE_ONE_DOOR = ("출입구 하나", "출입구가 하나", "입구 하나", "입구가 하나", "앞만 뚫린")
+CAVE_DOOR_COUNT = re.compile(r"(?:출입구|입구)[^\d]{0,6}?(\d+)\s*개")
 
 # ZONE_KEYWORDS 와 같은 순서 (구체적인 모서리 → 한쪽 → 방향 없는 구석)
 ZONE_KEYWORDS_EN: list[tuple[str, re.Pattern[str]]] = [(_zone, re.compile(_rx)) for _zone, _rx in [
@@ -88,6 +119,8 @@ VENTS_EN = (re.compile(_NUM_EN + r"\s*(?:air[ -]?|ventilation |vent )?(?:vents?|
 _DOOR_EN = r"(?:entrances?|entry|entries|doors?|doorways?|openings?)"
 ENTRANCE_EN = (re.compile(r"\b" + _DOOR_EN + r"\b[^\d]{0,10}(\d+(?:\.\d+)?)\s*(mm|cm)\b"),
                re.compile(r"(\d+(?:\.\d+)?)\s*(mm|cm)\b[a-z\s-]{0,12}?\b" + _DOOR_EN + r"\b"))
+CAVE_THROUGH_EN = re.compile(r"\b(?:through|front and back|both (?:ends|sides)|two[ -]way|open (?:at )?both)\b")
+CAVE_DOOR_COUNT_EN = re.compile(r"\b" + _NUM_EN + r"[\s-]*" + _DOOR_EN + r"\b")
 
 
 def _num(word: str) -> int:
@@ -98,16 +131,30 @@ def _en(text: str) -> str:
     return text.lower()
 
 
-def _find_templates(text: str) -> list[str]:
+def _blank(m: re.Match[str]) -> str:
+    return " " * len(m.group(0))
+
+
+def _find_templates(text: str, aquarium: bool = False) -> list[str]:
+    words_of, rx_of = (AQUARIUM_KEYWORDS, AQUARIUM_KEYWORDS_EN) if aquarium else (TEMPLATE_KEYWORDS, TEMPLATE_KEYWORDS_EN)
     found = []
     low = _en(text)
-    for key, words in TEMPLATE_KEYWORDS.items():
+    for key, words in words_of.items():
         positions = [text.find(w) for w in words if w in text]
-        m = TEMPLATE_KEYWORDS_EN[key].search(low)
+        m = rx_of[key].search(low)
         if m:
+            positions.append(m.start())
+        ko_rx = AQUARIUM_KEYWORDS_RX.get(key) if aquarium else None
+        if ko_rx is not None and (m := ko_rx.search(text)):
             positions.append(m.start())
         if positions:
             found.append((min(positions), key))
+        if aquarium:  # 찾은 말을 같은 길이의 빈칸으로 지운다 (위치는 그대로)
+            for w in words:
+                text = text.replace(w, " " * len(w))
+            if ko_rx is not None:
+                text = ko_rx.sub(_blank, text)
+            low = rx_of[key].sub(_blank, low)
     return [k for _, k in sorted(found)]
 
 
@@ -166,6 +213,15 @@ def _apply_numbers(key: str, text: str, params: dict) -> dict:
             m = VENTS_EN[0].search(low) or VENTS_EN[1].search(low)
             if m:
                 out["vent_count"] = _num(m.group(1))
+    if key == "cave":
+        m = CAVE_DOOR_COUNT.search(text) or CAVE_DOOR_COUNT_EN.search(low)
+        if m:
+            out["entrance_count"] = min(2, max(1, _num(m.group(1))))
+        elif any(w in text for w in CAVE_ONE_DOOR):
+            out["entrance_count"] = 1
+        elif any(w in text for w in CAVE_THROUGH) or CAVE_THROUGH_EN.search(low):
+            out["entrance_count"] = 2
+    if key in ("hideout", "cave"):
         m = (re.search(r"출입구[^\d]{0,10}(\d+(?:\.\d+)?)\s*(mm|cm)", text)
              or ENTRANCE_EN[0].search(low) or ENTRANCE_EN[1].search(low))
         if m:
@@ -179,9 +235,20 @@ class MockInterpreter:
 
     @staticmethod
     def _reason_en(req: InterpretRequest, key: str) -> str:
-        cat = catalog()  # 종·크기 이름은 규칙 파일의 한국어 이름을 카탈로그로 바꾼다
-        pet = f"{cat.translate(req.size_rules.display_name)} {cat.translate(req.habitat.species_name_ko).lower()}"
-        return f"Found '{TEMPLATE_NAMES_EN[key]}' in your request and used the standard values for a {pet}."
+        if is_aquarium(req):  # 크기 구분 이름은 규칙 파일의 한국어 이름을 카탈로그로 바꾼다
+            group = catalog().translate(req.size_rules.display_name)
+            return (f"Found '{TEMPLATE_NAMES_EN[key]}' in your request and used the standard tank values "
+                    f"for the {group}.")
+        return (f"Found '{TEMPLATE_NAMES_EN[key]}' in your request and used the standard values "
+                f"for a {pet_name_en(req)}.")
+
+    @staticmethod
+    def _reason_ko(req: InterpretRequest, key: str) -> str:
+        if is_aquarium(req):
+            return (f"요구사항에서 '{TEMPLATE_NAMES_KO[key]}'을(를) 찾아 {req.size_rules.display_name} "
+                    "수조 기준에 맞춰 구성했습니다.")
+        return (f"요구사항에서 '{TEMPLATE_NAMES_KO[key]}'을(를) 찾아 {req.habitat.species_name_ko} "
+                f"{req.size_rules.display_name} 기준값으로 구성했습니다.")
 
     def interpret(self, req: InterpretRequest) -> InterpretResult:
         text = req.prompt
@@ -190,22 +257,35 @@ class MockInterpreter:
         registry = {t.key: t for t in all_templates()}
         ctx = RuleContext(req.size_rules, req.min_wall_mm, req.habitat.count)
         notes: list[str] = []
+        allowed = [k for k in req.allowed_templates if k in registry]  # 이 종에 만들 수 있는 구조물
+        # 아무것도 말하지 않았을 때 만들 기본 구조물: 케이지는 은신처, 어항은 물속 동굴(허용 목록의 첫 템플릿)
+        default_key = "hideout" if "hideout" in allowed or not allowed else allowed[0]
 
-        requested = _find_templates(text)
+        requested = _find_templates(text, aquarium=is_aquarium(req))
         unsupported = [k for k in requested if k not in registry]
         if unsupported:
             names = ", ".join(names_of[k] for k in unsupported)
             notes.append(f"Left out because they aren't supported yet: {names}" if en
                          else f"아직 지원하지 않는 구조물이라 제외했습니다: {names}")
-        requested = [k for k in requested if k in registry]
+        items: list[dict] = []
+        if req.previous is not None:
+            items = json.loads(req.previous.model_dump_json())["items"]
+        # 직전 설계에 이 종이 만들 수 없는 구조물이 있으면(규칙 파일이 바뀐 경우) 실제 LLM 처럼 빼고 알린다
+        dropped = [it["template"] for it in items if it["template"] not in allowed]
+        items = [it for it in items if it["template"] in allowed]
+        not_allowed = list(dict.fromkeys([k for k in requested if k in registry and k not in allowed] + dropped))
+        if not_allowed:
+            names = ", ".join(names_of[k] for k in not_allowed)
+            species = req.habitat.species_name_ko
+            notes.append(f"Left out because they can't be made for {catalog().translate(species).lower()}: {names}"
+                         if en else f"{species}에는 만들 수 없는 구조물이라 제외했습니다: {names}")
+        requested = [k for k in requested if k in registry and k in allowed]
 
         zone = _find_zone(text)
         grouped = _grouped(text)
         factor = _scale_factor(text)
 
-        items: list[dict] = []
         if req.previous is not None:
-            items = json.loads(req.previous.model_dump_json())["items"]
             low = _en(text)
             if (any(w in text for w in REMOVE) or REMOVE_EN.search(low)) and requested:
                 items = [it for it in items if it["template"] not in requested]
@@ -226,9 +306,14 @@ class MockInterpreter:
                             it["placement"]["group"] = "g1"
                 requested = [k for k in requested if k not in existing]
         elif not requested:
-            requested = ["hideout"]
-            notes.append("No specific structure was mentioned, so I designed one standard hideout." if en
-                         else "구체적인 구조물 언급이 없어 기본 은신처 1개로 설계했습니다.")
+            requested = [default_key]
+            if default_key == "hideout":
+                notes.append("No specific structure was mentioned, so I designed one standard hideout." if en
+                             else "구체적인 구조물 언급이 없어 기본 은신처 1개로 설계했습니다.")
+            else:
+                notes.append(f"No specific structure was mentioned, so I designed one standard "
+                             f"{TEMPLATE_NAMES_EN[default_key].lower()}." if en
+                             else f"구체적인 구조물 언급이 없어 기본 {TEMPLATE_NAMES_KO[default_key]} 1개로 설계했습니다.")
 
         for key in requested:
             t = registry[key]
@@ -241,18 +326,21 @@ class MockInterpreter:
                     "group": "g1" if grouped else None,
                     "rotation": None,
                 },
-                "reason_ko": self._reason_en(req, key) if en else
-                             f"요구사항에서 '{TEMPLATE_NAMES_KO[key]}'을(를) 찾아 {req.habitat.species_name_ko} "
-                             f"{req.size_rules.display_name} 기준값으로 구성했습니다.",
+                "reason_ko": self._reason_en(req, key) if en else self._reason_ko(req, key),
             })
 
         if not items:
-            t = registry["hideout"]
+            t = registry[default_key]
+            if default_key == "hideout":
+                reason = ("Every structure was removed, so I kept the standard hideout." if en
+                          else "구조물이 모두 제외되어 기본 은신처를 남겼습니다.")
+            else:
+                reason = (f"Every structure was removed, so I kept the standard {TEMPLATE_NAMES_EN[default_key].lower()}."
+                          if en else f"구조물이 모두 제외되어 기본 {TEMPLATE_NAMES_KO[default_key]}을(를) 남겼습니다.")
             items.append({
-                "template": "hideout", "params": t.default_params(ctx).model_dump(),
+                "template": default_key, "params": t.default_params(ctx).model_dump(),
                 "placement": {"zone": "auto", "group": None, "rotation": None},
-                "reason_ko": "Every structure was removed, so I kept the standard hideout." if en
-                             else "구조물이 모두 제외되어 기본 은신처를 남겼습니다.",
+                "reason_ko": reason,
             })
         items = items[:MAX_ITEMS]
         names = ", ".join(names_of.get(it["template"], it["template"]) for it in items)
@@ -263,4 +351,5 @@ class MockInterpreter:
             "items": items,
             "notes_ko": notes,
         }, ensure_ascii=False)
-        return InterpretResult(spec=parse_spec(spec_json), provider=self.name, attempts=1)
+        # 실제 LLM 과 같은 계약: 이 종에 만들 수 있는 템플릿만 받는다
+        return InterpretResult(spec=parse_spec(spec_json, allowed or None), provider=self.name, attempts=1)
