@@ -69,7 +69,8 @@ export default function CageSizePanel({
     if (errors.length) return;
     onApply({ width_mm: Number(draft.w), depth_mm: Number(draft.d), height_mm: Number(draft.h) });
   };
-  const petCages = (pets ?? []).filter((p) => p.cage);
+  // 어항에서 키우는 아이는 빼요 (부르는 쪽에서도 거르지만, habitat_kind 를 보내는 서버면 여기서도 한 번 더)
+  const petCages = (pets ?? []).filter((p) => p.cage && (p.habitat_kind ?? "cage") === "cage");
 
   return (
     <div className="space-y-4">

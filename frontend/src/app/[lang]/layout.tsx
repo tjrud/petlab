@@ -15,7 +15,9 @@ export async function generateStaticParams() {
 export async function generateMetadata(): Promise<Metadata> {
   const lang = await getLang();
   const t = await getT();
-  const description = t("햄스터 케이지 치수에 맞춘 은신처·터널·경사로·모래목욕통 설계와 3D 프린팅 파일(STL·3MF).");
+  const description = t(
+    "햄스터 케이지 치수에 맞춘 은신처·터널·경사로·모래목욕통, 어항에 넣을 물속 동굴·터널 설계와 3D 프린팅 파일(STL·3MF).",
+  );
   return {
     title: { default: t("NestForge – 햄스터 맞춤 케이지 구조물 설계"), template: "%s · NestForge" },
     description,

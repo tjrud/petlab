@@ -1,6 +1,7 @@
 import { Link, useT } from "@/i18n/client";
 
 import DeleteDesignButton from "@/components/designs/DeleteDesignButton";
+import { enclosureSummary, kindOf } from "@/lib/habitatKind";
 import type { DesignListItem } from "@/lib/types";
 import { formatDate, ui } from "@/lib/ui";
 
@@ -32,9 +33,7 @@ export default function DesignCard({ design: d, onDeleted }: { design: DesignLis
         <p className="mt-2 text-sm text-stone-600">
           {t("{species} {size} · {n}마리", { species: t(h.species_name_ko), size: t(h.size_name_ko), n: h.count })}
         </p>
-        <p className="text-sm text-stone-600">
-          {t("케이지 {w}×{d}×{h}mm", { w: c.width_mm, d: c.depth_mm, h: c.height_mm })}
-        </p>
+        <p className="text-sm text-stone-600">{enclosureSummary(kindOf(h), c, t)}</p>
         {d.pet_name && (
           <p className="mt-2">
             <span className={`${chip} inline-block max-w-full truncate bg-orange-50 text-orange-900 ring-1 ring-orange-200`}>

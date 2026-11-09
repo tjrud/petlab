@@ -133,13 +133,16 @@ class RuleContext:
     """템플릿이 동적 범위를 계산할 때 쓰는 규칙 값."""
 
     size: SizeRules
-    min_wall_mm: float  # max(종 갉음 기준, 출력 최소 벽)
+    min_wall_mm: float  # max(종 기준(케이지: 갉음 내구성, 어항: 물속 내구성), 출력 최소 벽)
     count: int = 1  # 함께 지내는 마릿수 (마릿수에 따라 달라지는 규칙용)
     # 서포트 없이 출력할 수 있는 최대 오버행(printing.yaml). 출력 자세가 지붕 경사 같은 파라미터를 제한할 때 쓴다.
     # None 이면(옛 호출) 출력 규칙 기반 제약은 내지 않는다
     printing_max_overhang_deg: float | None = None
     # 장식의 최소 형상 크기(printing.yaml min_feature_mm). None 이면 장식을 적용하지 않는다
     min_feature_mm: float | None = None
+    # 어항: 구조물 최대 높이 (물 깊이 − 구조물 위 최소 물 깊이). 엔진이 새 설계를 보정할 때만 준다.
+    # 높이를 이 안에 맞추려면 다른 값도 바꿔야 하는 템플릿(물속 동굴: 지붕 높이)이 그 값을 함께 조정할 때 쓴다
+    height_limit_mm: float | None = None
 
     @property
     def hideout_min_entrances(self) -> int:
@@ -151,15 +154,19 @@ class RuleContext:
         return max(3.0, self.min_wall_mm)
 
     def wall_thickness_constraint(self) -> ParamConstraint:
-        """벽 두께 최소 제약 (은신처·모래목욕통·터널 공통).
+        """벽 두께 최소 제약 (모든 템플릿 공통).
 
-        종 갉음 기준이 적용 최소 벽을 정하면 출처는 species, 출력 최소 벽이 더 두꺼우면 printing.
+        종 기준(케이지: 갉음, 어항: 물속 내구성)이 적용 최소 벽을 정하면 출처는 species, 출력 최소 벽이 더 두꺼우면 printing.
         """
+        if self.size.aquatic is not None:
+            reason = f"벽 두께는 최소 {self.min_wall_mm:g}mm 이상이어야 합니다 (물속 내구성·출력 기준)"
+        else:
+            reason = f"벽 두께는 최소 {self.min_wall_mm:g}mm 이상이어야 합니다 (갉음 내구성·출력 기준)"
         return ParamConstraint(
             "wall_thickness_mm",
             min=self.min_wall_mm,
             source="species" if self.size.min_wall_thickness_mm >= self.min_wall_mm else "printing",
-            reason_ko=f"벽 두께는 최소 {self.min_wall_mm:g}mm 이상이어야 합니다 (갉음 내구성·출력 기준)",
+            reason_ko=reason,
         )
 
 
@@ -182,6 +189,22 @@ class Template(ABC):
 
     def default_params(self, ctx: RuleContext | None = None) -> TemplateParams:
         return self.Params()
+
+    def min_height_mm(self, ctx: RuleContext, p: TemplateParams | None = None) -> float | None:
+        """규칙 안에서 만들 수 있는 가장 낮은 외형 높이 (어항 물 깊이와 비교). 모르면 None (비교하지 않음).
+
+        p: 보정 전 파라미터. 보정이 바꾸지 않는 선택(터널 단면 모양처럼 높이를 정하는 값)을 반영할 때 쓴다."""
+        return None
+
+    def height_limit_constraints(
+        self, p: TemplateParams, ctx: RuleContext, limit_mm: float, reason_ko: str
+    ) -> list[ParamConstraint]:
+        """외형 높이를 limit_mm 이하로 맞추는 제약. 기본: 높이 파라미터(height_field) 상한, 없으면 없음.
+
+        높이 파라미터가 없는 템플릿(터널: 내경·벽 두께로 높이가 정해진다)은 높이를 정하는 파라미터의 상한으로 바꿔 준다."""
+        if not self.height_field:
+            return []
+        return [ParamConstraint(self.height_field, max=limit_mm, source="geometry", reason_ko=reason_ko)]
 
     @abstractmethod
     def constraints(self, p: TemplateParams, ctx: RuleContext) -> list[ParamConstraint]:

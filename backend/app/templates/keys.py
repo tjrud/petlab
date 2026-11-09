@@ -6,4 +6,5 @@ TEMPLATE_MODULES: dict[str, str] = {
     "ramp": "app.templates.ramp",
     "sand_bath": "app.templates.sand_bath",
     "house": "app.templates.house",
+    "cave": "app.templates.cave",
 }

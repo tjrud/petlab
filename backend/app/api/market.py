@@ -118,7 +118,8 @@ def _layout_out(svc: DesignService, item: MarketItem) -> LayoutSnapshot | None:
         return None
     sp = svc.rules.species_file.species.get(lay.get("species", ""))
     size = sp.sizes.get(lay.get("size", "")) if sp else None
-    return LayoutSnapshot(**lay, size_name_ko=size.display_name if size else lay.get("size", ""))
+    return LayoutSnapshot(**lay, size_name_ko=size.display_name if size else lay.get("size", ""),
+                          habitat_kind=svc.habitat_kind(lay.get("species", "")))
 
 
 def _item_out(db: Session, svc: DesignService, item: MarketItem, user: User | None) -> MarketItemOut:
@@ -423,9 +424,10 @@ def _record(db: Session, user: User | None, item: MarketItem, kind: str) -> bool
 
 @router.get("/recommended", response_model=list[MarketItemSummary], summary="맞춤 추천 (로그인하면 내 설계·배치안·반려동물·본 작품 기준)")
 def recommended(limit: int = Query(default=12, ge=1, le=48), db: Session = Depends(get_db),
-                user: User | None = Depends(get_optional_user)):
+                svc: DesignService = Depends(get_service), user: User | None = Depends(get_optional_user)):
+    # 케이지 반려동물만 "케이지 전체"·"가상 케이지 배치" 관심으로 센다 (어항 생물은 케이지를 쓰지 않는다)
     return [MarketItemSummary(**_summary_fields(it), reason_ko=reason)
-            for it, reason in recommend.recommend(db, user, limit)]
+            for it, reason in recommend.recommend(db, user, limit, habitat_of=svc.habitat_kind)]
 
 
 @router.get("/items/{item_id}", response_model=MarketItemOut, summary="작품 보기 (누구나)")
@@ -485,10 +487,12 @@ def delete_item(item_id: str, request: Request, db: Session = Depends(get_db), u
 
 @router.post("/items/{item_id}/copy-layout", status_code=status.HTTP_201_CREATED,
              summary="배치 예시를 내 가상 케이지 배치안으로 담기")
-def copy_layout(item_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
+def copy_layout(item_id: str, db: Session = Depends(get_db), svc: DesignService = Depends(get_service),
+                user: User = Depends(get_current_user)) -> dict:
     item = _get_item(db, item_id)
     if not item.layout:
         raise AppError("이 작품에는 가상 케이지 배치가 없어요.", code="no_layout")
+    svc.check_virtual_cage(item.layout.get("species", ""))  # 배치안 저장(/layouts)과 같은 기준
     ensure_layout_capacity(db, user)
     copy = _layout_from_snapshot(item.layout, user)
     db.add(copy)

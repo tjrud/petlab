@@ -45,6 +45,7 @@ from app.schemas import (
     DesignListOut,
     DesignOut,
     HabitatIn,
+    HabitatKind,
     HabitatOut,
     ItemOut,
     PartOut,
@@ -325,18 +326,40 @@ class DesignService:
 
     # ── 사육 환경 ───────────────────────────────────────────
 
-    def check_species(self, species: str, size: str) -> None:
+    def check_habitat(self, species: str, size: str, count: int | None = None) -> None:
+        """규칙 파일에 있는 종·크기인지, count 를 주면 종별 최대 마릿수(max_count) 이하인지 확인한다.
+        사육 환경 등록(count 와 함께)·반려동물·배치안 저장(종·크기만)이 쓴다."""
         try:
             self.rules.size_rules(species, size)
         except KeyError:
             raise InvalidInputError(f"지원하지 않는 종/크기입니다: {species}/{size}") from None
+        if count is not None:
+            entry = self.rules.species_entry(species)
+            if count > entry.max_count:
+                raise InvalidInputError(f"{entry.display_name}은(는) 최대 {entry.max_count}마리까지 입력할 수 있습니다.")
+
+    def habitat_kind(self, species: str) -> HabitatKind:
+        """사육 환경 종류 (cage / aquarium). 규칙 파일에서 빠진 종(옛 행)은 cage 로 본다 (500 이 나지 않게)."""
+        try:
+            return self.rules.habitat(species)
+        except KeyError:
+            return "cage"
+
+    def check_virtual_cage(self, species: str) -> None:
+        """가상 케이지(배치안)는 케이지 종만 지원한다 (에셋·배치 검토가 케이지 기준). 규칙에서 빠진 종은 막지 않는다
+        (check_habitat 이 먼저 걸러내고, 탐색에서 담아 오는 옛 배치는 예전처럼 담긴다)."""
+        if self.habitat_kind(species) != "cage":
+            raise InvalidInputError("가상 케이지는 케이지에서 키우는 동물만 지원합니다.", code="virtual_cage_unsupported")
 
     def create_habitat(self, db: Session, data: HabitatIn, user: User) -> Habitat:
-        self.check_species(data.species, data.size)
+        self.check_habitat(data.species, data.size, data.count)
         if data.pet_id is not None:
             pet = db.get(Pet, data.pet_id)
             if pet is None or pet.owner_id != user.id:
                 raise NotFoundError("반려동물 정보를 찾을 수 없습니다.")
+            if pet.species != data.species:
+                # 반려동물(예: 햄스터) 정보로 다른 종(예: 어항)의 사육 환경을 만들지 않는다
+                raise InvalidInputError("반려동물 정보와 종이 다릅니다.", code="pet_species_mismatch")
         h = Habitat(
             owner_id=user.id, pet_id=data.pet_id,
             species=data.species, size=data.size, count=data.count,
@@ -358,7 +381,7 @@ class DesignService:
         species_name, size_name = self.rules.display_names(h.species, h.size)
         return HabitatOut(
             id=h.id, pet_id=h.pet_id if owner_view else None, species=h.species, species_name_ko=species_name,
-            size=h.size, size_name_ko=size_name, count=h.count,
+            size=h.size, size_name_ko=size_name, habitat_kind=self.habitat_kind(h.species), count=h.count,
             cage=CageIn(width_mm=h.cage_width_mm, depth_mm=h.cage_depth_mm, height_mm=h.cage_height_mm),
             created_at=h.created_at,
         )
@@ -407,6 +430,8 @@ class DesignService:
     def create_design(self, db: Session, habitat_id: str, prompt: str, user: User,
                       ip_key: str | None = None) -> tuple[Design, DesignVersion]:
         h = self.get_habitat(db, habitat_id, user)
+        # 규칙 파일에서 빠진 종·크기의 옛 사육 환경은 사용량을 쓰기 전에 막는다 (예전에는 해석 단계에서 500)
+        self.check_habitat(h.species, h.size)
         # 사용량을 먼저 기록하고 커밋한다 (LLM 호출 수십 초 동안 DB 연결을 '트랜잭션 중' 상태로 잡아 두지 않는다)
         self.reserve_quota(db, user, ip_key)
         generated = self._generate(h, prompt, previous=None)  # LLM 실패 시 예외 → 아무것도 저장하지 않음
@@ -425,6 +450,7 @@ class DesignService:
         base = self.get_version(db, design, base_version)
         previous = self._previous_spec(base)
         habitat = design.habitat
+        self.check_habitat(habitat.species, habitat.size)  # create_design 과 같은 까닭
         self.reserve_quota(db, user, ip_key)  # 기록 후 커밋 (create_design 과 같은 이유)
         generated = self._generate(habitat, prompt, previous=previous)
         # 해석하는 동안(최대 1분) 다른 창에서 설계를 지웠으면 새 버전을 붙이지 않는다.
@@ -468,14 +494,16 @@ class DesignService:
         # 크기 규칙 → 종 이름 → 최소 벽 두께
         ctx = self._engine_ctx(h)
         size_rules = ctx.size_rules
-        species_name = self.rules.species_file.species[h.species].display_name
+        entry = self.rules.species_entry(h.species)
         req = InterpretRequest(
             prompt=prompt,
-            habitat=HabitatInfo(h.species, species_name, h.size, h.count, ctx.cage),
+            # 어항이면 cage 는 수조 안쪽 가로·세로와 물 깊이(바닥재 위~수면)
+            habitat=HabitatInfo(h.species, entry.display_name, h.size, h.count, ctx.cage, habitat=entry.habitat),
             size_rules=size_rules,
             min_wall_mm=ctx.min_wall_mm,
             previous=previous,
             language=get_lang(),  # 영어 페이지에서 만들면 설명(summary_ko 등)도 영어로
+            allowed_templates=entry.allowed_templates,  # 이 종에 만들 수 있는 구조물만 LLM 에게 보인다
         )
         result = self._interpreter().interpret(req)
         engine_result = run_engine(to_item_specs(result.spec), ctx)

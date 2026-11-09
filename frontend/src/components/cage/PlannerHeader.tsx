@@ -3,6 +3,7 @@
 import { Link, useHref, useT } from "@/i18n/client";
 
 import type { Meta } from "@/lib/cagePlannerDoc";
+import { isCageSpecies } from "@/lib/habitatKind";
 import { withNext } from "@/lib/safeNext";
 import type { SpeciesResponse } from "@/lib/types";
 import { ui } from "@/lib/ui";
@@ -58,10 +59,11 @@ export default function PlannerHeader({
             }}
           >
             {species ? (
-              species.species.flatMap((sp) =>
+              // 가상 케이지는 케이지에서 키우는 종만 (어항 종은 고를 수 없어요)
+              species.species.filter(isCageSpecies).flatMap((sp) =>
                 sp.sizes.map((z) => (
                   <option key={`${sp.key}/${z.key}`} value={`${sp.key}/${z.key}`}>
-                    {t(sp.display_name)} · {t(z.display_name)}
+                    {t("{species} · {size}", { species: t(sp.display_name), size: t(z.display_name) })}
                   </option>
                 )),
               )

@@ -37,6 +37,8 @@ from app.templates.base import (
 # 꼭대기 직선부가 시작되는 접점의 각도(꼭대기 기준). 50° 이면 직선부 오버행 = 90-50 = 40° (< 45°)
 TIP_ANGLE_DEG = 50.0
 _CUT = 1.0
+MIN_INNER_FIELD_MM, MAX_INNER_FIELD_MM = 12.0, 130.0  # inner_diameter_mm 필드 범위
+MIN_WALL_FIELD_MM, MAX_WALL_FIELD_MM = 1.0, 8.0  # wall_thickness_mm 필드 범위
 
 
 class TunnelParams(TemplateParams):
@@ -45,12 +47,12 @@ class TunnelParams(TemplateParams):
         description="터널 중심선 길이 mm. 종별 최대 길이(몸길이의 2배) 이하. 일반 프린터(220mm)에 들어가려면 200mm 이하 권장",
     )
     inner_diameter_mm: float = Field(
-        60, ge=35, le=130, description="터널 안쪽 폭(=내경) mm. 종별 최소 내경 이상"
+        60, ge=MIN_INNER_FIELD_MM, le=MAX_INNER_FIELD_MM, description="터널 안쪽 폭(=내경) mm. 종별 최소 내경 이상"
     )
     bend_angle_deg: float = Field(
         0, ge=0, le=180, description="수평면에서 휘는 각도(도). 0=직선, 90=ㄱ자 곡선, 180=U자. S자 경로에서는 한 번 휘는 각도"
     )
-    wall_thickness_mm: float = Field(3, ge=1.0, le=8, description="벽 두께 mm")
+    wall_thickness_mm: float = Field(3, ge=MIN_WALL_FIELD_MM, le=MAX_WALL_FIELD_MM, description="벽 두께 mm")
     shape: Literal["pointed_arch", "round_arch", "tube", "box", "house"] = Field(
         "pointed_arch",
         description=("단면 모양. pointed_arch=끝이 뾰족한 아치(기본, 서포트 없이 출력), round_arch=둥근 아치, "
@@ -134,6 +136,34 @@ def profile(p: TunnelParams):
     return outer - inner
 
 
+def height_coefficients(shape: str) -> tuple[float, float]:
+    """단면 모양별 바깥 높이 = a × 내경 + b × 벽 두께 의 (a, b). 휘는 모양(arc·S자)은 높이를 바꾸지 않는다.
+
+    뾰족 아치·집 모양: r + (r + t)/cos(TIP_ANGLE) (집 모양 꼭대기는 뾰족 아치와 같다), 둥근 아치·네모: 2r + t,
+    관: 2(r + t). 어항 물 깊이에 맞출 때(height_limit_constraints·min_height_mm) 쓴다. outer_height 와 같은지는
+    tests/test_template_others.py 가 확인한다."""
+    k = 1 / math.cos(math.radians(TIP_ANGLE_DEG))
+    if shape in ("round_arch", "box"):
+        return 1.0, 1.0
+    if shape == "tube":
+        return 1.0, 2.0
+    return (1 + k) / 2, k  # pointed_arch, house
+
+
+def height_for(shape: str, inner_diameter_mm: float, wall_thickness_mm: float) -> float:
+    """단면 모양·내경·벽 두께로 정해지는 바깥 높이."""
+    a, b = height_coefficients(shape)
+    return a * inner_diameter_mm + b * wall_thickness_mm
+
+
+def _floor1(x: float) -> float:
+    return math.floor(x * 10 + 1e-6) / 10
+
+
+# 천장 꼭대기가 기울지 않은(둥글거나 평평한) 단면. 물속에 수평으로 놓으면 뾰족한 단면보다 천장 아래 공기가 넓게 남는다
+FLAT_TOPPED_SHAPES = frozenset({"round_arch", "tube", "box"})
+
+
 def outer_height(p: TunnelParams) -> float:
     r = p.inner_diameter_mm / 2
     t = p.wall_thickness_mm
@@ -191,20 +221,60 @@ class TunnelTemplate(Template):
     def default_params(self, ctx: RuleContext | None = None) -> TunnelParams:
         if ctx is None:
             return TunnelParams()
-        return TunnelParams(
+        inner = float(math.ceil(ctx.size.tunnel_min_inner_diameter_mm + 5))
+        max_len = ctx.size.tunnel_max_length_mm
+        if max_len is None:
+            # 길이 상한이 없는 종(어항): 파는 양쪽 열린 관처럼 내경의 6배 (80~200mm). 안전 기준이 아니라 기본 모양이다
+            length = min(200.0, max(80.0, 6 * inner))
+        else:
             # 기본 200mm. 종별 최대 길이(몸길이 2배)가 더 짧으면 그 값
-            length_mm=min(200.0, ctx.size.tunnel_max_length_mm),
-            inner_diameter_mm=float(math.ceil(ctx.size.tunnel_min_inner_diameter_mm + 5)),
+            length = min(200.0, max_len)
+        return TunnelParams(
+            length_mm=length,
+            inner_diameter_mm=inner,
             bend_angle_deg=0,
             wall_thickness_mm=ctx.default_wall_mm,
         )
 
+    def min_height_mm(self, ctx: RuleContext, p: TemplateParams | None = None) -> float:
+        """종별 최소 내경·최소 벽 두께로 만든 가장 낮은 터널 높이. 높이는 단면 모양에 따라 다르므로 p 의 shape 를 쓴다
+        (p 가 없으면 기본 단면 pointed_arch)."""
+        shape = p.shape if isinstance(p, TunnelParams) else "pointed_arch"
+        inner = min(MAX_INNER_FIELD_MM, max(MIN_INNER_FIELD_MM, ctx.size.tunnel_min_inner_diameter_mm))
+        t = min(MAX_WALL_FIELD_MM, max(MIN_WALL_FIELD_MM, ctx.min_wall_mm))
+        return math.ceil(height_for(shape, inner, t) * 10 - 1e-6) / 10
+
+    def height_limit_constraints(
+        self, p: TunnelParams, ctx: RuleContext, limit_mm: float, reason_ko: str
+    ) -> list[ParamConstraint]:
+        """터널 높이는 단면 모양·내경·벽 두께로 정해진다: 높이가 limit_mm 이하가 되도록 내경(필요하면 벽 두께도) 상한을 둔다.
+        휘는 모양(arc·S자)은 수평면에서만 휘므로 높이와 상관없다."""
+        a, b = height_coefficients(p.shape)
+        t = max(p.wall_thickness_mm, ctx.min_wall_mm)
+        inner_min = max(MIN_INNER_FIELD_MM, ctx.size.tunnel_min_inner_diameter_mm)
+        out: list[ParamConstraint] = []
+        # 최소 내경으로도 높으면 벽 두께를 줄인다 (높이 = a·내경 + b·t)
+        t_fit = (limit_mm - a * inner_min) / b
+        if t > t_fit + 1e-9:
+            t = max(ctx.min_wall_mm, MIN_WALL_FIELD_MM, _floor1(t_fit))
+            out.append(ParamConstraint("wall_thickness_mm", max=t, source="geometry", reason_ko=reason_ko))
+        out.append(ParamConstraint(
+            "inner_diameter_mm", max=_floor1((limit_mm - b * t) / a), source="geometry", reason_ko=reason_ko,
+        ))
+        return out
+
     def constraints(self, p: TunnelParams, ctx: RuleContext) -> list[ParamConstraint]:
         s = ctx.size
         d = max(p.inner_diameter_mm, s.tunnel_min_inner_diameter_mm)
-        max_len = s.tunnel_max_length_mm
+        h_limit = ctx.height_limit_mm
+        if h_limit is not None and self.min_height_mm(ctx, p) <= h_limit + 1e-6:
+            # 어항 높이 한도(엔진이 따로 준다)가 줄일 내경을 미리 반영해 길이 하한·휨 한계를 계산한다
+            inner_cap = self.height_limit_constraints(p, ctx, h_limit, "")[-1].max
+            assert inner_cap is not None
+            d = max(min(d, inner_cap), s.tunnel_min_inner_diameter_mm)
+        max_len = s.tunnel_max_length_mm  # None: 길이 상한 없음 (어항)
         shape_min = 1.5 * d
-        if shape_min > max_len:
+        if max_len is not None and shape_min > max_len:
             min_reason = (f"터널 길이는 내경의 1.5배 이상이 좋지만 최대 길이 {max_len:g}mm 를 넘을 수 없어 "
                           f"{max_len:g}mm 까지만 요구합니다")
         else:
@@ -214,8 +284,9 @@ class TunnelTemplate(Template):
         seg = 0.5 if s_curve else 1.0
         cap = S_CURVE_MAX_DEG if s_curve else 180.0
         bend_max = min(cap, math.degrees(seg * p.length_mm / d))
-        bend_at_max = math.degrees(seg * max_len / d)  # 최대 길이까지 늘렸을 때의 휨 한계
-        if p.bend_angle_deg > min(cap, bend_at_max) + 1e-6 and bend_at_max < cap:
+        # 최대 길이까지 늘렸을 때의 휨 한계 (길이 상한이 없으면(어항) 지금 길이 기준 한계뿐)
+        bend_at_max = math.degrees(seg * max_len / d) if max_len is not None else math.inf
+        if max_len is not None and p.bend_angle_deg > min(cap, bend_at_max) + 1e-6 and bend_at_max < cap:
             # 최대 길이로 늘려도 닿지 않는 각도: 까닭(최대 길이)을 밝힌다
             # 영어 카탈로그가 문장 단위로 찾을 수 있게 문장을 따로 둔다 (한국어 결과는 같다)
             limit = bend_at_max
@@ -232,7 +303,7 @@ class TunnelTemplate(Template):
             bend_reason = "S자 터널은 한 번에 90° 까지만 휠 수 있어 휘는 각도를 줄였습니다"
         else:
             bend_reason = "굽힘이 너무 급하면 몸이 돌아 나가기 어려워 휘는 각도를 줄였습니다"
-        return [
+        out = [
             ctx.wall_thickness_constraint(),
             ParamConstraint(
                 "inner_diameter_mm", min=s.tunnel_min_inner_diameter_mm, source="species",
@@ -240,21 +311,23 @@ class TunnelTemplate(Template):
             ),
             ParamConstraint(
                 # 모양 기준(내경의 1.5배)보다 종별 최대 길이(동물 복지 기준)를 앞세운다: 둘이 부딪히면 최대 길이까지만 요구한다
-                "length_mm", min=min(shape_min, max_len), reason_ko=min_reason,
+                "length_mm", min=min(shape_min, max_len) if max_len is not None else shape_min, reason_ko=min_reason,
             ),
-            ParamConstraint(
+        ]
+        if max_len is not None:
+            out.append(ParamConstraint(
                 # [근거] DTSchB: 플라스틱 튜브는 몸길이의 2배 이하일 때만 받아들일 수 있다 (환기·사용 설명 조건과 함께).
                 # 값(mm)은 species.yaml 이 이 크기 구분에서 가장 작은 개체 몸길이로 정한다.
                 # 나중에 더한 기준이라 그 전에 저장된 버전은 막지 않고 경고만 한다 (blocking=False)
                 "length_mm", max=max_len, source="species", blocking=False,
                 reason_ko=(f"터널 최대 길이는 {max_len:g}mm 입니다 (독일 동물보호연맹: 플라스틱 튜브는 몸길이의 2배 이하. "
                            "이 크기 구분에서 가장 작은 개체 기준)"),
-            ),
-            ParamConstraint(
-                # 중심선 굽힘 반경 ≥ 내경 → 안쪽 벽이 겹치지 않고 몸이 돌아 나갈 수 있음
-                "bend_angle_deg", max=bend_max, reason_ko=bend_reason,
-            ),
-        ]
+            ))
+        out.append(ParamConstraint(
+            # 중심선 굽힘 반경 ≥ 내경 → 안쪽 벽이 겹치지 않고 몸이 돌아 나갈 수 있음
+            "bend_angle_deg", max=bend_max, reason_ko=bend_reason,
+        ))
+        return out
 
     def build(self, p: TunnelParams) -> Part:
         R = bend_radius(p)
@@ -285,5 +358,6 @@ class TunnelTemplate(Template):
             min_wall_thickness_mm=p.wall_thickness_mm,
             openings=(Opening("passage", p.inner_diameter_mm, "터널 내경", rule_key="tunnel_min_inner_diameter_mm"),),
             access_sides=tuple(dict.fromkeys(sides)),
-            extra={"outer_height_mm": outer_height(p), "bent_needs_support": needs_support(p)},
+            extra={"outer_height_mm": outer_height(p), "bent_needs_support": needs_support(p),
+                   "flat_ceiling": p.shape in FLAT_TOPPED_SHAPES},
         )

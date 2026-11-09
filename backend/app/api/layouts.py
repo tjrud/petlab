@@ -27,7 +27,7 @@ def _summary_fields(svc: DesignService, lay: CageLayout) -> dict:
     _, size_name = svc.rules.display_names(lay.species, lay.size)
     return dict(
         id=lay.id, name=lay.name, species=lay.species, size=lay.size,
-        size_name_ko=size_name, pet_id=lay.pet_id,
+        size_name_ko=size_name, habitat_kind=svc.habitat_kind(lay.species), pet_id=lay.pet_id,
         cage=CageIn(width_mm=lay.cage_width_mm, depth_mm=lay.cage_depth_mm, height_mm=lay.cage_height_mm),
         item_count=len(lay.items or []), created_at=lay.created_at, updated_at=lay.updated_at,
     )
@@ -49,7 +49,8 @@ def _my_layout(db: Session, layout_id: str, user: User) -> CageLayout:
 
 
 def _apply(db: Session, svc: DesignService, lay: CageLayout, data: CageLayoutIn, user: User) -> None:
-    svc.check_species(data.species, data.size)
+    svc.check_habitat(data.species, data.size)
+    svc.check_virtual_cage(data.species)  # 어항 종은 가상 케이지에 저장하지 않는다
     if data.pet_id is not None:
         pet = db.get(Pet, data.pet_id)
         if pet is None or pet.owner_id != user.id:

@@ -128,8 +128,8 @@ const en: Record<string, string> = {
 
   // 종·크기 (rules/species.yaml)
   "햄스터": "Hamster",
-  "골든 (시리안)": "Golden (Syrian)",
-  "드워프 (정글리안·캠벨·로보로브스키)": "Dwarf (Djungarian, Campbell's, Roborovski)",
+  "골든 (시리안)": "Golden (Syrian) hamster",
+  "드워프 (정글리안·캠벨·로보로브스키)": "Dwarf hamster (Djungarian, Campbell's, Roborovski)",
 
   // PetForm
   "이름을 입력해 주세요.": "Please enter a name.",
@@ -141,6 +141,10 @@ const en: Record<string, string> = {
   "메모에 쓸 수 없는 문자가 있어요.": "The notes contain characters that aren't allowed.",
   "메모는 {max}자 이하로 적어 주세요.": "Notes can be up to {max} characters.",
   "가로·세로·높이를 모두 입력하거나, 치수 비우기를 눌러 주세요.": "Enter width, depth, and height, or click Clear dimensions.",
+  "가로·세로·물 깊이를 모두 입력하거나, 치수 비우기를 눌러 주세요.": "Enter width, depth, and water depth, or click Clear dimensions.",
+  "수조 크기와 물 깊이": "Tank size and water depth",
+  "물 깊이는 바닥재 위부터 수면까지 재 주세요.": "Measure water depth from the top of the substrate to the water surface.",
+  "{w}×{d}mm · 물 깊이 {h}mm": "{w}×{d}mm · Water depth {h}mm",
   "입력해 주세요.": "Required.",
   "{label}는 {lo}~{hi}mm 사이로 입력해 주세요.": "{label} must be between {lo} and {hi} mm.",
   "반려동물 정보 수정": "Edit pet",

@@ -7,7 +7,7 @@ const AREAS = [
   {
     href: "/design",
     title: "설계하기",
-    body: "케이지 치수와 원하는 구조물을 적으면 치수에 맞춘 설계와 3D 프린팅 파일이 나와요.",
+    body: "케이지나 수조 치수와 원하는 구조물을 적으면 치수에 맞춘 설계와 3D 프린팅 파일이 나와요.",
     Icon: IconPencil,
     tone: "bg-amber-100 text-amber-800",
   },
@@ -42,7 +42,7 @@ const AREAS = [
   {
     href: "/me",
     title: "내 정보·반려동물",
-    body: "반려동물과 케이지 정보를 등록해 두면 다음 설계 때 바로 불러올 수 있어요.",
+    body: "반려동물과 케이지·수조 정보를 등록해 두면 다음 설계 때 바로 불러올 수 있어요.",
     Icon: IconPaw,
     tone: "bg-rose-50 text-rose-700",
   },

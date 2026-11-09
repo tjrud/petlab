@@ -12,12 +12,19 @@ LLM 은 좌표를 정하지 않고 zone(영역)·group(함께 몰기)·rotation 
 후보는 밀착(0) 또는 passable_min 간격 위치로 만들므로 틈은 자연스럽게 안전 구간에 놓인다.
 attach_to 힌트(대상 항목 인덱스 + 면)가 있으면 대상의 그 면 바깥에 뒷면을 맞대어 놓는다 (2층 집의 바깥 램프:
 램프 꼭대기가 착지판에 닿도록). 그 자리가 안전 조건을 어기면 일반 방식으로 놓고 엔진이 경고를 낸다.
+
+틈은 바닥 사각형(AABB)으로 잰다. 휜 터널처럼 바닥 윤곽이 사각형보다 작은 구조물은 사각형끼리 붙어도(틈 0)
+실제 윤곽 사이에 끼임 틈이 남을 수 있어, exact_gaps=True 면 사각형이 가까울 때 실제 윤곽 사이 거리도 확인한다
+(검증 check_gaps 와 같은 기준). 지금은 어항 설계에서만 켠다 (케이지 설계의 배치 결과를 바꾸지 않으려고).
 """
 
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+
+from shapely import affinity
+from shapely.geometry import Polygon
 
 from app.domain import BuiltItem, Cage, Placement, Rect, access_strip, world_direction
 from app.rules.loader import GapTrapRule
@@ -27,6 +34,10 @@ ROTATIONS = (0, 90, 180, 270)
 EPS = 1e-6
 
 
+# 바닥 윤곽이 사각형보다 이만큼(mm²) 이상 작으면 사각형이 아닌 윤곽으로 본다 (메시 투영의 수치 오차 허용)
+SHAPE_AREA_TOL_MM2 = 1.0
+
+
 @dataclass(frozen=True)
 class _Placed:
     rect: Rect
@@ -34,6 +45,8 @@ class _Placed:
     group: str | None
     index: int = -1
     rotation: int = 0
+    # 실제 바닥 윤곽 (사각형이 아닌 구조물만, exact_gaps 일 때). 없으면 rect 가 윤곽이다
+    shape: Polygon | None = None
 
 
 def zone_target(zone: str, cage: Cage, w: float, d: float) -> tuple[float, float] | None:
@@ -57,8 +70,23 @@ def wall_gaps(r: Rect, cage: Cage) -> list[float]:
     return [r.x0, cage.width_mm - r.x1, r.y0, cage.depth_mm - r.y1]
 
 
+def _rect_polygon(r: Rect) -> Polygon:
+    return Polygon([(r.x0, r.y0), (r.x1, r.y0), (r.x1, r.y1), (r.x0, r.y1)])
+
+
+def _shape_trap(rect: Rect, shape: Polygon | None, o: _Placed, rect_gap: float, gap: GapTrapRule) -> bool:
+    """사각형이 아닌 윤곽이 있으면 실제 윤곽 사이 틈이 끼임 구간인지. 윤곽 사이 거리는 사각형 거리보다 작지 않아
+    사각형 틈이 이미 통과 폭 이상이면 다시 재지 않는다."""
+    if (shape is None and o.shape is None) or rect_gap >= gap.passable_min_mm:
+        return False
+    a = shape if shape is not None else _rect_polygon(rect)
+    b = o.shape if o.shape is not None else _rect_polygon(o.rect)
+    return gap.is_trap(a.distance(b))
+
+
 def _valid(
-    rect: Rect, strips: list[Rect], placed: list[_Placed], cage: Cage, gap: GapTrapRule
+    rect: Rect, strips: list[Rect], placed: list[_Placed], cage: Cage, gap: GapTrapRule,
+    shape: Polygon | None = None,
 ) -> bool:
     if not _inside(rect, cage):
         return False
@@ -70,13 +98,24 @@ def _valid(
     for o in placed:
         if rect.intersects(o.rect):
             return False
-        if gap.is_trap(rect.distance(o.rect)):
+        g = rect.distance(o.rect)
+        if gap.is_trap(g):
             return False
         if any(rect.intersects(s) for s in o.strips):
             return False
         if any(s.intersects(o.rect) for s in strips):
             return False
+        if _shape_trap(rect, shape, o, g, gap):
+            return False
     return True
+
+
+def _local_shape(item: BuiltItem, rot: int) -> Polygon | None:
+    """회전한 로컬 바닥 윤곽 (원점 = 사각형 중심). 사각형과 같으면 None."""
+    w, d = item.size_xy(rot)
+    if item.footprint.area >= w * d - SHAPE_AREA_TOL_MM2:
+        return None
+    return affinity.rotate(item.footprint, rot, origin=(0, 0))
 
 
 def _axis_candidates(size: float, limit: float, P: float, target: float | None,
@@ -167,8 +206,8 @@ def _reserved_strips(item: BuiltItem, rect: Rect, rot: int, reserve: list[tuple[
     return out
 
 
-def _attach_candidate(item: BuiltItem, placed: list[_Placed], cage: Cage, gap: GapTrapRule
-                      ) -> tuple[float, int, float, float] | None:
+def _attach_candidate(item: BuiltItem, placed: list[_Placed], cage: Cage, gap: GapTrapRule,
+                      exact_gaps: bool = False) -> tuple[float, int, float, float] | None:
     """attach_to 대상이 이미 놓여 있고 그 면에 붙일 수 있으면 그 자리 (없으면 None → 일반 배치)."""
     assert item.hint.attach_to is not None
     idx, side = item.hint.attach_to
@@ -178,33 +217,37 @@ def _attach_candidate(item: BuiltItem, placed: list[_Placed], cage: Cage, gap: G
     rot, rect = attach_rect(item, target.rect, side, target.rotation)
     P = gap.passable_min_mm
     strips = [access_strip(rect, dv, P) for dv in item.access_directions(rot)]
-    if not _valid(rect, strips, placed, cage, gap):
+    local = _local_shape(item, rot) if exact_gaps else None
+    shape = affinity.translate(local, rect.cx, rect.cy) if local is not None else None
+    if not _valid(rect, strips, placed, cage, gap, shape):
         return None
     return (0.0, rot, round(rect.x0, 6), round(rect.y0, 6))
 
 
 def candidates(item: BuiltItem, placed: list[_Placed], cage: Cage, gap: GapTrapRule,
                limit: int | None = None, reserve: list[tuple[BuiltItem, Side]] | None = None,
-               ) -> list[tuple[float, int, float, float]]:
+               exact_gaps: bool = False) -> list[tuple[float, int, float, float]]:
     """유효한 후보 (점수, 회전, x0, y0) 를 점수 순으로. 같은 사각형은 가장 좋은 회전만 남긴다.
 
     attach_to 힌트가 있고 대상 옆에 붙일 수 있으면 그 자리 하나만 돌려준다 (붙일 수 없으면 벌점을 더한 일반 후보).
-    reserve: 이 항목에 붙을 구조물들 — 그 자리가 케이지 안에 비어 있는 위치만 후보로 삼는다."""
+    reserve: 이 항목에 붙을 구조물들 — 그 자리가 케이지 안에 비어 있는 위치만 후보로 삼는다.
+    exact_gaps: 사각형이 아닌 바닥 윤곽(휜 터널 등)의 실제 틈도 끼임 구간을 피한다."""
     penalty = 0.0
     if item.hint.attach_to is not None:
-        cand = _attach_candidate(item, placed, cage, gap)
+        cand = _attach_candidate(item, placed, cage, gap, exact_gaps)
         if cand is not None:
             return [cand]
         penalty = ATTACH_PENALTY
-    out = _candidates(item, placed, cage, gap, limit, reserve, penalty)
+    out = _candidates(item, placed, cage, gap, limit, reserve, penalty, exact_gaps)
     if not out and reserve:
         # 붙을 구조물 자리까지 남길 수 없으면 대상만이라도 놓는다 (붙는 쪽이 일반 배치로 물러나고 경고가 난다)
-        out = _candidates(item, placed, cage, gap, limit, None, penalty + ATTACH_PENALTY)
+        out = _candidates(item, placed, cage, gap, limit, None, penalty + ATTACH_PENALTY, exact_gaps)
     return out
 
 
 def _candidates(item: BuiltItem, placed: list[_Placed], cage: Cage, gap: GapTrapRule, limit: int | None,
-                reserve: list[tuple[BuiltItem, Side]] | None, penalty: float) -> list[tuple[float, int, float, float]]:
+                reserve: list[tuple[BuiltItem, Side]] | None, penalty: float,
+                exact_gaps: bool = False) -> list[tuple[float, int, float, float]]:
     P = gap.passable_min_mm
     rotations = (item.hint.rotation,) if item.hint.rotation is not None else ROTATIONS
     found: dict[tuple[float, float, float, float], tuple[float, int, float, float]] = {}
@@ -212,6 +255,7 @@ def _candidates(item: BuiltItem, placed: list[_Placed], cage: Cage, gap: GapTrap
         w, d = item.size_xy(rot)
         if w > cage.width_mm + EPS or d > cage.depth_mm + EPS:
             continue
+        local = _local_shape(item, rot) if exact_gaps else None
         target = zone_target(item.hint.zone, cage, w, d)
         xs = _axis_candidates(w, cage.width_mm, P, target[0] if target else None,
                               [(o.rect.x0, o.rect.x1) for o in placed])
@@ -222,7 +266,8 @@ def _candidates(item: BuiltItem, placed: list[_Placed], cage: Cage, gap: GapTrap
             for y0 in ys:
                 rect = Rect(x0, y0, x0 + w, y0 + d)
                 strips = [access_strip(rect, dv, P) for dv in dirs]
-                if not _valid(rect, strips + _reserved_strips(item, rect, rot, reserve, P), placed, cage, gap):
+                shape = affinity.translate(local, rect.cx, rect.cy) if local is not None else None
+                if not _valid(rect, strips + _reserved_strips(item, rect, rot, reserve, P), placed, cage, gap, shape):
                     continue
                 cand = (round(_score(item, rect, rot, placed, cage) + penalty, 6), rot, round(x0, 6), round(y0, 6))
                 rkey = (round(rect.x0, 6), round(rect.y0, 6), round(rect.x1, 6), round(rect.y1, 6))
@@ -272,24 +317,29 @@ def reservations(items: list[BuiltItem]) -> dict[int, list[tuple[BuiltItem, Side
     return out
 
 
-def _placed_at(item: BuiltItem, placement: Placement, P: float) -> _Placed:
-    """placement 에 놓인 item 의 사각형·출입 공간. item.placement 는 읽지도 바꾸지도 않는다."""
+def _placed_at(item: BuiltItem, placement: Placement, P: float, exact_gaps: bool = False) -> _Placed:
+    """placement 에 놓인 item 의 사각형·출입 공간(·윤곽). item.placement 는 읽지도 바꾸지도 않는다."""
     # world_rect 와 같은 계산(rect_at). 후보의 Rect(x0, y0, x0+w, y0+d) 를 재사용하면 1 ulp 달라질 수 있다.
     rect = item.rect_at(placement.x_mm, placement.y_mm, placement.rotation_deg)
     strips = tuple(access_strip(rect, dv, P) for dv in item.access_directions(placement.rotation_deg))
-    return _Placed(rect, strips, item.hint.group, item.index, placement.rotation_deg)
+    local = _local_shape(item, placement.rotation_deg) if exact_gaps else None
+    # world_footprint 와 같은 계산 (로컬 윤곽을 회전한 뒤 배치 중심으로 옮긴다)
+    shape = affinity.translate(local, placement.x_mm, placement.y_mm) if local is not None else None
+    return _Placed(rect, strips, item.hint.group, item.index, placement.rotation_deg, shape)
 
 
 BEAM_WIDTH = 6
 UNPLACED_PENALTY = 1e6
 
 
-def place_all(items: list[BuiltItem], cage: Cage, gap: GapTrapRule, beam: int = BEAM_WIDTH) -> list[BuiltItem]:
+def place_all(items: list[BuiltItem], cage: Cage, gap: GapTrapRule, beam: int = BEAM_WIDTH,
+              exact_gaps: bool = False) -> list[BuiltItem]:
     """모든 항목을 배치한다(제자리 갱신). 배치하지 못한 항목 목록을 반환한다.
 
     탐욕 배치는 앞 항목의 위치 때문에 뒤 항목이 붙을 자리를 잃을 수 있다
     (예: 벽 가운데 놓인 은신처 옆 남은 틈이 끼임 구간). 그래서 항목마다 상위 후보 몇 개를 유지하는
     빔 탐색으로 전체 점수(배치 실패는 큰 벌점)가 가장 낮은 조합을 고른다. 결과는 결정적이다.
+    exact_gaps: 사각형이 아닌 바닥 윤곽 사이의 실제 틈도 끼임 구간을 피한다 (모듈 설명 참고).
     """
     P = gap.passable_min_mm
     reserve = reservations(items)
@@ -298,13 +348,15 @@ def place_all(items: list[BuiltItem], cage: Cage, gap: GapTrapRule, beam: int = 
     for item in placement_order(items):
         expanded = []
         for total, placed, plc in states:
-            cands = candidates(item, placed, cage, gap, limit=beam, reserve=reserve.get(item.index))
+            cands = candidates(item, placed, cage, gap, limit=beam, reserve=reserve.get(item.index),
+                               exact_gaps=exact_gaps)
             if not cands:
                 expanded.append((total + UNPLACED_PENALTY, placed, {**plc, item.index: None}))
                 continue
             for cand in cands:
                 placement = _to_placement(item, cand)
-                expanded.append((total + cand[0], placed + [_placed_at(item, placement, P)], {**plc, item.index: placement}))
+                expanded.append((total + cand[0], placed + [_placed_at(item, placement, P, exact_gaps)],
+                                 {**plc, item.index: placement}))
         expanded.sort(key=lambda s: (round(s[0], 6), _state_key(s[2])))
         states = expanded[:beam]
 

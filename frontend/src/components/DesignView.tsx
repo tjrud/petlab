@@ -14,6 +14,7 @@ import ValidationPanel from "@/components/ValidationPanel";
 import VersionList from "@/components/VersionList";
 import { useRouter, useT } from "@/i18n/client";
 import { api, ApiError, errorText, isAuthError, isEmailUnverified } from "@/lib/api";
+import { kindOf } from "@/lib/habitatKind";
 import type { Design } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
@@ -104,6 +105,32 @@ export default function DesignView({ id, initialVersion }: { id: string; initial
     }
   }
 
+  // 어항 설계면 내려받기 옆에 출력·설치 안전 안내를 띄운다 (종 규칙의 print_notes_ko: 서버가 화면 언어로 보낸다).
+  // 케이지 설계는 종 목록을 따로 부르지 않는다
+  const aquariumSpecies = design && kindOf(design.habitat) === "aquarium" ? design.habitat.species : null;
+  const [printNotes, setPrintNotes] = useState<{ species: string; notes: string[] } | null>(null);
+  useEffect(() => {
+    if (!aquariumSpecies) return;
+    let alive = true;
+    api
+      .species()
+      .then((m) => {
+        if (alive)
+          setPrintNotes({
+            species: aquariumSpecies,
+            notes: m.species.find((s) => s.key === aquariumSpecies)?.print_notes_ko ?? [],
+          });
+      })
+      .catch(() => {
+        // 안내 목록 없이도 커뮤니티 글 링크는 보인다
+        if (alive) setPrintNotes({ species: aquariumSpecies, notes: [] });
+      });
+    return () => {
+      alive = false;
+    };
+  }, [aquariumSpecies, t]);
+  const notesForDesign = printNotes && printNotes.species === aquariumSpecies ? printNotes.notes : null;
+
   const errorItems = new Set<number>(
     (design?.current.validation.issues ?? [])
       .filter((i) => i.severity === "error" && !i.auto_fixed && i.item_index !== null)
@@ -129,6 +156,7 @@ export default function DesignView({ id, initialVersion }: { id: string; initial
 
   const cur = design.current;
   const h = design.habitat;
+  const kind = kindOf(h);
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
       <div className="min-w-0 space-y-3">
@@ -145,6 +173,7 @@ export default function DesignView({ id, initialVersion }: { id: string; initial
         >
           <CageViewer
             cage={h.cage}
+            kind={kind}
             items={cur.items}
             selected={selected}
             errorItems={errorItems}
@@ -170,7 +199,7 @@ export default function DesignView({ id, initialVersion }: { id: string; initial
       </div>
 
       <aside className="space-y-6 rounded-2xl border border-stone-200 bg-white p-4">
-        <ValidationPanel validation={cur.validation} items={cur.items} onSelect={setSelected} />
+        <ValidationPanel validation={cur.validation} items={cur.items} onSelect={setSelected} kind={kind} />
         {design.is_owner && (
           <RevisePanel
             baseVersion={cur.version}
@@ -183,6 +212,7 @@ export default function DesignView({ id, initialVersion }: { id: string; initial
             draftKey={`revise:${design.id}`}
             loginNext={`/designs/${encodeURIComponent(design.id)}`}
             onSubmit={revise}
+            kind={kind}
           />
         )}
         <ItemList items={cur.items} selected={selected} errorItems={errorItems} onSelect={setSelected} />
@@ -192,6 +222,8 @@ export default function DesignView({ id, initialVersion }: { id: string; initial
           version={cur.version}
           allowed={cur.export_allowed}
           items={cur.items}
+          kind={kind}
+          printNotes={notesForDesign}
         />
         {!design.is_owner && actionError && (
           <p role="alert" className={ui.error}>

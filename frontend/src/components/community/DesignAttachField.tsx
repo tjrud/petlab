@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 
 import { errorText } from "@/components/community/common";
 import { api, isAuthError } from "@/lib/api";
+import { enclosureSummary, kindOf } from "@/lib/habitatKind";
 import type { Design, DesignListItem, Habitat } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
@@ -164,7 +165,7 @@ export default function DesignAttachField({
             <p className="break-words">
               <span className="font-medium">v{picked.version}</span> ·{" "}
               {t("{species} {size} · {n}마리", { species: t(h.species_name_ko), size: t(h.size_name_ko), n: h.count })} ·{" "}
-              {t("케이지 {w}×{d}×{h}mm", { w: h.cage.width_mm, d: h.cage.depth_mm, h: h.cage.height_mm })}
+              {enclosureSummary(kindOf(h), h.cage, t)}
               {picked.passed !== null && <> · {picked.passed ? t("통과") : t("검증 실패")}</>}
             </p>
             <p className="mt-1 text-xs">

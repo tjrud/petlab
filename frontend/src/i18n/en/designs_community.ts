@@ -15,7 +15,8 @@ const en: Record<string, string> = {
   "검증 실패": "Checks failed",
   "커뮤니티 공유됨": "Shared to Community",
   "제목 없는 설계": "Untitled design",
-  "{species} {size} · {n}마리": "{size} {species} × {n}",
+  // 영어 크기 이름에는 동물 이름이 들어 있어(예: "Golden (Syrian) hamster", "Nano fish (…)") 종 이름을 다시 붙이지 않는다
+  "{species} {size} · {n}마리": "{size} × {n}",
   "케이지 {w}×{d}×{h}mm": "Cage {w}×{d}×{h}mm",
   "{date} 수정": "Edited {date}",
 
@@ -169,8 +170,8 @@ const en: Record<string, string> = {
 
   // 종·크기 이름 (서버가 보내는 한국어 이름)
   "햄스터": "Hamster",
-  "골든 (시리안)": "Golden (Syrian)",
-  "드워프 (정글리안·캠벨·로보로브스키)": "Dwarf (Djungarian, Campbell's, Roborovski)",
+  "골든 (시리안)": "Golden (Syrian) hamster",
+  "드워프 (정글리안·캠벨·로보로브스키)": "Dwarf hamster (Djungarian, Campbell's, Roborovski)",
 };
 
 export default en;

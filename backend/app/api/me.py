@@ -165,7 +165,7 @@ def pet_out(svc: DesignService, p: Pet) -> PetOut:
         cage = CageIn(width_mm=p.cage_width_mm, depth_mm=p.cage_depth_mm, height_mm=p.cage_height_mm)
     return PetOut(
         id=p.id, name=p.name, species=p.species, species_name_ko=species_name,
-        size=p.size, size_name_ko=size_name, sex=p.sex, birth_date=p.birth_date,
+        size=p.size, size_name_ko=size_name, habitat_kind=svc.habitat_kind(p.species), sex=p.sex, birth_date=p.birth_date,
         notes=p.notes or None, cage=cage, created_at=p.created_at, updated_at=p.updated_at,
     )
 
@@ -192,7 +192,7 @@ def list_pets(db: Session = Depends(get_db), svc: DesignService = Depends(get_se
 @router.post("/pets", response_model=PetOut, status_code=status.HTTP_201_CREATED, summary="반려동물 등록")
 def create_pet(data: PetIn, db: Session = Depends(get_db), svc: DesignService = Depends(get_service),
                user: User = Depends(get_current_user)):
-    svc.check_species(data.species, data.size)
+    svc.check_habitat(data.species, data.size)
     if (db.scalar(select(func.count(Pet.id)).where(Pet.owner_id == user.id)) or 0) >= MAX_PETS:
         raise ConflictError(f"반려동물은 {MAX_PETS}마리까지 등록할 수 있어요.", code="too_many_pets")
     pet = Pet(owner_id=user.id)
@@ -212,7 +212,7 @@ def get_pet(pet_id: str, db: Session = Depends(get_db), svc: DesignService = Dep
 def update_pet(pet_id: str, data: PetIn, db: Session = Depends(get_db), svc: DesignService = Depends(get_service),
                user: User = Depends(get_current_user)):
     pet = _my_pet(db, pet_id, user)
-    svc.check_species(data.species, data.size)
+    svc.check_habitat(data.species, data.size)
     _apply(pet, data)
     db.commit()
     return pet_out(svc, pet)

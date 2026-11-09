@@ -2,7 +2,8 @@
 
 import type { Lang } from "@/i18n/config";
 import type { TFunction } from "@/i18n/translate";
-import type { Cage, PetSex } from "@/lib/types";
+import { TANK_PRESETS } from "@/lib/habitatKind";
+import type { Cage, HabitatKind, PetSex } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
 /** 서버(Python)와 같은 기준으로 글자 수를 센다 (이모지 같은 문자도 한 글자) */
@@ -33,7 +34,11 @@ export const CAGE_PRESETS = [
   { label: "초대형 100×50×50cm", w: 1000, d: 500, h: 500 },
 ] as const;
 
-/** 케이지 내부 치수 허용 범위 mm (서버 CageIn 과 같다) */
+/** 사육 환경 종류에 맞는 치수 프리셋 (어항은 수조 겉 크기 이름에 물 깊이를 채운다) */
+export const presetsFor = (kind: HabitatKind): readonly { label: string; w: number; d: number; h: number }[] =>
+  kind === "aquarium" ? TANK_PRESETS : CAGE_PRESETS;
+
+/** 케이지 내부 치수 허용 범위 mm (서버 CageIn 과 같다. 어항이면 높이 칸이 물 깊이) */
 export const CAGE_LIMITS = { w: [200, 2000], d: [200, 2000], h: [100, 1000] } as const;
 
 export const CAGE_DIMS = [
@@ -81,6 +86,12 @@ const mm = (v: number) => String(Math.round(v * 10) / 10);
 
 /** 600×400×300mm */
 export const formatCage = (c: Cage) => `${mm(c.width_mm)}×${mm(c.depth_mm)}×${mm(c.height_mm)}mm`;
+
+/** 케이지는 formatCage 그대로, 어항은 "600×300mm · 물 깊이 280mm" */
+export const formatEnclosure = (kind: HabitatKind, c: Cage, t: TFunction) =>
+  kind === "aquarium"
+    ? t("{w}×{d}mm · 물 깊이 {h}mm", { w: mm(c.width_mm), d: mm(c.depth_mm), h: mm(c.height_mm) })
+    : formatCage(c);
 
 /** 카드 안에 들어가는 작은 기본 버튼 */
 export const btnPrimarySm = ui.btnPrimary.replace("px-5 py-2.5", "px-4 py-2 text-sm");

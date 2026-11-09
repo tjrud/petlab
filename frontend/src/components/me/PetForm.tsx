@@ -5,6 +5,7 @@ import { useEffect, useId, useState } from "react";
 import { useT } from "@/i18n/client";
 import type { TFunction } from "@/i18n/translate";
 import { api, ApiError, errorText, isAuthError } from "@/lib/api";
+import { DIM_LABELS, dimInputLabel, speciesKind } from "@/lib/habitatKind";
 import type { Pet, PetInput, PetSex, SpeciesOption } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
@@ -12,13 +13,13 @@ import {
   BIRTH_MIN,
   CAGE_DIMS,
   CAGE_LIMITS,
-  CAGE_PRESETS,
   cageDimError,
   charCount,
   describedBy,
   FieldError,
   hasControlChars,
   inputClass,
+  presetsFor,
   SEX_LABEL,
   todayLocal,
 } from "./common";
@@ -79,12 +80,16 @@ function validate(v: Values, species: SpeciesOption[], today: string, t: TFuncti
   if (hasControlChars(notes, true)) errors.notes = t("메모에 쓸 수 없는 문자가 있어요.");
   else if (charCount(notes) > NOTES_MAX) errors.notes = t("메모는 {max}자 이하로 적어 주세요.", { max: NOTES_MAX });
 
+  // 어항이면 높이 칸이 물 깊이 (바닥재 위~수면)
+  const aquarium = speciesKind(species, v.species) === "aquarium";
   const filled = CAGE_DIMS.filter(([k]) => v.cage[k].trim() !== "");
   if (filled.length > 0 && filled.length < 3) {
-    errors.cage = t("가로·세로·높이를 모두 입력하거나, 치수 비우기를 눌러 주세요.");
+    errors.cage = aquarium
+      ? t("가로·세로·물 깊이를 모두 입력하거나, 치수 비우기를 눌러 주세요.")
+      : t("가로·세로·높이를 모두 입력하거나, 치수 비우기를 눌러 주세요.");
     for (const [k] of CAGE_DIMS) if (!v.cage[k].trim()) errors[k] = t("입력해 주세요.");
   } else if (filled.length === 3) {
-    for (const [k, label] of CAGE_DIMS) {
+    for (const [k, label] of DIM_LABELS[aquarium ? "aquarium" : "cage"]) {
       // 안내 문구는 cageDimError 와 같은 원문을 번역해 보인다 (한국어는 그대로). 문제없는 칸은 키를 만들지 않는다
       if (cageDimError(k, Number(v.cage[k]), label))
         errors[k] = t("{label}는 {lo}~{hi}mm 사이로 입력해 주세요.", { label: t(label), lo: CAGE_LIMITS[k][0], hi: CAGE_LIMITS[k][1] });
@@ -148,7 +153,13 @@ export default function PetForm({
   }, [nameId]);
 
   const errors = submitted ? validate(values, species, today, t) : {};
-  const sizes = species.find((s) => s.key === values.species)?.sizes ?? [];
+  const speciesOpt = species.find((s) => s.key === values.species);
+  const sizes = speciesOpt?.sizes ?? [];
+  /** 크기 구분을 고르는 기준 (어항: 몸길이 재는 법·아주 작은 종). 서버가 화면 언어로 보낸다 */
+  const sizeHint = speciesOpt?.size_hint_ko ?? null;
+  /** 사육 환경 종류: 어항이면 수조·물 깊이 낱말과 수조 프리셋 */
+  const kind = speciesKind(species, values.species);
+  const aquarium = kind === "aquarium";
   const notesCount = charCount(values.notes.trim());
   const title = pet ? t("반려동물 정보 수정") : t("반려동물 등록");
 
@@ -257,6 +268,11 @@ export default function PetForm({
           <FieldError id={id("size-error")} message={errors.size} />
         </div>
       </div>
+      {sizeHint && (
+        <p data-testid="size-hint" className="-mt-2 text-xs text-stone-500">
+          {sizeHint}
+        </p>
+      )}
 
       <fieldset>
         <legend className={ui.label}>{t("성별")}</legend>
@@ -333,13 +349,15 @@ export default function PetForm({
 
       <fieldset>
         <legend className={ui.label}>
-          {t("케이지 내부 치수")} <span className="font-normal text-stone-500">({t("선택")})</span>
+          {aquarium ? t("수조 크기와 물 깊이") : t("케이지 내부 치수")}{" "}
+          <span className="font-normal text-stone-500">({t("선택")})</span>
         </legend>
         <p className="mb-2 text-xs text-stone-500">
           {t("저장해 두면 설계할 때 자동으로 채워져요. 모르면 비워 두어도 돼요.")}
+          {aquarium && <> {t("가로·세로는 수조 안쪽 치수(유리 안쪽 사이)로, 물 깊이는 바닥재 위부터 수면까지 재 주세요. 바닥·부피 기준은 유리 두께를 더한 겉 크기로 비교해요.")}</>}
         </p>
         <div className="mb-3 flex flex-wrap gap-2">
-          {CAGE_PRESETS.map((p) => {
+          {presetsFor(kind).map((p) => {
             const active = Number(values.cage.w) === p.w && Number(values.cage.d) === p.d && Number(values.cage.h) === p.h;
             return (
               <button
@@ -368,7 +386,7 @@ export default function PetForm({
           {CAGE_DIMS.map(([k, label]) => (
             <div key={k} className="min-w-0">
               <label htmlFor={id(k)} className="mb-1 block text-xs text-stone-600">
-                {t(label)} (mm)
+                {aquarium ? dimInputLabel(kind, k, t) : <>{t(label)} (mm)</>}
               </label>
               <input
                 {...field(k)}

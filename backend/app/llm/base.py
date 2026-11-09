@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
 from pydantic import BaseModel
 
 from app.rules.loader import SizeRules
+from app.templates.keys import TEMPLATE_MODULES
 
 if TYPE_CHECKING:
     from app.domain import Cage
@@ -19,7 +20,9 @@ class HabitatInfo:
     species_name_ko: str
     size: str
     count: int
+    # 어항(habitat="aquarium")이면 cage 는 수조 안쪽 가로·세로와 물 깊이(바닥재 위~수면)
     cage: Cage
+    habitat: str = "cage"  # cage / aquarium (규칙 파일 species.<종>.habitat)
 
 
 @dataclass(frozen=True)
@@ -31,6 +34,8 @@ class InterpretRequest:
     previous: BaseModel | None = None  # 수정 시 직전 버전의 DesignSpec
     # summary_ko·reason_ko·notes_ko 를 쓸 언어 ("ko"·"en"). 필드 이름은 언어와 상관없이 그대로다
     language: str = "ko"
+    # 이 종에 만들 수 있는 템플릿 키 (규칙 파일 species.<종>.templates). 기본값은 등록된 모든 템플릿 (옛 호출·테스트용)
+    allowed_templates: tuple[str, ...] = field(default_factory=lambda: tuple(TEMPLATE_MODULES))
 
 
 @dataclass(frozen=True)
