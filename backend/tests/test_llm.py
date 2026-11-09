@@ -262,3 +262,100 @@ def test_mock_output_runs_through_engine(req, rules):
     assert res.report.passed, res.report.errors
     p = res.items[0].placement
     assert p.x_mm > CAGE.width_mm / 2 and p.y_mm > CAGE.depth_mm / 2
+
+
+# ── 조립형 집 (중첩 Params) ──────────────────────────────────
+
+HOUSE_ITEM = {
+    "template": "house",
+    "params": {
+        "width_mm": 200, "depth_mm": 150, "height_mm": 230,
+        "walls": {"thickness_mm": 3},
+        "floor": {"enabled": False, "thickness_mm": 3},
+        "roof": {"kind": "pitched", "pitch_deg": 50, "tip_deg": 50},
+        "floors": {"count": 2, "level_height_mm": 110, "plate_thickness_mm": 3, "climb": "external_ramp",
+                   "ramp_width_mm": 80, "slope_deg": 30, "exit_side": "back"},
+        "doors": {"sides": ["front"], "width_mm": 75},
+        "windows": {"count": 2, "diameter_mm": 5},
+        "ports": {"sides": [], "diameter_mm": 75, "flange_mm": 3},
+    },
+    "placement": {"zone": "left", "group": None, "rotation": None, "attach_to": None},
+    "reason_ko": "2층 집입니다.",
+}
+RAMP_ITEM = {
+    "template": "ramp",
+    "params": {"height_mm": 110, "width_mm": 80, "slope_deg": 30, "steps": 0},
+    "placement": {"zone": "auto", "group": None, "rotation": None, "attach_to": {"item_index": 0, "side": "back"}},
+    "reason_ko": "2층 착지판에 닿는 램프입니다.",
+}
+
+
+def test_house_spec_with_nested_params_passes_schema():
+    spec = parse_spec(json.dumps({**VALID, "items": [HOUSE_ITEM, RAMP_ITEM]}))
+    items = to_item_specs(spec)
+    assert items[0].template == "house" and items[0].params["roof"]["kind"] == "pitched"
+    assert items[0].params["doors"]["sides"] == ["front"]
+    assert items[1].hint.attach_to == (0, "back")
+    assert items[0].hint.attach_to is None
+    # attach_to 를 빼도(옛 출력 형식) 통과한다
+    legacy = {**VALID["items"][0], "placement": {"zone": "left", "group": None, "rotation": None}}
+    assert to_item_specs(parse_spec(json.dumps({**VALID, "items": [legacy]})))[0].hint.attach_to is None
+
+
+@pytest.mark.parametrize("patch", [
+    {"roof": {"kind": "dome", "pitch_deg": 50, "tip_deg": 50}},                 # 없는 지붕 종류
+    {"doors": {"sides": ["front", "front"], "width_mm": 75}},                   # 같은 면 중복
+    {"doors": {"sides": [], "width_mm": 75}},                                   # 출입구 없음
+    {"floors": {**HOUSE_ITEM["params"]["floors"], "count": 3}},                 # 3층
+    {"windows": {"count": 9, "diameter_mm": 5}},                                # 창 개수 범위 밖
+    {"ports": {"sides": ["front"], "diameter_mm": 75, "flange_mm": 3}},         # 출입구 면과 충돌
+    {"chimney": {"height_mm": 30}},                                             # 모르는 부품
+])
+def test_house_spec_rejects_bad_parts(patch):
+    item = json.loads(json.dumps(HOUSE_ITEM))
+    item["params"].update(patch)
+    with pytest.raises(ValidationError):
+        parse_spec(json.dumps({**VALID, "items": [item]}))
+
+
+def test_api_schema_has_nested_house_parts():
+    schema = api_schema()
+    house = schema["$defs"]["HouseParams"]["properties"]
+    assert house["roof"]["$ref"].endswith("RoofPart")
+    roof = schema["$defs"]["RoofPart"]["properties"]
+    assert set(roof["kind"]["enum"]) == {"flat", "pitched", "rounded"}
+    assert "허용 범위: 45~65" in roof["pitch_deg"]["description"]
+    doors = schema["$defs"]["DoorsPart"]["properties"]["sides"]
+    assert doors["type"] == "array" and set(doors["items"]["enum"]) == {"front", "back", "left", "right"}
+    placement = schema["$defs"]["LLMPlacement"]["properties"]["attach_to"]
+    assert any(opt.get("$ref", "").endswith("AttachTo") for opt in placement["anyOf"])
+
+
+def test_template_catalog_serializes_nested_parts():
+    from app.llm.prompts import template_catalog
+
+    cat = {t["template"]: t for t in template_catalog()}
+    json.dumps(cat, ensure_ascii=False)  # 기본값(중첩 모델)이 JSON 으로 직렬화된다
+    house = cat["house"]["파라미터"]
+    assert house["roof"]["부품"]["kind"]["선택지"] == ["flat", "pitched", "rounded"]
+    assert house["doors"]["부품"]["sides"]["목록 선택지"] == ["front", "back", "left", "right"]
+    assert house["floors"]["부품"]["count"]["선택지"] == [1, 2]
+
+
+def test_system_prompt_mentions_house_and_attach_to():
+    from app.llm.prompts import SYSTEM_PROMPT
+
+    assert "house" in SYSTEM_PROMPT and "attach_to" in SYSTEM_PROMPT and "external_ramp" in SYSTEM_PROMPT
+
+
+def test_mock_two_story_house_with_outside_ramp(req, rules):
+    spec = _mock(req, "2층 집을 왼쪽에, 바깥 램프로 올라가게 해 주세요")
+    assert [it.template for it in spec.items] == ["house", "ramp"]
+    house, ramp = spec.items
+    assert house.params.floors.count == 2 and house.params.floors.climb == "external_ramp"
+    assert ramp.placement.attach_to.item_index == 0 and ramp.placement.attach_to.side == house.params.floors.exit_side
+    assert ramp.params.height_mm == house.params.floors.level_height_mm
+    other = _mock(req, "창문 3개 있는 경사 지붕 집")
+    assert other.items[0].template == "house" and other.items[0].params.windows.count == 3
+    assert other.items[0].params.roof.kind == "pitched"
+    assert _mock(req, "집 하나").items[0].template == "hideout"  # '집' 만으로는 은신처

@@ -10,6 +10,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import io
+import json
 import shutil
 import zipfile
 
@@ -330,6 +331,81 @@ def test_tessellation_change_between_deploys_is_revalidated(tmp_path, rules_copy
         assert c.get(new_url).status_code == 200
 
 
+# ── 기존 템플릿 4종의 형상 바이트 고정 ──────────────────────────
+# 조립형 템플릿(house)·다중 파트 출력을 더하면서 공용 코드(계약·엔진·배치)가 바뀌어도 은신처·터널·램프·모래목욕통의
+# STL 바이트(사용 자세·출력 자세)는 그대로여야 한다. 값은 이 기능 이전 코드에서 뽑았다 (uv.lock 의 OCP 테셀레이션 기준).
+# 템플릿 build() 를 의도적으로 바꾸면 다시 뽑는다. 파라미터는 model_dump() 의 JSON (키 정렬).
+
+GOLDEN_DIGESTS: list[tuple[str, str, str, str]] = [
+    ('hideout', '{"depth_mm": 111.0, "entrance_count": 1, "entrance_diameter_mm": 55.0, "height_mm": 90.0, "vent_count": 6, "vent_diameter_mm": 4.0, "wall_thickness_mm": 3.0, "width_mm": 140.0}',
+     '66d792fd4fd6826a5597fe8f29dd720361b058842c6ff04b755ea171f5f9dff5',
+     'ce78e6f34412219ed649338a0e77340156872ebad8c9a47cbd66c4da4ab09827'),
+    ('hideout', '{}',
+     '1fa6d920363f23abcceb21c86d6344ef4499b5bbe190c7ec12b54a3d9ba5cd97',
+     'e5d91408a36ec83bd4fc260501771fed1ddf9cf9b3d20c657aee03541ca106b5'),
+    ('hideout', '{"depth_mm": 150, "entrance_count": 2, "entrance_diameter_mm": 75, "height_mm": 120, "vent_count": 9, "vent_diameter_mm": 5, "width_mm": 200}',
+     '1f0ad93486f72fdb59f5ae9f7fba0365093b7b688fa924e21788930cda39ca2b',
+     '269c95a558f9da06bec2464fbb99546560946887d3b127288a38a6e8b9e62e14'),
+    ('hideout', '{"depth_mm": 131.0, "entrance_count": 1, "entrance_diameter_mm": 75.0, "height_mm": 96.0, "vent_count": 6, "vent_diameter_mm": 4.0, "wall_thickness_mm": 3.0, "width_mm": 140.0}',
+     'a76fe4730a2fd111436433af50873722d5bfcd0863019ef9d3a50af3907279d7',
+     '657a425d74f8b1429af4611f98b27f128bb4b0e617fc511c3d4d60fe1d625a9b'),
+    ('tunnel', '{"bend_angle_deg": 0.0, "inner_diameter_mm": 55.0, "length_mm": 100.0, "path": "arc", "shape": "pointed_arch", "wall_thickness_mm": 3.0}',
+     '65cc685abb409f631c7fb21c4de5f2f40bec38e23a8cb1a8207b6f39dbd88987',
+     '65cc685abb409f631c7fb21c4de5f2f40bec38e23a8cb1a8207b6f39dbd88987'),
+    ('tunnel', '{}',
+     '68b370ae49f6a3193c3c237a4cabb2532fe3486083c3307be7b73ead75fbc465',
+     '68b370ae49f6a3193c3c237a4cabb2532fe3486083c3307be7b73ead75fbc465'),
+    ('tunnel', '{"bend_angle_deg": 90, "inner_diameter_mm": 75, "length_mm": 250, "shape": "house"}',
+     'c5cd78f4672bcacb7316ba770d5acdb30bbbda0fe59888a490b8f32c34ddf83d',
+     'c5cd78f4672bcacb7316ba770d5acdb30bbbda0fe59888a490b8f32c34ddf83d'),
+    ('tunnel', '{"bend_angle_deg": 60, "inner_diameter_mm": 60, "length_mm": 200, "path": "s_curve"}',
+     'ddeff5e06996548efd85ba64f62a66117aa9a1b28f93633801ea3da47eda154e',
+     'ddeff5e06996548efd85ba64f62a66117aa9a1b28f93633801ea3da47eda154e'),
+    ('tunnel', '{"bend_angle_deg": 0.0, "inner_diameter_mm": 75.0, "length_mm": 200.0, "path": "arc", "shape": "pointed_arch", "wall_thickness_mm": 3.0}',
+     'ccf92b428e6e51fd1f4abab2687f5f285e878dd1e657b5d3e715c19e3436e456',
+     'ccf92b428e6e51fd1f4abab2687f5f285e878dd1e657b5d3e715c19e3436e456'),
+    ('ramp', '{"height_mm": 60.0, "slope_deg": 25.0, "steps": 0, "width_mm": 60.0}',
+     '2b6784ae898794a0fe39288d26cb00f31994f26ab9870c75bed250e5ad7e10d0',
+     '2b6784ae898794a0fe39288d26cb00f31994f26ab9870c75bed250e5ad7e10d0'),
+    ('ramp', '{}',
+     'd3799811043db24fc50fe3dd38d6e53f3ec839e8a363471ae3ed624d61e5311f',
+     'd3799811043db24fc50fe3dd38d6e53f3ec839e8a363471ae3ed624d61e5311f'),
+    ('ramp', '{"height_mm": 90, "slope_deg": 35, "steps": 3, "width_mm": 80}',
+     '75577e6277840896dbd80242b6e9d385c11a358a8c2dcaca5b91e636ef089fa6',
+     '75577e6277840896dbd80242b6e9d385c11a358a8c2dcaca5b91e636ef089fa6'),
+    ('ramp', '{"height_mm": 60.0, "slope_deg": 25.0, "steps": 0, "width_mm": 80.0}',
+     'd3799811043db24fc50fe3dd38d6e53f3ec839e8a363471ae3ed624d61e5311f',
+     'd3799811043db24fc50fe3dd38d6e53f3ec839e8a363471ae3ed624d61e5311f'),
+    ('sand_bath', '{"basin_depth_mm": 50.0, "depth_mm": 216.0, "lip_height_mm": 28.0, "wall_thickness_mm": 3.0, "width_mm": 216.0}',
+     '12d8570383f9ef03e705080cee5e0e54f37445c02773f8cadb401fd072a9cd32',
+     '12d8570383f9ef03e705080cee5e0e54f37445c02773f8cadb401fd072a9cd32'),
+    ('sand_bath', '{}',
+     'ec596ee2be3d00a1aef51f6d734fe2cd8d0e3fc3d4fcec0342fdaeb3ae218d81',
+     'ec596ee2be3d00a1aef51f6d734fe2cd8d0e3fc3d4fcec0342fdaeb3ae218d81'),
+    ('sand_bath', '{"basin_depth_mm": 60, "depth_mm": 220, "lip_height_mm": 40, "width_mm": 250}',
+     'e3824cf015d465cbfe375cb327b0b9e84237d1379508392a9934905b20e9d2fa',
+     'e3824cf015d465cbfe375cb327b0b9e84237d1379508392a9934905b20e9d2fa'),
+    ('sand_bath', '{"basin_depth_mm": 60.0, "depth_mm": 216.0, "lip_height_mm": 28.0, "wall_thickness_mm": 3.0, "width_mm": 216.0}',
+     'ec71b83ba3e1f716b9af2dec8b6de6b92f601615eea4301ded56542a8d93fb05',
+     'ec71b83ba3e1f716b9af2dec8b6de6b92f601615eea4301ded56542a8d93fb05'),
+]
+
+
+@pytest.mark.parametrize("key,params_json,mesh_digest,print_digest", GOLDEN_DIGESTS,
+                         ids=[f"{k}-{i}" for i, (k, *_) in enumerate(GOLDEN_DIGESTS)])
+def test_existing_template_bytes_are_unchanged(rules, key, params_json, mesh_digest, print_digest):
+    from app.domain import PlacementHint
+    from app.services.engine import build_item
+    from app.templates.registry import get_template
+
+    t = get_template(key)
+    it = build_item(0, t, t.Params(**json.loads(params_json)), PlacementHint(), rules.printing)
+    assert hashlib.sha256(it.mesh.export(file_type="stl")).hexdigest() == mesh_digest
+    assert hashlib.sha256(it.print_mesh.export(file_type="stl")).hexdigest() == print_digest
+    assert it.parts == []  # 파트가 하나뿐인 템플릿은 본체 하나 (출력 파일 이름·내용도 그대로)
+    assert [p.key for p in it.print_parts] == ["body"]
+
+
 # ── 지문 ────────────────────────────────────────────────────
 
 
@@ -340,3 +416,32 @@ def test_geometry_fingerprint_is_stable_and_sensitive(rules):
     assert fp != geometry_fingerprint(["hideout"], p)
     assert fp != geometry_fingerprint(["hideout", "tunnel"], p.model_copy(update={"tessellation_tolerance_mm": 0.1}))
     assert geometry_fingerprint(["removed_template"], p)  # 삭제된 템플릿이어도 예외 없이 계산
+
+
+def test_fingerprint_covers_house_parts_modules():
+    """조립형 템플릿의 부품 라이브러리가 바뀌면 지문도 바뀌어야 한다 (SHARED_MODULES 에 포함)."""
+    from app.geometry.fingerprint import SHARED_MODULES, _module_digest
+
+    parts = [m for m in SHARED_MODULES if m.startswith("app.templates.parts.")]
+    assert {"app.templates.parts.common", "app.templates.parts.shell", "app.templates.parts.openings",
+            "app.templates.parts.levels"} <= set(parts)
+    assert all(not _module_digest(m).startswith("unreadable") for m in SHARED_MODULES)
+
+
+def test_house_version_caches_every_part_and_exports_them(tmp_path):
+    """다중 파트 구조물: 버전 캐시에 파트별 출력 메시가 있고 해시가 기록되며, STL zip 에 파트별 파일이 들어간다.
+    캐시를 비워도 같은 바이트로 다시 만들어진다."""
+    with TestClient(create_app(settings(tmp_path))) as c:
+        d = make_design(c, "2층 집을 만들어 주세요")  # 평 지붕 2층: 지붕 뚜껑·층판이 따로
+        [it] = d["current"]["items"]
+        assert it["template"] == "house"
+        assert [p["key"] for p in it["parts"]] == ["body", "roof", "floor2"]
+        files = cached_files(tmp_path, d)
+        assert {"print_0.stl", "print_0_roof.stl", "print_0_floor2.stl", "world_0.stl"} == set(files)
+        assert set(version_row(c).geometry["files"]) == set(files)
+        parts = exported_parts(export(c, d))
+        assert sorted(parts) == ["part1_house_body.stl", "part1_house_floor2.stl", "part1_house_roof.stl"]
+        wipe_cache(tmp_path)
+        assert exported_parts(export(c, d)) == parts
+        assert cached_files(tmp_path, d) == files
+        assert export(c, d, "3mf").status_code == 200
