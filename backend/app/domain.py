@@ -142,6 +142,8 @@ class BuiltPart:
     name_ko: str
     mesh: trimesh.Trimesh  # 파트 형상 (검사용. 자세는 상관없다)
     print_mesh: trimesh.Trimesh  # 출력 자세 (베드 Z=0)
+    # 일부러 얇게 만든 결합 모양(끼움 턱·도브테일 혀)의 메시, mesh 와 같은 좌표. 두께 실측에서 이 근처 샘플을 뺀다
+    thin_ok_mesh: trimesh.Trimesh | None = None
 
 
 @dataclass

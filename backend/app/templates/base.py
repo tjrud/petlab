@@ -125,6 +125,9 @@ class PrintPart:
     part: Part
     rotation: np.ndarray
     key: str = "body"
+    # 일부러 얇게 만든 결합 모양 (파트 좌표): 끼움 턱·깔때기, 도브테일 혀. 벽 구멍·홈 속에 들어가 바깥에서 받쳐지므로
+    # 메시 두께 실측(갉음 기준)에서 이 표면 근처의 샘플은 뺀다. 설계 벽 두께 검사는 그대로다
+    thin_ok: tuple[Part, ...] = ()
 
 
 @dataclass(frozen=True)

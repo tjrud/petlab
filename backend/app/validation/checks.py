@@ -27,6 +27,8 @@ from app.validation.report import Issue, Severity
 
 OVERLAP_AREA_TOL_MM2 = 1.0  # 수치 오차 허용 (규칙이 아닌 계산 허용오차)
 ON_BED_Z_TOL_MM = 0.01
+# 일부러 얇게 만든 결합 모양(끼움 턱·도브테일 혀) 표면에서 이 거리 안의 두께 샘플은 뺀다 (BuiltPart.thin_ok_mesh)
+THIN_OK_MARGIN_MM = 0.3
 
 
 def _err(code: str, msg: str, **kw) -> Issue:
@@ -262,9 +264,21 @@ def check_climb(items: list[BuiltItem], size: SizeRules) -> list[Issue]:
 # ── 출력성: 벽 두께 / 오버행 / 출력 공간 ──────────────────────
 
 
-def measure_thickness(mesh: trimesh.Trimesh, samples: int = 1500, seed: int = 0) -> np.ndarray:
-    """표면 샘플점에서 안쪽 법선 방향으로 광선을 쏘아 반대편 면까지 거리(국소 두께)를 잰다."""
+def measure_thickness(mesh: trimesh.Trimesh, samples: int = 1500, seed: int = 0,
+                      exclude: trimesh.Trimesh | None = None) -> np.ndarray:
+    """표면 샘플점에서 안쪽 법선 방향으로 광선을 쏘아 반대편 면까지 거리(국소 두께)를 잰다.
+
+    exclude: 일부러 얇게 만든 결합 모양(끼움 턱·도브테일 혀)의 메시. 그 표면에서 THIN_OK_MARGIN_MM 안의 샘플은 뺀다
+    (벽 구멍·홈 속에 들어가 바깥에서 받쳐지는 모양이라 갉음 기준 두께와 비교하지 않는다)."""
     pts, fidx = trimesh.sample.sample_surface(mesh, samples, seed=seed)
+    if exclude is not None and len(exclude.faces):
+        lo, hi = exclude.bounds[0] - THIN_OK_MARGIN_MM, exclude.bounds[1] + THIN_OK_MARGIN_MM
+        near = np.all((pts >= lo) & (pts <= hi), axis=1)
+        if near.any():
+            _, dist, _ = trimesh.proximity.closest_point(exclude, pts[near])
+            drop = np.zeros(len(pts), dtype=bool)
+            drop[np.flatnonzero(near)[dist < THIN_OK_MARGIN_MM]] = True
+            pts, fidx = pts[~drop], fidx[~drop]
     n = mesh.face_normals[fidx]
     origins = pts - n * 1e-3
     loc, iray, _ = mesh.ray.intersects_location(origins, -n, multiple_hits=False)
@@ -292,7 +306,7 @@ def check_wall_thickness(items: list[BuiltItem], min_wall_mm: float, measure: bo
         for part in it.print_parts:
             if not part.mesh.is_watertight:
                 continue
-            t = measure_thickness(part.mesh)
+            t = measure_thickness(part.mesh, exclude=part.thin_ok_mesh)
             if len(t):
                 p1 = float(np.percentile(t, 1))
                 if p1 < 0.9 * min_wall_mm:

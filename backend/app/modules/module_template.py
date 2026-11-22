@@ -591,13 +591,18 @@ class ModuleTemplate(Template):
         dovetailed = {group_of[joins[ji].parent] for ji in plans} | {group_of[joins[ji].child] for ji in plans}
         rots = [_best_rotation(part_to_mesh(b), _VERTICAL_ROTATIONS if gi in dovetailed else _DOWN_ROTATIONS)
                 for gi, b in enumerate(bodies)]
+        # 일부러 얇게 만든 결합 모양 (묶음 번호 또는 따로 출력하는 파트 → 솔리드): 메시 두께 실측에서 뺀다 (PrintPart.thin_ok)
+        thin: dict[Any, list[Any]] = {}
         # 끼움 턱이 출력 자세에서 아래를 보면(세워 출력하는 터널의 아래 끝) 그 둘레 끝 면이 아래를 보는 턱이 되므로 깔때기로 깎는다
         for j in joins:
             if j.plug:
                 gp = group_of[j.port_end[0]]
+                thin.setdefault(gp, []).append(spigot_solid(placed, j))
                 _, _, _, n = anchor_frame(placed, *j.port_end)
                 if float((rots[gp] @ n)[2]) < -0.5:
-                    bodies[gp] = bodies[gp] - plug_chamfer(placed, j)
+                    chamfer = plug_chamfer(placed, j)
+                    bodies[gp] = bodies[gp] - chamfer
+                    thin[gp].append(chamfer)
 
         contacts: dict[int, _Contact | None] = {}
         for ji, plan in plans.items():
@@ -615,7 +620,8 @@ class ModuleTemplate(Template):
             tongue = tongue_solid(plan, centers, u_lo, u_hi,
                                   slope_top=down_top and u_hi < phi - 0.05,
                                   slope_bottom=down_bottom and u_lo > plo + 0.05)
-            self._attach(target, tongue, bodies, extras[j.child], group_of[j.child])
+            owner = self._attach(target, tongue, bodies, extras[j.child], group_of[j.child])
+            thin.setdefault(group_of[j.child] if owner is None else id(owner), []).append(tongue)
             gi = group_of[j.parent]
             for cut in slot_cutters(plan, centers):
                 bodies[gi] = bodies[gi] - cut
@@ -625,7 +631,7 @@ class ModuleTemplate(Template):
         separate_children = {j.child for j in joins if j.separate}
         for gi, g in enumerate(groups):
             if gi == 0:
-                out.append(PrintPart("본체", bodies[gi], rots[gi], key="body"))
+                out.append(PrintPart("본체", bodies[gi], rots[gi], key="body", thin_ok=tuple(thin.get(gi, ()))))
                 continue
             head = next((pid for pid in g if pid in separate_children), g[0])
             q = by_id[head]
@@ -634,10 +640,11 @@ class ModuleTemplate(Template):
                 name, key = f"{q.template.display_name_ko} {pps[0].name_ko}", f"{q.id}_{pps[0].key}"
             else:
                 name, key = q.template.display_name_ko, q.id
-            out.append(PrintPart(name, bodies[gi], rots[gi], key=key))
+            out.append(PrintPart(name, bodies[gi], rots[gi], key=key, thin_ok=tuple(thin.get(gi, ()))))
         for q in parts:
-            for name, key, solid, rot in extras.get(q.id, []):
-                out.append(PrintPart(name, solid, rot, key=key))
+            for e in extras.get(q.id, []):
+                name, key, solid, rot = e
+                out.append(PrintPart(name, solid, rot, key=key, thin_ok=tuple(thin.get(id(e), ()))))
                 owners.append(frozenset({q.id}))
         return _Layout(tuple(out), plans, contacts, tuple(owners))
 
@@ -688,15 +695,17 @@ class ModuleTemplate(Template):
         return contact, (extras[idx - 1][2], extras[idx - 1][3])
 
     @staticmethod
-    def _attach(target, tongue, bodies, extras, child_group) -> None:  # noqa: ANN001
+    def _attach(target, tongue, bodies, extras, child_group) -> list[Any] | None:  # noqa: ANN001
+        """혀를 붙인다. 붙인 곳이 따로 출력하는 파트면 그 항목, 묶음 본체면 None."""
         solid = target[0]
         if solid is bodies[child_group]:
             bodies[child_group] = bodies[child_group] + tongue
-            return
+            return None
         for e in extras:
             if e[2] is solid:
                 e[2] = e[2] + tongue
-                return
+                return e
+        return None
 
 
 def fused_groups(parts: list[PartSpec], joins: list[JoinSpec]) -> list[list[str]]:

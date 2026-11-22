@@ -268,21 +268,25 @@ def _blank(m: re.Match[str]) -> str:
 def _find_templates(text: str, aquarium: bool = False) -> list[str]:
     words_of, rx_of = (AQUARIUM_KEYWORDS, AQUARIUM_KEYWORDS_EN) if aquarium else (TEMPLATE_KEYWORDS, TEMPLATE_KEYWORDS_EN)
     found = []
-    # 조립 모듈 낱말을 먼저 찾고, 찾은 부분은 지워서(같은 길이로) 기본 부품 낱말로 또 잡히지 않게 한다
+    # 조립 모듈 낱말을 먼저 찾고, 찾은 부분은 지워서(같은 길이로) 기본 부품 낱말로 또 잡히지 않게 한다.
+    # 모든 모듈의 낱말이 맞은 곳을 모아 긴 것부터(같으면 앞의 것) 겹치지 않게 고른다: 파일 순서나 낱말 순서와 상관없이
+    # "물병과 밥그릇이 달린 은신처"는 밥그릇·물병 모듈이, "터널로 이은 쌍둥이 은신처"는 '터널'까지 쌍둥이 모듈이 가져간다
+    hits: list[tuple[int, int, str]] = []
+    lowered = text.lower()
     for key, words_ko, words_en in ([] if aquarium else MODULE_KEYWORDS):
-        hit = None
         for w in words_ko:
-            i = text.find(w)
-            if i >= 0 and (hit is None or i < hit[0]):
-                hit = (i, len(w))
-        lowered = text.lower()
+            hits += [(m.start(), m.end(), key) for m in re.finditer(re.escape(w), text)]
         for rx in words_en:
-            m = rx.search(lowered)
-            if m and (hit is None or m.start() < hit[0]):
-                hit = (m.start(), m.end() - m.start())
-        if hit:
-            found.append((hit[0], key))
-            text = text[:hit[0]] + "＿" * hit[1] + text[hit[0] + hit[1]:]
+            hits += [(m.start(), m.end(), key) for m in rx.finditer(lowered)]
+    taken: list[tuple[int, int, str]] = []
+    for s, e, key in sorted(hits, key=lambda h: (h[0] - h[1], h[0])):
+        if all(e <= ts or te <= s for ts, te, _ in taken):
+            taken.append((s, e, key))
+    first: dict[str, int] = {}
+    for s, e, key in taken:
+        first[key] = min(first.get(key, s), s)
+        text = text[:s] + "＿" * (e - s) + text[e:]
+    found += [(s, key) for key, s in first.items()]
     # "집 모양 터널" 의 "집" 은 은신처가 아니라 터널 단면 모양이다 (같은 길이로 바꿔 위치는 그대로)
     if "터널" in text:
         text = text.replace("집 모양", "＿ 모양").replace("집모양", "＿모양")
@@ -378,7 +382,8 @@ def _apply_numbers(key: str, text: str, params: dict, aquarium: bool = False) ->
         elif "직선" in text or STRAIGHT_EN.search(low):
             out["bend_angle_deg"] = 0
             out["path"] = "arc"
-    if key == "ramp":
+    # 램프와 계단 단 수 파라미터가 있는 조립 모듈(경사로 달린 은신처·모래목욕통)은 같은 규칙으로 계단·경사로를 고른다
+    if key == "ramp" or "steps" in out:
         if "계단" in text:
             m = re.search(r"(\d+)\s*단", text)
             out["steps"] = int(m.group(1)) if m else max(out.get("steps", 0), 3)

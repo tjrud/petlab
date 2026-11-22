@@ -419,7 +419,7 @@ def apply_decor(
             shape = shape - Compound(children=by_mode["engrave"])
         if by_mode["relief"]:
             shape = shape + Compound(children=by_mode["relief"])
-        new_parts[idx] = PrintPart(part.name_ko, shape, part.rotation, key=part.key)
+        new_parts[idx] = PrintPart(part.name_ko, shape, part.rotation, key=part.key, thin_ok=part.thin_ok)
     if applied == 0 and not any(i.code == "decor_skipped" for i in issues):
         issues.append(_skip(label, "장식을 넣을 빈 자리가 없어 장식을 뺐습니다.", item_index))
     # 같은 까닭의 경고는 면마다 되풀이하지 않는다 (벽 네 면이 같은 이유로 빠지면 한 번만)

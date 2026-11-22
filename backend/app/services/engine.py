@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field, replace
 
+import trimesh
 from pydantic import ValidationError
 
 from app.domain import BuiltItem, BuiltPart, Cage, PlacementHint, mesh_footprint
@@ -124,7 +125,9 @@ def build_item(
     if len(print_parts) > 1:
         for pp in print_parts:
             pmesh = part_to_mesh(pp.part, tol, ang)
-            parts.append(BuiltPart(pp.key, pp.name_ko, pmesh, to_print_orientation(pmesh, pp.rotation)))
+            thin = (trimesh.util.concatenate([part_to_mesh(s, tol, ang) for s in pp.thin_ok]) if pp.thin_ok
+                    else None)
+            parts.append(BuiltPart(pp.key, pp.name_ko, pmesh, to_print_orientation(pmesh, pp.rotation), thin))
         print_mesh = parts[0].print_mesh
     return BuiltItem(
         index=index,
@@ -323,6 +326,10 @@ def _shrink_to_fit(items: list[BuiltItem], ctx: EngineContext, report: Validatio
             p2, issues = clamp_params(t, shrunk, ctx.fit_ctx, _height_constraint(t, ctx, shrunk),
                                       item.index, item.label_ko)
             if p2 == item.params or any(i.severity == Severity.error for i in issues):
+                continue
+            # 줄인 값이 보정으로 고칠 수 없는 규칙을 어기면 쓰지 않는다 (run_engine 은 규칙 검사를 줄이기 전에만 하므로
+            # 그대로 두면 저장은 되고 다시 검증(revalidate)하면 오류가 난다. 예: 조립 모듈의 슬라이드 자식이 면 밖으로 나감)
+            if t.rule_issues(p2, ctx.rule_ctx):
                 continue
             candidate = build_item(item.index, t, p2, item.hint, ctx.rules.printing, item.decor, ctx.rule_ctx)
             trial = [candidate if it.index == item.index else it for it in items]
