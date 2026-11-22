@@ -16,6 +16,7 @@ from pydantic import (
     Field,
 )
 
+from app.modules.structure import AssemblyDisplay
 from app.names import normalize_nickname
 from app.rules.loader import MAX_HABITAT_COUNT, Habitat
 
@@ -142,9 +143,8 @@ class ItemOut(BaseModel):
     mesh_url: str | None           # 케이지 좌표계로 배치된 STL (배치 실패 시 null)
     parts: list[PartOut] = []      # 출력 파트 (STL 은 파트별 파일, 3MF 는 한 파일에 여러 객체)
     decor: dict | None = None      # 장식 명세 (무늬 또는 글귀 각인). 없으면 null
-    # 조립 모듈(모듈 라이브러리)의 파라미터 이름·뷰어 색 (기본 부품은 프론트엔드가 알고 있어 비워 둔다)
-    param_labels_ko: dict[str, str] = {}
-    color: str | None = None
+    # 자유 조립 항목(template "assembly")의 부품·결합. 이때 params 는 부품 id → 그 부품 파라미터. 다른 항목은 null
+    assembly: AssemblyDisplay | None = None
 
 
 class VersionSummary(BaseModel):

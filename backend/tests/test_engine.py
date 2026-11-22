@@ -300,3 +300,97 @@ def test_house_multi_part_checks_report_part_names(rules):
     res = run_engine([ItemSpec("house", house)], c)
     msgs = [i.message_ko for i in by_code(res.report, "exceeds_build_volume")]
     assert any("(본체)" in m for m in msgs) and any("(지붕)" in m for m in msgs)
+
+
+# ── 자유 조립 항목 (template "assembly") ─────────────────────
+
+
+def _assembly(parts, connections, name="급식 은신처", hint=None):
+    from app.modules.structure import AssemblyRequest
+
+    req = AssemblyRequest.model_validate({"parts": parts, "connections": connections, "name_ko": name})
+    return ItemSpec("assembly", {p["id"]: p["params"] for p in parts}, hint or PlacementHint(), assembly=req)
+
+
+def _hide_bowl(hide=None, bowl=None):
+    return _assembly([{"id": "hide", "template": "hideout", "params": hide or {}},
+                      {"id": "bowl", "template": "bowl_holder", "params": bowl or {}}],
+                     [{"part": "bowl", "to": "hide", "at": "right"}])
+
+
+def test_assembly_item_is_resolved_clamped_and_built(rules):
+    res = run_engine([_hide_bowl()], ctx(rules, size="dwarf"))
+    assert res.report.passed, [(i.code, i.message_ko) for i in res.report.errors]
+    [it] = res.items
+    assert it.key == "assembly" and it.label_ko == "급식 은신처 #1" and it.placement is not None
+    assert [(j.parent, j.child, j.mount, j.passage) for j in it.assembly.joins] == [
+        ("hide.right", "bowl.back", "slide", False)]
+    assert [p.key for p in it.print_parts] == ["body", "bowl"]
+    assert set(it.params.model_dump()) == {"hide", "bowl"}  # 부품 id → 부품 파라미터
+    # 조립 보정 안내는 어느 부품의 값인지 details.part 로 알린다 (자동 보정 문구는 부품 이름으로 시작)
+    adjusted = by_code(res.report, "param_adjusted")
+    assert adjusted and all(i.details["part"] == i.details["field"].split(".")[0] for i in adjusted)
+    assert any(i.details["field"] == "bowl.collar_height_mm" for i in adjusted)
+
+
+def test_assembly_part_problems_name_the_part(rules):
+    c = ctx(rules, size="dwarf")
+    [bad] = run_engine([_hide_bowl(hide={"width_mm": 1})], c).report.errors
+    assert bad.code == "invalid_params" and bad.details["path"] == "hide" and bad.details["part"] == "hide"
+
+    unknown = _assembly([{"id": "hide", "template": "hideout", "params": {}},
+                         {"id": "wheel", "template": "wheel", "params": {}}],
+                        [{"part": "wheel", "to": "hide", "at": "auto"}])
+    [err] = run_engine([unknown], c).report.errors
+    assert err.code == "unknown_template" and err.details["part"] == "wheel"
+
+    # 어항: 부품(은신처·그릇 받침)이 이 종에 허용되지 않는다
+    aq = EngineContext(cage=Cage(600, 300, 300), species="aquarium", size="shrimp", count=10, rules=rules)
+    [err] = run_engine([_hide_bowl()], aq).report.errors
+    assert err.code == "template_not_allowed" and err.details["part"] == "hide"
+    assert "은신처(hide)" in err.message_ko
+
+    [err] = run_engine([ItemSpec("assembly", {})], c).report.errors
+    assert err.code == "invalid_params"
+
+
+def test_cage_height_constraint_goes_through_the_template(rules):
+    """케이지 천장 제약: 부품 하나짜리 템플릿은 예전과 같은 높이 파라미터 상한, 조립 항목은 부품마다의 높이 제약."""
+    from app.modules.compose import assembly_params, resolve, template_for
+    from app.services.engine import _height_constraint
+
+    c = ctx(rules, Cage(600, 400, 150), size="dwarf")
+    P = c.size_rules.gap_trap.passable_min_mm
+    hideout = get_template("hideout")
+    [con] = _height_constraint(hideout, c, hideout.default_params(c.rule_ctx))
+    assert (con.field, con.max, con.min, con.source) == ("height_mm", 150 - P, None, "geometry")
+    assert con.reason_ko == f"케이지 천장과의 틈에 끼이지 않도록 높이를 {150 - P:g}mm(천장 높이 − {P:g}mm) 이하로 맞췄습니다."
+
+    spec = _hide_bowl()
+    resolved, params, _ = resolve(spec.assembly, None, c.fit_ctx)
+    t = template_for(resolved, "급식 은신처")
+    cons = _height_constraint(t, c, assembly_params(t, params))
+    assert "hide.height_mm" in {x.field for x in cons}
+    assert all(x.max == 150 - P for x in cons)
+
+
+def test_assembly_shrinks_to_fit_a_small_cage(rules):
+    """케이지가 좁으면 기준 부품(은신처)의 크기를 줄이고, 옆면에 붙은 받침이 들어갈 만큼은 다시 넓힌다."""
+    res = run_engine([_hide_bowl()], ctx(rules, Cage(260, 170, 300), size="dwarf"))
+    assert res.report.passed, [(i.code, i.message_ko) for i in res.report.errors]
+    assert by_code(res.report, "resized_to_fit")
+    hide = res.items[0].params.hide
+    # 은신처 세로(옆면 가로)는 70% 로 줄지 않고 그릇 받침 폭(90 + 틈새·벽 = 98) + 양쪽 가장자리 3mm 로 다시 넓힌다
+    assert hide.width_mm < 140 and hide.depth_mm == pytest.approx(98 + 2 * 3)
+
+
+def test_revalidate_checks_assembly_parts_per_species(rules):
+    from app.services.engine import revalidate
+
+    c = ctx(rules, size="dwarf")
+    res = run_engine([_hide_bowl()], c)
+    assert res.report.passed
+    assert revalidate(res.items, c).passed
+    aq = EngineContext(cage=Cage(600, 400, 300), species="aquarium", size="shrimp", count=10, rules=rules)
+    bad = by_code(revalidate(res.items, aq), "template_not_allowed")
+    assert {i.details["part"] for i in bad} == {"hide", "bowl"}

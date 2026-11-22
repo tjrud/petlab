@@ -30,15 +30,19 @@ CATEGORY_NAME = MARKET_CATEGORIES
 
 
 def template_category(key: str) -> str | None:
-    """설계 템플릿 키 → 탐색 분류. 조립 모듈은 기준(첫) 부품의 분류를 따른다 (터널 달린 은신처 → 은신처)."""
-    if key in TEMPLATE_CATEGORY:
-        return TEMPLATE_CATEGORY[key]
-    from app.modules.definition import library
+    """설계 템플릿 키 → 탐색 분류."""
+    return TEMPLATE_CATEGORY.get(key)
 
-    for m in library():
-        if m.key == key:
-            return TEMPLATE_CATEGORY.get(m.parts[0].template)
-    return None
+
+def item_category(it: dict) -> str | None:
+    """저장된 설계 항목 → 탐색 분류. 자유 조립 항목은 기준(첫) 부품의 분류를 따른다 (터널 달린 은신처 → 은신처)."""
+    asm = it.get("assembly")
+    if isinstance(asm, dict) and asm.get("parts"):
+        first = asm["parts"][0]
+        return template_category(first.get("template", "")) if isinstance(first, dict) else None
+    return template_category(it.get("template", ""))
+
+
 EVENT_WEIGHT = {"view": 1.0, "download": 3.0, "copy": 3.0}
 
 
@@ -92,7 +96,7 @@ def profile(db: Session, user: User, habitat_of: HabitatOf | None = None) -> dic
     )
     for items in db.scalars(latest):
         for it in items or []:
-            cat = template_category(it.get("template", ""))
+            cat = item_category(it)
             if cat:
                 designs[cat] += 1
 

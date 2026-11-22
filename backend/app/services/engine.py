@@ -15,12 +15,13 @@ from pydantic import ValidationError
 from app.domain import BuiltItem, BuiltPart, Cage, PlacementHint, mesh_footprint
 from app.geometry.mesh import part_to_mesh, to_print_orientation
 from app.layout.placer import attach_satisfied, place_all
+from app.modules.compose import ASSEMBLY_MAX_PASSES, assembly_params, resolve, template_for
 from app.modules.structure import AssemblyRequest
 from app.rules.loader import BuoyancyRules, Habitat, PrintingRules, RuleBook, SizeRules
 from app.templates.base import ParamConstraint, RuleContext, Template, TemplateParams
 from app.templates.decor import PatternDecor, apply_decor, parse_decor
-from app.templates.registry import get_template
-from app.validation.autofix import clamp_params, constraint_violations, shrink_params
+from app.templates.registry import ASSEMBLY_KEY, get_template, primitives
+from app.validation.autofix import MAX_PASSES, clamp_params, constraint_violations, shrink_params
 from app.validation.checks import validate_all
 from app.validation.report import Issue, Severity, ValidationReport
 
@@ -162,14 +163,13 @@ def _height_constraint(template: Template, ctx: EngineContext, params: TemplateP
             f"생물이 구조물 위로 지나가고 수면 가까이에서 숨 쉴 수 있도록 높이를 {limit:g}mm(물 깊이 − {c:g}mm) "
             "이하로 맞췄습니다.",
         )
-    if not template.height_field:
-        return []
+    # 케이지: 천장과의 틈. 기본은 높이 파라미터(height_field) 상한이고, 조립 항목은 부품마다의 높이 제약을 모은다
     P = ctx.size_rules.gap_trap.passable_min_mm
     limit = ctx.cage.height_mm - P
-    return [ParamConstraint(
-        template.height_field, max=limit, source="geometry",
-        reason_ko=f"케이지 천장과의 틈에 끼이지 않도록 높이를 {limit:g}mm(천장 높이 − {P:g}mm) 이하로 맞췄습니다.",
-    )]
+    return template.cage_height_constraints(
+        params, ctx.rule_ctx, limit,
+        f"케이지 천장과의 틈에 끼이지 않도록 높이를 {limit:g}mm(천장 높이 − {P:g}mm) 이하로 맞췄습니다.",
+    )
 
 
 def _min_water_depth(template: Template, ctx: EngineContext, params: TemplateParams | None = None
@@ -217,6 +217,31 @@ def _not_allowed(label: str, index: int, key: str, ctx: EngineContext) -> Issue:
                  details={"template": key, "allowed": list(ctx.allowed_templates)})
 
 
+def _part_not_allowed(label: str, index: int, pid: str, key: str, ctx: EngineContext) -> Issue:
+    """조립 항목의 부품 하나가 이 종에 만들 수 없는 구조물."""
+    t = primitives().get(key)
+    name = t.display_name_ko if t is not None else key
+    return Issue(code="template_not_allowed", severity=Severity.error, item_index=index,
+                 message_ko=f"{label}: 부품 {name}({pid})은(는) {ctx.species_name}에는 만들 수 없는 구조물입니다.",
+                 details={"template": key, "part": pid, "allowed": list(ctx.allowed_templates)})
+
+
+def max_passes(template: Template) -> int:
+    """자동 보정 패스 수: 조립 항목은 사슬(부품 제약 → 따르는 치수 → 부모 면 크기)이 길어 더 준다."""
+    return ASSEMBLY_MAX_PASSES if template.key == ASSEMBLY_KEY else MAX_PASSES
+
+
+def _with_part(issues: list[Issue]) -> list[Issue]:
+    """조립 항목의 보정 이슈(details.field = "부품id.경로")에 details.part 를 붙인다 (화면이 그 부품 옆에 보이게)."""
+    out = []
+    for i in issues:
+        f = i.details.get("field") if isinstance(i.details, dict) else None
+        if isinstance(f, str) and "." in f and "part" not in i.details:
+            i = i.model_copy(update={"details": {**i.details, "part": f.split(".", 1)[0]}})
+        out.append(i)
+    return out
+
+
 def attach_constraints(template: Template, hint: PlacementHint, targets: dict[int, BuiltItem | tuple[Template, TemplateParams]]
                        ) -> list[ParamConstraint]:
     """attach_to 로 다른 구조물에 붙는 항목의 상호 제약: 램프 꼭대기 높이 = 대상의 착지판 높이 (2층 집의 바깥 램프)."""
@@ -259,6 +284,8 @@ def decor_constraints(template: Template, params: TemplateParams, decor: dict | 
 
 def _prepare(spec: ItemSpec, index: int, ctx: EngineContext,
              extra: list[ParamConstraint] | None = None) -> tuple[Template, TemplateParams, list[Issue]] | Issue:
+    if spec.template == ASSEMBLY_KEY:
+        return _prepare_assembly(spec, index, ctx, extra)
     try:
         template = get_template(spec.template)
     except KeyError:
@@ -278,6 +305,50 @@ def _prepare(spec: ItemSpec, index: int, ctx: EngineContext,
     shallow = _too_shallow(template, ctx, index, label, params)
     params, issues = clamp_params(template, params, ctx.fit_ctx, cons, index, label)
     return template, params, issues + ([shallow] if shallow is not None else []) + _rule_issues(template, params, ctx, index)
+
+
+def _prepare_assembly(spec: ItemSpec, index: int, ctx: EngineContext,
+                      extra: list[ParamConstraint] | None = None
+                      ) -> tuple[Template, TemplateParams, list[Issue]] | Issue:
+    """자유 조립 항목: 부품 파라미터 검증 → 부품마다 이 종에 허용되는지 → 조립 해석(부품마다 보정 포함) →
+    조립 항목 템플릿 → 조립 제약으로 보정(ASSEMBLY_MAX_PASSES 패스) → 규칙 검사."""
+    req = spec.assembly
+    label = f"{(req.name_ko if req is not None else None) or '조립 구조물'} #{index + 1}"
+    if req is None:
+        return Issue(code="invalid_params", severity=Severity.error, item_index=index,
+                     message_ko=f"{label}: 조립 구조물의 부품·연결 정보가 없습니다.")
+    prim = primitives()
+    allowed = ctx.allowed_templates
+    raw_params = spec.params if isinstance(spec.params, dict) else {}
+    values: dict[str, TemplateParams] = {}
+    for pr in req.parts:
+        t = prim.get(pr.template)
+        if t is None:
+            return Issue(code="unknown_template", severity=Severity.error, item_index=index,
+                         message_ko=f"{label}: 지원하지 않는 부품입니다 ({pr.id}: {pr.template}).",
+                         details={"part": pr.id, "template": pr.template})
+        try:
+            values[pr.id] = t.Params.model_validate(raw_params.get(pr.id, pr.params))
+        except ValidationError as e:
+            return Issue(code="invalid_params", severity=Severity.error, item_index=index,
+                         message_ko=f"{label}: {t.display_name_ko}({pr.id})의 파라미터가 허용 범위를 벗어났습니다.",
+                         details={"path": pr.id, "part": pr.id,
+                                  "errors": e.errors(include_url=False, include_context=False)})
+        if t.key not in allowed:
+            return _part_not_allowed(label, index, pr.id, t.key, ctx)
+    out = resolve(req, values, ctx.fit_ctx, templates=prim, item_index=index, label_ko=label)
+    if isinstance(out, Issue):
+        return out
+    resolved, part_params, issues = out
+    for rp in resolved.parts:  # 해석기가 끼워 넣은 터널도 이 종에 허용되어야 한다
+        if rp.template not in allowed:
+            return _part_not_allowed(label, index, rp.id, rp.template, ctx)
+    template = template_for(resolved, req.name_ko)
+    params = assembly_params(template, part_params)
+    label = _label(template, index)
+    cons = _height_constraint(template, ctx, params) + list(extra or [])
+    params, fixed = clamp_params(template, params, ctx.fit_ctx, cons, index, label, max_passes=ASSEMBLY_MAX_PASSES)
+    return template, params, _with_part(issues + fixed) + _rule_issues(template, params, ctx, index)
 
 
 def _rule_issues(template: Template, params: TemplateParams, ctx: EngineContext, index: int) -> list[Issue]:
@@ -327,7 +398,7 @@ def _shrink_to_fit(items: list[BuiltItem], ctx: EngineContext, report: Validatio
         for factor in SHRINK_STEPS:
             shrunk = shrink_params(t, base, factor)
             p2, issues = clamp_params(t, shrunk, ctx.fit_ctx, _height_constraint(t, ctx, shrunk),
-                                      item.index, item.label_ko)
+                                      item.index, item.label_ko, max_passes=max_passes(t))
             if p2 == item.params or any(i.severity == Severity.error for i in issues):
                 continue
             # 줄인 값이 보정으로 고칠 수 없는 규칙을 어기면 쓰지 않는다 (run_engine 은 규칙 검사를 줄이기 전에만 하므로
@@ -405,7 +476,13 @@ def revalidate(items: list[BuiltItem], ctx: EngineContext) -> ValidationReport:
     allowed = ctx.allowed_templates
     by_index = {it.index: it for it in items}
     for it in items:
-        if it.key not in allowed:
+        resolved = it.assembly
+        if resolved is not None:
+            bad = [p for p in resolved.parts if p.template not in allowed]
+            if bad:  # 조립 항목은 부품마다 본다
+                report.extend([_part_not_allowed(it.label_ko, it.index, p.id, p.template, ctx) for p in bad])
+                continue
+        elif it.key not in allowed:
             # 이 종에 없는 구조물은 제약을 계산하지 않는다 (예: 어항 크기 구분에는 램프·모래목욕통 기준 값이 없다)
             report.extend([_not_allowed(it.label_ko, it.index, it.key, ctx)])
             continue

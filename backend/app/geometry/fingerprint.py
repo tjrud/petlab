@@ -16,9 +16,10 @@ import importlib.metadata
 import importlib.util
 import json
 import sys
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 from app.rules.loader import PrintingRules
 
@@ -71,38 +72,71 @@ def _library_versions() -> tuple[tuple[str, str], ...]:
     return tuple(out)
 
 
-# 조립 모듈의 형상에 영향을 주는 코드 (모듈 정의 파일·부품 템플릿과 함께 지문에 넣는다)
-ASSEMBLY_MODULES: tuple[str, ...] = ("app.modules.assembly", "app.modules.module_template", "app.modules.definition")
+# 자유 조립 항목의 형상에 영향을 주는 코드 (부품 템플릿과 함께 지문에 넣는다). 조립 해석기(app.modules.compose)는
+# 넣지 않는다: 다시 만들 때는 저장된 구조(ResolvedAssembly)만 쓰고 해석기를 부르지 않는다
+ASSEMBLY_MODULES: tuple[str, ...] = (
+    "app.modules.assembly", "app.modules.module_template", "app.modules.composed", "app.modules.structure",
+)
+ASSEMBLY_KEY = "assembly"
+
+# 지문에 넣는 항목: 템플릿 키(옛 호출), 저장된 항목 dict (DesignVersion.items), 또는 BuiltItem (key·template 속성)
+FingerprintItem = Any
 
 
-def _assembly_digest(key: str) -> str:
-    """조립 모듈(app/modules/library/*.json)의 지문: 정의 파일 + 조립 코드 + 쓰는 부품 템플릿. 없으면 "missing"."""
-    from app.modules.definition import library_files
+def _template_digest(key: str) -> str:
     from app.templates.keys import TEMPLATE_MODULES
 
-    path = library_files().get(key)
-    if path is None:
-        return "missing"  # 삭제된 템플릿·모듈
-    data = path.read_bytes()
-    parts = sorted({p["template"] for p in json.loads(data).get("parts", [])})
+    module = TEMPLATE_MODULES.get(key)
+    return _module_digest(module) if module else "missing"  # 삭제된 템플릿
+
+
+def _stored_assembly(item: FingerprintItem) -> Mapping[str, Any] | None:
+    """조립 항목의 저장 형태(ResolvedAssembly dict). 조립 항목이 아니면 None."""
+    if isinstance(item, Mapping):
+        raw = item.get("assembly")
+        return raw if isinstance(raw, Mapping) else None
+    template = getattr(item, "template", None)
+    resolved = getattr(template, "resolved", None)
+    return resolved.stored() if resolved is not None else None
+
+
+def _assembly_entry(raw: Mapping[str, Any]) -> tuple[str, str]:
+    """조립 항목 하나의 (지문 키, 값): "assembly:" + 구조(parts·joins)의 해시 → 조립 코드·쓰는 부품 템플릿의 해시."""
+    from app.modules.structure import ResolvedAssembly, canonical_json
+
+    try:
+        resolved = ResolvedAssembly.from_stored(raw)
+        geo = resolved.geometry_digest()
+        templates = sorted({p.template for p in resolved.parts})
+    except ValueError:  # 잘못 저장된 구조: 지문은 참고용이라 원본 그대로 해시한다
+        geo = file_digest(canonical_json({"parts": raw.get("parts"), "joins": raw.get("joins")}).encode())
+        templates = sorted({str(p.get("template")) for p in raw.get("parts") or [] if isinstance(p, Mapping)})
     payload = {
-        "definition": file_digest(data),
         "assembly": {m: _module_digest(m) for m in ASSEMBLY_MODULES},
-        "parts": {k: _module_digest(TEMPLATE_MODULES[k]) if k in TEMPLATE_MODULES else "missing" for k in parts},
+        "parts": {k: _template_digest(k) for k in templates},
     }
-    return file_digest(json.dumps(payload, sort_keys=True).encode())
+    return f"{ASSEMBLY_KEY}:{geo}", file_digest(json.dumps(payload, sort_keys=True).encode())
 
 
-def geometry_fingerprint(template_keys: Iterable[str], printing: PrintingRules) -> str:
-    """주어진 템플릿들의 형상을 만드는 지금 코드·설정의 지문 (SHA-256 hex)."""
-    from app.templates.keys import TEMPLATE_MODULES
+def _entry(item: FingerprintItem) -> tuple[str, str]:
+    if isinstance(item, str):
+        return item, _template_digest(item)
+    raw = _stored_assembly(item)
+    if raw is not None:
+        return _assembly_entry(raw)
+    key = item.get("template") if isinstance(item, Mapping) else getattr(item, "key", None)
+    key = str(key)
+    return key, _template_digest(key)
 
-    templates: dict[str, str] = {}
-    for key in sorted(set(template_keys)):
-        module = TEMPLATE_MODULES.get(key)
-        templates[key] = _module_digest(module) if module else _assembly_digest(key)
+
+def geometry_fingerprint(items: Iterable[FingerprintItem], printing: PrintingRules) -> str:
+    """주어진 항목들의 형상을 만드는 지금 코드·설정의 지문 (SHA-256 hex).
+
+    items: 저장된 항목 dict·BuiltItem·템플릿 키. 부품 하나짜리 항목은 템플릿 모듈의 해시(예전과 같은 값),
+    조립 항목은 "assembly:<구조 해시>" → 조립 코드(ASSEMBLY_MODULES)와 쓰는 부품 템플릿의 해시."""
+    templates = dict(_entry(it) for it in items)
     payload = {
-        "templates": templates,
+        "templates": dict(sorted(templates.items())),
         "shared": {m: _module_digest(m) for m in SHARED_MODULES},
         "libraries": dict(_library_versions()),
         "fonts": dict(_font_digests()),
