@@ -88,10 +88,13 @@ def test_api_schema_for_aquarium_has_only_cave_and_tunnel():
 
 def test_api_schema_for_hamster_has_no_cave():
     schema = api_schema(CAGE_TEMPLATES)
-    assert schema_templates(schema) == {"hideout", "tunnel", "ramp", "sand_bath", "house", "bowl_holder", "bottle_stand"}
+    # 기본 부품 + 부품을 이어 붙이는 조립 항목(assembly)
+    assert schema_templates(schema) == {"hideout", "tunnel", "ramp", "sand_bath", "house", "bowl_holder", "bottle_stand",
+                                        "assembly"}
     assert "CaveParams" not in schema["$defs"]
-    # 케이지 계약은 main 그대로 모든 항목에 decor, 배치에 attach_to 가 있다
-    assert all("decor" in d["properties"] for n, d in schema["$defs"].items() if n.endswith("Item"))
+    # 케이지 계약은 main 그대로 모든 단일 항목에 decor, 배치에 attach_to 가 있다 (조립 항목의 장식은 아직 없다)
+    assert all("decor" in d["properties"] for n, d in schema["$defs"].items()
+               if n.endswith("Item") and n != "AssemblyItem")
     assert "attach_to" in schema["$defs"]["LLMPlacement"]["properties"]
     # 기본값(모든 템플릿)은 저장된 버전 읽기용: 여섯 템플릿 모두
     # 기본 부품 + 모듈 라이브러리의 조립 모듈 (모듈은 은신처·터널 같은 케이지 부품으로만 만든다)
@@ -241,7 +244,7 @@ def test_anthropic_uses_species_schema_and_retries_on_cage_template(rules):
     hreq = make_req(rules, "hamster", "syrian", 1)
     client = FakeClient([_resp(spec_dict(rules, hreq, ("hideout",)))])
     AnthropicInterpreter(client, "m").interpret(hreq)
-    assert schema_templates(client.calls[0]["output_config"]["format"]["schema"]) == set(CAGE_TEMPLATES)
+    assert schema_templates(client.calls[0]["output_config"]["format"]["schema"]) == {*CAGE_TEMPLATES, "assembly"}
 
 
 def test_refusal_message_by_habitat(rules):

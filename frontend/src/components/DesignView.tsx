@@ -215,7 +215,13 @@ export default function DesignView({ id, initialVersion }: { id: string; initial
             kind={kind}
           />
         )}
-        <ItemList items={cur.items} selected={selected} errorItems={errorItems} onSelect={setSelected} />
+        <ItemList
+          items={cur.items}
+          selected={selected}
+          errorItems={errorItems}
+          onSelect={setSelected}
+          issues={cur.validation.issues}
+        />
         <DownloadPanel
           key={`${design.id}:${cur.version}`} // 버전을 바꾸면 이전 버전의 내려받기 오류를 지운다
           designId={design.id}

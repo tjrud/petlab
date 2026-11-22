@@ -283,6 +283,20 @@ const en: Record<string, string> = {
   "출력 파트 {n}개 (서포트 없이 출력하는 자세 기준)": "{n} print parts (sizes in the support-free print orientation)",
   "조립형 구조물은 파트를 따로 출력해 끼워 맞춰요. STL은 파트 {n}개가 zip 하나로, 3MF는 파일 하나에 파트를 모두 담아요.":
     "Assembled structures print as separate parts that fit together. STL comes as one zip with {n} part files; 3MF holds every part in one file.",
+  // 조립 항목: 부품·결합 (ItemList, lib/templates.ts describeJoin·partNoticeTag)
+  "부품 {n}개": "{n} parts",
+  "연결": "Connections",
+  "{part} → {where} · {mount}": "{part} → {where} · {mount}",
+  "{to} 앞": "front of {to}",
+  "{to} 뒤": "back of {to}",
+  "{to} 왼쪽": "left side of {to}",
+  "{to} 오른쪽": "right side of {to}",
+  "{to} 끝": "end of {to}",
+  "슬라이드 끼움": "slide-in mount",
+  "끼움 턱": "plug fit",
+  "면을 옮김": "Side moved",
+  "출입구를 냄": "Door opened",
+  "터널을 넣음": "Tunnel added",
   // 장식 (lib/templates.ts describeDecor, ItemList)
   "장식": "Decoration",
   "줄무늬": "Stripes",

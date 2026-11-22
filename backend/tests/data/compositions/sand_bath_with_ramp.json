@@ -1,0 +1,80 @@
+{
+  "key": "sand_bath_with_ramp",
+  "library": {
+    "key": "sand_bath_with_ramp",
+    "ids": {},
+    "joins": [
+      {
+        "parent": "bath.front",
+        "child": "ramp.landing",
+        "mount": "slide",
+        "passage": false
+      }
+    ]
+  },
+  "prompt_ko": "경사로 달린 모래목욕통",
+  "spec": {
+    "summary_ko": "모래목욕통 앞 출입 홈에 턱 높이까지 오르는 경사로를 끼웠습니다.",
+    "items": [
+      {
+        "template": "assembly",
+        "name_ko": "경사로 달린 모래목욕통",
+        "parts": [
+          {
+            "id": "bath",
+            "template": "sand_bath",
+            "params": {
+              "width_mm": 216.0,
+              "depth_mm": 212.0,
+              "basin_depth_mm": 55.0,
+              "lip_height_mm": 30.0,
+              "wall_thickness_mm": 3.0
+            }
+          },
+          {
+            "id": "ramp",
+            "template": "ramp",
+            "params": {
+              "height_mm": 30.0,
+              "width_mm": 105.0,
+              "slope_deg": 25.0,
+              "steps": 0
+            }
+          }
+        ],
+        "connections": [
+          {
+            "part": "ramp",
+            "to": "bath",
+            "at": "front"
+          }
+        ],
+        "placement": {
+          "zone": "auto",
+          "group": null,
+          "rotation": null,
+          "attach_to": null
+        },
+        "reason_ko": "경사로는 드나드는 앞면에 끼워 꼭대기가 턱 높이에 닿게 했습니다."
+      }
+    ],
+    "notes_ko": [],
+    "missing_parts": []
+  },
+  "expected": {
+    "joins": [
+      {
+        "parent": "bath.front",
+        "child": "ramp.landing",
+        "mount": "slide",
+        "passage": false,
+        "shift": 0.0
+      }
+    ],
+    "ties": [],
+    "fixed": {},
+    "faces": {
+      "ramp": "front"
+    }
+  }
+}

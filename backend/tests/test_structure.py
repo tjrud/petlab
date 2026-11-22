@@ -433,3 +433,9 @@ def test_cage_height_default_matches_height_field_cap():
         want = [ParamConstraint(tpl.height_field, max=250.0, source="geometry", reason_ko="이유")] \
             if tpl.height_field else []
         assert got == want, key
+
+
+def test_tree_problems_rejects_model_prefixed_ids():
+    """model_ 로 시작하는 id 는 조립 파라미터 모델 필드(model_dump 등)와 겹칠 수 있어 받지 않는다."""
+    assert tree_problems(["hide", "model_dump"], [("model_dump", "hide")])
+    assert not tree_problems(["hide", "modelx"], [("modelx", "hide")])

@@ -1,17 +1,95 @@
 import { useT } from "@/i18n/client";
-import { describeDecor, flattenParams, formatParam, itemColor, paramLabel } from "@/lib/templates";
-import type { Item } from "@/lib/types";
+import type { TFunction } from "@/i18n/translate";
+import {
+  describeDecor,
+  describeJoin,
+  flattenParams,
+  formatParam,
+  itemColor,
+  type ParamValue,
+  paramLabel,
+  partNoticeTag,
+  templateColor,
+} from "@/lib/templates";
+import type { AssemblyItem, Issue, Item } from "@/lib/types";
+
+/** 파라미터 이름·값 표 (집 템플릿의 중첩 값은 점 표기로 펼친다) */
+function ParamGrid({ params, t }: { params: Record<string, ParamValue>; t: TFunction }) {
+  return (
+    <dl className="grid grid-cols-2 gap-x-3 gap-y-1">
+      {flattenParams(params).map(([k, v]) => (
+        <div key={k} className="flex justify-between gap-2">
+          <dt className="text-stone-500">{paramLabel(k, t)}</dt>
+          <dd className="font-medium">{formatParam(k, v, t)}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/**
+ * 조립 항목: 부품마다 색 점·이름·파라미터, 그 부품에 붙은 안내(info, details.part),
+ * 그리고 결합마다 한 줄 ("그릇 받침 → 은신처 오른쪽 · 슬라이드 끼움").
+ */
+function AssemblyDetails({ item, issues, t }: { item: AssemblyItem; issues: Issue[]; t: TFunction }) {
+  const { parts, joins } = item.assembly;
+  const names = Object.fromEntries(parts.map((p) => [p.id, p.name_ko]));
+  const notices = issues.filter((i) => i.item_index === item.index && i.severity === "info");
+  return (
+    <div className="space-y-2" data-testid="assembly-parts">
+      <p className="text-xs font-medium text-stone-500">{t("부품 {n}개", { n: parts.length })}</p>
+      {parts.map((part) => {
+        const notes = notices.filter((i) => i.details?.part === part.id);
+        return (
+          <div key={part.id} className="rounded-lg border border-stone-200 p-2" data-testid={`assembly-part-${part.id}`}>
+            <p className="mb-1 flex items-center gap-2 font-medium">
+              <span aria-hidden className="h-2.5 w-2.5 rounded-full" style={{ background: templateColor(part.template) }} />
+              {part.name_ko}
+            </p>
+            <ParamGrid params={item.params[part.id] ?? {}} t={t} />
+            {notes.length > 0 && (
+              <ul className="mt-1.5 space-y-0.5 text-xs text-sky-900">
+                {notes.map((i, n) => {
+                  const tag = partNoticeTag(i.code, t);
+                  return (
+                    <li key={`${i.code}-${n}`}>
+                      {tag && <span className="mr-1 rounded bg-sky-100 px-1 font-medium">{tag}</span>}
+                      {i.message_ko}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        );
+      })}
+      {joins.length > 0 && (
+        <div className="text-xs text-stone-600" data-testid="assembly-joins">
+          <p className="font-medium text-stone-500">{t("연결")}</p>
+          <ul className="mt-0.5 list-disc pl-4">
+            {joins.map((j) => (
+              <li key={`${j.part}-${j.to}`}>{describeJoin(j, names, t)}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function ItemList({
   items,
   selected,
   errorItems,
   onSelect,
+  issues = [],
 }: {
   items: Item[];
   selected: number | null;
   errorItems: Set<number>;
   onSelect: (i: number | null) => void;
+  /** 검증 이슈 (조립 항목의 부품 안내를 그 부품 옆에 보인다). 없으면 보이지 않는다 */
+  issues?: Issue[];
 }) {
   const t = useT();
   return (
@@ -51,14 +129,11 @@ export default function ItemList({
                         {t("장식")}: {describeDecor(it.decor, t)}
                       </p>
                     )}
-                    <dl className="grid grid-cols-2 gap-x-3 gap-y-1">
-                      {flattenParams(it.params).map(([k, v]) => (
-                        <div key={k} className="flex justify-between gap-2">
-                          <dt className="text-stone-500">{paramLabel(it, k, t)}</dt>
-                          <dd className="font-medium">{formatParam(k, v, t)}</dd>
-                        </div>
-                      ))}
-                    </dl>
+                    {it.assembly ? (
+                      <AssemblyDetails item={it} issues={issues} t={t} />
+                    ) : (
+                      <ParamGrid params={it.params} t={t} />
+                    )}
                     {(it.parts?.length ?? 1) > 1 ? (
                       <div className="text-xs text-stone-500">
                         <p>{t("출력 파트 {n}개 (서포트 없이 출력하는 자세 기준)", { n: it.parts!.length })}</p>

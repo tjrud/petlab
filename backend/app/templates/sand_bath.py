@@ -13,6 +13,7 @@ from pydantic import Field
 
 from app.templates.base import (
     Anchor,
+    FaceFields,
     Features,
     Opening,
     ParamConstraint,
@@ -50,6 +51,8 @@ class SandBathTemplate(Template):
     Params = SandBathParams
     height_field = None
     size_fields = ("width_mm", "depth_mm")
+    # 연결 표준: 옆면에 받침·램프를 다는 기준 구조물 (통로가 없어 터널로 잇지 않고, 다른 부품에 붙지도 않는다)
+    role = "host"
 
     def default_params(self, ctx: RuleContext | None = None) -> SandBathParams:
         if ctx is None:
@@ -134,6 +137,24 @@ class SandBathTemplate(Template):
             "right": Anchor((W / 2, 0.0, 0.0), (1.0, 0.0, 0.0), z, mount=(-D / 2, D / 2, H)),
             "bottom": Anchor((0.0, 0.0, 0.0), (0.0, 0.0, -1.0), up),
         }
+
+    # ── 연결 표준 (자유 조립) ──
+
+    def face_fields(self, p: SandBathParams, anchor: str) -> FaceFields:
+        """옆면 가로는 왼쪽·오른쪽 = 세로(depth), 앞·뒤 = 가로(width). 앞면 연결판 높이 = 턱 높이 (램프 꼭대기가
+        여기에 맞춰진다). 나머지 면의 높이(안쪽 깊이 + 바닥)는 모래가 흩어지지 않는 깊이라 면 높이로 바꾸지 않는다.
+        어느 벽도 뚫지 않으므로 벽·통로는 없다."""
+        if anchor in ("left", "right"):
+            return FaceFields(width="depth_mm")
+        if anchor == "back":
+            return FaceFields(width="width_mm")
+        if anchor == "front":
+            return FaceFields(width="width_mm", height="lip_height_mm")
+        return FaceFields()
+
+    def envelope(self, p: SandBathParams) -> tuple[float, float, float]:
+        # 출입 홈은 앞면 가운데를 위에서 파내므로 바깥 상자의 모서리는 그대로다
+        return (p.width_mm, p.depth_mm, p.basin_depth_mm + p.wall_thickness_mm)
 
     def features(self, p: SandBathParams) -> Features:
         return Features(

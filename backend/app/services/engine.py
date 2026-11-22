@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from app.domain import BuiltItem, BuiltPart, Cage, PlacementHint, mesh_footprint
 from app.geometry.mesh import part_to_mesh, to_print_orientation
 from app.layout.placer import attach_satisfied, place_all
+from app.modules.structure import AssemblyRequest
 from app.rules.loader import BuoyancyRules, Habitat, PrintingRules, RuleBook, SizeRules
 from app.templates.base import ParamConstraint, RuleContext, Template, TemplateParams
 from app.templates.decor import PatternDecor, apply_decor, parse_decor
@@ -34,6 +35,8 @@ class ItemSpec:
     params: dict
     hint: PlacementHint = field(default_factory=PlacementHint)
     decor: dict | None = None  # 장식 명세 (templates/decor.py 의 PatternDecor | TextDecor). 없으면 None
+    # 조립 항목(template "assembly")의 부품·연결 요청. 이때 params 는 부품 id → 그 부품 파라미터다. 다른 항목은 None
+    assembly: AssemblyRequest | None = None
 
 
 @dataclass(frozen=True)

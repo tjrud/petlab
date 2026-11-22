@@ -10,12 +10,14 @@
 from __future__ import annotations
 
 import math
+from typing import ClassVar
 
 from build123d import Part, Plane, Polygon, extrude
 from pydantic import Field
 
 from app.templates.base import (
     Anchor,
+    AttachKind,
     Features,
     ParamConstraint,
     RuleContext,
@@ -29,6 +31,9 @@ RIDGE_SPACING_MM = 15.0  # 미끄럼 방지 턱 간격 (수평)
 RIDGE_WIDTH_MM = 4.0     # 턱 폭
 RIDGE_RISE_MM = 1.5      # 경사면 대비 턱이 솟은 높이
 TOE_MM = 4.0             # 경사로 앞끝 두께 (칼날처럼 얇아지면 출력·내구성이 나빠지므로 수직 앞면을 둔다)
+# 조립 부품일 때 따로 출력하는 램프가 출력 공간(220mm)에 들어가는 경사: slope ≥ BED_SLOPE_PER_MM × 높이 + BED_SLOPE_BASE_DEG
+BED_SLOPE_PER_MM = 0.2461
+BED_SLOPE_BASE_DEG = 5.0
 
 
 class RampParams(TemplateParams):
@@ -89,6 +94,12 @@ class RampTemplate(Template):
     Params = RampParams
     height_field = "height_mm"
     size_fields = ("height_mm", "width_mm")
+    # 연결 표준: 꼭대기 발판 끝면(landing)을 기준 구조물 옆면에 대고 슬라이드로 끼운다. 오르는 길이라 출입 면에 붙어도
+    # 출입을 막지 않고(passes_access), 꼭대기 높이(height_mm)를 붙는 면 높이에 맞춘다(level_field)
+    role = "accessory"
+    attach_order: ClassVar[dict[AttachKind, tuple[str, ...]]] = {"slide": ("landing",)}
+    passes_access = True
+    level_field = "height_mm"
 
     def default_params(self, ctx: RuleContext | None = None) -> RampParams:
         if ctx is None:
@@ -157,6 +168,20 @@ class RampTemplate(Template):
             "right": Anchor((x0 + W, total / 2, 0.0), (1.0, 0.0, 0.0), z),
             "bottom": Anchor((xc, total / 2, 0.0), (0.0, 0.0, -1.0), (0.0, 1.0, 0.0)),
         }
+
+    # ── 연결 표준 (자유 조립) ──
+
+    def envelope(self, p: RampParams) -> tuple[float, float, float]:
+        # 측면 단면은 [0, 경사 길이 + 발판] × [0, 높이] 안에 꼭 차고, 폭 방향으로 압출한다
+        return (p.width_mm, run_length(p) + TOP_LANDING_MM, p.height_mm)
+
+    def assembly_constraints(self, p: RampParams, ctx: RuleContext) -> list[ParamConstraint]:
+        """조립 부품인 램프는 따로 출력하므로 길이가 출력 공간에 들어가도록 경사를 높이에 맞춰 가파르게 한다
+        (혼자 쓰는 램프는 지금처럼 이 제약이 없다)."""
+        return [ParamConstraint(
+            "slope_deg", min=BED_SLOPE_PER_MM * p.height_mm + BED_SLOPE_BASE_DEG, source="printing",
+            reason_ko="따로 출력하는 경사로가 프린터 출력 공간에 들어가도록 경사를 가파르게 했습니다",
+        )]
 
     def features(self, p: RampParams) -> Features:
         return Features(

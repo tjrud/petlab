@@ -1,0 +1,132 @@
+{
+  "key": "twin_hideouts",
+  "library": {
+    "key": "twin_hideouts",
+    "ids": {
+      "a": "hide",
+      "hideout_b": "hide2"
+    },
+    "joins": [
+      {
+        "parent": "a.front",
+        "child": "tube.end_b",
+        "mount": "plug",
+        "passage": true
+      },
+      {
+        "parent": "tube.end_a",
+        "child": "hideout_b.front",
+        "mount": "plug",
+        "passage": true
+      }
+    ]
+  },
+  "prompt_ko": "터널로 이은 은신처 두 개",
+  "spec": {
+    "summary_ko": "같은 크기의 은신처 두 개를 앞 출입구끼리 곧은 터널로 이었습니다.",
+    "items": [
+      {
+        "template": "assembly",
+        "name_ko": "터널로 이은 쌍둥이 은신처",
+        "parts": [
+          {
+            "id": "hide",
+            "template": "hideout",
+            "params": {
+              "width_mm": 140.0,
+              "depth_mm": 110.0,
+              "height_mm": 100.0,
+              "entrance_diameter_mm": 70.0,
+              "entrance_count": 2,
+              "vent_count": 6,
+              "vent_diameter_mm": 4.0,
+              "wall_thickness_mm": 3.0
+            }
+          },
+          {
+            "id": "tube",
+            "template": "tunnel",
+            "params": {
+              "length_mm": 100.0,
+              "inner_diameter_mm": 70.0,
+              "bend_angle_deg": 0.0,
+              "wall_thickness_mm": 3.0,
+              "shape": "round_arch",
+              "path": "arc"
+            }
+          },
+          {
+            "id": "hide2",
+            "template": "hideout",
+            "params": {
+              "width_mm": 140.0,
+              "depth_mm": 110.0,
+              "height_mm": 100.0,
+              "entrance_diameter_mm": 70.0,
+              "entrance_count": 2,
+              "vent_count": 6,
+              "vent_diameter_mm": 4.0,
+              "wall_thickness_mm": 3.0
+            }
+          }
+        ],
+        "connections": [
+          {
+            "part": "tube",
+            "to": "hide",
+            "at": "front"
+          },
+          {
+            "part": "hide2",
+            "to": "tube",
+            "at": "free_end"
+          }
+        ],
+        "placement": {
+          "zone": "auto",
+          "group": null,
+          "rotation": null,
+          "attach_to": null
+        },
+        "reason_ko": "두 번째 은신처는 같은 값으로 하나 더 만들어 터널 남은 끝에 이었습니다."
+      }
+    ],
+    "notes_ko": [],
+    "missing_parts": []
+  },
+  "expected": {
+    "joins": [
+      {
+        "parent": "hide.front",
+        "child": "tube.end_b",
+        "mount": "plug",
+        "passage": "into_parent",
+        "shift": 0.0
+      },
+      {
+        "parent": "tube.end_a",
+        "child": "hide2.front",
+        "mount": "plug",
+        "passage": "into_child",
+        "shift": 0.0
+      }
+    ],
+    "ties": [
+      {
+        "follower": "tube.inner_diameter_mm",
+        "owner": "hide.entrance_diameter_mm"
+      },
+      {
+        "follower": "hide2.entrance_diameter_mm",
+        "owner": "hide.entrance_diameter_mm"
+      }
+    ],
+    "fixed": {
+      "tube.shape": "round_arch"
+    },
+    "faces": {
+      "tube": "front",
+      "hide2": "free_end"
+    }
+  }
+}

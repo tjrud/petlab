@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import math
+from typing import ClassVar
 
 import numpy as np
 from build123d import Part
@@ -25,9 +26,12 @@ from pydantic import Field, model_validator
 
 from app.templates.base import (
     Anchor,
+    AttachKind,
     DecorZone,
+    FaceFields,
     Features,
     ParamConstraint,
+    PortProfile,
     PrintPart,
     RuleContext,
     Side,
@@ -55,6 +59,8 @@ _UPRIGHT = np.eye(3)
 WIDTH_MAX_MM = 350.0
 DECOR_KEEPOUT_MM = 4.0   # 장식이 개구부·결합부·모서리에서 떨어지는 거리
 DECOR_MAX_DEPTH_MM = 1.0  # 장식 홈 깊이·돌기 높이 상한
+# 출입구·연결부 단면 종류 (port_profile: 뾰족 아치 = 터널 pointed_arch 안쪽 단면과 같은 종류)
+DOOR_PROFILE: PortProfile = "pointed_arch"
 
 
 class HouseParams(TemplateParams):
@@ -162,6 +168,10 @@ class HouseTemplate(Template):
     Params = HouseParams
     height_field = "height_mm"
     size_fields = ("width_mm", "depth_mm", "height_mm")
+    # 연결 표준: 드나드는 방. 터널 끝에 붙을 때는 이 순서에서 첫 출입구·연결부 면으로 잇는다
+    # (출입구 면은 파라미터마다 달라, 해석기가 port 가 있는 연결 지점만 고른다)
+    role = "room_host"
+    attach_order: ClassVar[dict[AttachKind, tuple[str, ...]]] = {"passage": ("front", "back", "left", "right")}
 
     def default_params(self, ctx: RuleContext | None = None) -> HouseParams:
         if ctx is None:
@@ -324,7 +334,8 @@ class HouseTemplate(Template):
                 length = sh.wall_length(side)
                 mount = (-length / 2, length / 2, self._mount_height(p, side))
             out[side] = Anchor((ox * half, oy * half, 0.0), (float(ox), float(oy), 0.0), z,
-                               side=side if port is not None else None, port=port, wall_mm=wall_mm, mount=mount)
+                               side=side if port is not None else None, port=port, wall_mm=wall_mm, mount=mount,
+                               profile=DOOR_PROFILE if port is not None else None)
         if not is_cap(p):
             out["top"] = Anchor((0.0, 0.0, p.height_mm), (0.0, 0.0, 1.0), (0.0, 1.0, 0.0))
         out["bottom"] = Anchor((0.0, 0.0, 0.0), (0.0, 0.0, -1.0), (0.0, 1.0, 0.0))
@@ -344,6 +355,46 @@ class HouseTemplate(Template):
         if side in openings.window_sides(p.windows):
             h = min(h, window_bottom(p) - MARGIN_MM)
         return max(0.0, h)
+
+    # ── 연결 표준 (자유 조립) ──
+
+    def face_fields(self, p: HouseParams, anchor: str) -> FaceFields:
+        """옆면 가로는 왼쪽·오른쪽 = 세로(depth), 앞·뒤 = 가로(width). 높이는 두지 않는다: 연결판 높이는 지붕 모양·
+        2층·창이 정해(_mount_height) 외형 높이와 비례하지 않으므로 조립 형상 검사가 판단한다.
+        벽 = 벽 두께 (연결부 면은 그 위에 플랜지가 더해진다. 뚫을 수 없는 면이면 None),
+        통로 크기 = 출입구 면은 출입구 폭, 연결부 면은 연결부 폭 (단면은 늘 뾰족 아치라 파라미터가 없다)."""
+        if anchor not in SIDES:
+            return FaceFields()
+        a = self.anchors(p)[anchor]
+        port = None
+        if anchor in p.doors.sides:
+            port = "doors.width_mm"
+        elif anchor in p.ports.sides:
+            port = "ports.diameter_mm"
+        return FaceFields(
+            width="depth_mm" if anchor in ("left", "right") else "width_mm",
+            wall="walls.thickness_mm" if a.wall_mm is not None else None,
+            port=port,
+        )
+
+    def open_port(self, p: HouseParams, anchor: str) -> HouseParams | None:
+        """출입구·연결부가 없는 옆면에 터널 연결부를 더한다 (ports.sides 에 그 면을 붙인다). 이미 열린 면은 그대로.
+        더할 수 없으면 None: 위·밑면, 연결부가 이미 2개, 바깥 램프 착지판 면, 더해도 뚫을 수 없는 면(안쪽 경사로가
+        붙은 2층 집의 뒷면)."""
+        if anchor not in SIDES:
+            return None
+        if anchor in p.doors.sides or anchor in p.ports.sides:
+            return p
+        data = p.model_dump()
+        data["ports"]["sides"] = [*p.ports.sides, anchor]
+        try:
+            q = HouseParams.model_validate(data)
+        except ValueError:  # pydantic ValidationError 포함: 연결부 수·착지판 면
+            return None
+        a = self.anchors(q)[anchor]
+        if a.port is None or a.wall_mm is None:
+            return None
+        return q
 
     def port_cutter(self, p: HouseParams, anchor: str, depth_mm: float) -> Part | None:
         """출입구·연결부 면: 그 개구부와 같은 뾰족 아치 단면 (바닥 아래 CUT 부터)."""

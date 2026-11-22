@@ -22,6 +22,8 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 import numpy as np
 from build123d import (
     Align,
@@ -38,6 +40,7 @@ from pydantic import Field
 
 from app.templates.base import (
     Anchor,
+    AttachKind,
     Features,
     ParamConstraint,
     RuleContext,
@@ -51,6 +54,7 @@ TOP_OUTER_R = 1.5    # 윗면 바깥 모서리 둥글림 상한
 TOP_INNER_R = 0.5    # 윗면 안쪽(그릇 쪽) 모서리 둥글림. 그릇과의 틈이 위에서 이만큼 넓어진다
 COLLAR_BELOW_RIM_MM = 5.0  # 턱 꼭대기가 그릇 테두리보다 최소 이만큼 낮아야 한다
 COLLAR_DEFAULT_RATIO = 0.6  # 기본 턱 높이 = 그릇 높이 × 이 비율
+FACE_ABOVE_BOWL_MM = 15.0  # 옆면에 붙일 때 그 면이 그릇 테두리보다 높아야 하는 최소 높이
 
 
 class BowlHolderParams(TemplateParams):
@@ -101,6 +105,9 @@ class BowlHolderTemplate(Template):
     height_field = None  # 높이는 턱 높이로 정해지며 낮다 (그릇 자체는 형상에 없다)
     size_fields = ()     # 크기는 실제 그릇에 맞춰야 하므로 공간이 부족해도 줄이지 않는다
     color = None
+    # 연결 표준: 기준 구조물 옆면에 평평한 뒷면을 대고 슬라이드로 끼운다
+    role = "accessory"
+    attach_order: ClassVar[dict[AttachKind, tuple[str, ...]]] = {"slide": ("back",)}
 
     def default_params(self, ctx: RuleContext | None = None) -> BowlHolderParams:
         if ctx is None:
@@ -154,6 +161,29 @@ class BowlHolderTemplate(Template):
             "back": Anchor((0.0, Ro, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
             "bottom": Anchor((0.0, 0.0, 0.0), (0.0, 0.0, -1.0), (0.0, 1.0, 0.0)),
         }
+
+    # ── 연결 표준 (자유 조립) ──
+
+    def envelope(self, p: BowlHolderParams) -> tuple[float, float, float]:
+        # 'D' 바닥: 가로 = 반원 지름, 세로 = 반원(앞) + 직사각형(뒤) = 2 × 바깥 반지름. 둥글림은 외곽을 줄이지 않는다
+        ro = outer_radius(p)
+        return (2 * ro, 2 * ro, total_height(p))
+
+    def face_needs(self, p: BowlHolderParams) -> tuple[float | None, float | None]:
+        """붙이는 면은 그릇 테두리보다 FACE_ABOVE_BOWL_MM 이상 높아야 한다 (그릇 테두리가 지붕보다 높지 않게)."""
+        return (p.bowl_height_mm + FACE_ABOVE_BOWL_MM, None)
+
+    def joined_constraints(self, p: BowlHolderParams, ctx: RuleContext, anchor: str) -> list[ParamConstraint]:
+        """벽에 붙이면 사서 쓰는 그릇(형상에 없다)과 벽 사이에 홈이 생긴다. 턱을 테두리 − COLLAR_BELOW_RIM_MM 까지
+        올려 그 홈을 그만큼 얕게 줄인다 (혼자 쓸 때의 상한과 함께 턱 높이가 정해진다)."""
+        if anchor != "back":
+            return []
+        return [ParamConstraint(
+            "collar_height_mm",
+            min=p.bowl_height_mm - COLLAR_BELOW_RIM_MM,
+            reason_ko=f"벽에 붙인 그릇 받침은 그릇과 벽 사이 홈이 깊지 않도록 턱을 그릇 테두리보다 "
+                      f"{COLLAR_BELOW_RIM_MM:g}mm 낮은 높이까지 올립니다",
+        )]
 
     def print_rotation(self, p: BowlHolderParams) -> np.ndarray:
         return np.eye(3)  # 바닥판이 베드에 닿는 사용 자세 그대로

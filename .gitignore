@@ -14,6 +14,8 @@ __pycache__/
 # 런타임 데이터 (SQLite, 메시 캐시)
 data/
 backend/data/
+# 테스트 고정 데이터는 저장소에 둔다 (조립 고정 데이터 backend/tests/data/compositions)
+!backend/tests/data/
 
 # Node / Next.js
 node_modules/

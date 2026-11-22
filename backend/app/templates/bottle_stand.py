@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import ClassVar
 
 import numpy as np
 from build123d import (
@@ -50,6 +51,7 @@ from pydantic import Field
 
 from app.templates.base import (
     Anchor,
+    AttachKind,
     Features,
     ParamConstraint,
     PrintPart,
@@ -213,6 +215,9 @@ class BottleStandTemplate(Template):
     height_field = None  # 높이는 급수관 높이·물병 길이로 정해진다 (줄이면 물을 마실 수 없다)
     size_fields = ()     # 크기는 실제 물병에 맞춰야 하므로 공간이 부족해도 줄이지 않는다
     color = None
+    # 연결 표준: 기준 구조물 옆면에 평평한 뒤판을 대고 슬라이드로 끼운다
+    role = "accessory"
+    attach_order: ClassVar[dict[AttachKind, tuple[str, ...]]] = {"slide": ("back",)}
 
     def default_params(self, ctx: RuleContext | None = None) -> BottleStandParams:
         if ctx is None:
@@ -371,6 +376,22 @@ class BottleStandTemplate(Template):
             "back": Anchor((0, g.y_back, 0), (0, 1, 0), (0, 0, 1)),
             "bottom": Anchor((0, 0, 0), (0, 0, -1), (0, 1, 0)),
         }
+
+    # ── 연결 표준 (자유 조립) ──
+
+    def envelope(self, p: BottleStandParams) -> tuple[float, float, float]:
+        """가로 = 바닥판과 소켓(컵 + 소켓 벽) 중 넓은 쪽, 세로 = 바닥판 앞 끝(또는 더 앞에 나온 컵·소켓)부터 뒷면까지,
+        높이 = 컵 입구. 둥글림·모따기는 외곽을 줄이지 않는다."""
+        g = _geom(p)
+        s = socket_wall(p)
+        x = max(p.base_width_mm, 2 * (g.ro + s))
+        y0 = min(-p.base_depth_mm / 2, g.y_axis - g.ro, g.y_front_plate - s)
+        return (x, g.y_back - y0, g.height)
+
+    def face_needs(self, p: BottleStandParams) -> tuple[float | None, float | None]:
+        """붙이는 면은 컵 입구(거치대 꼭대기)보다 높지 않아야 한다: 뒤판이 면 꼭대기까지 덮어 물병과 벽 사이에
+        틈이 남지 않게."""
+        return (None, total_height(p))
 
     def features(self, p: BottleStandParams) -> Features:
         return Features(

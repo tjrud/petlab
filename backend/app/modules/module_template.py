@@ -1,9 +1,10 @@
-"""조립 모듈을 템플릿처럼 쓰게 하는 어댑터.
+"""여러 부품(템플릿)을 이어 붙인 조립을 템플릿처럼 쓰게 하는 기반 (AssemblyTemplate).
 
-엔진(보정·배치·검증·저장·내려받기)은 템플릿만 안다. 모듈 하나를 템플릿 하나로 감싸면
-  - Params: 모듈이 드러낸 파라미터 (LLM 이 정한다)
-  - constraints: 부품의 종별·출력 제약을 묶인 관계(scale·offset)로 모듈 파라미터 제약으로 되돌린 것 + 모듈 limits
-    (자식 부품이 부모 면 안에 들어가게 하는 모듈 파라미터끼리의 관계)
+엔진(보정·배치·검증·저장·내려받기)은 템플릿만 안다. 조립 하나를 템플릿 하나로 감싸면
+  - expand(p): 파라미터 → 부품 목록(PartSpec)과 연결 지점끼리의 결합(JoinSpec). 하위 클래스가 정한다
+    (자유 조립 항목 app/modules/composed.ComposedTemplate, 옛 모듈 라이브러리 ModuleTemplate)
+  - Params·constraints: 하위 클래스가 정한다. 옛 ModuleTemplate 은 부품의 종별·출력 제약을 묶인 관계(scale·offset)로
+    모듈 파라미터 제약으로 되돌린 것 + 모듈 limits
   - build: 부품을 조립한 형상
   - features: 부품 특징을 합친 것 (출입 면·출입구 수·통로 크기 등)
   - print_parts / print_rotation: 부품끼리 붙은 본체는 여섯 방향으로 눕혀 보고 서포트가 가장 적은 자세로,
@@ -11,15 +12,18 @@
     슬라이드 결합(mount="slide")·끼움 결합(mount="plug")이 있으면 한 덩어리로 붙은 부품 묶음마다 출력 파트 하나 (연결판의
     도브테일 홈·자식의 도브테일 혀, 끼움 구멍의 틈새·아래를 보는 끼움 턱 둘레 깔때기는 출력 파트에만 있다).
     홈·혀가 있는 묶음은 도브테일이 세로로 서는 두 자세(사용·뒤집기) 중에서 고른다
-  - rule_issues: 부품 규칙 + 자동 보정으로 맞출 수 없는 limits + 조립 규칙(끼움 결합 포함) + 형상 검사 (통로가 출입구를
+  - rule_issues: 하위 클래스의 규칙 + 형상 검사 (잇지 않은 부품의 마주 보는 면 사이 끼임 틈(slot_gaps), 통로가 출입구를
     다 덮는지(끼움 결합은 넓힌 구멍까지), 따로 출력하는 파트끼리 겹치는지, 슬라이드 결합 연결판 자리·끼임 틈)
 가 되어 기존 흐름을 그대로 탄다.
+
+ModuleTemplate (모듈 라이브러리 JSON, app/modules/definition) 은 라이브러리를 지울 때까지만 남겨 둔다.
 """
 
 from __future__ import annotations
 
 import math
 import threading
+from abc import abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import lru_cache
@@ -44,10 +48,10 @@ from app.modules.assembly import (
     build_assembly,
     dovetail_centers,
     dovetail_fits,
-    internal_gaps,
     join_problems,
     leftover_width,
     merge_features,
+    part_meshes,
     passage_cutter,
     passage_leftover,
     place_parts,
@@ -58,9 +62,12 @@ from app.modules.assembly import (
     slide_plan,
     slide_problems,
     slot_cutters,
+    slot_gaps,
     spigot_solid,
     tongue_solid,
 )
+
+# 옛 모듈 라이브러리 (ModuleTemplate 만 쓴다. 라이브러리를 지울 때 함께 지운다)
 from app.modules.definition import Bind, LimitDef, ModuleDef, bound_value
 from app.templates.base import (
     Features,
@@ -153,43 +160,17 @@ class _Layout:
     owners: tuple[frozenset[str], ...] = ()  # 출력 파트마다 그 파트를 이루는 부품 id
 
 
-class ModuleTemplate(Template):
-    """모듈 정의 하나를 감싼 템플릿 (인스턴스마다 key·Params 가 다르다)."""
+class AssemblyTemplate(Template):
+    """부품 여러 개를 연결 지점끼리 이어 붙인 조립 템플릿의 기반 (인스턴스마다 key·Params 가 다르다).
 
-    def __init__(self, defn: ModuleDef, templates: dict[str, Template]):
-        self.defn = defn
-        self.key = defn.key  # type: ignore[misc]
-        self.display_name_ko = defn.name_ko  # type: ignore[misc]
-        self.description_ko = defn.description_ko  # type: ignore[misc]
-        self.Params = _params_model(defn)  # type: ignore[misc]
-        self.height_field = defn.height_param  # type: ignore[misc]
-        self.size_fields = tuple(defn.size_params)  # type: ignore[misc]
-        self.color = defn.color  # type: ignore[misc]
-        self._templates = templates
+    하위 클래스가 정할 것: expand(p) → (부품, 결합), enclosure(드나드는 공간이 있는 조립인지), has_slide, split,
+    Params·constraints·rule_issues. 이 클래스는 형상(build·print_parts·print_rotation), 특징(features)과
+    형상 검사(_gap_issues·_geometry_issues)를 맡는다."""
+
+    def __init__(self) -> None:
         self._shapes: dict[str, object] = {}  # 같은 파라미터로 여러 번 부르는 build() (출력 자세·파트) 결과
         self._cache: dict[tuple[str, str], Any] = {}  # 출력 파트·형상 검사 결과 (파라미터별)
         self._lock = threading.Lock()
-        for part in defn.parts:
-            if part.template not in templates:
-                raise ValueError(f"모듈 {defn.key}: 없는 부품 템플릿 {part.template}")
-            t = templates[part.template]
-            for k in part.params:
-                if _field(t.Params, k) is None:
-                    raise ValueError(f"모듈 {defn.key}: 부품 {part.id}({part.template})에 없는 파라미터 {k}")
-        try:
-            self.expand(self.Params())
-        except ValidationError as e:
-            raise ValueError(f"모듈 {defn.key}: 기본값으로 부품 파라미터를 만들 수 없습니다 ({e.error_count()})") from e
-        # 모듈 파라미터의 끝값(최소·최대, 선택지 하나하나)도 부품 파라미터 범위·선택지 안이어야 한다
-        # (아니면 사용자가 고른 값에서 부품 검증 오류로 엔진이 멈춘다). 나머지 파라미터는 기본값으로 둔다
-        for mp in defn.params:
-            values = list(mp.choices or ()) if mp.type == "choice" else [v for v in (mp.min, mp.max) if v is not None]
-            for v in values:
-                try:
-                    self.expand(self.Params(**{mp.name: v}))
-                except ValidationError as e:
-                    raise ValueError(f"모듈 {defn.key}: 파라미터 {mp.name}={v} 로 부품 파라미터를 만들 수 없습니다 "
-                                     f"({e.error_count()})") from e
 
     def _cached(self, name: str, p: TemplateParams, fn: Callable[[], Any]) -> Any:
         k = (name, _key(p))
@@ -203,143 +184,54 @@ class ModuleTemplate(Template):
             self._cache[k] = v
         return v
 
-    # ── 펼치기 ──
+    # ── 하위 클래스가 정한다 ──
 
-    def _value(self, v: Any, p: TemplateParams) -> Any:
-        if isinstance(v, Bind):
-            x = getattr(p, v.param)
-            return x if isinstance(x, str) else v.scale * x + v.offset
-        return v
-
+    @abstractmethod
     def expand(self, p: TemplateParams) -> tuple[list[PartSpec], list[JoinSpec]]:
-        parts: list[PartSpec] = []
-        for part in self.defn.parts:
-            t = self._templates[part.template]
-            base = t.default_params().model_dump()
-            for k, v in part.params.items():
-                val = self._value(v, p)
-                f = _field(t.Params, k)
-                if f is not None and f.annotation is int and not isinstance(val, (str, bool)):
-                    val = int(round(val))
-                _set_path(base, k, val)
-            parts.append(PartSpec(part.id, t, t.Params.model_validate(base)))
-        joins = [
-            JoinSpec(
-                parent=j.parent.split(".")[0], parent_anchor=j.parent.split(".")[1],
-                child=j.child.split(".")[0], child_anchor=j.child.split(".")[1],
-                shift=float(self._value(j.shift, p)), lift=float(self._value(j.lift, p)),
-                spin=j.spin, passage=bool(j.passage), mount=j.mount, reverse=j.into_child,
-            )
-            for j in self.defn.joins
-        ]
-        return parts, joins
-
-    def default_params(self, ctx: RuleContext | None = None) -> TemplateParams:
-        return self.Params()
+        """파라미터 → (부품 목록(첫 부품이 기준), 연결 지점끼리의 결합)."""
 
     @property
+    @abstractmethod
+    def enclosure(self) -> bool:
+        """드나드는 공간이 있는 조립인지 (바깥 출입구 수를 종별 최소 개수와 비교한다)."""
+
+    @property
+    @abstractmethod
     def has_slide(self) -> bool:
-        return any(j.mount == "slide" for j in self.defn.joins)
+        """슬라이드 결합이 있는지."""
 
     @property
+    @abstractmethod
     def split(self) -> bool:
         """따로 출력하는 결합(슬라이드·끼움)이 있어 출력 파트를 묶음마다 나누는지."""
-        return any(j.mount in ("slide", "plug") for j in self.defn.joins)
 
-    # ── 제약: 부품 제약을 모듈 파라미터로 되돌린다 ──
+    def part_names(self, parts: list[PartSpec]) -> dict[str, str]:
+        """부품 id → 검사 문구·출력 파트 이름에 쓰는 부품 이름. 기본: 템플릿 이름."""
+        return {q.id: q.template.display_name_ko for q in parts}
 
-    def _bindings(self) -> dict[tuple[str, str], Bind]:
-        """(부품 id, 부품 파라미터 경로) → 묶인 모듈 파라미터. 경로는 점 표기 그대로 (부품 제약의 field 와 같은 꼴)."""
-        return {(part.id, k): v for part in self.defn.parts for k, v in part.params.items() if isinstance(v, Bind)}
+    # ── 형상 검사 ──
 
-    def constraints(self, p: TemplateParams, ctx: RuleContext) -> list[ParamConstraint]:
-        out: list[ParamConstraint] = []
-        binds = self._bindings()
-        parts, _ = self.expand(p)
-        for part in parts:
-            for c in part.template.constraints(part.params, ctx):
-                b = binds.get((part.id, c.field))
-                if b is None or self.Params.model_fields[b.param].annotation not in (int, float):
-                    continue  # 고정값 위반은 rule_issues 가 오류로 남긴다
-                lo = None if c.min is None else (c.min - b.offset) / b.scale
-                hi = None if c.max is None else (c.max - b.offset) / b.scale
-                out.append(ParamConstraint(b.param, min=lo, max=hi, source=c.source,
-                                           reason_ko=c.reason_ko, blocking=c.blocking))
-        for lim, lo, hi in self._limit_bounds(p):
-            # param 의 범위 밖으로 가야만 맞출 수 있는 쪽은 내지 않는다 (rule_issues 가 오류로 남긴다: 자동 보정은 묶인 쪽을
-            # 바꾸지 않으므로 고칠 수 없다). 보정은 패스마다 그 패스 시작 값으로 이 범위를 다시 계산해 사슬을 따라간다
-            lo_ok, hi_ok = self._limit_fixable(lim.param, lo, hi)
-            if (lo_ok and lo is not None) or (hi_ok and hi is not None):
-                out.append(ParamConstraint(lim.param, min=lo if lo_ok else None, max=hi if hi_ok else None,
-                                           source="geometry", reason_ko=lim.reason_ko))
-        return out
-
-    # ── 모듈 limits ──
-
-    def _limit_bounds(self, p: TemplateParams) -> list[tuple[LimitDef, float | None, float | None]]:
-        """limit 마다 (정의, 지금 값에서의 min, max)."""
-        values = {d.name: getattr(p, d.name) for d in self.defn.params if d.type != "choice"}
-        return [(lim, bound_value(lim.min, values), bound_value(lim.max, values)) for lim in self.defn.limits]
-
-    def _limit_fixable(self, name: str, lo: float | None, hi: float | None) -> tuple[bool, bool]:
-        """param 을 그 범위(ParamDef min·max) 안에서 움직여 min·max 를 맞출 수 있는지 (정수 파라미터는 반올림해 본다)."""
-        d = next(x for x in self.defn.params if x.name == name)
-        integer = d.type == "int"
-        lo_ok = lo is None or (math.ceil(lo - 1e-9) if integer else lo) <= d.max + 1e-9  # type: ignore[operator]
-        hi_ok = hi is None or (math.floor(hi + 1e-9) if integer else hi) >= d.min - 1e-9  # type: ignore[operator]
-        return lo_ok, hi_ok
-
-    def _limit_issues(self, p: TemplateParams) -> list[str]:
-        """자동 보정으로 맞출 수 없는 limit 위반 (param 의 범위 밖이어야 맞는 경우)."""
-        out: list[str] = []
-        for lim, lo, hi in self._limit_bounds(p):
-            d = next(x for x in self.defn.params if x.name == lim.param)
-            v = getattr(p, lim.param)
-            lo_ok, hi_ok = self._limit_fixable(lim.param, lo, hi)
-            name = _short(d.description_ko)
-            if lo is not None and not lo_ok and v < lo - 1e-6:
-                out.append(f"{name}은(는) {_num(lo)} 이상이어야 하지만 최대 {_num(d.max)} 까지라 자동으로 맞출 수 없습니다. "
-                           f"{lim.reason_ko}")
-            if hi is not None and not hi_ok and v > hi + 1e-6:
-                out.append(f"{name}은(는) {_num(hi)} 이하여야 하지만 최소 {_num(d.min)} 까지라 자동으로 맞출 수 없습니다. "
-                           f"{lim.reason_ko}")
-        return out
-
-    def rule_issues(self, p: TemplateParams, ctx: RuleContext) -> list[str]:
-        out: list[str] = []
-        binds = self._bindings()
-        parts, joins = self.expand(p)
-        for part in parts:
-            for c in part.template.constraints(part.params, ctx):
-                if (part.id, c.field) in binds or not c.blocking:
-                    continue
-                if c.violates(_get_path(part.params, c.field)):
-                    out.append(f"부품 {part.template.display_name_ko}({part.id}): {c.reason_ko}")
-            out += [f"부품 {part.template.display_name_ko}({part.id}): {m}" for m in part.template.rule_issues(part.params, ctx)]
-        out += self._limit_issues(p)
-        out += join_problems(parts, joins)
-        out += slide_problems(parts, joins)
-        out += plug_problems(parts, joins)
-        if not out:
-            try:
-                out += self._gap_issues(p, ctx)
-            except AssemblyError as e:
-                return [str(e)]
-            out += self._geometry_issues(p, ctx)
-        return out
+    def _geometry_rule_issues(self, p: TemplateParams, ctx: RuleContext) -> list[str]:
+        """형상으로만 알 수 있는 규칙 위반: 잇지 않은 부품 사이 끼임 틈 + 형상 사실 (조립 규칙이 맞을 때만 부른다)."""
+        try:
+            out = self._gap_issues(p, ctx)
+        except AssemblyError as e:
+            return [str(e)]
+        return out + self._geometry_issues(p, ctx)
 
     def _gap_issues(self, p: TemplateParams, ctx: RuleContext) -> list[str]:
-        """서로 잇지 않은 부품 사이 틈이 끼임 위험 구간이면 오류."""
+        """서로 잇지 않은 부품의 마주 보는 면 사이 틈이 끼임 위험 구간이면 오류 (assembly.slot_gaps).
+        열린 모서리를 사이에 둔 부품처럼 마주 보는 면이 없는 자리는 세지 않는다."""
         parts, joins = self.expand(p)
         solids = [q for q in parts if not q.template.cutter]
         if len(solids) < 3:
             return []  # 형상 부품이 둘이면 둘은 반드시 이어져 있다
-        bounds = _part_bounds(self, _key(p))
+        meshes = self._cached("meshes", p, lambda: part_meshes(parts, joins))
         gt = ctx.size.gap_trap
-        names = {q.id: q.template.display_name_ko for q in parts}
+        names = self.part_names(parts)
         return [f"{names[a]}({a})와 {names[b]}({b}) 사이 틈 {g:.1f}mm 가 끼임 위험 구간"
                 f"({gt.safe_max_mm:g}~{gt.passable_min_mm:g}mm)에 있습니다"
-                for a, b, g in internal_gaps(solids, joins, bounds) if gt.is_trap(g)]
+                for a, b, g in slot_gaps(parts, joins, meshes, gt)]
 
     # ── 형상 검사 (파라미터별로 한 번만 계산해 둔다) ──
 
@@ -392,7 +284,7 @@ class ModuleTemplate(Template):
         """종별 기준과 상관없는 형상 사실 (메시지는 _geometry_issues 가 종별 기준으로 만든다)."""
         parts, joins = self.expand(p)
         placed = place_parts(parts, joins)
-        names = {q.id: q.template.display_name_ko for q in parts}
+        names = self.part_names(parts)
         by_id = {q.id: q for q in parts}
         facts: list[tuple] = []
         # 1. 출입구·터널 끝에 통로로 이은 부품이 개구부를 다 덮는지 (끼움 결합은 넓힌 구멍까지)
@@ -462,7 +354,7 @@ class ModuleTemplate(Template):
 
     def features(self, p: TemplateParams) -> Features:
         parts, joins = self.expand(p)
-        return merge_features(parts, joins, self.defn.enclosure)
+        return merge_features(parts, joins, self.enclosure)
 
     def print_rotation(self, p: TemplateParams) -> np.ndarray:
         """여섯 방향으로 눕혀 보고 서포트(오버행) 면적이 가장 작은 자세. 비슷하면 사용 자세·낮은 자세.
@@ -507,6 +399,7 @@ class ModuleTemplate(Template):
         parts, joins = self.expand(p)
         out: list[PrintPart] = []
         placed = None
+        names = self.part_names(parts)
         for part in parts:
             if part.template.cutter:
                 continue
@@ -517,7 +410,7 @@ class ModuleTemplate(Template):
             pl = placed[part.id]
             for pp in pps[1:]:
                 # 부품 좌표의 출력 자세 회전을 조립 좌표에 맞게: 조립 좌표 → 부품 좌표(회전의 역) → 출력 자세
-                out.append(PrintPart(f"{part.template.display_name_ko} {pp.name_ko}", _plane(pl) * pp.part,
+                out.append(PrintPart(f"{names[part.id]} {pp.name_ko}", _plane(pl) * pp.part,
                                      pp.rotation @ pl.rotation.T, key=f"{part.id}_{pp.key}"))
         return out
 
@@ -541,6 +434,7 @@ class ModuleTemplate(Template):
         parts, joins = self.expand(p)
         placed = place_parts(parts, joins)
         by_id = {q.id: q for q in parts}
+        names = self.part_names(parts)
         groups = fused_groups(parts, joins)
         group_of = {pid: gi for gi, g in enumerate(groups) for pid in g}
         bounds = {pid: (np.asarray(lo), np.asarray(hi)) for pid, (lo, hi) in _part_bounds(self, _key(p)).items()}
@@ -553,7 +447,7 @@ class ModuleTemplate(Template):
             pl = placed[q.id]
             pps = q.template.print_parts(q.params)
             mains[q.id] = _plane(pl) * pps[0].part
-            extras[q.id] = [[f"{q.template.display_name_ko} {pp.name_ko}", f"{q.id}_{pp.key}", _plane(pl) * pp.part,
+            extras[q.id] = [[f"{names[q.id]} {pp.name_ko}", f"{q.id}_{pp.key}", _plane(pl) * pp.part,
                              pp.rotation @ pl.rotation.T] for pp in pps[1:]]
         bodies: list[Any] = [_group_body(g, mains, parts, joins, placed) for g in groups]
         plans: dict[int, SlidePlan] = {}
@@ -614,9 +508,9 @@ class ModuleTemplate(Template):
             q = by_id[head]
             pps = q.template.print_parts(q.params)
             if len(pps) > 1:
-                name, key = f"{q.template.display_name_ko} {pps[0].name_ko}", f"{q.id}_{pps[0].key}"
+                name, key = f"{names[q.id]} {pps[0].name_ko}", f"{q.id}_{pps[0].key}"
             else:
-                name, key = q.template.display_name_ko, q.id
+                name, key = names[q.id], q.id
             out.append(PrintPart(name, bodies[gi], rots[gi], key=key, thin_ok=tuple(thin.get(gi, ()))))
         for q in parts:
             for e in extras.get(q.id, []):
@@ -778,7 +672,7 @@ def _num(x: float | None) -> str:
 
 
 @lru_cache(maxsize=64)
-def _part_bounds_cached(module: ModuleTemplate, params_json: str) -> dict[str, tuple]:
+def _part_bounds_cached(module: AssemblyTemplate, params_json: str) -> dict[str, tuple]:
     p = module.Params.model_validate_json(params_json)
     parts, joins = module.expand(p)
     placed = place_parts(parts, joins)
@@ -791,6 +685,170 @@ def _part_bounds_cached(module: ModuleTemplate, params_json: str) -> dict[str, t
     return out
 
 
-def _part_bounds(module: ModuleTemplate, params_json: str) -> dict[str, tuple]:
+def _part_bounds(module: AssemblyTemplate, params_json: str) -> dict[str, tuple]:
     return _part_bounds_cached(module, params_json)
 
+
+# ── 옛 모듈 라이브러리 (app/modules/library/*.json). 라이브러리를 지울 때 이 클래스와 app/modules/definition 을 함께 지운다 ──
+
+
+class ModuleTemplate(AssemblyTemplate):
+    """모듈 정의 하나를 감싼 템플릿 (인스턴스마다 key·Params 가 다르다)."""
+
+    def __init__(self, defn: ModuleDef, templates: dict[str, Template]):
+        super().__init__()
+        self.defn = defn
+        self.key = defn.key  # type: ignore[misc]
+        self.display_name_ko = defn.name_ko  # type: ignore[misc]
+        self.description_ko = defn.description_ko  # type: ignore[misc]
+        self.Params = _params_model(defn)  # type: ignore[misc]
+        self.height_field = defn.height_param  # type: ignore[misc]
+        self.size_fields = tuple(defn.size_params)  # type: ignore[misc]
+        self.color = defn.color  # type: ignore[misc]
+        self._templates = templates
+        for part in defn.parts:
+            if part.template not in templates:
+                raise ValueError(f"모듈 {defn.key}: 없는 부품 템플릿 {part.template}")
+            t = templates[part.template]
+            for k in part.params:
+                if _field(t.Params, k) is None:
+                    raise ValueError(f"모듈 {defn.key}: 부품 {part.id}({part.template})에 없는 파라미터 {k}")
+        try:
+            self.expand(self.Params())
+        except ValidationError as e:
+            raise ValueError(f"모듈 {defn.key}: 기본값으로 부품 파라미터를 만들 수 없습니다 ({e.error_count()})") from e
+        # 모듈 파라미터의 끝값(최소·최대, 선택지 하나하나)도 부품 파라미터 범위·선택지 안이어야 한다
+        # (아니면 사용자가 고른 값에서 부품 검증 오류로 엔진이 멈춘다). 나머지 파라미터는 기본값으로 둔다
+        for mp in defn.params:
+            values = list(mp.choices or ()) if mp.type == "choice" else [v for v in (mp.min, mp.max) if v is not None]
+            for v in values:
+                try:
+                    self.expand(self.Params(**{mp.name: v}))
+                except ValidationError as e:
+                    raise ValueError(f"모듈 {defn.key}: 파라미터 {mp.name}={v} 로 부품 파라미터를 만들 수 없습니다 "
+                                     f"({e.error_count()})") from e
+
+    # ── 펼치기 ──
+
+    def _value(self, v: Any, p: TemplateParams) -> Any:
+        if isinstance(v, Bind):
+            x = getattr(p, v.param)
+            return x if isinstance(x, str) else v.scale * x + v.offset
+        return v
+
+    def expand(self, p: TemplateParams) -> tuple[list[PartSpec], list[JoinSpec]]:
+        parts: list[PartSpec] = []
+        for part in self.defn.parts:
+            t = self._templates[part.template]
+            base = t.default_params().model_dump()
+            for k, v in part.params.items():
+                val = self._value(v, p)
+                f = _field(t.Params, k)
+                if f is not None and f.annotation is int and not isinstance(val, (str, bool)):
+                    val = int(round(val))
+                _set_path(base, k, val)
+            parts.append(PartSpec(part.id, t, t.Params.model_validate(base)))
+        joins = [
+            JoinSpec(
+                parent=j.parent.split(".")[0], parent_anchor=j.parent.split(".")[1],
+                child=j.child.split(".")[0], child_anchor=j.child.split(".")[1],
+                shift=float(self._value(j.shift, p)), lift=float(self._value(j.lift, p)),
+                spin=j.spin, passage=bool(j.passage), mount=j.mount, reverse=j.into_child,
+            )
+            for j in self.defn.joins
+        ]
+        return parts, joins
+
+    def default_params(self, ctx: RuleContext | None = None) -> TemplateParams:
+        return self.Params()
+
+    @property
+    def has_slide(self) -> bool:
+        return any(j.mount == "slide" for j in self.defn.joins)
+
+    @property
+    def enclosure(self) -> bool:
+        return self.defn.enclosure
+
+    @property
+    def split(self) -> bool:
+        """따로 출력하는 결합(슬라이드·끼움)이 있어 출력 파트를 묶음마다 나누는지."""
+        return any(j.mount in ("slide", "plug") for j in self.defn.joins)
+
+    # ── 제약: 부품 제약을 모듈 파라미터로 되돌린다 ──
+
+    def _bindings(self) -> dict[tuple[str, str], Bind]:
+        """(부품 id, 부품 파라미터 경로) → 묶인 모듈 파라미터. 경로는 점 표기 그대로 (부품 제약의 field 와 같은 꼴)."""
+        return {(part.id, k): v for part in self.defn.parts for k, v in part.params.items() if isinstance(v, Bind)}
+
+    def constraints(self, p: TemplateParams, ctx: RuleContext) -> list[ParamConstraint]:
+        out: list[ParamConstraint] = []
+        binds = self._bindings()
+        parts, _ = self.expand(p)
+        for part in parts:
+            for c in part.template.constraints(part.params, ctx):
+                b = binds.get((part.id, c.field))
+                if b is None or self.Params.model_fields[b.param].annotation not in (int, float):
+                    continue  # 고정값 위반은 rule_issues 가 오류로 남긴다
+                lo = None if c.min is None else (c.min - b.offset) / b.scale
+                hi = None if c.max is None else (c.max - b.offset) / b.scale
+                out.append(ParamConstraint(b.param, min=lo, max=hi, source=c.source,
+                                           reason_ko=c.reason_ko, blocking=c.blocking))
+        for lim, lo, hi in self._limit_bounds(p):
+            # param 의 범위 밖으로 가야만 맞출 수 있는 쪽은 내지 않는다 (rule_issues 가 오류로 남긴다: 자동 보정은 묶인 쪽을
+            # 바꾸지 않으므로 고칠 수 없다). 보정은 패스마다 그 패스 시작 값으로 이 범위를 다시 계산해 사슬을 따라간다
+            lo_ok, hi_ok = self._limit_fixable(lim.param, lo, hi)
+            if (lo_ok and lo is not None) or (hi_ok and hi is not None):
+                out.append(ParamConstraint(lim.param, min=lo if lo_ok else None, max=hi if hi_ok else None,
+                                           source="geometry", reason_ko=lim.reason_ko))
+        return out
+
+    # ── 모듈 limits ──
+
+    def _limit_bounds(self, p: TemplateParams) -> list[tuple[LimitDef, float | None, float | None]]:
+        """limit 마다 (정의, 지금 값에서의 min, max)."""
+        values = {d.name: getattr(p, d.name) for d in self.defn.params if d.type != "choice"}
+        return [(lim, bound_value(lim.min, values), bound_value(lim.max, values)) for lim in self.defn.limits]
+
+    def _limit_fixable(self, name: str, lo: float | None, hi: float | None) -> tuple[bool, bool]:
+        """param 을 그 범위(ParamDef min·max) 안에서 움직여 min·max 를 맞출 수 있는지 (정수 파라미터는 반올림해 본다)."""
+        d = next(x for x in self.defn.params if x.name == name)
+        integer = d.type == "int"
+        lo_ok = lo is None or (math.ceil(lo - 1e-9) if integer else lo) <= d.max + 1e-9  # type: ignore[operator]
+        hi_ok = hi is None or (math.floor(hi + 1e-9) if integer else hi) >= d.min - 1e-9  # type: ignore[operator]
+        return lo_ok, hi_ok
+
+    def _limit_issues(self, p: TemplateParams) -> list[str]:
+        """자동 보정으로 맞출 수 없는 limit 위반 (param 의 범위 밖이어야 맞는 경우)."""
+        out: list[str] = []
+        for lim, lo, hi in self._limit_bounds(p):
+            d = next(x for x in self.defn.params if x.name == lim.param)
+            v = getattr(p, lim.param)
+            lo_ok, hi_ok = self._limit_fixable(lim.param, lo, hi)
+            name = _short(d.description_ko)
+            if lo is not None and not lo_ok and v < lo - 1e-6:
+                out.append(f"{name}은(는) {_num(lo)} 이상이어야 하지만 최대 {_num(d.max)} 까지라 자동으로 맞출 수 없습니다. "
+                           f"{lim.reason_ko}")
+            if hi is not None and not hi_ok and v > hi + 1e-6:
+                out.append(f"{name}은(는) {_num(hi)} 이하여야 하지만 최소 {_num(d.min)} 까지라 자동으로 맞출 수 없습니다. "
+                           f"{lim.reason_ko}")
+        return out
+
+    def rule_issues(self, p: TemplateParams, ctx: RuleContext) -> list[str]:
+        out: list[str] = []
+        binds = self._bindings()
+        parts, joins = self.expand(p)
+        for part in parts:
+            for c in part.template.constraints(part.params, ctx):
+                if (part.id, c.field) in binds or not c.blocking:
+                    continue
+                if c.violates(_get_path(part.params, c.field)):
+                    out.append(f"부품 {part.template.display_name_ko}({part.id}): {c.reason_ko}")
+            out += [f"부품 {part.template.display_name_ko}({part.id}): {m}" for m in part.template.rule_issues(part.params, ctx)]
+        out += self._limit_issues(p)
+        out += join_problems(parts, joins)
+        out += slide_problems(parts, joins)
+        out += plug_problems(parts, joins)
+        if not out:
+            out += self._geometry_rule_issues(p, ctx)
+        return out

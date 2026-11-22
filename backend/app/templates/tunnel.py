@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import math
 
-from typing import Literal
+from typing import ClassVar, Literal
 
 import numpy as np
 from build123d import Align, Axis, Circle, Part, Plane, Polygon, Pos, Rectangle, Rot, extrude, revolve
@@ -26,6 +26,8 @@ from pydantic import Field
 
 from app.templates.base import (
     Anchor,
+    AttachKind,
+    FaceFields,
     Features,
     Opening,
     ParamConstraint,
@@ -223,6 +225,17 @@ def end_side(bend_angle_deg: float, path: str = "arc") -> Side:
     return "front"
 
 
+def _sector_bounds(r_in: float, r_out: float, angle: float) -> tuple[float, float, float, float]:
+    """XY 평면의 고리 부채꼴(반지름 r_in..r_out, 각도 0..angle 라디안, +X 에서 반시계)의 경계 (x0, x1, y0, y1)."""
+    pts = [(r * math.cos(t), r * math.sin(t)) for r in (r_in, r_out) for t in (0.0, angle)]
+    for k in range(4):  # 부채꼴 안에 드는 축 방향(0°, 90°, 180°, 270°)에서 바깥 호가 가장 멀리 나간다
+        t = k * math.pi / 2
+        if t <= angle + 1e-12:
+            pts.append((r_out * math.cos(t), r_out * math.sin(t)))
+    xs, ys = [x for x, _ in pts], [y for _, y in pts]
+    return min(xs), max(xs), min(ys), max(ys)
+
+
 class TunnelTemplate(Template):
     key = "tunnel"
     display_name_ko = "터널"
@@ -233,6 +246,9 @@ class TunnelTemplate(Template):
     Params = TunnelParams
     height_field = None
     size_fields = ("length_mm",)
+    # 연결 표준: 두 방을 잇는 통로. 출입구에 붙을 때는 끝(end_b)부터 쓴다 (남은 end_a 가 다음 방을 잇는 빈 끝)
+    role = "connector"
+    attach_order: ClassVar[dict[AttachKind, tuple[str, ...]]] = {"passage": ("end_b", "end_a")}
 
     def default_params(self, ctx: RuleContext | None = None) -> TunnelParams:
         if ctx is None:
@@ -369,20 +385,45 @@ class TunnelTemplate(Template):
         if R is None:
             # 곧은 터널: y=0 에서 -Y 로 길이만큼 (앞 끝 y=-L, 뒤 끝 y=0)
             return {
-                "end_a": Anchor((0, -p.length_mm, 0), (0, -1, 0), z, side="front", port=d),
-                "end_b": Anchor((0, 0, 0), (0, 1, 0), z, side="back", port=d),
+                "end_a": Anchor((0, -p.length_mm, 0), (0, -1, 0), z, side="front", port=d, profile=p.shape),
+                "end_b": Anchor((0, 0, 0), (0, 1, 0), z, side="back", port=d, profile=p.shape),
             }
         a = math.radians(p.bend_angle_deg)
-        start = Anchor((R, 0, 0), (0, -1, 0), z, side="front", port=d)
+        start = Anchor((R, 0, 0), (0, -1, 0), z, side="front", port=d, profile=p.shape)
         if is_s_curve(p):
             # 둘째 구간은 첫 구간 끝을 중심으로 180° 돌린 사본: 시작 단면의 상(像)이 끝 단면이다
             ex, ey = R * math.cos(a), R * math.sin(a)
-            end = Anchor((2 * ex - R, 2 * ey, 0), (0, 1, 0), z, side="back", port=d)
+            end = Anchor((2 * ex - R, 2 * ey, 0), (0, 1, 0), z, side="back", port=d, profile=p.shape)
         else:
             nx, ny = round(-math.sin(a), 12), round(math.cos(a), 12)
             end = Anchor((R * math.cos(a), R * math.sin(a), 0), (nx, ny, 0), z,
-                         side=end_side(p.bend_angle_deg, p.path), port=d)
+                         side=end_side(p.bend_angle_deg, p.path), port=d, profile=p.shape)
         return {"end_a": start, "end_b": end}
+
+    # ── 연결 표준 (자유 조립) ──
+
+    def face_fields(self, p: TunnelParams, anchor: str) -> FaceFields:
+        """양 끝: 통로 크기 = 내경, 단면 종류 = shape. 끝에는 뚫을 벽·연결판 자리가 없다."""
+        if anchor in ("end_a", "end_b"):
+            return FaceFields(port="inner_diameter_mm", profile="shape")
+        return FaceFields()
+
+    def envelope(self, p: TunnelParams) -> tuple[float, float, float]:
+        """형상 없이 계산한 경계 상자. 단면 바깥 폭은 어느 모양이든 2(r + t), 높이는 outer_height.
+        휜 터널은 Z 축 둘레로 0..휨 각도만큼 돈 고리 부채꼴 (반지름 R ± (r + t)), S자는 그 부채꼴과 첫 구간 끝점에 대해
+        점대칭인 사본의 합이다."""
+        ro = p.inner_diameter_mm / 2 + p.wall_thickness_mm
+        h = outer_height(p)
+        R = bend_radius(p)
+        if R is None:
+            return (2 * ro, p.length_mm, h)
+        a = math.radians(p.bend_angle_deg)
+        x0, x1, y0, y1 = _sector_bounds(R - ro, R + ro, a)
+        if is_s_curve(p):
+            ex, ey = R * math.cos(a), R * math.sin(a)
+            x0, x1 = min(x0, 2 * ex - x1), max(x1, 2 * ex - x0)
+            y0, y1 = min(y0, 2 * ey - y1), max(y1, 2 * ey - y0)
+        return (x1 - x0, y1 - y0, h)
 
     def port_cutter(self, p: TunnelParams, anchor: str, depth_mm: float) -> Part | None:
         a = self.anchors(p).get(anchor)

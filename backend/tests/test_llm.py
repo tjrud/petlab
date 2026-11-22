@@ -402,3 +402,262 @@ def test_mock_understands_engraving_and_patterns(req):
     spec = _mock(req, "터널에 줄무늬")
     assert spec.items[0].template == "tunnel" and spec.items[0].decor is None
     assert _mock(req, "은신처").items[0].decor is None
+
+
+# ── 조립 항목 (부품 + 연결) ──────────────────────────────────
+
+HIDE = {"width_mm": 140, "depth_mm": 110, "height_mm": 90, "entrance_diameter_mm": 60, "entrance_count": 1,
+        "vent_count": 6, "vent_diameter_mm": 4, "wall_thickness_mm": 3}
+BOWL = {"bowl_diameter_mm": 90, "bowl_height_mm": 40, "clearance_mm": 1.0, "wall_thickness_mm": 3, "collar_height_mm": 30}
+BOTTLE = {"bottle_diameter_mm": 60, "cap_diameter_mm": 40, "spout_height_mm": 55, "spout_drop_mm": 60,
+          "holder_height_mm": 70, "base_width_mm": 110, "base_depth_mm": 110, "wall_thickness_mm": 3, "clearance_mm": 1.0}
+TUBE = {"length_mm": 100, "inner_diameter_mm": 60, "bend_angle_deg": 0, "wall_thickness_mm": 3, "shape": "tube",
+        "path": "arc"}
+RAMP = {"height_mm": 60, "width_mm": 80, "slope_deg": 25, "steps": 0}
+BATH = {"width_mm": 216, "depth_mm": 216, "basin_depth_mm": 55, "lip_height_mm": 30, "wall_thickness_mm": 3}
+PARAMS = {"hideout": HIDE, "bowl_holder": BOWL, "bottle_stand": BOTTLE, "tunnel": TUBE, "ramp": RAMP, "sand_bath": BATH}
+PLACEMENT = {"zone": "auto", "group": None, "rotation": None, "attach_to": None}
+
+
+def assembly(parts: list[tuple[str, str]], connections: list[tuple[str, str, str]], **extra) -> dict:
+    """조립 항목 dict: parts = [(id, 템플릿)], connections = [(part, to, at)]."""
+    return {
+        "template": "assembly",
+        "name_ko": "조립 구조물",
+        "parts": [{"id": pid, "template": t, "params": PARAMS[t]} for pid, t in parts],
+        "connections": [{"part": a, "to": b, "at": at} for a, b, at in connections],
+        "placement": PLACEMENT,
+        "reason_ko": "이유",
+        **extra,
+    }
+
+
+# 설계 문서의 예: 은신처 오른쪽 그릇 받침, 왼쪽 물병 거치대, 앞에 터널, 터널 끝에 은신처 하나 더
+EXAMPLE = assembly(
+    [("hide", "hideout"), ("bowl", "bowl_holder"), ("bottle", "bottle_stand"), ("tube", "tunnel"), ("hide2", "hideout")],
+    [("bowl", "hide", "right"), ("bottle", "hide", "left"), ("tube", "hide", "front"), ("hide2", "tube", "free_end")],
+)
+
+
+def spec_with(*items, **extra) -> str:
+    return json.dumps({**VALID, "items": list(items), **extra}, ensure_ascii=False)
+
+
+def test_assembly_item_parses_and_becomes_an_assembly_item_spec():
+    spec = parse_spec(spec_with(EXAMPLE, VALID["items"][0]))
+    items = to_item_specs(spec)
+    it = items[0]
+    assert it.template == "assembly" and it.decor is None and it.hint.zone == "auto"
+    # params 는 부품 id → 그 부품 파라미터 (템플릿 Params 로 검증한 값)
+    assert list(it.params) == ["hide", "bowl", "bottle", "tube", "hide2"]
+    assert it.params["tube"]["shape"] == "tube" and it.params["bowl"]["bowl_diameter_mm"] == 90
+    req = it.assembly
+    assert req is not None and req.root == "hide" and req.name_ko == "조립 구조물"
+    assert [p.template for p in req.parts] == ["hideout", "bowl_holder", "bottle_stand", "tunnel", "hideout"]
+    assert req.part("hide2").params == it.params["hide2"]
+    assert req.part("hide2").params is not it.params["hide2"]  # 엔진이 한쪽을 고쳐도 다른 쪽은 그대로
+    assert [(c.part, c.to, c.at) for c in req.walk()] == [
+        ("bowl", "hide", "right"), ("bottle", "hide", "left"), ("tube", "hide", "front"), ("hide2", "tube", "free_end")]
+    # 단일 항목은 예전 그대로
+    assert items[1].template == "hideout" and items[1].assembly is None
+
+
+def test_stored_spec_reader_accepts_assembly_and_old_specs_without_missing_parts():
+    """저장된 명세 읽기(parse_spec 의 templates=None)도 조립 항목을 받고, missing_parts 가 없던 옛 명세도 읽는다."""
+    spec = parse_spec(spec_with(EXAMPLE))
+    assert spec.missing_parts == []
+    again = parse_spec(spec.model_dump_json())  # 직전 설계(수정 요청)로 다시 읽는 형태
+    assert to_item_specs(again)[0].assembly == to_item_specs(spec)[0].assembly
+    spec = parse_spec(spec_with(VALID["items"][0], missing_parts=[{"name_ko": "쳇바퀴", "purpose_ko": "운동용"}]))
+    assert spec.missing_parts[0].name_ko == "쳇바퀴"
+
+
+def _rejects(item: dict, *needles: str, templates=None) -> None:
+    with pytest.raises(ValidationError) as ei:
+        parse_spec(spec_with(item), templates)
+    text = str(ei.value)
+    for n in needles:
+        assert n in text, text
+
+
+@pytest.mark.parametrize(("parts", "connections", "needle"), [
+    # 나무 구조 (structure.tree_problems)
+    ([("hide", "hideout"), ("hide", "bowl_holder")], [("hide", "hide", "right")], "겹칩니다"),
+    ([("hide", "hideout"), ("bowl", "bowl_holder")], [("bowl", "nowhere", "right")], "없는 부품"),
+    ([("hide", "hideout"), ("bowl", "bowl_holder"), ("bottle", "bottle_stand")],
+     [("bowl", "hide", "right"), ("bowl", "hide", "left"), ("bottle", "hide", "back")], "한 부품에만"),
+    ([("hide", "hideout"), ("tube", "tunnel"), ("hide2", "hideout")],
+     [("tube", "hide2", "free_end"), ("hide2", "tube", "free_end")], "순환"),
+    ([("hide", "hideout"), ("bowl", "bowl_holder")], [("hide", "bowl", "right")], "기준(첫) 부품"),
+    ([("hide", "hideout"), ("bowl", "bowl_holder"), ("bottle", "bottle_stand")], [("bowl", "hide", "right")],
+     "어디에도 붙이지 않은"),
+    ([("hide", "hideout")], [], "2~8개"),
+    ([("hide", "hideout"), ("Bowl", "bowl_holder")], [("Bowl", "hide", "right")], "소문자"),
+    ([("hide", "hideout")] + [(f"b{i}", "bowl_holder") for i in range(8)],
+     [(f"b{i}", "hide", "auto") for i in range(8)], "2~8개"),
+    # 역할로 바로 알 수 있는 잘못
+    ([("hide", "hideout"), ("bowl", "bowl_holder"), ("bottle", "bottle_stand")],
+     [("bowl", "hide", "right"), ("bottle", "bowl", "right")], "그릇 받침에는 다른 부품을 붙일 수 없습니다"),
+    ([("hide", "hideout"), ("bath", "sand_bath")], [("bath", "hide", "right")], "기준 부품(parts 의 첫 부품)으로만"),
+    ([("hide", "hideout"), ("bowl", "bowl_holder")], [("bowl", "hide", "free_end")], "free_end 는 터널에 이을 때만"),
+    ([("hide", "hideout"), ("tube", "tunnel"), ("tube2", "tunnel")],
+     [("tube", "hide", "front"), ("tube2", "tube", "free_end")], "바로 이을 수 없습니다"),
+    ([("hide", "hideout"), ("tube", "tunnel"), ("bowl", "bowl_holder")],
+     [("tube", "hide", "front"), ("bowl", "tube", "free_end")], "같은 방만"),
+    ([("hide", "hideout"), ("tube", "tunnel"), ("hide2", "hideout")],
+     [("tube", "hide", "front"), ("hide2", "tube", "left")], "at 을 free_end 로"),
+    ([("hide", "hideout"), ("tube", "tunnel"), ("hide2", "hideout"), ("hide3", "hideout")],
+     [("tube", "hide", "front"), ("hide2", "tube", "free_end"), ("hide3", "tube", "free_end")], "남은 끝은 1개"),
+])
+def test_assembly_rejects_bad_trees(parts, connections, needle):
+    _rejects(assembly(parts, connections), needle)
+
+
+def test_tunnel_root_has_two_free_ends():
+    """뿌리 터널은 두 끝이 모두 비어 있어 방을 둘 이을 수 있다 (셋은 안 된다)."""
+    ok = assembly([("tube", "tunnel"), ("hide", "hideout"), ("hide2", "hideout")],
+                  [("hide", "tube", "free_end"), ("hide2", "tube", "auto")])
+    parse_spec(spec_with(ok))
+    bad = assembly([("tube", "tunnel"), ("hide", "hideout"), ("hide2", "hideout"), ("hide3", "hideout")],
+                   [("hide", "tube", "free_end"), ("hide2", "tube", "free_end"), ("hide3", "tube", "free_end")])
+    _rejects(bad, "남은 끝은 2개")
+
+
+@pytest.mark.parametrize("patch", [
+    {"connections": [{"part": "bowl", "to": "hide", "at": "top"}]},                         # 위에 얹기 (아직 없음)
+    {"connections": [{"part": "bowl", "to": "hide", "at": "right", "mount": "slide"}]},     # 결합 방식은 서버가 정한다
+    {"parts": [{"id": "hide", "template": "hideout", "params": HIDE},
+               {"id": "bowl", "template": "cave", "params": {}}]},                         # 조립 부품이 아닌 템플릿
+    {"parts": [{"id": "hide", "template": "hideout", "params": {**HIDE, "width_mm": 5}},
+               {"id": "bowl", "template": "bowl_holder", "params": BOWL}]},                # 부품 파라미터 범위
+    {"name_ko": None},                                                                      # 모든 필드는 필수
+    {"shift": 3.0},                                                                         # 모르는 키
+])
+def test_assembly_rejects_schema_violations(patch):
+    item = {**assembly([("hide", "hideout"), ("bowl", "bowl_holder")], [("bowl", "hide", "right")]), **patch}
+    _rejects(item)
+
+
+def test_assembly_parts_must_be_allowed_templates():
+    item = assembly([("hide", "hideout"), ("bowl", "bowl_holder")], [("bowl", "hide", "right")],
+                    placement={"zone": "auto", "group": None, "rotation": None})  # 집·램프가 없는 묶음: attach_to 없음
+    parse_spec(spec_with(item), ["hideout", "bowl_holder"])
+    _rejects(item, "bowl_holder", templates=["hideout", "tunnel"])
+
+
+def test_assembly_is_offered_only_with_a_host_template():
+    from app.rules.loader import AQUARIUM_TEMPLATES, CAGE_TEMPLATES
+
+    assert "AssemblyItem" in api_schema(CAGE_TEMPLATES)["$defs"]
+    assert "AssemblyItem" in api_schema(["sand_bath", "ramp"])["$defs"]
+    assert "AssemblyItem" not in api_schema(AQUARIUM_TEMPLATES)["$defs"]  # 어항: 기준 구조물이 없다
+    assert "AssemblyItem" not in api_schema(["tunnel", "ramp", "bowl_holder"])["$defs"]
+    with pytest.raises(ValidationError):
+        parse_spec(spec_with(assembly([("tube", "tunnel"), ("ramp", "ramp")], [("ramp", "tube", "auto")])),
+                   ["tunnel", "ramp"])
+
+
+def test_api_schema_assembly_reuses_param_defs():
+    schema = api_schema(["hideout", "tunnel", "bowl_holder", "cave"])
+    defs = schema["$defs"]
+    item = defs["AssemblyItem"]["properties"]
+    assert item["template"]["const"] == "assembly"
+    refs = {o["$ref"].rsplit("/", 1)[1] for o in item["parts"]["items"]["anyOf"]}
+    assert refs == {"HideoutPart", "TunnelPart", "BowlHolderPart"}  # 물속 동굴은 조립 부품이 아니다
+    # 부품 모델은 일반 항목과 같은 Params 정의를 가리킨다 (정의를 두 번 싣지 않는다)
+    assert defs["HideoutPart"]["properties"]["params"]["$ref"] == defs["HideoutItem"]["properties"]["params"]["$ref"]
+    assert set(defs["HideoutPart"]["required"]) == {"id", "template", "params"}
+    assert set(defs["Connection"]["properties"]["at"]["enum"]) == {"front", "back", "left", "right", "free_end", "auto"}
+    assert "decor" not in item  # 조립 항목의 장식은 아직 없다
+    assert schema["properties"]["missing_parts"]["items"]["$ref"].endswith("MissingPart")
+    assert "missing_parts" in schema["required"]  # 구조화 출력에서는 늘 적는다
+    # 부품이 한 템플릿뿐이면 합집합 없이 그 모델 하나
+    single = api_schema(["hideout"])["$defs"]["AssemblyItem"]["properties"]["parts"]["items"]
+    assert single["$ref"].endswith("HideoutPart")
+
+
+def test_template_keys_drop_fixed_modules(rules):
+    """레지스트리에 남은 고정 조립 모듈(library)은 계약에 넣지 않는다: 부품을 잇는 일은 조립 항목이 한다."""
+    from app.llm.spec import template_keys
+    from app.rules.loader import CAGE_TEMPLATES
+    from app.templates.registry import all_templates, primitives
+
+    assert template_keys(rules.allowed_templates("hamster")) == CAGE_TEMPLATES
+    assert set(template_keys()) <= set(primitives())
+    modules = [t.key for t in all_templates() if t.key not in primitives()]
+    assert not set(modules) & {d.removesuffix("Item") for d in api_schema()["$defs"]}
+    with pytest.raises(ValueError):
+        template_keys(["hideout", "castle"])
+
+
+def test_api_schema_size_stays_bounded(rules):
+    """구조화 출력 스키마가 너무 커지지 않게 (조립 항목은 Params 정의를 다시 쓰므로 크게 늘지 않는다)."""
+    cage = json.dumps(api_schema(rules.allowed_templates("hamster")), ensure_ascii=False)
+    assert len(cage) < 30_000, len(cage)
+
+
+# ── 프롬프트: 연결 설명·조립 안내·예시 ───────────────────────────
+
+
+def test_catalog_has_connection_entries_from_template_metadata():
+    from app.llm.prompts import template_catalog
+    from app.rules.loader import AQUARIUM_TEMPLATES, CAGE_TEMPLATES
+
+    cat = {t["template"]: t for t in template_catalog(CAGE_TEMPLATES)}
+    hide = cat["hideout"]["연결"]
+    assert "front: 출입구(터널만)" in hide
+    assert "left/right: 옆면(" in hide and "그릇 받침" in hide and "물병 거치대" in hide
+    assert "back: 옆면(" in hide and "출입구를 낸다" in hide  # 뒷면은 터널을 이으면 출입구 2개로 연다
+    assert "free_end" in hide
+    assert "front: 출입 면(램프/계단)" in cat["sand_bath"]["연결"]  # 출입 면에는 출입을 막지 않는 램프만
+    assert "기준 부품으로만" in cat["sand_bath"]["연결"]
+    assert "free_end" in cat["tunnel"]["연결"] and "은신처·집" in cat["tunnel"]["연결"]
+    assert "옆면에 붙인다" in cat["bowl_holder"]["연결"]
+    assert "height_mm" in cat["ramp"]["연결"]  # 램프 높이는 서버가 붙는 면에 맞춘다
+    assert list(cat["hideout"]) == ["template", "이름", "설명", "연결", "파라미터"]
+    # 어항(기준 구조물 없음)에는 연결 설명이 없다
+    assert all("연결" not in t for t in template_catalog(AQUARIUM_TEMPLATES))
+    # 허용된 부품만 이름에 나온다
+    only = {t["template"]: t for t in template_catalog(["hideout", "bowl_holder"])}
+    assert "물병" not in only["hideout"]["연결"] and "터널" not in only["hideout"]["연결"]
+    assert "front: 출입구" in only["hideout"]["연결"]
+    # 고정 조립 모듈은 카탈로그에 없다
+    assert set(cat) == set(CAGE_TEMPLATES)
+
+
+def test_user_message_catalog_drops_fixed_modules(req, rules):
+    from app.llm.prompts import build_user_message
+
+    r = InterpretRequest(prompt=req.prompt, habitat=req.habitat, size_rules=req.size_rules, min_wall_mm=req.min_wall_mm,
+                         allowed_templates=rules.allowed_templates("hamster"))
+    msg = build_user_message(r)
+    assert '"연결"' in msg and "dining_hideout" not in msg and "twin_hideouts" not in msg
+
+
+def test_system_prompt_has_composition_block_and_valid_few_shots():
+    from app.llm.prompts import FEW_SHOTS, SYSTEM_PROMPT
+
+    for word in ('template "assembly"', "connections", "free_end", "missing_parts", "하나 더", "위에 얹기", "개별 항목"):
+        assert word in SYSTEM_PROMPT, word
+    assert [p for p, _ in FEW_SHOTS] and len(FEW_SHOTS) == 2
+    for prompt, item in FEW_SHOTS:
+        assert prompt in SYSTEM_PROMPT
+        assert json.dumps(item, ensure_ascii=False) in SYSTEM_PROMPT
+        it = to_item_specs(parse_spec(spec_with(item)))[0]  # 예시가 지금 계약을 통과한다
+        assert it.template == "assembly" and len(it.assembly.parts) >= 2
+    dining, twin = (item for _, item in FEW_SHOTS)
+    assert [p["template"] for p in dining["parts"]] == ["hideout", "bowl_holder", "bottle_stand"]
+    assert [(c["part"], c["at"]) for c in dining["connections"]] == [("bowl", "right"), ("bottle", "left")]
+    assert [p["template"] for p in twin["parts"]] == ["hideout", "tunnel", "hideout"]
+    assert [(c["part"], c["to"], c["at"]) for c in twin["connections"]] == [
+        ("tube", "hide", "front"), ("hide2", "tube", "free_end")]
+
+
+def test_retry_after_assembly_tree_error(req):
+    bad = assembly([("hide", "hideout"), ("bowl", "bowl_holder")], [("bowl", "hide", "free_end")])
+    client = FakeClient([_resp(json.loads(spec_with(bad))), _resp(json.loads(spec_with(EXAMPLE)))])
+    res = AnthropicInterpreter(client, "m", max_retries=2).interpret(req)
+    assert res.attempts == 2 and res.spec.items[0].template == "assembly"
+    assert "free_end 는 터널에 이을 때만" in client.calls[1]["messages"][2]["content"]
+    schema = client.calls[0]["output_config"]["format"]["schema"]
+    assert "AssemblyItem" in schema["$defs"]
