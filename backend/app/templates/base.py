@@ -84,6 +84,9 @@ class Anchor:
       - side: 이 면이 features().access_sides 의 출입 면이면 그 이름. 이어 붙이면 출입 면에서 빠진다
       - port: 이 자리가 통로(출입구·터널 끝)이면 통로 폭 mm. 다른 부품과 통로로 이어지지 않으면 바깥 출입구로 센다
       - wall_mm: 이 면 뒤의 벽 두께. 다른 부품이 통로로 이어 붙을 때 이 깊이만큼 뚫는다 (None 이면 뚫을 수 없는 면)
+      - mount: 슬라이드 결합(따로 출력해 도브테일로 끼우는 부품)의 연결판을 붙일 수 있는 영역 (left, right, height).
+        면 좌표 (t, u): t = up × normal (바깥에서 볼 때 오른쪽), u = up, 원점 = origin. 연결판은 t ∈ [left, right],
+        u ∈ [0, height] 안에만 붙는다 (None 이면 슬라이드 결합을 받을 수 없는 면)
     """
 
     origin: Vec3
@@ -92,6 +95,7 @@ class Anchor:
     side: Side | None = None
     port: float | None = None
     wall_mm: float | None = None
+    mount: tuple[float, float, float] | None = None
 
 
 @dataclass(frozen=True)

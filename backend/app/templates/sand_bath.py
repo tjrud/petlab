@@ -12,6 +12,7 @@ from build123d import Align, Box, Part, Pos
 from pydantic import Field
 
 from app.templates.base import (
+    Anchor,
     Features,
     Opening,
     ParamConstraint,
@@ -109,6 +110,24 @@ class SandBathTemplate(Template):
                 entry_width(p), t + 2 * _CUT, notch_h + _CUT, align=_BOTTOM
             )
         return part
+
+    def anchors(self, p: SandBathParams) -> dict[str, Anchor]:
+        """옆면 네 개(바닥 높이, 면 가운데)와 밑면. 위는 열려 있어 얹는 자리(top)가 없다.
+
+        앞면(front)의 출입 홈은 위가 트인 턱이라 통로(port)로 두지 않는다: 통로 연결(passage)은 벽을 바닥부터 뚫는데,
+        그러면 모래가 쏟아지고 턱의 의미가 없어진다. 같은 이유로 어느 벽도 뚫을 수 없다(wall_mm 없음).
+        앞면은 출입 면이라 side="front": 여기에 램프·계단을 붙이면(턱까지 오르는 발판) 출입 면이 그 부품으로 넘어간다.
+        앞면을 출입구 없는 벽으로 막으면 들어갈 수 없게 되므로 모듈에서 그렇게 잇지 않는다.
+        """
+        W, D = p.width_mm, p.depth_mm
+        z, up = (0.0, 0.0, 1.0), (0.0, 1.0, 0.0)
+        return {
+            "front": Anchor((0.0, -D / 2, 0.0), (0.0, -1.0, 0.0), z, side="front"),
+            "back": Anchor((0.0, D / 2, 0.0), (0.0, 1.0, 0.0), z),
+            "left": Anchor((-W / 2, 0.0, 0.0), (-1.0, 0.0, 0.0), z),
+            "right": Anchor((W / 2, 0.0, 0.0), (1.0, 0.0, 0.0), z),
+            "bottom": Anchor((0.0, 0.0, 0.0), (0.0, 0.0, -1.0), up),
+        }
 
     def features(self, p: SandBathParams) -> Features:
         return Features(

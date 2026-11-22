@@ -13,5 +13,18 @@
  "모듈 {0}: 없는 부품 템플릿 {1}": "Module {0}: unknown part template {1}",
  "조립 형상을 만들지 못했습니다 ({0})": "Couldn't build the assembled shape ({0})",
  "모듈 key 가 다른 템플릿과 겹칩니다: {0}": "Module key collides with another template: {0}",
- "{0}: {1} {2}mm 가 끼임 위험 구간({3}~{4}mm)에 있습니다. 더 작게(환기구) 하거나 몸이 지나갈 만큼 크게 하세요.": "{0}: {1} at {2} mm is in the entrapment risk range ({3}~{4} mm). Make it smaller (like a vent) or large enough for the body to pass through."
+ "{0}: {1} {2}mm 가 끼임 위험 구간({3}~{4}mm)에 있습니다. 더 작게(환기구) 하거나 몸이 지나갈 만큼 크게 하세요.": "{0}: {1} at {2} mm is in the entrapment risk range ({3}~{4} mm). Make it smaller (like a vent) or large enough for the body to pass through.",
+ "{0}와(과) {1}의 슬라이드 결합은 옆면끼리만 할 수 있습니다 (세로 면, 위쪽이 위)": "A slide mount between {0} and {1} only works between side faces (vertical faces, pointing up)",
+ "{0}와(과) {1}의 슬라이드 결합은 통로로 이을 수 없습니다": "A slide mount between {0} and {1} can't also be a passage",
+ "{0}의 '{1}' 면에는 슬라이드 결합 연결판을 붙일 수 없습니다": "The '{1}' face of {0} can't take a slide-mount plate",
+ "모듈 {0}: 기본값으로 부품 파라미터를 만들 수 없습니다 ({1})": "Module {0}: the defaults don't produce valid part parameters ({1})",
+ "모듈 {0}: 부품 {1}({2})에 없는 파라미터 {3}": "Module {0}: part {1} ({2}) has no parameter {3}",
+ "{0}의 출입구가 {1}의 통로보다 커서 틈이 남습니다 (약 {2}mm³). 통로 단면 모양과 폭을 출입구에 맞추세요": "The entrance of {0} is larger than the passage of {1}, leaving a gap (about {2} mm³). Match the passage cross-section shape and width to the entrance",
+ "따로 출력하는 파트 {0}와(과) {1}이(가) 겹칩니다 (약 {2}mm³). 부품 위치나 크기를 바꾸세요": "Separately printed parts {0} and {1} overlap (about {2} mm³). Change the part position or size",
+ "{0}이(가) {1}의 '{2}' 면에서 연결판을 붙일 수 있는 곳보다 넓거나 벗어납니다. 부품이 면 밖으로 튀어나오지 않게 크기나 위치를 바꾸세요": "{0} is wider than, or extends past, the area of {1}'s '{2}' face that can take a mounting plate. Change its size or position so nothing sticks out past the face",
+ "슬라이드 결합으로 붙이는 {0}은(는) {1}와(과) 같은 바닥에 서야 합니다": "{0}, slide-mounted to {1}, must stand on the same floor",
+ "{0}의 뒷면이 {1}의 연결판에 닿는 곳이 좁거나 낮아 도브테일을 낼 수 없습니다": "The back of {0} touches {1}'s mounting plate over too narrow or too low an area for a dovetail",
+ "{0}의 연결판 위로 벽과 {1} 사이에 {2}mm 틈이 생겨 끼임 위험 구간({3}~{4}mm)에 있습니다": "Above {0}'s mounting plate, the {2} mm gap between the wall and {1} is in the entrapment risk range ({3}~{4} mm)",
+ "{0}의 뒷면과 {1}의 벽·지붕 사이에 폭이 {2}~{3}mm 로 벌어지는 틈이 생겨 끼임 위험 구간({4}~{5}mm)에 있습니다. {6}을(를) {7}의 처마보다 낮게 하거나 지붕이 기울지 않은 면에 붙이세요": "Between the back of {0} and the wall or roof of {1} there is a gap that widens from {2} to {3} mm, inside the entrapment risk range ({4}~{5} mm). Keep {6} below the eaves of {7}, or mount it on a face without a sloping roof",
+ "모듈 {0}: 파라미터 {1}={2} 로 부품 파라미터를 만들 수 없습니다 ({3})": "Module {0}: parameter {1}={2} doesn't produce valid part parameters ({3})"
 }

@@ -24,6 +24,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 LIBRARY_DIR = Path(__file__).parent / "library"
 _IDENT = re.compile(r"^[a-z][a-z0-9_]{0,40}$")
+# 부품 파라미터 이름: 점 표기로 중첩 파라미터를 가리킬 수 있다 ("roof.kind")
+_PATH = re.compile(r"^[a-z][a-z0-9_]{0,40}(\.[a-z][a-z0-9_]{0,40}){0,3}$")
 
 
 class _Strict(BaseModel):
@@ -68,7 +70,8 @@ class Bind(_Strict):
     offset: float = 0.0
 
 
-PartValue = Bind | float | int | str | bool
+# 상수는 숫자·글·참거짓, 또는 글 목록 (집의 "doors.sides": ["left"] 처럼 면 목록)
+PartValue = Bind | float | int | str | bool | list[str]
 
 
 class PartDef(_Strict):
@@ -83,6 +86,17 @@ class PartDef(_Strict):
             raise ValueError(f"부품 id 는 소문자·숫자·밑줄만: {v}")
         return v
 
+    @field_validator("params")
+    @classmethod
+    def _paths(cls, v: dict[str, PartValue]) -> dict[str, PartValue]:
+        for k in v:
+            if not _PATH.match(k):
+                raise ValueError(f"부품 파라미터 이름은 소문자·숫자·밑줄(중첩은 점 표기)만: {k}")
+        heads = {k.split(".")[0] for k in v if "." in k}
+        if heads & set(v):
+            raise ValueError(f"중첩 파라미터를 통째로와 점 표기로 함께 정할 수 없습니다: {sorted(heads & set(v))}")
+        return v
+
 
 class JoinDef(_Strict):
     parent: str  # "부품id.연결지점"
@@ -94,6 +108,8 @@ class JoinDef(_Strict):
     spin: Literal[0, 90, 180, 270] = 0
     # 자식 통로(터널 끝 등)의 단면으로 부모 벽을 뚫는다
     passage: bool = False
+    # fused: 한 덩어리로 붙인다 (기본). slide: 따로 출력해 도브테일로 끼운다 (옆면끼리만, 통로와 함께 쓸 수 없다)
+    mount: Literal["fused", "slide"] = "fused"
 
     @field_validator("parent", "child")
     @classmethod
@@ -101,6 +117,12 @@ class JoinDef(_Strict):
         if v.count(".") != 1:
             raise ValueError(f"'부품id.연결지점' 형식이어야 합니다: {v}")
         return v
+
+    @model_validator(mode="after")
+    def _mount(self) -> "JoinDef":
+        if self.mount == "slide" and self.passage:
+            raise ValueError(f"슬라이드 결합은 통로로 이을 수 없습니다: {self.parent} → {self.child}")
+        return self
 
 
 class ModuleDef(_Strict):

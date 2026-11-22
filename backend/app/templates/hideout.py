@@ -203,13 +203,16 @@ class HideoutTemplate(Template):
         W, D, H, t = p.width_mm, p.depth_mm, p.height_mm, p.wall_thickness_mm
         d = p.entrance_diameter_mm
         z, up = (0.0, 0.0, 1.0), (0.0, 1.0, 0.0)
+        back_door = p.entrance_count >= 2
         return {
-            # 옆면: 바닥 높이의 면 가운데. 앞면(과 출입구 2개면 뒷면)은 출입구 자리
+            # 옆면: 바닥 높이의 면 가운데. 앞면(과 출입구 2개면 뒷면)은 출입구 자리.
+            # 출입구 없는 옆면은 면 전체(가로 전체 × 높이 전체)에 슬라이드 결합 연결판을 붙일 수 있다 (mount)
             "front": Anchor((0, -D / 2, 0), (0, -1, 0), z, side="front", port=d, wall_mm=t),
             "back": Anchor((0, D / 2, 0), (0, 1, 0), z, side="back",
-                           port=d if p.entrance_count >= 2 else None, wall_mm=t),
-            "left": Anchor((-W / 2, 0, 0), (-1, 0, 0), z, wall_mm=t),
-            "right": Anchor((W / 2, 0, 0), (1, 0, 0), z, wall_mm=t),
+                           port=d if back_door else None, wall_mm=t,
+                           mount=None if back_door else (-W / 2, W / 2, H)),
+            "left": Anchor((-W / 2, 0, 0), (-1, 0, 0), z, wall_mm=t, mount=(-D / 2, D / 2, H)),
+            "right": Anchor((W / 2, 0, 0), (1, 0, 0), z, wall_mm=t, mount=(-D / 2, D / 2, H)),
             # 지붕 위·바닥 아래 (위에 얹기·밑에 받치기)
             "top": Anchor((0, 0, H), (0, 0, 1), up),
             "bottom": Anchor((0, 0, 0), (0, 0, -1), up),

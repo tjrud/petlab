@@ -24,6 +24,7 @@ from build123d import Part
 from pydantic import Field, model_validator
 
 from app.templates.base import (
+    Anchor,
     DecorZone,
     Features,
     ParamConstraint,
@@ -32,10 +33,20 @@ from app.templates.base import (
     Side,
     Template,
     TemplateParams,
+    cutter_at,
 )
 from app.templates.parts import levels, openings, shell
-from app.templates.parts.common import MARGIN_MM, SIDE_KO, Shell, arch_height, lens_height
-from app.templates.parts.levels import FloorsPart
+from app.templates.parts.common import (
+    CUT,
+    MARGIN_MM,
+    SIDE_KO,
+    SIDES,
+    Shell,
+    arch_height,
+    lens_height,
+    pointed_arch,
+)
+from app.templates.parts.levels import PORCH_MM, FloorsPart
 from app.templates.parts.openings import DoorsPart, PortsPart, WindowsPart
 from app.templates.parts.shell import SKIRT_MM, FloorPart, RoofPart, WallPart
 
@@ -121,9 +132,19 @@ def window_bottom(p: HouseParams) -> float:
     return eave_height(p) - top_clearance(p) - lens_height(p.windows.diameter_mm)
 
 
-def _occupied_top(p: HouseParams, sh: Shell, side: Side) -> float:
-    """측면에서 창 아래에 있어야 하는 개구부의 꼭대기 (1층 출입구·연결부, 2층 출입구)."""
+def _ground_top(p: HouseParams, sh: Shell, side: Side, t: float | None = None) -> float:
+    """측면 1층 개구부가 차지하는 꼭대기. 연결부는 바깥 플랜지 고리(아치 + 벽 두께 t)의 꼭대기까지 친다:
+    고리가 벽 바깥으로 튀어나오므로, 그 위로 지붕판(평 지붕)·지붕 뚜껑 스커트 띠가 남아야 지붕 위로 솟거나
+    뚜껑 스커트와 겹치지 않는다. t: 제약 계산에서는 보정된 벽 두께."""
     top = openings.ground_opening_top(sh, side, p.doors, p.ports)
+    if side in p.ports.sides:
+        top = max(top, arch_height(p.ports.diameter_mm + 2 * (sh.t if t is None else t)))
+    return top
+
+
+def _occupied_top(p: HouseParams, sh: Shell, side: Side, t: float | None = None) -> float:
+    """측면에서 창 아래에 있어야 하는 개구부의 꼭대기 (1층 출입구·연결부 플랜지, 2층 출입구)."""
+    top = _ground_top(p, sh, side, t)
     ud = upper_door(p)
     if ud is not None and ud[0] == side:
         top = max(top, ud[1] + arch_height(ud[2]))
@@ -188,8 +209,9 @@ class HouseTemplate(Template):
         ground_top = max(openings.ground_opening_top(sh, side, p.doors, p.ports) for side in ("front", "back", "left", "right"))
         out += levels.floors_constraints(p.floors, ctx, i, t, sh.z_floor, ground_top, WIDTH_MAX_MM)
         # 높이: 1층 개구부 위로 벽이 남도록 / 2층 머리 공간·2층 출입구 / 창 띠
+        ground_outer = max(_ground_top(p, sh, side, t) for side in ("front", "back", "left", "right"))
         out.append(ParamConstraint(
-            "height_mm", min=R + ground_top + tc,
+            "height_mm", min=R + ground_outer + tc,
             reason_ko="출입구·연결부 아치 위로 벽이 남도록 높이가 충분히 커야 합니다",
         ))
         if p.floors.count == 2:
@@ -204,7 +226,7 @@ class HouseTemplate(Template):
                     reason_ko="2층 출입구 아치 위로 벽이 남도록 높이가 충분히 커야 합니다",
                 ))
         if p.windows.count > 0:
-            occ = max(_occupied_top(p, sh, side) for side in openings.window_sides(p.windows))
+            occ = max(_occupied_top(p, sh, side, t) for side in openings.window_sides(p.windows))
             out.append(ParamConstraint(
                 "height_mm", min=R + occ + MARGIN_MM + lens_height(p.windows.diameter_mm) + tc,
                 reason_ko="창이 출입구 위 벽 띠에 들어가도록 높이가 충분히 커야 합니다",
@@ -252,6 +274,83 @@ class HouseTemplate(Template):
 
     def print_rotation(self, p: HouseParams) -> np.ndarray:
         return _INVERTED if body_inverted(p) else _UPRIGHT
+
+    # ── 연결 지점 (모듈 라이브러리) ──
+
+    def anchors(self, p: HouseParams) -> dict[str, Anchor]:
+        """옆면 네 개(바닥 높이, 면 가운데 = 출입구·연결부 가운데), 밑면, 1층 평 지붕이면 지붕 위.
+
+        - 옆면 기준점은 그 면에서 가장 바깥에 있는 세로 면 위에 둔다: 벽 바깥면 (지붕 뚜껑을 씌우는 집은 외형보다
+          벽 두께만큼 안쪽), 터널 연결부가 있으면 플랜지 바깥면, 바깥 램프 착지판이 있으면 착지판 바깥면.
+        - 출입구·연결부가 있는 면은 port(폭)와 side 를 둔다. 연결부 면은 터널 끝을 그 플랜지에 대고 통로로 이을 수 있도록
+          wall_mm = 벽 + 플랜지 (port_cutter 도 같은 기준점에서 아치를 낸다).
+        - 뚫을 수 없는 면(wall_mm=None): 꽉 찬 착지판이 붙은 면, 안쪽 경사로가 뒷벽에 붙어 있는 2층 집의 뒷면,
+          2층 집의 출입구·연결부 없는 면 (벽 안쪽 선반·층판 높이가 1층 개구부 꼭대기에 맞춰져 있어, 그보다 높은 통로를
+          뚫으면 2층 바닥 쪽에 끼임 틈이 생길 수 있다). 출입구·연결부 면에 통로로 잇는 부품은 그 개구부보다 크지 않아야 한다.
+        - 위(top)는 1층 평 지붕일 때만 (그 밖의 지붕은 뚜껑이 따로 출력되거나 경사·곡면이다).
+        - 지붕 뚜껑을 씌우는 집: 뚜껑 스커트가 처마 아래 SKIRT_MM 띠에서 벽 바깥으로 벽 두께만큼 튀어나온다.
+          옆면에 붙이는 부품은 (처마 높이 − SKIRT_MM) 보다 낮아야 뚜껑과 겹치지 않는다 (조립 모듈이 따로 출력하는
+          파트끼리 겹치는지 확인한다).
+        - 통로로 잇는 부품은 출입구·연결부와 같은 단면(뾰족 아치)·같은 폭이어야 한다. 더 좁거나 모양이 다르면
+          (둥근 아치·관·네모) 남은 개구부가 바깥으로 뚫린 틈이 된다 (조립 모듈이 통로가 개구부를 덮는지 확인한다).
+        - 출입구·연결부·착지판이 없는 면은 슬라이드 결합 연결판 자리(mount)를 둔다 (_mount_height).
+        """
+        sh = make_shell(p)
+        t = p.walls.thickness_mm
+        z = (0.0, 0.0, 1.0)
+        porch_side = upper_door(p)[0] if upper_door(p) is not None else None
+        internal = p.floors.count == 2 and p.floors.climb == "internal_ramp"
+        out: dict[str, Anchor] = {}
+        for side in SIDES:
+            ox, oy = sh.outward(side)
+            half = (sh.wy if side in ("front", "back") else sh.wx) / 2
+            wall_mm: float | None = t
+            port: float | None = None
+            if side in p.doors.sides:
+                port = p.doors.width_mm
+            elif side in p.ports.sides:
+                port = p.ports.diameter_mm
+                half += p.ports.flange_mm
+                wall_mm = t + p.ports.flange_mm
+            if side == porch_side:
+                half += PORCH_MM
+                wall_mm = None
+            if internal and side == "back":
+                wall_mm = None
+            if p.floors.count == 2 and port is None:
+                wall_mm = None  # 선반·층판이 벽 안쪽에 붙어 있어, 높이를 모르는 통로를 뚫으면 2층 쪽에 틈이 생길 수 있다
+            mount = None
+            if port is None and side != porch_side:
+                length = sh.wall_length(side)
+                mount = (-length / 2, length / 2, self._mount_height(p, side))
+            out[side] = Anchor((ox * half, oy * half, 0.0), (float(ox), float(oy), 0.0), z,
+                               side=side if port is not None else None, port=port, wall_mm=wall_mm, mount=mount)
+        if not is_cap(p):
+            out["top"] = Anchor((0.0, 0.0, p.height_mm), (0.0, 0.0, 1.0), (0.0, 1.0, 0.0))
+        out["bottom"] = Anchor((0.0, 0.0, 0.0), (0.0, 0.0, -1.0), (0.0, 1.0, 0.0))
+        return out
+
+    @staticmethod
+    def _mount_height(p: HouseParams, side: Side) -> float:
+        """출입구·연결부 없는 벽에 슬라이드 결합 연결판을 붙일 수 있는 높이 (Anchor.mount).
+
+        - 1층 평 지붕(지붕이 본체와 한 덩어리): 외형 높이 전체 (연결판 윗면이 지붕 윗면과 같은 높이)
+        - 지붕 뚜껑을 씌우는 집: 처마 − SKIRT_MM (뚜껑 스커트가 그 위에서 벽 바깥으로 튀어나온다)
+        - 2층 집: 그중에서도 2층 바닥 높이까지 (보수적으로 1층 벽에만)
+        - 창이 있는 면: 창 아래 끝 − MARGIN_MM (연결판·부품이 창을 덮지 않게)"""
+        h = p.height_mm if not is_cap(p) else eave_height(p) - SKIRT_MM
+        if p.floors.count == 2:
+            h = min(h, p.floors.level_height_mm)
+        if side in openings.window_sides(p.windows):
+            h = min(h, window_bottom(p) - MARGIN_MM)
+        return max(0.0, h)
+
+    def port_cutter(self, p: HouseParams, anchor: str, depth_mm: float) -> Part | None:
+        """출입구·연결부 면: 그 개구부와 같은 뾰족 아치 단면 (바닥 아래 CUT 부터)."""
+        a = self.anchors(p).get(anchor)
+        if a is None or a.port is None:
+            return None
+        return cutter_at(a, pointed_arch(a.port / 2, -CUT), depth_mm)
 
     # ── Features ──
 

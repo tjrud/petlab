@@ -14,7 +14,14 @@ import math
 from build123d import Part, Plane, Polygon, extrude
 from pydantic import Field
 
-from app.templates.base import Features, ParamConstraint, RuleContext, Template, TemplateParams
+from app.templates.base import (
+    Anchor,
+    Features,
+    ParamConstraint,
+    RuleContext,
+    Template,
+    TemplateParams,
+)
 
 TOP_LANDING_MM = 40.0   # 꼭대기 발판 깊이
 MIN_TREAD_MM = 20.0     # 계단 디딤판 최소 깊이
@@ -65,6 +72,11 @@ def profile_points(p: RampParams) -> list[tuple[float, float]]:
         if i > 1:
             pts.append((x, (i - 1) * rise))
     return pts
+
+
+def _signed_area(pts: list[tuple[float, float]]) -> float:
+    """단면 다각형의 부호 있는 넓이 (반시계 > 0). build() 의 압출 방향(±X)이 이 부호를 따른다."""
+    return 0.5 * sum(x0 * y1 - x1 * y0 for (x0, y0), (x1, y1) in zip(pts, pts[1:] + pts[:1]))
 
 
 class RampTemplate(Template):
@@ -122,6 +134,29 @@ class RampTemplate(Template):
     def build(self, p: RampParams) -> Part:
         # YZ 평면(로컬 x→Y, y→Z)에 단면을 두고 +X 방향으로 폭만큼 압출
         return extrude(Plane.YZ * Polygon(*profile_points(p), align=None), amount=p.width_mm)
+
+    def anchors(self, p: RampParams) -> dict[str, Anchor]:
+        """연결 지점. build() 좌표: 오르는 방향 +Y (입구 끝 Y=0, 발판 끝 Y=전체 길이), 폭 X 는 [−W, 0] 또는 [0, W]
+        (단면 꼭짓점이 도는 방향에 따라 압출 방향이 바뀐다: 경사로는 −X, 계단은 +X 쪽. build() 는 바꾸지 않는다).
+
+          - landing: 꼭대기 발판 끝면 (법선 +Y). 벽에 기대는 면이라 은신처·집 벽 연결 지점에 이으면 발판이 벽에 맞닿는다
+          - entry: 오르기 시작하는 앞끝 면 (법선 −Y, 출입 면 front). 여기에 무언가를 붙이면 입구가 그 부품 쪽으로 바뀐다
+          - left / right: 평평한 옆면 (법선 −X / +X), 면의 가로 가운데
+          - bottom: 밑면 (README 규칙: 법선 −Z, 위쪽 +Y). 경사·계단 윗면은 평평하지 않아 위에 얹는 자리(top)는 없다
+        README 의 top/bottom 은 위·아래 면 이름이라 양 끝 세로면은 landing/entry 로 부른다.
+        램프는 속이 찬 덩어리라 통로(port)·뚫을 벽(wall_mm)이 없다.
+        """
+        W, total = p.width_mm, run_length(p) + TOP_LANDING_MM
+        x0 = 0.0 if _signed_area(profile_points(p)) > 0 else -W  # 폭의 왼쪽 끝 X
+        xc = x0 + W / 2
+        z = (0.0, 0.0, 1.0)
+        return {
+            "landing": Anchor((xc, total, 0.0), (0.0, 1.0, 0.0), z),
+            "entry": Anchor((xc, 0.0, 0.0), (0.0, -1.0, 0.0), z, side="front"),
+            "left": Anchor((x0, total / 2, 0.0), (-1.0, 0.0, 0.0), z),
+            "right": Anchor((x0 + W, total / 2, 0.0), (1.0, 0.0, 0.0), z),
+            "bottom": Anchor((xc, total / 2, 0.0), (0.0, 0.0, -1.0), (0.0, 1.0, 0.0)),
+        }
 
     def features(self, p: RampParams) -> Features:
         return Features(
