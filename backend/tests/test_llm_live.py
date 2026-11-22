@@ -61,3 +61,23 @@ def test_live_aquarium_interpretation(rules):
     assert all(it.placement is not None for it in out.items)
     assert not [i for i in out.report.issues if i.code == "template_not_allowed"]
     assert not [i for i in out.report.issues if i.severity == Severity.error], out.report.errors
+
+
+def test_live_composition(rules):
+    """설계 예시 요청: 실제 LLM 도 붙이기·잇기를 조립 항목 하나(부품 + 연결)로 내고, 엔진이 오류 없이 만든다.
+    결합 방식·맞물리는 치수는 서버가 정하므로 부품 종류와 연결 관계만 본다."""
+    interp = _interpreter()
+    cage = Cage(900, 500, 400)
+    prompt = "은신처 오른쪽에 밥그릇 받침, 왼쪽에 물병 거치대, 앞에는 터널로 은신처 하나 더 이어줘"
+    res = interp.interpret(_request(rules, prompt, "hamster", "dwarf", 1, cage))
+    assemblies = [it for it in res.spec.items if it.template == "assembly"]
+    assert len(assemblies) == 1, [it.template for it in res.spec.items]
+    [asm] = assemblies
+    assert sorted(p.template for p in asm.parts) == ["bottle_stand", "bowl_holder", "hideout", "hideout", "tunnel"]
+    assert asm.parts[0].template == "hideout" and len(asm.connections) == 4
+    assert isinstance(res.spec.missing_parts, list)
+    out = run_engine(to_item_specs(res.spec), EngineContext(cage, "hamster", "dwarf", 1, rules))
+    assert all(it.placement is not None for it in out.items)
+    assert not [i for i in out.report.issues if i.severity == Severity.error], out.report.errors
+    [built] = [it for it in out.items if it.key == "assembly"]
+    assert sorted(j.mount for j in built.assembly.joins) == ["plug", "plug", "slide", "slide"]

@@ -690,6 +690,13 @@ class _Composer:
             cur = self.edges.get(cur, (None, ""))[0]
         return False
 
+    def _ancestors(self, pid: str) -> tuple[str, ...]:
+        """pid 와 그 위로 뿌리까지의 부품."""
+        out = [pid]
+        while out[-1] in self.edges:
+            out.append(self.edges[out[-1]][0])
+        return tuple(out)
+
     def _root(self, pid: str) -> str:
         while pid in self.edges:
             pid = self.edges[pid][0]
@@ -1017,7 +1024,9 @@ class _Composer:
                 self.parts[parent].head_of = True
             elif "a" in g:
                 parent = self._resolve(get("a"))
-                kids = [self._resolve(c) for c in children]
+                # 터널 끝에 다는 방은 그 터널이 달린 방과 다른 부품이다 ("은신처 앞에 터널, 터널 끝에 은신처")
+                above = self._ancestors(parent) if self.parts[parent].key == "tunnel" else ()
+                kids = [self._resolve(c, distinct=above) for c in children]
             else:  # P2: 부품 없이 면만 — 마지막 터널의 끝, 또는 연결에 쓰인(또는 붙이는 말이 있는) 기준 구조물
                 if side == "free_end":
                     parent = self._free_tunnel()
@@ -1030,7 +1039,9 @@ class _Composer:
                         return False
                 if parent is None:
                     return False
-                kids = [self._resolve(c) for c in children]
+                # 터널 끝에 다는 방은 그 터널이 달린 방과 다른 부품이다 ("집 오른쪽에 터널 달고 그 끝에 은신처")
+                above = self._ancestors(parent) if side == "free_end" else ()
+                kids = [self._resolve(c, distinct=above) for c in children]
             if rel.kind == "roof":
                 side = "auto" if self.parts[kids[0]].key == "ramp" else "top"
             sides = [side or "auto"] * len(kids)
