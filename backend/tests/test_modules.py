@@ -701,3 +701,193 @@ def test_every_module_print_part_fits_the_printer(key, rules):
     if over and key in KNOWN_OVERSIZE:
         pytest.xfail(f"{KNOWN_OVERSIZE[key]}: {over}")
     assert not over, over
+
+
+# 8. 거꾸로 통로 (passage="into_child") 와 끼움 결합 (mount="plug")
+
+def _tunnel(shape: str = "pointed_arch", **kw) -> dict:
+    return {"length_mm": 120, "inner_diameter_mm": 60, "shape": shape, "wall_thickness_mm": 3, **kw}
+
+
+def _twin(shape: str = "pointed_arch", mount: str = "plug", hideout: dict | None = None, **tunnel) -> ModuleTemplate:
+    """은신처 A 앞문 ← 터널 → 은신처 B 앞문. 터널 끝(end_a)이 부모라 B 의 벽은 거꾸로 통로로 뚫는다."""
+    h = hideout or {"entrance_count": 2}
+    return module([{"id": "a", "template": "hideout", "params": h},
+                   {"id": "tube", "template": "tunnel", "params": _tunnel(shape, **tunnel)},
+                   {"id": "b", "template": "hideout", "params": h}],
+                  [{"parent": "a.front", "child": "tube.end_b", "passage": True, "mount": mount},
+                   {"parent": "tube.end_a", "child": "b.front", "passage": "into_child", "mount": mount}])
+
+
+def test_passage_and_plug_definition_spelling():
+    base = {"key": "s", "name_ko": "a", "name_en": "a", "description_ko": "a", "description_en": "a", "params": [],
+            "parts": [{"id": "a", "template": "tunnel"}, {"id": "b", "template": "hideout"}]}
+    d = ModuleDef.model_validate({**base, "joins": [{"parent": "a.end_a", "child": "b.front", "passage": "into_child",
+                                                     "mount": "plug"}]})
+    assert d.joins[0].into_child and d.joins[0].mount == "plug"
+    assert not ModuleDef.model_validate({**base, "joins": [{"parent": "a.end_a", "child": "b.front",
+                                                            "passage": "into_parent"}]}).joins[0].into_child
+    for bad in ({"mount": "plug"}, {"passage": "sideways"}):
+        with pytest.raises(ValidationError):
+            ModuleDef.model_validate({**base, "joins": [{"parent": "a.end_a", "child": "b.front", **bad}]})
+
+
+def test_reverse_passage_cuts_the_child_wall_and_counts_exits(rules):
+    """터널 끝(부모)에 이은 은신처 B(자식)의 앞벽을 터널 통로 단면으로 뚫는다. 이은 출입구·터널 끝은 바깥 출입구에서 빠진다."""
+    t = _twin(mount="fused")
+    p = t.Params()
+    assert t.rule_issues(p, dwarf(rules)) == []
+    parts, joins = t.expand(p)
+    placed = place_parts(parts, joins)
+    m = part_to_mesh(t.build(p))
+    assert mesh_health(m).ok and m.body_count == 1
+    # B 앞벽 두께 가운데, 은신처 출입구(둥근 아치, 높이 60) 위 뾰족 아치 터널 통로 높이: 뚫려 있어야 한다
+    b = placed["b"]
+    wall = b.point((0, -110 / 2 + 1.5, 68))
+    assert not m.contains([wall])[0]
+    assert m.contains([b.point((0, -110 / 2 + 1.5, 82))])[0]  # 터널 꼭대기 위는 벽
+    f = merge_features(parts, joins, enclosure=True)
+    assert f.entrance_count == 2  # 두 은신처의 뒷문
+    # 방향을 반대로 적으면 (터널 끝은 뚫을 수 없고, 은신처 앞면은 벽이 통로 쪽이 된다) 오류
+    wrong = module([{"id": "tube", "template": "tunnel", "params": _tunnel()}, {"id": "b", "template": "hideout"}],
+                   [{"parent": "tube.end_a", "child": "b.front", "passage": True}])
+    assert any("뚫을 수 없습니다" in m for m in wrong.rule_issues(wrong.Params(), dwarf(rules)))
+
+
+@pytest.mark.parametrize("shape,gap", [("pointed_arch", False), ("tube", True)])
+def test_reverse_passage_must_cover_the_child_door(rules, shape, gap):
+    """거꾸로 통로도 자식 출입구를 덮는지 본다: 관은 은신처 출입구(둥근 아치) 아래 모서리를 남긴다."""
+    t = module([{"id": "tube", "template": "tunnel", "params": _tunnel(shape)}, {"id": "b", "template": "hideout"}],
+               [{"parent": "tube.end_a", "child": "b.front", "passage": "into_child"}])
+    issues = t.rule_issues(t.Params(), dwarf(rules))
+    assert any("틈이 남습니다" in m for m in issues) == gap, issues
+
+
+def _check_tunnel_printable(t, p, rules, overhang: bool = True) -> dict:
+    """출력 파트마다 닫힌 한 덩어리·프린터 크기, 터널 파트는 오버행까지. 은신처 옆벽에 낸 둥근 구멍(관)은 뒤집어 출력하면
+    구멍 위쪽이 오버행이라 (통로 연결 자체의 문제) 은신처 파트의 오버행은 보지 않는다."""
+    bx, by, bz = rules.printing.build_volume_mm
+    out = {}
+    for pp in t.print_parts(p):
+        pm = to_print_orientation(part_to_mesh(pp.part), pp.rotation)
+        assert mesh_health(pm).ok and pm.body_count == 1, pp.key
+        assert all(a <= b for a, b in zip(sorted(pm.extents[:2]), sorted([bx, by]))) and pm.extents[2] <= bz, pp.key
+        if overhang and pp.key == "tube":
+            assert overhang_area(pm, rules.printing.max_overhang_deg) <= rules.printing.overhang_area_tolerance_mm2
+        out[pp.key] = pp
+    return out
+
+
+def _pairwise_overlap(pps) -> float:
+    return max((_volume(a.part, b.part) for a, b in itertools.combinations(pps, 2)), default=0.0)
+
+
+def test_plug_twin_hideouts_print_as_three_parts(rules):
+    """은신처 110 + 터널 120 + 은신처 110mm 는 한 덩어리로 출력할 수 없다: 터널을 따로 출력해 양쪽 출입구에 끼운다."""
+    t = _twin()
+    p = t.Params()
+    assert t.rule_issues(p, dwarf(rules)) == []
+    m = part_to_mesh(t.build(p))
+    assert mesh_health(m).ok and m.body_count == 1 and len(t.build(p).solids()) == 1
+    pps = _check_printable(t, p, rules)
+    assert set(pps) == {"body", "tube", "b"} and pps["tube"].name_ko == "터널" and pps["b"].name_ko == "은신처"
+    assert _pairwise_overlap(list(pps.values())) < 1.0
+    # 터널은 뾰족 아치라 사용 자세 그대로 (끼움 턱이 옆을 본다), 은신처는 뒤집어
+    assert np.allclose(pps["tube"].rotation, np.eye(3)) and np.allclose(pps["b"].rotation, np.diag([1.0, -1.0, -1.0]))
+    # 끼움 턱이 은신처 벽 속으로 (벽 두께 − 0.3) 들어간다: 터널 출력 파트가 은신처 앞면보다 2.7mm 벽 쪽으로
+    from app.modules.assembly import PLUG_TIP_GAP_MM
+
+    parts, joins = t.expand(p)
+    tube_bb = pps["tube"].part.bounding_box()
+    a_front_y = place_parts(parts, joins)["a"].point((0, -110 / 2, 0))[1]
+    assert tube_bb.max.Y == pytest.approx(a_front_y + 3 - PLUG_TIP_GAP_MM, abs=0.05)
+    f = merge_features(parts, joins, enclosure=True)
+    assert f.entrance_count == 2
+
+
+def test_plug_spigot_fits_the_hole_with_clearance(rules):
+    """끼움 턱과 넓힌 구멍 사이 틈새 PLUG_CLEARANCE_MM: 0.15mm 옮겨도 겹치지 않고 0.5mm 옮기면 걸린다.
+    터널 쪽으로 벽에 0.5mm 밀면 끝 고리가 벽 면에 걸린다."""
+    from app.modules.assembly import PLUG_CLEARANCE_MM, anchor_frame
+
+    assert PLUG_CLEARANCE_MM == pytest.approx(0.2)
+    t = _twin()
+    p = t.Params()
+    pps = {pp.key: pp.part for pp in t.print_parts(p)}
+    parts, joins = t.expand(p)
+    _, tt, u, n = anchor_frame(place_parts(parts, joins), "a", "front")
+    body, tube = pps["body"], pps["tube"]
+    for d in (tt, -tt, u):
+        assert _volume(body, Pos(*(d * 0.15)) * tube) < 1.0
+        assert _volume(body, Pos(*(d * 0.5)) * tube) > 1.0
+    assert _volume(body, Pos(*(-n * 0.5)) * tube) > 1.0
+
+
+def test_plug_into_a_too_wide_door_is_an_error(rules):
+    """터널 벽 고리가 출입구를 덮지 못하면 (60mm 출입구에 바깥 반폭 28mm 터널) 끼움 결합도 틈 오류."""
+    t = _twin(inner_diameter_mm=50)
+    assert any("끼움 구멍을 다 덮지 못해" in m for m in t.rule_issues(t.Params(), dwarf(rules)))
+
+
+def test_plug_rule_issues_for_thin_walls(rules):
+    """터널 벽이 끼움 턱 + 틈새 + 고리(2.2mm)보다 얇거나, 은신처 벽이 얇아 끼움 턱이 2mm 보다 짧으면 오류."""
+    t = _twin(wall_thickness_mm=2.0)
+    assert any("끼움 턱과 틈새" in m for m in t.rule_issues(t.Params(), dwarf(rules)))
+    t = _twin(hideout={"entrance_count": 2, "wall_thickness_mm": 2.0})
+    assert any("끼움 턱이 너무 짧습니다" in m for m in t.rule_issues(t.Params(), dwarf(rules)))
+
+
+@pytest.mark.parametrize("shape", ["pointed_arch", "round_arch", "tube", "box", "house"])
+@pytest.mark.parametrize("bend", [0, 90])
+def test_plug_each_tunnel_shape(rules, shape, bend):
+    """출입구 없는 은신처 옆벽에 터널을 끼움 결합으로: 넓힌 구멍은 어느 단면이든 터널 벽 고리가 덮는다.
+    곧은 둥근 아치·관·네모는 세워 출력하고 끼움 턱이 위를 본다. 휘면 세울 수 없어 서포트가 필요한 단면은 오버행을 보지 않는다."""
+    from app.templates.tunnel import NEEDS_STANDING
+
+    t = module([{"id": "h", "template": "hideout", "params": {"depth_mm": 110}},
+                {"id": "tube", "template": "tunnel", "params": _tunnel(shape, bend_angle_deg=bend)}],
+               [{"parent": "h.right", "child": "tube.end_b", "passage": True, "mount": "plug"}])
+    p = t.Params()
+    assert t.rule_issues(p, dwarf(rules)) == []
+    m = part_to_mesh(t.build(p))
+    assert mesh_health(m).ok and m.body_count == 1
+    _check_tunnel_printable(t, p, rules, overhang=not (shape in NEEDS_STANDING and bend > 0))
+    pps = t.print_parts(p)
+    assert len(pps) == 2 and _pairwise_overlap(pps) < 1.0
+    tube = next(pp for pp in pps if pp.key == "tube")
+    if shape in NEEDS_STANDING and bend == 0:
+        # 끼움 턱(조립 좌표 −X 쪽 끝)이 출력 자세에서 위를 본다
+        assert float((tube.rotation @ np.array([-1.0, 0, 0]))[2]) > 0.5
+
+
+@pytest.mark.parametrize("shape", ["tube", "round_arch", "box"])
+def test_plug_both_ends_of_a_standing_tunnel(rules, shape):
+    """양 끝을 끼우는 곧은 관·둥근 아치·네모 터널: 세우면 한쪽 끼움 턱이 아래를 본다. 그 끝 둘레는 깔때기로 깎아 서포트 없이
+    출력하고, 넓힌 구멍 가장자리에는 틈새만큼의 실금만 남는다 (출입구 없는 옆벽끼리라 출입구 모양 차이는 없다)."""
+    side = {"entrance_count": 1, "depth_mm": 110}
+    t = module([{"id": "a", "template": "hideout", "params": side},
+                {"id": "tube", "template": "tunnel", "params": _tunnel(shape)},
+                {"id": "b", "template": "hideout", "params": side}],
+               [{"parent": "a.right", "child": "tube.end_b", "passage": True, "mount": "plug"},
+                {"parent": "tube.end_a", "child": "b.left", "passage": "into_child", "mount": "plug"}])
+    p = t.Params()
+    assert t.rule_issues(p, dwarf(rules)) == []
+    pps = _check_tunnel_printable(t, p, rules)
+    assert _pairwise_overlap(list(pps.values())) < 1.0
+    m = part_to_mesh(t.build(p))
+    assert mesh_health(m).ok and m.body_count == 1
+    # 세워 출력하는 터널: 한쪽 끼움 턱은 위, 다른 쪽(깔때기로 깎은 끝)은 아래
+    from app.modules.assembly import anchor_frame
+
+    parts, joins = t.expand(p)
+    placed = place_parts(parts, joins)
+    rot = pps["tube"].rotation
+    zs = sorted(float((rot @ anchor_frame(placed, *j.port_end)[3])[2]) for j in joins)
+    assert zs[0] < -0.5 and zs[1] > 0.5
+    # 깎은 끝도 출력 파트 그대로 넓힌 구멍을 덮는다 (남는 곳은 틈새 폭의 실금)
+    from app.modules.assembly import leftover_width, passage_leftover
+    from app.modules.module_template import LEFTOVER_MIN_WIDTH_MM
+
+    for j in joins:
+        left = passage_leftover(placed, j, pps["tube"].part)
+        assert left.volume < 1.0 or leftover_width(left, placed, j) <= LEFTOVER_MIN_WIDTH_MM

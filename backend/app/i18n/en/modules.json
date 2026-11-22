@@ -28,5 +28,10 @@
  "{0}의 뒷면과 {1}의 벽·지붕 사이에 폭이 {2}~{3}mm 로 벌어지는 틈이 생겨 끼임 위험 구간({4}~{5}mm)에 있습니다. {6}을(를) {7}의 처마보다 낮게 하거나 지붕이 기울지 않은 면에 붙이세요": "Between the back of {0} and the wall or roof of {1} there is a gap that widens from {2} to {3} mm, inside the entrapment risk range ({4}~{5} mm). Keep {6} below the eaves of {7}, or mount it on a face without a sloping roof",
  "모듈 {0}: 파라미터 {1}={2} 로 부품 파라미터를 만들 수 없습니다 ({3})": "Module {0}: parameter {1}={2} doesn't produce valid part parameters ({3})",
  "{0}은(는) {1} 이상이어야 하지만 최대 {2} 까지라 자동으로 맞출 수 없습니다. {3}": "{0} must be at least {1}, but it only goes up to {2}, so it can't be adjusted automatically. {3}",
- "{0}은(는) {1} 이하여야 하지만 최소 {2} 까지라 자동으로 맞출 수 없습니다. {3}": "{0} must be at most {1}, but it only goes down to {2}, so it can't be adjusted automatically. {3}"
+ "{0}은(는) {1} 이하여야 하지만 최소 {2} 까지라 자동으로 맞출 수 없습니다. {3}": "{0} must be at most {1}, but it only goes down to {2}, so it can't be adjusted automatically. {3}",
+ "{0}의 '{1}'에는 끼움 턱을 낼 수 없습니다": "'{1}' on {0} can't take a plug spigot",
+ "{0}와(과) {1}의 끼움 결합은 통로로만 이을 수 있습니다": "A plug mount between {0} and {1} only works as a passage",
+ "{0}의 벽 두께 {1}mm 로는 끼움 턱과 틈새를 두고 {2}의 구멍을 덮을 수 없습니다. 벽 두께를 {3}mm 이상으로 하세요": "With a {1} mm wall, {0} can't cover the hole in {2} once the plug spigot and its clearance are taken out. Make the wall at least {3} mm thick",
+ "{0}의 벽이 {1}mm 로 얇아 끼움 턱이 너무 짧습니다. 벽 두께를 {2}mm 이상으로 하세요": "The {1} mm wall of {0} is too thin for a plug spigot of useful length. Make the wall at least {2} mm thick",
+ "{0}의 벽이 {1}의 출입구·끼움 구멍을 다 덮지 못해 틈이 남습니다 (약 {2}mm³). 통로 단면 모양과 폭을 출입구에 맞추세요": "The wall of {0} doesn't fully cover the entrance and plug hole of {1}, leaving a gap (about {2} mm³). Match the passage cross-section shape and width to the entrance"
 }

@@ -273,6 +273,12 @@ class Template(ABC):
         다른 부품의 벽에 통로로 이어 붙일 때 그 벽을 이 모양으로 뚫는다. 통로가 아니면 None."""
         return None
 
+    def port_profile(self, p: TemplateParams, anchor: str):  # noqa: ANN201 (build123d Sketch)
+        """port_cutter 의 2D 단면 (cutter_at 의 profile 좌표: 연결 면을 바깥에서 본 x=오른쪽, y=위, 원점=기준점).
+
+        끼움 결합(mount="plug")이 이 단면을 넓혀 끼움 턱과 부모 벽 구멍을 만든다. 없으면(None) 끼움 결합을 할 수 없다."""
+        return None
+
     def rule_issues(self, p: TemplateParams, ctx: RuleContext) -> list[str]:
         """자동 보정으로 고칠 수 없는 규칙 위반 (한국어 문구). 엔진이 오류로 남긴다. 기본: 없음."""
         return []
@@ -287,15 +293,21 @@ def cutter_at(anchor: Anchor, profile, depth_mm: float) -> Part:  # noqa: ANN001
 
     profile 은 연결 면을 바깥에서 본 2D 단면: x = 면의 가로(오른쪽 +), y = 위쪽(up). 면 안쪽으로 0.5mm 들어가서
     시작해 잘린 면이 정확히 겹치지 않게 한다."""
-    from build123d import Location, Plane, Pos, extrude
+    from build123d import Plane, Pos, extrude
 
     inward = 0.5
     canon = Pos(0, inward, 0) * extrude(Plane.XZ * profile, amount=depth_mm + inward)  # 기준: 법선 -Y, 위 +Z
+    return anchor_location(anchor) * canon
+
+
+def anchor_location(anchor: Anchor):  # noqa: ANN201 (build123d Location)
+    """기준 좌표틀(원점, 법선 -Y, 위 +Z, 단면은 Plane.XZ 위: x=오른쪽, y=위)을 연결 지점 좌표틀로 옮기는 Location."""
+    from build123d import Location, Plane
+
     n = np.asarray(anchor.normal, dtype=float)
     u = np.asarray(anchor.up, dtype=float)
     want = np.column_stack([np.cross(u, n), u, n])
     have = np.column_stack([[1.0, 0, 0], [0, 0, 1.0], [0, -1.0, 0]])
     rot = want @ have.T
-    loc = Location(Plane(origin=tuple(anchor.origin), x_dir=tuple(rot[:, 0]), z_dir=tuple(rot[:, 2])))
-    return loc * canon
+    return Location(Plane(origin=tuple(anchor.origin), x_dir=tuple(rot[:, 0]), z_dir=tuple(rot[:, 2])))
 

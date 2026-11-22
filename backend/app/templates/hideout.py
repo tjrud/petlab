@@ -220,13 +220,20 @@ class HideoutTemplate(Template):
 
     def port_cutter(self, p: HideoutParams, anchor: str, depth_mm: float) -> Part | None:
         a = self.anchors(p).get(anchor)
+        door = self.port_profile(p, anchor)
+        if a is None or door is None:
+            return None
+        return cutter_at(a, door, depth_mm)
+
+    def port_profile(self, p: HideoutParams, anchor: str):  # noqa: ANN201
+        """출입구 단면: 바닥 아래 _CUT 부터 반지름 높이까지 직사각형 + 반원 (둥근 아치)."""
+        a = self.anchors(p).get(anchor)
         if a is None or a.port is None:
             return None
         from build123d import Circle, Rectangle
 
         r = p.entrance_diameter_mm / 2
-        door = Pos(0, -_CUT) * Rectangle(2 * r, r + _CUT, align=(Align.CENTER, Align.MIN)) + Pos(0, r) * Circle(r)
-        return cutter_at(a, door, depth_mm)
+        return Pos(0, -_CUT) * Rectangle(2 * r, r + _CUT, align=(Align.CENTER, Align.MIN)) + Pos(0, r) * Circle(r)
 
     def print_rotation(self, p: HideoutParams) -> np.ndarray:
         # X 축 기준 180° 회전: 지붕이 베드에 닿도록 뒤집는다.

@@ -6,6 +6,8 @@
     자동 보정한다.
   - joins: "부품id.연결지점" 끼리 잇는다. 자식은 부모의 연결 지점에 마주 보게 붙는다.
     passage=True 면 자식 통로(터널 끝 등)의 단면으로 부모 벽을 뚫어 드나들 수 있게 한다.
+    passage="into_child" 면 거꾸로 부모 통로의 단면으로 자식 벽을 뚫는다.
+    mount: fused(한 덩어리), slide(따로 출력해 도브테일로 끼움), plug(통로 쪽 부품을 따로 출력해 끼움 턱으로 끼움).
   - limits: 모듈 파라미터끼리의 관계 (예: 은신처 세로 ≥ 그릇 받침 외형 폭 + 여유). 자식 부품이 부모 면 안에 들어가게
     하는 데 쓴다. 자동 보정은 limit 의 param 만 움직인다 (min/max 쪽 파라미터는 그대로).
   - 이름·설명은 한국어와 영어를 함께 둔다 (응답 언어 번역 카탈로그에 더해진다).
@@ -142,10 +144,12 @@ class JoinDef(_Strict):
     lift: float | Bind = 0.0
     # 자식을 연결 면 법선 둘레로 돌리는 각도 (위에 얹는 부품의 방향 등)
     spin: Literal[0, 90, 180, 270] = 0
-    # 자식 통로(터널 끝 등)의 단면으로 부모 벽을 뚫는다
-    passage: bool = False
-    # fused: 한 덩어리로 붙인다 (기본). slide: 따로 출력해 도브테일로 끼운다 (옆면끼리만, 통로와 함께 쓸 수 없다)
-    mount: Literal["fused", "slide"] = "fused"
+    # 통로로 잇는다. true(= "into_parent"): 자식 통로(터널 끝 등)의 단면으로 부모 벽을 뚫는다.
+    # "into_child": 거꾸로 부모 통로(터널 끝 등)의 단면으로 자식 벽을 뚫는다 (터널 끝에 두 번째 은신처의 출입구를 붙일 때)
+    passage: bool | Literal["into_parent", "into_child"] = False
+    # fused: 한 덩어리로 붙인다 (기본). slide: 따로 출력해 도브테일로 끼운다 (옆면끼리만, 통로와 함께 쓸 수 없다).
+    # plug: 통로 쪽 부품(터널)을 따로 출력해 벽 쪽 부품의 구멍에 끼움 턱으로 끼운다 (통로로만)
+    mount: Literal["fused", "slide", "plug"] = "fused"
 
     @field_validator("parent", "child")
     @classmethod
@@ -158,7 +162,14 @@ class JoinDef(_Strict):
     def _mount(self) -> "JoinDef":
         if self.mount == "slide" and self.passage:
             raise ValueError(f"슬라이드 결합은 통로로 이을 수 없습니다: {self.parent} → {self.child}")
+        if self.mount == "plug" and not self.passage:
+            raise ValueError(f"끼움 결합은 통로로만 이을 수 있습니다 (passage 가 필요합니다): {self.parent} → {self.child}")
         return self
+
+    @property
+    def into_child(self) -> bool:
+        """통로가 자식 벽을 뚫는지 (부모가 통로 쪽)."""
+        return self.passage == "into_child"
 
 
 class ModuleDef(_Strict):

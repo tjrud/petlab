@@ -8,10 +8,11 @@
   - features: 부품 특징을 합친 것 (출입 면·출입구 수·통로 크기 등)
   - print_parts / print_rotation: 부품끼리 붙은 본체는 여섯 방향으로 눕혀 보고 서포트가 가장 적은 자세로,
     부품이 따로 출력하는 파트(집의 지붕 뚜껑 등)는 그 부품이 정한 자세 그대로.
-    슬라이드 결합(mount="slide")이 있으면 한 덩어리로 붙은 부품 묶음마다 출력 파트 하나 (연결판의 도브테일 홈·
-    자식의 도브테일 혀는 출력 파트에만 있다). 홈·혀가 있는 묶음은 도브테일이 세로로 서는 두 자세(사용·뒤집기) 중에서 고른다
-  - rule_issues: 부품 규칙 + 자동 보정으로 맞출 수 없는 limits + 조립 규칙 + 형상 검사 (통로가 출입구를 다 덮는지, 따로 출력하는 파트끼리 겹치는지,
-    슬라이드 결합 연결판 자리·끼임 틈)
+    슬라이드 결합(mount="slide")·끼움 결합(mount="plug")이 있으면 한 덩어리로 붙은 부품 묶음마다 출력 파트 하나 (연결판의
+    도브테일 홈·자식의 도브테일 혀, 끼움 구멍의 틈새·아래를 보는 끼움 턱 둘레 깔때기는 출력 파트에만 있다).
+    홈·혀가 있는 묶음은 도브테일이 세로로 서는 두 자세(사용·뒤집기) 중에서 고른다
+  - rule_issues: 부품 규칙 + 자동 보정으로 맞출 수 없는 limits + 조립 규칙(끼움 결합 포함) + 형상 검사 (통로가 출입구를
+    다 덮는지(끼움 결합은 넓힌 구멍까지), 따로 출력하는 파트끼리 겹치는지, 슬라이드 결합 연결판 자리·끼임 틈)
 가 되어 기존 흐름을 그대로 탄다.
 """
 
@@ -39,6 +40,7 @@ from app.modules.assembly import (
     _plane,
     _project,
     _side_profile_solid,
+    anchor_frame,
     build_assembly,
     dovetail_centers,
     dovetail_fits,
@@ -46,13 +48,17 @@ from app.modules.assembly import (
     join_problems,
     leftover_width,
     merge_features,
+    passage_cutter,
     passage_leftover,
     place_parts,
     plate_gaps,
     plate_solid,
+    plug_chamfer,
+    plug_problems,
     slide_plan,
     slide_problems,
     slot_cutters,
+    spigot_solid,
     tongue_solid,
 )
 from app.modules.definition import Bind, LimitDef, ModuleDef, bound_value
@@ -222,7 +228,7 @@ class ModuleTemplate(Template):
                 parent=j.parent.split(".")[0], parent_anchor=j.parent.split(".")[1],
                 child=j.child.split(".")[0], child_anchor=j.child.split(".")[1],
                 shift=float(self._value(j.shift, p)), lift=float(self._value(j.lift, p)),
-                spin=j.spin, passage=j.passage, mount=j.mount,
+                spin=j.spin, passage=bool(j.passage), mount=j.mount, reverse=j.into_child,
             )
             for j in self.defn.joins
         ]
@@ -234,6 +240,11 @@ class ModuleTemplate(Template):
     @property
     def has_slide(self) -> bool:
         return any(j.mount == "slide" for j in self.defn.joins)
+
+    @property
+    def split(self) -> bool:
+        """따로 출력하는 결합(슬라이드·끼움)이 있어 출력 파트를 묶음마다 나누는지."""
+        return any(j.mount in ("slide", "plug") for j in self.defn.joins)
 
     # ── 제약: 부품 제약을 모듈 파라미터로 되돌린다 ──
 
@@ -308,6 +319,7 @@ class ModuleTemplate(Template):
         out += self._limit_issues(p)
         out += join_problems(parts, joins)
         out += slide_problems(parts, joins)
+        out += plug_problems(parts, joins)
         if not out:
             try:
                 out += self._gap_issues(p, ctx)
@@ -344,6 +356,10 @@ class ModuleTemplate(Template):
                 a, b, vol = args
                 out.append(f"{a}의 출입구가 {b}의 통로보다 커서 틈이 남습니다 (약 {vol:.0f}mm³). "
                            "통로 단면 모양과 폭을 출입구에 맞추세요")
+            elif kind == "plug_leftover":
+                a, b, vol = args
+                out.append(f"{b}의 벽이 {a}의 출입구·끼움 구멍을 다 덮지 못해 틈이 남습니다 (약 {vol:.0f}mm³). "
+                           "통로 단면 모양과 폭을 출입구에 맞추세요")
             elif kind == "overlap":
                 a, b, vol = args
                 out.append(f"따로 출력하는 파트 {a}와(과) {b}이(가) 겹칩니다 (약 {vol:.0f}mm³). "
@@ -379,17 +395,18 @@ class ModuleTemplate(Template):
         names = {q.id: q.template.display_name_ko for q in parts}
         by_id = {q.id: q for q in parts}
         facts: list[tuple] = []
-        # 1. 출입구·터널 끝에 통로로 이은 부품이 개구부를 다 덮는지
+        # 1. 출입구·터널 끝에 통로로 이은 부품이 개구부를 다 덮는지 (끼움 결합은 넓힌 구멍까지)
         for j in joins:
             if not j.passage:
                 continue
-            child = by_id[j.child]
-            if child.template.cutter:
+            wid, pid = j.wall_end[0], j.port_end[0]
+            port = by_id[pid]
+            if port.template.cutter:
                 continue
-            left = passage_leftover(placed, j, _plane(placed[j.child]) * child.template.build(child.params))
+            left = passage_leftover(placed, j, _plane(placed[pid]) * port.template.build(port.params))
             if left is not None and left.volume > LEFTOVER_MAX_MM3 \
                     and leftover_width(left, placed, j) > LEFTOVER_MIN_WIDTH_MM:
-                facts.append(("leftover", names[j.parent], names[j.child], float(left.volume)))
+                facts.append(("plug_leftover" if j.plug else "leftover", names[wid], names[pid], float(left.volume)))
         # 2. 슬라이드 결합 연결판 자리
         printable = True
         if self.has_slide:
@@ -449,8 +466,8 @@ class ModuleTemplate(Template):
 
     def print_rotation(self, p: TemplateParams) -> np.ndarray:
         """여섯 방향으로 눕혀 보고 서포트(오버행) 면적이 가장 작은 자세. 비슷하면 사용 자세·낮은 자세.
-        슬라이드 결합이 있으면 기준 부품 묶음(첫 출력 파트)의 자세."""
-        if self.has_slide:
+        따로 출력하는 결합(슬라이드·끼움)이 있으면 기준 부품 묶음(첫 출력 파트)의 자세."""
+        if self.split:
             return self._layout(p).parts[0].rotation
         from app.geometry.mesh import part_to_mesh
 
@@ -458,8 +475,8 @@ class ModuleTemplate(Template):
 
     def print_parts(self, p: TemplateParams, built=None) -> list[PrintPart]:  # noqa: ANN001
         """부품끼리 붙은 본체 하나 + 부품이 따로 출력하는 파트들 (조립 위치 그대로, 출력 자세는 부품이 정한 대로).
-        슬라이드 결합이 있으면 한 덩어리로 붙은 부품 묶음마다 하나 (+ 부품이 따로 출력하는 파트들)."""
-        if self.has_slide:
+        따로 출력하는 결합(슬라이드·끼움)이 있으면 한 덩어리로 붙은 부품 묶음마다 하나 (+ 부품이 따로 출력하는 파트들)."""
+        if self.split:
             return list(self._layout(p).parts)
         extras = self._extra_parts(p)
         if not extras:
@@ -469,8 +486,8 @@ class ModuleTemplate(Template):
 
     def _body(self, p: TemplateParams):  # noqa: ANN202
         """부품마다 첫 출력 파트(본체)만 모아 조립한 형상. 따로 출력하는 파트가 없으면 build() 와 같다.
-        슬라이드 결합이 있으면 기준 부품 묶음의 출력 파트 (연결판·도브테일 홈 포함)."""
-        if self.has_slide:
+        따로 출력하는 결합이 있으면 기준 부품 묶음의 출력 파트 (연결판·도브테일 홈·끼움 구멍 포함)."""
+        if self.split:
             return self._layout(p).parts[0].part
         if not self._extra_parts(p):
             return self.build(p)
@@ -490,7 +507,7 @@ class ModuleTemplate(Template):
                 body = body - _plane(placed[part.id]) * part.template.build(part.params)
         for j in joins:
             if j.passage:
-                body = _cut_passage(body, placed, j)
+                body = body - passage_cutter(placed, j)
         return body
 
     def _extra_parts(self, p: TemplateParams) -> list[PrintPart]:
@@ -514,7 +531,7 @@ class ModuleTemplate(Template):
                                      pp.rotation @ pl.rotation.T, key=f"{part.id}_{pp.key}"))
         return out
 
-    # ── 슬라이드 결합: 묶음별 출력 파트 ──
+    # ── 슬라이드·끼움 결합: 묶음별 출력 파트 ──
 
     def _layout(self, p: TemplateParams) -> _Layout:
         return self._cached("layout", p, lambda: self._make_layout(p))
@@ -523,6 +540,8 @@ class ModuleTemplate(Template):
         """한 덩어리로 붙은 부품 묶음(fused 결합의 연결 성분)마다 출력 파트 하나.
 
         - 묶음 본체 = 묶음 부품들의 첫 출력 파트 합 − 빼는 모양(창) − 통로 + (부모 쪽이면) 연결판(출력용: 자식 뒷면에서 끝남)
+        - 끼움 결합: 벽 쪽 묶음은 넓힌 구멍으로 뚫고, 통로 쪽 묶음에 끼움 턱을 붙인다 (자세는 여섯 방향 중 서포트가
+          가장 적은 쪽이라 세워 출력하는 터널은 끼움 턱이 위를 보게 선다)
         - 부품이 따로 출력하는 파트(집 지붕 등)는 그대로 따로
         - 자세: 홈·혀가 있는 묶음은 도브테일이 세로로 서는 사용·뒤집기 자세 중, 그 밖의 묶음은 여섯 방향 중 서포트가 가장 적은 쪽
         - 도브테일: 연결판에 홈, 자식 출력 파트 중 연결판에 가장 넓게 닿는 파트의 뒷면에 혀 (출력 자세에서 아래를 보는
@@ -555,8 +574,11 @@ class ModuleTemplate(Template):
                 bodies[gi] = bodies[gi] - _plane(placed[q.id]) * q.template.build(q.params)
         for j in joins:
             if j.passage:
-                gi = group_of[j.parent]
-                bodies[gi] = _cut_passage(bodies[gi], placed, j)
+                gi = group_of[j.wall_end[0]]
+                bodies[gi] = bodies[gi] - passage_cutter(placed, j)
+                if j.plug:
+                    gp = group_of[j.port_end[0]]
+                    bodies[gp] = bodies[gp] + spigot_solid(placed, j)
         plans: dict[int, SlidePlan] = {}
         for ji, j in enumerate(joins):
             if not j.slide:
@@ -569,6 +591,13 @@ class ModuleTemplate(Template):
         dovetailed = {group_of[joins[ji].parent] for ji in plans} | {group_of[joins[ji].child] for ji in plans}
         rots = [_best_rotation(part_to_mesh(b), _VERTICAL_ROTATIONS if gi in dovetailed else _DOWN_ROTATIONS)
                 for gi, b in enumerate(bodies)]
+        # 끼움 턱이 출력 자세에서 아래를 보면(세워 출력하는 터널의 아래 끝) 그 둘레 끝 면이 아래를 보는 턱이 되므로 깔때기로 깎는다
+        for j in joins:
+            if j.plug:
+                gp = group_of[j.port_end[0]]
+                _, _, _, n = anchor_frame(placed, *j.port_end)
+                if float((rots[gp] @ n)[2]) < -0.5:
+                    bodies[gp] = bodies[gp] - plug_chamfer(placed, j)
 
         contacts: dict[int, _Contact | None] = {}
         for ji, plan in plans.items():
@@ -593,12 +622,12 @@ class ModuleTemplate(Template):
 
         out: list[PrintPart] = []
         owners: list[frozenset[str]] = [frozenset(g) for g in groups]
-        slide_children = {joins[ji].child for ji in plans}
+        separate_children = {j.child for j in joins if j.separate}
         for gi, g in enumerate(groups):
             if gi == 0:
                 out.append(PrintPart("본체", bodies[gi], rots[gi], key="body"))
                 continue
-            head = next((pid for pid in g if pid in slide_children), g[0])
+            head = next((pid for pid in g if pid in separate_children), g[0])
             q = by_id[head]
             pps = q.template.print_parts(q.params)
             if len(pps) > 1:
@@ -671,7 +700,8 @@ class ModuleTemplate(Template):
 
 
 def fused_groups(parts: list[PartSpec], joins: list[JoinSpec]) -> list[list[str]]:
-    """한 덩어리로 붙는(fused 결합으로 이어진) 부품 묶음. 기준 부품의 묶음이 처음, 나머지는 부품 순서대로."""
+    """한 덩어리로 붙는(fused 결합으로 이어진) 부품 묶음. 기준 부품의 묶음이 처음, 나머지는 부품 순서대로.
+    슬라이드·끼움 결합은 묶음을 나눈다."""
     root = {p.id: p.id for p in parts}
 
     def find(x: str) -> str:
@@ -681,7 +711,7 @@ def fused_groups(parts: list[PartSpec], joins: list[JoinSpec]) -> list[list[str]
         return x
 
     for j in joins:
-        if not j.slide:
+        if not j.separate:
             a, b = find(j.parent), find(j.child)
             if a != b:
                 root[b] = a
@@ -690,15 +720,6 @@ def fused_groups(parts: list[PartSpec], joins: list[JoinSpec]) -> list[list[str]
         groups.setdefault(find(p.id), []).append(p.id)
     first = find(parts[0].id)
     return [groups[first], *[g for r, g in groups.items() if r != first]]
-
-
-def _cut_passage(body, placed, j: JoinSpec):  # noqa: ANN001, ANN202
-    pa = placed[j.parent].spec.template.anchors(placed[j.parent].spec.params)[j.parent_anchor]
-    child = placed[j.child]
-    cutter = child.spec.template.port_cutter(child.spec.params, j.child_anchor, (pa.wall_mm or 0) + 1.3)
-    if cutter is None:
-        return body
-    return body - _plane(child) * cutter
 
 
 def _best_rotation(mesh, candidates: tuple[np.ndarray, ...] = _DOWN_ROTATIONS) -> np.ndarray:  # noqa: ANN001

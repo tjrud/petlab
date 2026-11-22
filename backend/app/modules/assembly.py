@@ -3,7 +3,8 @@
 좌표: 뿌리 부품의 build() 좌표계. 자식은 부모 연결 지점에 '마주 보게' 붙는다.
   자식 연결 지점의 법선이 부모 법선과 반대 방향, 위쪽(up)이 같은 방향이 되도록 돌린 뒤
   부모 연결 지점 + 면 위 이동(shift·lift) 자리로 옮기고, 맞닿는 면이 확실히 붙도록 OVERLAP 만큼 파묻는다.
-통로 연결(passage)은 자식 통로의 단면 기둥으로 부모 벽을 뚫는다.
+통로 연결(passage)은 자식 통로의 단면 기둥으로 부모 벽을 뚫는다 (passage="into_child" 면 거꾸로 부모 통로로 자식 벽을).
+끼움 결합(mount="plug")은 통로 연결을 따로 출력해 끼우는 방식이다: 통로 쪽 부품 끝에 끼움 턱을 내고 벽은 넓힌 구멍으로 뚫는다.
 슬라이드 결합(mount="slide")은 한 덩어리로 출력할 수 없는 부품(은신처 옆 그릇 받침 등)을 따로 출력해 끼우는 방식이다:
   부모 면에 두께 PLATE_MM 의 연결판을 붙이고 자식은 연결판 바깥에 놓는다. 조립 형상(build)은 부모 ∪ 연결판 ∪ 자식의
   한 덩어리이고, 출력 파트에서만 연결판에 세로 도브테일 홈을, 자식 뒷면에 틈새를 둔 도브테일 혀를 낸다
@@ -39,6 +40,21 @@ DOVETAIL_MIN_LENGTH_MM = 10.0  # 혀의 최소 세로 길이
 # 연결판·혀 끝을 출력 자세에서 아래를 보지 않게 깎는 경사: 세로 ÷ 가로 (1.2 → 수평에서 약 50°, 오버행 40°)
 SLOPE_RISE = 1.2
 
+# ── 끼움 결합 (mount="plug") ──
+# 통로 쪽 부품(터널) 끝에 안쪽 단면이 통로와 같은 끼움 턱(spigot)을 내고, 벽 쪽 부품의 벽은 통로 단면을
+# PLUG_SPIGOT_MM + PLUG_CLEARANCE_MM 만큼 넓혀 뚫는다. 터널 벽 고리(끼움 턱 바깥)가 넓힌 구멍을 덮는다
+PLUG_SPIGOT_MM = 1.5       # 끼움 턱 두께 (통로 단면을 바깥으로 넓힌 폭)
+PLUG_CLEARANCE_MM = 0.2    # 끼움 턱과 벽 구멍 사이 틈새 (한쪽)
+PLUG_TIP_GAP_MM = 0.3      # 끼움 턱 길이 = 벽 두께 − 이 값 (벽 안쪽 면보다 튀어나오지 않게)
+PLUG_MIN_RING_MM = 0.5     # 넓힌 구멍 바깥으로 벽 면에 닿는 터널 벽 고리의 최소 폭
+PLUG_MIN_LENGTH_MM = 2.0   # 끼움 턱 최소 길이 (이보다 짧으면 끼워도 자리를 잡지 못한다)
+# 끼움 턱 안쪽 면을 통로 단면보다 이만큼 바깥에 둔다. 끼움 턱 뿌리(터널 끝 0.5mm 안)의 안쪽 면이 터널 안쪽 면과 겹치면
+# (휜 터널은 곧은 끼움 턱과 터널 안쪽 곡면이 끝에서 맞닿는다) 형상 커널이 합치기에 실패한다. 통로는 이만큼 넓어질 뿐이다
+PLUG_EPS_MM = 0.05
+# 출력 자세에서 아래를 보는 끼움 턱(세워 출력하는 터널의 아래 끝)은 터널 끝 면이 끼움 턱 바깥으로 아래를 보는 턱이 된다.
+# 그 끝은 끼움 턱 뿌리에서 SLOPE_RISE 기울기로 벌어지는 경사(깔때기)로 깎는다: 끼움 턱 바깥 이만큼까지
+PLUG_CHAMFER_REACH_MM = 10.0
+
 _SIDE_VEC: dict[str, tuple[float, float, float]] = {
     "front": (0, -1, 0), "back": (0, 1, 0), "left": (-1, 0, 0), "right": (1, 0, 0),
 }
@@ -61,11 +77,32 @@ class JoinSpec:
     lift: float = 0.0
     spin: int = 0
     passage: bool = False
-    mount: str = "fused"  # "fused" | "slide"
+    mount: str = "fused"  # "fused" | "slide" | "plug"
+    # 통로가 자식 벽을 뚫는다 (passage="into_child": 부모가 통로 쪽, 자식이 벽 쪽)
+    reverse: bool = False
 
     @property
     def slide(self) -> bool:
         return self.mount == "slide"
+
+    @property
+    def plug(self) -> bool:
+        return self.mount == "plug"
+
+    @property
+    def separate(self) -> bool:
+        """따로 출력하는 결합 (슬라이드·끼움): 출력 파트 묶음을 나눈다."""
+        return self.mount in ("slide", "plug")
+
+    @property
+    def wall_end(self) -> tuple[str, str]:
+        """통로 연결에서 벽이 뚫리는 쪽 (부품 id, 연결 지점)."""
+        return (self.child, self.child_anchor) if self.reverse else (self.parent, self.parent_anchor)
+
+    @property
+    def port_end(self) -> tuple[str, str]:
+        """통로 연결에서 통로 단면(port_cutter)을 내는 쪽 (부품 id, 연결 지점)."""
+        return (self.parent, self.parent_anchor) if self.reverse else (self.child, self.child_anchor)
 
 
 @dataclass(frozen=True)
@@ -140,8 +177,9 @@ def place_parts(parts: list[PartSpec], joins: list[JoinSpec]) -> dict[str, Place
             have = np.column_stack([tb, ub, nb])
             rot = _rot_about(na, j.spin) @ want @ have.T
             rot = np.round(rot, 12)
-            # 슬라이드 결합: 자식 뒷면이 연결판 바깥면에 OVERLAP 만큼 묻히게 연결판 두께만큼 더 바깥에
-            out = PLATE_MM - OVERLAP_MM if j.slide else -OVERLAP_MM
+            # 슬라이드 결합: 자식 뒷면이 연결판 바깥면에 OVERLAP 만큼 묻히게 연결판 두께만큼 더 바깥에.
+            # 끼움 결합: 따로 출력하는 두 파트가 겹치지 않게 묻지 않고 맞닿게
+            out = PLATE_MM - OVERLAP_MM if j.slide else 0.0 if j.plug else -OVERLAP_MM
             target = pa + na * out + ta * j.shift + ua * j.lift
             placed[j.child] = PlacedPart(child, rot, target - rot @ pb)
             pending.remove(j)
@@ -159,17 +197,48 @@ def _plane(part: PlacedPart):  # noqa: ANN202
 
 
 def build_assembly(parts: list[PartSpec], joins: list[JoinSpec]):  # noqa: ANN201 (build123d Part)
-    """부품을 만들어 제자리에 놓고 하나로 합친 뒤(슬라이드 결합은 연결판까지), 통로 연결 자리를 뚫는다."""
+    """부품을 만들어 제자리에 놓고 하나로 합친 뒤(슬라이드 결합은 연결판까지), 통로 연결 자리를 뚫는다.
+
+    끼움 결합은 합치기 전에 벽 쪽 부품만 넓힌 구멍으로 뚫고 통로 쪽 부품에 끼움 턱을 붙인다 (넓힌 구멍 기둥은 통로 쪽
+    부품 끝 0.5mm 안에서 시작하므로 합친 뒤에 뚫으면 터널 끝과 끼움 턱이 깎인다). 조립 형상은 출력 파트를 끼운 자리 그대로
+    (터널 끝 면이 벽 면에 맞닿는다)이되, 끼움 턱을 틈새까지 메우고 벽 속으로 OVERLAP_MM 묻히는 두께로 붙여 한 덩어리가 되게 한다
+    (틈새·아래 끝 깔때기는 출력 파트에만 있다).
+
+    형상 커널이 세 부품 이상을 합칠 때 맞닿은 면(출입구 옆면과 터널 안쪽 다리 면 등) 때문에 깨진 형상을 내는 경우가 있다
+    (은신처 ← 터널 → 은신처). 그러면 통로도 합치기 전에 벽 쪽 부품마다 뚫고 다시 합친다. 처음 방식이 성한 형상을 내면
+    그대로 둔다 (공개한 모듈의 형상이 바뀌지 않게)."""
     placed = place_parts(parts, joins)
     if parts[0].template.cutter:
         raise AssemblyError("기준(첫) 부품은 빼는 모양(창문 등)일 수 없습니다")
-    shape = None
     solids: dict[str, object] = {}
     for p in parts:
         if p.template.cutter:
             continue
-        solid = _plane(placed[p.id]) * p.template.build(p.params)
-        solids[p.id] = solid
+        solids[p.id] = _plane(placed[p.id]) * p.template.build(p.params)
+    shape = _assemble(parts, joins, placed, solids, cut_first=False)
+    if any(j.passage and not j.plug for j in joins):
+        # 형상 검사(is_valid)는 이 깨짐을 잡지 못한다: 메시가 닫혔는지 본다
+        from app.geometry.mesh import mesh_health, part_to_mesh
+
+        if not mesh_health(part_to_mesh(shape)).ok:
+            other = _assemble(parts, joins, placed, solids, cut_first=True)
+            if mesh_health(part_to_mesh(other)).ok:
+                shape = other
+    return shape
+
+
+def _assemble(parts: list[PartSpec], joins: list[JoinSpec], placed: dict[str, PlacedPart],
+              solids: dict[str, object], cut_first: bool):  # noqa: ANN202
+    """build_assembly 의 합치기. cut_first: 통로(끼움 결합이 아닌 것도)를 합치기 전에 벽 쪽 부품마다 뚫는다."""
+    shaped = dict(solids)
+    for j in joins:
+        if j.plug or (cut_first and j.passage):
+            wall_id, port_id = j.wall_end[0], j.port_end[0]
+            shaped[wall_id] = shaped[wall_id] - passage_cutter(placed, j)
+            if j.plug:
+                shaped[port_id] = shaped[port_id] + spigot_solid(placed, j, fill=True)
+    shape = None
+    for solid in shaped.values():
         shape = solid if shape is None else shape + solid
     for j in joins:
         if j.slide:
@@ -179,22 +248,99 @@ def build_assembly(parts: list[PartSpec], joins: list[JoinSpec]):  # noqa: ANN20
         if p.template.cutter:
             shape = shape - _plane(placed[p.id]) * p.template.build(p.params)
     for j in joins:
-        if not j.passage:
-            continue
-        shape = shape - passage_cutter(placed, j)
+        if j.passage and not j.plug and not cut_first:
+            shape = shape - passage_cutter(placed, j)
     return shape
 
 
+def _passage_ends(placed: dict[str, PlacedPart], j: JoinSpec) -> tuple[PlacedPart, str, PlacedPart, str]:
+    """(벽 쪽 부품, 그 연결 지점, 통로 쪽 부품, 그 연결 지점)."""
+    (wid, wa), (pid, pa) = j.wall_end, j.port_end
+    return placed[wid], wa, placed[pid], pa
+
+
+def _wall_mm(wall: PlacedPart, anchor: str) -> float:
+    a = _anchor(wall.spec, anchor)
+    if a.wall_mm is None:
+        raise AssemblyError(f"{wall.spec.template.display_name_ko}의 '{anchor}' 면은 뚫을 수 없습니다")
+    return a.wall_mm
+
+
+def plug_profiles(port: PlacedPart, anchor: str):  # noqa: ANN201
+    """끼움 결합의 2D 단면 (통로 쪽 연결 지점의 cutter_at 좌표): (통로, 끼움 턱 고리, 넓힌 구멍).
+
+    끼움 턱 고리 = 통로 단면을 PLUG_SPIGOT_MM 넓힌 것 − 통로 단면을 PLUG_EPS_MM 넓힌 것, 바닥(y=0) 위만 (바닥이 열린 아치는
+    다리 끝이 베드에 선다). 넓힌 구멍 = 통로 단면을 PLUG_SPIGOT_MM + PLUG_CLEARANCE_MM 넓힌 것."""
+    from build123d import Align, Kind, Rectangle, offset
+
+    prof = port.spec.template.port_profile(port.spec.params, anchor)
+    if prof is None:
+        raise AssemblyError(f"{port.spec.template.display_name_ko}의 '{anchor}'에는 끼움 턱을 낼 수 없습니다")
+    above = Rectangle(1e4, 1e4, align=(Align.CENTER, Align.MIN))
+    ring = (offset(prof, PLUG_SPIGOT_MM, kind=Kind.ARC) & above) - offset(prof, PLUG_EPS_MM, kind=Kind.ARC)
+    hole = offset(prof, PLUG_SPIGOT_MM + PLUG_CLEARANCE_MM, kind=Kind.ARC)
+    return prof, ring, hole
+
+
+def plug_length(placed: dict[str, PlacedPart], j: JoinSpec) -> float:
+    """끼움 턱 길이 = 벽 쪽 부품의 벽 두께 − PLUG_TIP_GAP_MM."""
+    wall, wa, _, _ = _passage_ends(placed, j)
+    return _wall_mm(wall, wa) - PLUG_TIP_GAP_MM
+
+
+def spigot_solid(placed: dict[str, PlacedPart], j: JoinSpec, fill: bool = False):  # noqa: ANN201
+    """끼움 턱 (조립 좌표): 통로 쪽 부품 끝에서 벽 속으로 plug_length 만큼. 부품 끝 0.5mm 안에서 시작해 한 덩어리가 된다.
+
+    fill=True: 조립 형상용. 틈새를 메우고 벽 구멍 둘레에 OVERLAP_MM 만큼 묻히는 두께 (맞닿은 면에만 기대지 않고
+    벽 쪽 부품과 확실히 한 덩어리가 되게)."""
+    from build123d import Align, Kind, Rectangle, offset
+
+    from app.templates.base import cutter_at
+
+    _, _, port, pa = _passage_ends(placed, j)
+    prof, ring, _ = plug_profiles(port, pa)
+    if fill:
+        above = Rectangle(1e4, 1e4, align=(Align.CENTER, Align.MIN))
+        ring = ((offset(prof, PLUG_SPIGOT_MM + PLUG_CLEARANCE_MM + OVERLAP_MM, kind=Kind.ARC) & above)
+                - offset(prof, PLUG_EPS_MM, kind=Kind.ARC))
+    return _plane(port) * cutter_at(_anchor(port.spec, pa), ring, plug_length(placed, j))
+
+
+def plug_chamfer(placed: dict[str, PlacedPart], j: JoinSpec):  # noqa: ANN201
+    """아래를 보는 끼움 턱 둘레에서 통로 쪽 부품 끝을 깎는 모양 (조립 좌표).
+
+    끼움 턱 뿌리(끝 면, 끼움 턱 바깥 단면)에서 부품 속으로 들어갈수록 SLOPE_RISE 기울기로 벌어지는 깔때기 바깥,
+    끼움 턱 바깥 PLUG_CHAMFER_REACH_MM 안쪽. 깎은 끝은 벽 면에 닿지 않고 넓힌 구멍 가장자리에 걸린다 (끼움 턱 바깥과
+    구멍 사이 틈새 PLUG_CLEARANCE_MM 가 실금으로 보인다)."""
+    from build123d import Kind, Plane, extrude, offset
+
+    from app.templates.base import anchor_location
+
+    _, _, port, pa = _passage_ends(placed, j)
+    prof, _, _ = plug_profiles(port, pa)
+    reach = PLUG_CHAMFER_REACH_MM
+    rise = SLOPE_RISE * reach
+    base = Plane.XZ.offset(-rise)  # 끝 면에서 부품 속으로 rise (기준 좌표틀: 법선 −Y)
+    cone = extrude(base * offset(prof, PLUG_SPIGOT_MM + reach, kind=Kind.ARC), amount=rise,
+                   taper=math.degrees(math.atan(1 / SLOPE_RISE)))
+    band = extrude(base * offset(prof, PLUG_SPIGOT_MM + reach + 1.0, kind=Kind.ARC), amount=rise)
+    return _plane(port) * (anchor_location(_anchor(port.spec, pa)) * (band - cone))
+
+
 def passage_cutter(placed: dict[str, PlacedPart], j: JoinSpec, extra_mm: float = 1.0):  # noqa: ANN201
-    """통로 연결(passage)에서 부모 벽을 뚫는 자식 통로 단면 기둥 (조립 좌표)."""
-    parent, child = placed[j.parent], placed[j.child]
-    pa = _anchor(parent.spec, j.parent_anchor)
-    if pa.wall_mm is None:
-        raise AssemblyError(f"{parent.spec.template.display_name_ko}의 '{j.parent_anchor}' 면은 뚫을 수 없습니다")
-    cutter = child.spec.template.port_cutter(child.spec.params, j.child_anchor, pa.wall_mm + OVERLAP_MM + extra_mm)
+    """통로 연결(passage)에서 벽 쪽 부품(보통 부모, passage="into_child" 면 자식)의 벽을 뚫는 통로 단면 기둥 (조립 좌표).
+    끼움 결합이면 넓힌 구멍 단면."""
+    wall, wa, port, pa = _passage_ends(placed, j)
+    depth = _wall_mm(wall, wa) + OVERLAP_MM + extra_mm
+    if j.plug:
+        from app.templates.base import cutter_at
+
+        _, _, hole = plug_profiles(port, pa)
+        return _plane(port) * cutter_at(_anchor(port.spec, pa), hole, depth)
+    cutter = port.spec.template.port_cutter(port.spec.params, pa, depth)
     if cutter is None:
-        raise AssemblyError(f"{child.spec.template.display_name_ko}의 '{j.child_anchor}'은(는) 통로가 아닙니다")
-    return _plane(child) * cutter
+        raise AssemblyError(f"{port.spec.template.display_name_ko}의 '{pa}'은(는) 통로가 아닙니다")
+    return _plane(port) * cutter
 
 
 def _bounds(shape) -> tuple[np.ndarray, np.ndarray]:  # noqa: ANN001
@@ -205,36 +351,57 @@ def _bounds(shape) -> tuple[np.ndarray, np.ndarray]:  # noqa: ANN001
 # ── 통로가 부모 개구부를 덮는지 ─────────────────────────────
 
 
-def passage_leftover(placed: dict[str, PlacedPart], j: JoinSpec, child_solid=None):  # noqa: ANN001, ANN201
-    """출입구·터널 끝(port 가 있는 부모 연결 지점)에 통로로 이은 자식이 그 개구부를 다 덮지 못하고 남긴 빈 곳 (조립 좌표).
+def passage_leftover(placed: dict[str, PlacedPart], j: JoinSpec, port_solid=None):  # noqa: ANN001, ANN201
+    """출입구·터널 끝(port 가 있는 벽 쪽 연결 지점)에 통로로 이은 부품이 그 개구부를 다 덮지 못하고 남긴 빈 곳 (조립 좌표).
 
-    남은 곳 = 부모 개구부 단면 기둥(부모 면에서 바깥으로 부모 벽 두께만큼) − 자식 형상 − 자식 통로 단면 기둥.
-    = 부모 개구부에서 자식 벽과 통로 밖으로 바깥이 보이는 곳 (바깥으로 뚫린 틈).
-    자식 통로가 더 좁거나 모양이 다르면(뾰족 아치 출입구에 둥근 아치·관·네모 터널) 그 차이가 바깥으로 뚫린 틈이 된다.
-    바닥(Z=0) 아래는 빼고 센다. 부모 연결 지점이 통로 자리가 아니면 None."""
+    벽 쪽 = 보통 부모, passage="into_child" 면 자식. 통로 쪽 = 그 반대 (port_solid 는 통로 쪽 부품의 조립 좌표 형상).
+    남은 곳 = 벽 쪽 개구부 단면 기둥(벽 면에서 바깥으로 벽 두께만큼) − 통로 쪽 형상 − 통로 단면 기둥.
+    = 벽 쪽 개구부에서 통로 쪽 벽과 통로 밖으로 바깥이 보이는 곳 (바깥으로 뚫린 틈).
+    통로가 더 좁거나 모양이 다르면(뾰족 아치 출입구에 둥근 아치·관·네모 터널) 그 차이가 바깥으로 뚫린 틈이 된다.
+    끼움 결합이면 개구부에 넓힌 구멍(끼움 턱 + 틈새)을 더한다: 출입구가 없는 벽이어도 넓힌 구멍은 터널 벽 고리가 덮어야 한다.
+    바닥(Z=0) 아래는 빼고 센다. 벽 쪽 연결 지점이 통로 자리가 아니면(끼움 결합이 아니면) None."""
     from build123d import Align, Box, Pos
 
-    parent, child = placed[j.parent], placed[j.child]
-    pa = _anchor(parent.spec, j.parent_anchor)
-    if pa.port is None or pa.wall_mm is None:
+    from app.templates.base import cutter_at
+
+    wall, wa_name, port, pa_name = _passage_ends(placed, j)
+    wa = _anchor(wall.spec, wa_name)
+    if wa.wall_mm is None or (wa.port is None and not j.plug):
         return None
-    opening = parent.spec.template.port_cutter(parent.spec.params, j.parent_anchor, pa.wall_mm)
-    if opening is None:
+    opening = wall.spec.template.port_cutter(wall.spec.params, wa_name, wa.wall_mm) if wa.port is not None else None
+    if opening is None and not j.plug:
         return None
-    # port_cutter 는 면 안쪽 0.5mm 에서 시작한다: 면 바깥(자식이 있는 쪽)만 보도록 0.5mm 밀어낸다.
-    # 그래서 자식 벽이 개구부를 덮고 통로만 좁은 경우(벽 속에 막힌 턱이 남을 뿐 바깥으로 뚫리지 않는다)는 세지 않는다
-    _, _, _, na = _frame(pa)
-    opening = _plane(parent) * (Pos(*(na * 0.5)) * opening)
-    if child_solid is None:
-        child_solid = _plane(child) * child.spec.template.build(child.spec.params)
-    # 자식 통로 기둥을 자식 쪽으로도 늘인다 (통로 끝 근처의 자식 통로 속 = 빈 곳이지만 통로다)
-    depth = pa.wall_mm + 2.0
-    bore = child.spec.template.port_cutter(child.spec.params, j.child_anchor, 2 * depth)
+    # port_cutter 는 면 안쪽 0.5mm 에서 시작한다: 면 바깥(통로 쪽 부품이 있는 쪽)만 보도록 0.5mm 밀어낸다.
+    # 그래서 통로 쪽 벽이 개구부를 덮고 통로만 좁은 경우(벽 속에 막힌 턱이 남을 뿐 바깥으로 뚫리지 않는다)는 세지 않는다
+    # 끼움 결합은 통로 쪽 부품 끝 면이 벽 면에 맞닿아 있다: 그 면과 겹치지 않게 PLUG_EPS_MM 더 밀어낸다
+    lift = 0.5 + (PLUG_EPS_MM if j.plug else 0.0)
+    _, _, _, na = _frame(wa)
+    if opening is not None:
+        opening = _plane(wall) * (Pos(*(na * lift)) * opening)
+    _, _, _, nb = _frame(_anchor(port.spec, pa_name))
+    if j.plug:
+        # 넓힌 구멍을 벽 면 바깥(통로 쪽 부품 속)으로 벽 두께만큼: 통로 쪽 연결 지점에서 −법선 쪽으로
+        _, _, hole = plug_profiles(port, pa_name)
+        d = max(wa.wall_mm - 0.5, 0.1)
+        enlarged = _plane(port) * (Pos(*(-nb * (d + PLUG_EPS_MM))) * cutter_at(_anchor(port.spec, pa_name), hole, d))
+        opening = enlarged if opening is None else opening + enlarged
+    if port_solid is None:
+        port_solid = _plane(port) * port.spec.template.build(port.spec.params)
+    # 통로 기둥을 통로 쪽 부품 쪽으로도 늘인다 (통로 끝 근처의 통로 속 = 빈 곳이지만 통로다)
+    # 통로 단면을 PLUG_EPS_MM 넓혀 통로 쪽 부품 안쪽 면과 겹치지 않게 한다 (휜 터널의 안쪽 곡면과 곧은 기둥이 끝에서 맞닿으면
+    # 형상 커널이 빼기를 건너뛴다). 단면을 모르는 부품은 port_cutter 그대로
+    depth = wa.wall_mm + 2.0
+    prof = port.spec.template.port_profile(port.spec.params, pa_name)
+    if prof is not None:
+        from build123d import Kind, offset
+
+        bore = cutter_at(_anchor(port.spec, pa_name), offset(prof, PLUG_EPS_MM, kind=Kind.ARC), 2 * depth)
+    else:
+        bore = port.spec.template.port_cutter(port.spec.params, pa_name, 2 * depth)
     if bore is None:
         return None
-    _, _, _, nb = _frame(_anchor(child.spec, j.child_anchor))
-    bore = _plane(child) * (Pos(*(-nb * depth)) * bore)
-    left = opening - child_solid - bore
+    bore = _plane(port) * (Pos(*(-nb * depth)) * bore)
+    left = opening - port_solid - bore
     if not left.solids():
         return left
     lo, hi = _bounds(opening)
@@ -460,7 +627,7 @@ def plate_gaps(plan: SlidePlan, child_mesh, other_mesh) -> tuple[float, ...]:  #
 
 
 def leftover_width(left, placed: dict[str, PlacedPart], j: JoinSpec) -> float:  # noqa: ANN001
-    """통로가 덮지 못한 빈 곳(passage_leftover)을 부모 면에 비춘 모양의 가장 넓은 폭 (내접원 지름, mm).
+    """통로가 덮지 못한 빈 곳(passage_leftover)을 벽 쪽 면에 비춘 모양의 가장 넓은 폭 (내접원 지름, mm).
     벽을 뚫고 나간 틈의 폭이다 (부피가 있어도 폭이 출력 선 폭보다 좁으면 실제로는 메워지는 실금)."""
     import shapely
     from shapely.geometry import Polygon
@@ -468,7 +635,7 @@ def leftover_width(left, placed: dict[str, PlacedPart], j: JoinSpec) -> float:  
 
     from app.geometry.mesh import part_to_mesh
 
-    _, t, u, _ = anchor_frame(placed, j.parent, j.parent_anchor)
+    _, t, u, _ = anchor_frame(placed, *j.wall_end)
     m = part_to_mesh(left)
     if len(m.faces) == 0:
         return 0.0
@@ -575,12 +742,46 @@ def join_problems(parts: list[PartSpec], joins: list[JoinSpec]) -> list[str]:
                 out.append(f"{by_id[pid].template.display_name_ko}의 출입구를 "
                            f"{by_id[other].template.display_name_ko}이(가) 막습니다")
         if j.passage:
-            cp = by_id[j.child].template.anchors(by_id[j.child].params).get(j.child_anchor)
-            pp = by_id[j.parent].template.anchors(by_id[j.parent].params).get(j.parent_anchor)
-            if cp is not None and cp.port is None:
-                out.append(f"{by_id[j.child].template.display_name_ko}의 '{j.child_anchor}'은(는) 통로가 아닙니다")
-            if pp is not None and pp.wall_mm is None:
-                out.append(f"{by_id[j.parent].template.display_name_ko}의 '{j.parent_anchor}' 면은 뚫을 수 없습니다")
+            # 통로 쪽(보통 자식, passage="into_child" 면 부모)은 통로 자리, 벽 쪽은 뚫을 수 있는 면이어야 한다
+            (wid, wname), (pid, pname) = j.wall_end, j.port_end
+            pp = by_id[pid].template.anchors(by_id[pid].params).get(pname)
+            wp = by_id[wid].template.anchors(by_id[wid].params).get(wname)
+            if pp is not None and pp.port is None:
+                out.append(f"{by_id[pid].template.display_name_ko}의 '{pname}'은(는) 통로가 아닙니다")
+            if wp is not None and wp.wall_mm is None:
+                out.append(f"{by_id[wid].template.display_name_ko}의 '{wname}' 면은 뚫을 수 없습니다")
+    return out
+
+
+def plug_problems(parts: list[PartSpec], joins: list[JoinSpec]) -> list[str]:
+    """형상 없이 알 수 있는 끼움 결합 규칙 위반 (한국어 문구): 통로 없이 끼움, 끼움 턱을 낼 수 없는 통로,
+    끼움 턱과 틈새를 두면 벽 고리가 넓힌 구멍을 덮지 못할 만큼 얇은 통로 쪽 벽, 끼움 턱이 너무 짧은 벽 쪽 벽."""
+    out: list[str] = []
+    by_id = {p.id: p for p in parts}
+    for j in joins:
+        if not j.plug:
+            continue
+        pname, cname = by_id[j.parent].template.display_name_ko, by_id[j.child].template.display_name_ko
+        if not j.passage:
+            out.append(f"{pname}와(과) {cname}의 끼움 결합은 통로로만 이을 수 있습니다")
+            continue
+        (wid, wname), (pid, aname) = j.wall_end, j.port_end
+        wall, port = by_id[wid], by_id[pid]
+        wa = wall.template.anchors(wall.params).get(wname)
+        pa = port.template.anchors(port.params).get(aname)
+        if wa is None or pa is None or wa.wall_mm is None or pa.port is None:
+            continue  # join_problems 가 알린다
+        if port.template.port_profile(port.params, aname) is None:
+            out.append(f"{port.template.display_name_ko}의 '{aname}'에는 끼움 턱을 낼 수 없습니다")
+            continue
+        need = PLUG_SPIGOT_MM + PLUG_CLEARANCE_MM + PLUG_MIN_RING_MM
+        t = port.template.features(port.params).min_wall_thickness_mm
+        if t < need - 1e-6:
+            out.append(f"{port.template.display_name_ko}의 벽 두께 {t:g}mm 로는 끼움 턱과 틈새를 두고 "
+                       f"{wall.template.display_name_ko}의 구멍을 덮을 수 없습니다. 벽 두께를 {need:g}mm 이상으로 하세요")
+        if wa.wall_mm - PLUG_TIP_GAP_MM < PLUG_MIN_LENGTH_MM - 1e-6:
+            out.append(f"{wall.template.display_name_ko}의 벽이 {wa.wall_mm:g}mm 로 얇아 끼움 턱이 너무 짧습니다. "
+                       f"벽 두께를 {PLUG_MIN_LENGTH_MM + PLUG_TIP_GAP_MM:g}mm 이상으로 하세요")
     return out
 
 

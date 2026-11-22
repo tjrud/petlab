@@ -390,6 +390,10 @@ class TunnelTemplate(Template):
             return None
         return cutter_at(a, inner_profile(p), depth_mm)
 
+    def port_profile(self, p: TunnelParams, anchor: str):  # noqa: ANN201
+        # 단면이 좌우 대칭이라 어느 끝에서 보아도 같다
+        return inner_profile(p) if anchor in self.anchors(p) else None
+
     def print_rotation(self, p: TunnelParams) -> np.ndarray:
         # 곧은 둥근 아치·관·네모: 세워서(터널 축 = Z) 출력하면 단면이 베드와 나란해 서포트가 필요 없다.
         # 터널은 Y 축을 따라 놓이므로 X 축 기준 90° 회전

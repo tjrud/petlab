@@ -352,6 +352,12 @@ class HouseTemplate(Template):
             return None
         return cutter_at(a, pointed_arch(a.port / 2, -CUT), depth_mm)
 
+    def port_profile(self, p: HouseParams, anchor: str):  # noqa: ANN201
+        a = self.anchors(p).get(anchor)
+        if a is None or a.port is None:
+            return None
+        return pointed_arch(a.port / 2, -CUT)
+
     # ── Features ──
 
     def features(self, p: HouseParams) -> Features:
