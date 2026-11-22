@@ -261,6 +261,22 @@ class ModuleDef(_Strict):
                     raise ValueError(f"limit {lim.param}: 자기 자신에 묶을 수 없습니다")
                 deps.setdefault(lim.param, set()).add(side.param)
 
+        def cycle(n: str, path: tuple[str, ...]) -> tuple[str, ...] | None:
+            for m in deps.get(n, ()):
+                if m in path:
+                    return (*path[path.index(m):], m)
+                found = cycle(m, (*path, m))
+                if found:
+                    return found
+            return None
+
+        # 순환(세로 ≥ 그릇 + 10 과 그릇 ≤ 세로 − 10 처럼 같은 관계를 양쪽에서 적은 것 포함)은 받지 않는다: 자동 보정이
+        # 묶인 쪽까지 움직여 사용자가 바꾸지 않은 값이 바뀌고, 서로 밀어 올리면 범위 끝까지 달아난다
+        for n in deps:
+            found = cycle(n, (n,))
+            if found:
+                raise ValueError(f"limit 이 순환합니다 ({' → '.join(found)}): 한 관계는 한쪽 파라미터에만 적으세요")
+
         def chain(n: str, seen: frozenset[str]) -> int:
             return max((1 + chain(m, seen | {m}) for m in deps.get(n, ()) if m not in seen), default=0)
 

@@ -204,9 +204,9 @@ def build_assembly(parts: list[PartSpec], joins: list[JoinSpec]):  # noqa: ANN20
     (터널 끝 면이 벽 면에 맞닿는다)이되, 끼움 턱을 틈새까지 메우고 벽 속으로 OVERLAP_MM 묻히는 두께로 붙여 한 덩어리가 되게 한다
     (틈새·아래 끝 깔때기는 출력 파트에만 있다).
 
-    형상 커널이 세 부품 이상을 합칠 때 맞닿은 면(출입구 옆면과 터널 안쪽 다리 면 등) 때문에 깨진 형상을 내는 경우가 있다
-    (은신처 ← 터널 → 은신처). 그러면 통로도 합치기 전에 벽 쪽 부품마다 뚫고 다시 합친다. 처음 방식이 성한 형상을 내면
-    그대로 둔다 (공개한 모듈의 형상이 바뀌지 않게)."""
+    형상 커널이 세 부품 이상을 합칠 때 맞닿은 면(출입구 옆면과 터널 안쪽 다리 면 등) 때문에, 또 휜 터널 끝의 안쪽 곡면이
+    곧은 통로 기둥과 맞닿을 때 깨진 형상을 내는 경우가 있다 (은신처 ← 터널 → 은신처, 휜 터널). 그러면 통로도 합치기 전에
+    벽 쪽 부품마다 PLUG_EPS_MM 넓혀 뚫고 다시 합친다. 처음 방식이 성한 형상을 내면 그대로 둔다 (공개한 모듈의 형상이 바뀌지 않게)."""
     placed = place_parts(parts, joins)
     if parts[0].template.cutter:
         raise AssemblyError("기준(첫) 부품은 빼는 모양(창문 등)일 수 없습니다")
@@ -234,7 +234,7 @@ def _assemble(parts: list[PartSpec], joins: list[JoinSpec], placed: dict[str, Pl
     for j in joins:
         if j.plug or (cut_first and j.passage):
             wall_id, port_id = j.wall_end[0], j.port_end[0]
-            shaped[wall_id] = shaped[wall_id] - passage_cutter(placed, j)
+            shaped[wall_id] = shaped[wall_id] - passage_cutter(placed, j, widen=cut_first)
             if j.plug:
                 shaped[port_id] = shaped[port_id] + spigot_solid(placed, j, fill=True)
     shape = None
@@ -327,16 +327,25 @@ def plug_chamfer(placed: dict[str, PlacedPart], j: JoinSpec):  # noqa: ANN201
     return _plane(port) * (anchor_location(_anchor(port.spec, pa)) * (band - cone))
 
 
-def passage_cutter(placed: dict[str, PlacedPart], j: JoinSpec, extra_mm: float = 1.0):  # noqa: ANN201
+def passage_cutter(placed: dict[str, PlacedPart], j: JoinSpec, extra_mm: float = 1.0,
+                   widen: bool = False):  # noqa: ANN201
     """통로 연결(passage)에서 벽 쪽 부품(보통 부모, passage="into_child" 면 자식)의 벽을 뚫는 통로 단면 기둥 (조립 좌표).
-    끼움 결합이면 넓힌 구멍 단면."""
+    끼움 결합이면 넓힌 구멍 단면.
+
+    widen: 통로 단면을 PLUG_EPS_MM 넓혀 뚫는다 (단면을 아는 통로만). 휜 터널은 끝에서 안쪽 곡면이 곧은 기둥과 맞닿아
+    형상 커널이 닫히지 않은 형상을 낸다. 조립 형상·출력 파트 묶음이 처음 방식으로 깨졌을 때만 쓴다 (공개한 모듈의 형상은 그대로)."""
+    from app.templates.base import cutter_at
+
     wall, wa, port, pa = _passage_ends(placed, j)
     depth = _wall_mm(wall, wa) + OVERLAP_MM + extra_mm
     if j.plug:
-        from app.templates.base import cutter_at
-
         _, _, hole = plug_profiles(port, pa)
         return _plane(port) * cutter_at(_anchor(port.spec, pa), hole, depth)
+    prof = port.spec.template.port_profile(port.spec.params, pa) if widen else None
+    if prof is not None:
+        from build123d import Kind, offset
+
+        return _plane(port) * cutter_at(_anchor(port.spec, pa), offset(prof, PLUG_EPS_MM, kind=Kind.ARC), depth)
     cutter = port.spec.template.port_cutter(port.spec.params, pa, depth)
     if cutter is None:
         raise AssemblyError(f"{port.spec.template.display_name_ko}의 '{pa}'은(는) 통로가 아닙니다")

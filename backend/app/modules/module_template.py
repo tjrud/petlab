@@ -496,19 +496,9 @@ class ModuleTemplate(Template):
     def _fused_body(self, p: TemplateParams):  # noqa: ANN202
         parts, joins = self.expand(p)
         placed = place_parts(parts, joins)
-        body = None
-        for part in parts:
-            if part.template.cutter:
-                continue
-            solid = _plane(placed[part.id]) * part.template.print_parts(part.params)[0].part
-            body = solid if body is None else body + solid
-        for part in parts:
-            if part.template.cutter:
-                body = body - _plane(placed[part.id]) * part.template.build(part.params)
-        for j in joins:
-            if j.passage:
-                body = body - passage_cutter(placed, j)
-        return body
+        mains = {q.id: _plane(placed[q.id]) * q.template.print_parts(q.params)[0].part
+                 for q in parts if not q.template.cutter}
+        return _group_body([q.id for q in parts], mains, parts, joins, placed)
 
     def _extra_parts(self, p: TemplateParams) -> list[PrintPart]:
         return self._cached("extras", p, lambda: self._make_extra_parts(p))
@@ -557,7 +547,6 @@ class ModuleTemplate(Template):
 
         mains: dict[str, Any] = {}
         extras: dict[str, list[list[Any]]] = {}  # 부품 id → [[이름, key, 솔리드, 자세], …]
-        bodies: list[Any] = [None] * len(groups)
         for q in parts:
             if q.template.cutter:
                 continue
@@ -566,19 +555,7 @@ class ModuleTemplate(Template):
             mains[q.id] = _plane(pl) * pps[0].part
             extras[q.id] = [[f"{q.template.display_name_ko} {pp.name_ko}", f"{q.id}_{pp.key}", _plane(pl) * pp.part,
                              pp.rotation @ pl.rotation.T] for pp in pps[1:]]
-            gi = group_of[q.id]
-            bodies[gi] = mains[q.id] if bodies[gi] is None else bodies[gi] + mains[q.id]
-        for q in parts:
-            if q.template.cutter:
-                gi = group_of[q.id]
-                bodies[gi] = bodies[gi] - _plane(placed[q.id]) * q.template.build(q.params)
-        for j in joins:
-            if j.passage:
-                gi = group_of[j.wall_end[0]]
-                bodies[gi] = bodies[gi] - passage_cutter(placed, j)
-                if j.plug:
-                    gp = group_of[j.port_end[0]]
-                    bodies[gp] = bodies[gp] + spigot_solid(placed, j)
+        bodies: list[Any] = [_group_body(g, mains, parts, joins, placed) for g in groups]
         plans: dict[int, SlidePlan] = {}
         for ji, j in enumerate(joins):
             if not j.slide:
@@ -729,6 +706,46 @@ def fused_groups(parts: list[PartSpec], joins: list[JoinSpec]) -> list[list[str]
         groups.setdefault(find(p.id), []).append(p.id)
     first = find(parts[0].id)
     return [groups[first], *[g for r, g in groups.items() if r != first]]
+
+
+def _group_body(ids: list[str], mains: dict[str, Any], parts: list[PartSpec], joins: list[JoinSpec],
+                placed: dict) -> Any:
+    """한 덩어리로 붙는 부품 묶음(ids)의 출력 형상: 첫 출력 파트 합 − 빼는 모양(창) − 통로 (+ 끼움 턱, − 끼움 구멍).
+
+    build_assembly 처럼 형상 커널이 닫히지 않은 형상을 내면 (세 부품 이상, 휜 터널의 통로) 통로를 합치기 전에 벽 쪽 부품마다
+    조금 넓혀 뚫고 다시 합친다. 처음 방식이 성하면 그대로 둔다."""
+    from app.geometry.mesh import mesh_health, part_to_mesh
+
+    mine = set(ids)
+
+    def fuse(cut_first: bool) -> Any:
+        shaped = {pid: mains[pid] for pid in ids if pid in mains}
+        if cut_first:
+            for j in joins:
+                if j.passage and not j.plug and j.wall_end[0] in shaped:
+                    shaped[j.wall_end[0]] = shaped[j.wall_end[0]] - passage_cutter(placed, j, widen=True)
+        body = None
+        for solid in shaped.values():
+            body = solid if body is None else body + solid
+        for q in parts:
+            if q.template.cutter and q.id in mine:
+                body = body - _plane(placed[q.id]) * q.template.build(q.params)
+        for j in joins:
+            if not j.passage:
+                continue
+            if j.wall_end[0] in mine and (j.plug or not cut_first):
+                body = body - passage_cutter(placed, j)
+            if j.plug and j.port_end[0] in mine:
+                body = body + spigot_solid(placed, j)
+        return body
+
+    body = fuse(cut_first=False)
+    if any(j.passage and not j.plug and j.wall_end[0] in mine for j in joins) \
+            and not mesh_health(part_to_mesh(body)).ok:
+        other = fuse(cut_first=True)
+        if mesh_health(part_to_mesh(other)).ok:
+            body = other
+    return body
 
 
 def _best_rotation(mesh, candidates: tuple[np.ndarray, ...] = _DOWN_ROTATIONS) -> np.ndarray:  # noqa: ANN001

@@ -572,6 +572,22 @@ def test_limit_chain_length_is_bounded():
         ModuleDef.model_validate({**base, "limits": chain})
 
 
+@pytest.mark.parametrize("limits", [
+    # 서로 밀어 올리는 두 관계: 자동 보정이 둘 다 범위 끝으로 달아난다
+    [("depth_mm", "min", "bowl_mm", 2, -50), ("bowl_mm", "min", "depth_mm", 1, -40)],
+    # 같은 관계를 양쪽에서 적은 것: 그릇을 키우면 보정이 세로를 넓히고 그릇도 줄인다 (묶인 쪽이 움직인다)
+    [("depth_mm", "min", "bowl_mm", 1, 40), ("bowl_mm", "max", "depth_mm", 1, -40)],
+    # 셋이 도는 순환
+    [("depth_mm", "min", "bowl_mm", 1, 10), ("bowl_mm", "min", "door_mm", 1, 30), ("door_mm", "max", "depth_mm", 1, -60)],
+])
+def test_limit_cycle_is_rejected_at_load(limits):
+    """limit 순환은 불러올 때 거부한다 (사슬 길이 검사는 순환을 한 고리로 센다)."""
+    lims = [{"param": a, side: {"param": b, "scale": k, "offset": off}, "reason_ko": "x", "reason_en": "x"}
+            for a, side, b, k, off in limits]
+    with pytest.raises(ValidationError, match="순환"):
+        ModuleDef.model_validate(_limit_def(limits=lims, params=BOWL_PARAMS))
+
+
 def test_limit_raises_a_too_small_parent(rules):
     """은신처 세로가 그릇 받침보다 좁으면(슬라이드 연결판이 면 밖으로 나간다) 자동 보정이 세로를 넓힌다."""
     from app.validation.autofix import clamp_params
@@ -891,3 +907,40 @@ def test_plug_both_ends_of_a_standing_tunnel(rules, shape):
     for j in joins:
         left = passage_leftover(placed, j, pps["tube"].part)
         assert left.volume < 1.0 or leftover_width(left, placed, j) <= LEFTOVER_MIN_WIDTH_MM
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_fused_passage_into_a_bent_tunnel_is_watertight(rules, reverse):
+    """휜 터널 끝은 안쪽 곡면이 곧은 통로 기둥과 맞닿아 형상 커널이 닫히지 않은 형상을 낸다: 통로를 합치기 전에 조금 넓혀
+    뚫는 방식으로 다시 만든다 (조립 형상과, 따로 출력하는 묶음이 있으면 그 출력 파트도)."""
+    tp = _tunnel(bend_angle_deg=90)
+    if reverse:
+        t = module([{"id": "tube", "template": "tunnel", "params": tp},
+                    {"id": "b", "template": "hideout", "params": {"entrance_count": 2}}],
+                   [{"parent": "tube.end_a", "child": "b.front", "passage": "into_child"}])
+    else:
+        t = module([{"id": "a", "template": "hideout", "params": {"entrance_count": 2}},
+                    {"id": "tube", "template": "tunnel", "params": tp}],
+                   [{"parent": "a.front", "child": "tube.end_b", "passage": True}])
+    p = t.Params()
+    m = part_to_mesh(t.build(p))
+    assert mesh_health(m).ok and m.body_count == 1
+    assert t.rule_issues(p, dwarf(rules)) == []
+
+
+def test_bent_fused_passage_inside_a_plug_group_prints_closed(rules):
+    """은신처 A ← (끼움) 휜 터널 → (한 덩어리, 거꾸로 통로) 은신처 B: 터널·B 묶음 출력 파트도 닫힌 한 덩어리."""
+    t = module([{"id": "a", "template": "hideout", "params": {"entrance_count": 2}},
+                {"id": "tube", "template": "tunnel", "params": _tunnel(bend_angle_deg=90)},
+                {"id": "b", "template": "hideout", "params": {"entrance_count": 2}}],
+               [{"parent": "a.front", "child": "tube.end_b", "passage": True, "mount": "plug"},
+                {"parent": "tube.end_a", "child": "b.front", "passage": "into_child"}])
+    p = t.Params()
+    pps = {pp.key: pp for pp in t.print_parts(p)}
+    assert set(pps) == {"body", "tube"}
+    for pp in pps.values():
+        pm = to_print_orientation(part_to_mesh(pp.part), pp.rotation)
+        assert mesh_health(pm).ok and pm.body_count == 1, pp.key
+    assert _pairwise_overlap(list(pps.values())) < 1.0
+    m = part_to_mesh(t.build(p))
+    assert mesh_health(m).ok and m.body_count == 1
