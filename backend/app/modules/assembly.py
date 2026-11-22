@@ -18,10 +18,15 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 
+from app.rules.loader import GapTrapRule
 from app.templates.base import Anchor, Features, Opening, Side, Template, TemplateParams
+
+if TYPE_CHECKING:
+    import trimesh
 
 # 맞닿는 면을 확실히 하나로 합치려고 자식을 부모 쪽으로 파묻는 깊이 mm
 OVERLAP_MM = 0.3
@@ -806,4 +811,158 @@ def internal_gaps(parts: list[PartSpec], joins: list[JoinSpec], shape_bounds: di
             (alo, ahi), (blo, bhi) = shape_bounds[a], shape_bounds[b]
             gap = np.maximum(0.0, np.maximum(np.asarray(blo) - ahi, np.asarray(alo) - bhi))
             out.append((a, b, float(np.linalg.norm(gap))))
+    return out
+
+
+# ── 마주 보는 면 사이 틈 (slot_gaps) ──
+# 잇지 않은 두 부품 사이에 몸이 끼는 틈은 두 면이 서로 마주 볼 때 생긴다. 상자 사이 거리(internal_gaps)는
+# 은신처 앞 모서리를 사이에 둔 그릇 받침과 터널처럼 마주 보는 면이 없는 자리까지 틈으로 센다.
+SLOT_SAMPLES = 600        # 부품마다 겉면에서 고르게 뽑는 점 수 (상대 부품 가까이에 있는 면에서만)
+SLOT_SEED = 0             # 같은 설계면 늘 같은 점을 뽑는다
+SLOT_MIN_HITS = 3         # 두 방향 합쳐 이만큼 닿아야 틈으로 본다 (모서리를 스치는 광선 한두 개는 무시)
+SLOT_FACING_DOT = -0.5    # 닿은 면의 바깥 법선과 광선 방향의 내적이 이보다 작아야 마주 보는 면 (120° 이상)
+SLOT_RAY_EPS_MM = 0.01    # 광선을 겉면에서 이만큼 띄워 쏜다 (자기 면에 바로 닿지 않게)
+
+
+def part_meshes(parts: list[PartSpec], joins: list[JoinSpec]) -> dict[str, trimesh.Trimesh]:
+    """빼는 모양이 아닌 부품마다 제자리에 놓은 형상의 trimesh (조립 좌표, 통로 뚫기·연결판 없이 부품 그대로)."""
+    from app.geometry.mesh import part_to_mesh
+
+    placed = place_parts(parts, joins)
+    return {p.id: part_to_mesh(_plane(placed[p.id]) * p.template.build(p.params))
+            for p in parts if not p.template.cutter}
+
+
+def _box_distance(a: tuple[np.ndarray, np.ndarray], b: tuple[np.ndarray, np.ndarray]) -> float:
+    gap = np.maximum(0.0, np.maximum(b[0] - a[1], a[0] - b[1]))
+    return float(np.linalg.norm(gap))
+
+
+def _first_hits(tris: np.ndarray, tree, origins: np.ndarray, dirs: np.ndarray,
+                length: float) -> tuple[np.ndarray, np.ndarray]:
+    """광선마다 길이 length 안에서 처음 닿는 삼각형 번호와 거리 (닿지 않으면 −1, inf).
+    tree: 삼각형 경계 상자의 rtree (trimesh 의 triangles_tree). 광선을 선분으로 잘라 후보만 계산한다."""
+    ends = origins + dirs * length
+    lo, hi = np.minimum(origins, ends), np.maximum(origins, ends)
+    ray_ids: list[np.ndarray] = []
+    tri_ids: list[np.ndarray] = []
+    for i in range(len(origins)):
+        c = np.fromiter(tree.intersection((*lo[i], *hi[i])), dtype=np.int64)
+        if len(c):
+            ray_ids.append(np.full(len(c), i, dtype=np.int64))
+            tri_ids.append(c)
+    face = np.full(len(origins), -1, dtype=np.int64)
+    dist = np.full(len(origins), np.inf)
+    if not ray_ids:
+        return face, dist
+    r, t = np.concatenate(ray_ids), np.concatenate(tri_ids)
+    # Möller–Trumbore
+    v0 = tris[t, 0]
+    e1, e2 = tris[t, 1] - v0, tris[t, 2] - v0
+    d = dirs[r]
+    pvec = np.cross(d, e2)
+    det = np.einsum("ij,ij->i", e1, pvec)
+    ok = np.abs(det) > 1e-12
+    inv = np.where(ok, 1.0 / np.where(ok, det, 1.0), 0.0)
+    tvec = origins[r] - v0
+    u = np.einsum("ij,ij->i", tvec, pvec) * inv
+    qvec = np.cross(tvec, e1)
+    v = np.einsum("ij,ij->i", d, qvec) * inv
+    s = np.einsum("ij,ij->i", e2, qvec) * inv
+    hit = ok & (u >= -1e-9) & (v >= -1e-9) & (u + v <= 1 + 1e-9) & (s > 0) & (s <= length)
+    r, t, s = r[hit], t[hit], s[hit]
+    if len(r) == 0:
+        return face, dist
+    order = np.lexsort((s, r))
+    r, t, s = r[order], t[order], s[order]
+    first = np.r_[True, r[1:] != r[:-1]]
+    face[r[first]] = t[first]
+    dist[r[first]] = s[first]
+    return face, dist
+
+
+def slot_gaps(parts: list[PartSpec], joins: list[JoinSpec], meshes: dict[str, trimesh.Trimesh],
+              gap: GapTrapRule) -> list[tuple[str, str, float]]:
+    """서로 잇지 않은 부품 쌍 사이에서 두 면이 마주 보는 끼임 위험 틈 [(부품 a, 부품 b, 틈 mm)].
+
+    상자 사이 거리가 gap.passable_min_mm 보다 가까운 쌍마다, 상대 부품 가까이(상대 상자를 passable_min 만큼 넓힌 곳)에
+    있는 겉면에서 SLOT_SAMPLES 개 점을 면적에 고르게 뽑아(seed SLOT_SEED) 바깥 법선 방향으로 광선을 쏜다. 다른 모든
+    부품(자기 자신 포함) 가운데 처음 닿는 것이 상대 부품이고, 거리가 끼임 위험 구간(gap.is_trap)이며, 닿은 면의 바깥 법선이
+    광선을 마주 볼 때(내적 < SLOT_FACING_DOT), 그리고 광선 구간이 어느 부품 속도 아닐 때(이은 부품에 묻힌 면이 아님)
+    한 번으로 센다. 반대 방향(상대 → 이쪽)도 같이 세어 합이 SLOT_MIN_HITS 이상이면 틈으로 보고, 닿은 거리들의 중앙값을
+    틈으로 돌려준다.
+
+    meshes: 부품 id → 조립 좌표의 닫힌 trimesh (바깥 법선, part_meshes). 메시가 없는 부품(빼는 모양)은 건너뛴다.
+    상자 거리만 보는 internal_gaps 와 달리 열린 모서리 너머 거리는 틈으로 세지 않는다."""
+    import trimesh
+
+    ids = [p.id for p in parts if p.id in meshes]
+    if len(ids) < 2:
+        return []
+    joined = {frozenset((j.parent, j.child)) for j in joins}
+    reach = float(gap.passable_min_mm)
+    boxes = {pid: (np.asarray(meshes[pid].bounds[0], float), np.asarray(meshes[pid].bounds[1], float)) for pid in ids}
+    partners: dict[str, list[str]] = {pid: [] for pid in ids}
+    for i, a in enumerate(ids):
+        for b in ids[i + 1:]:
+            if frozenset((a, b)) in joined or _box_distance(boxes[a], boxes[b]) >= reach:
+                continue
+            partners[a].append(b)
+            partners[b].append(a)
+    if not any(partners.values()):
+        return []
+
+    # 광선을 쏘는 부품: 가까운 쌍에 든 부품. 가리는 부품(장면): 그 부품들에서 reach 안에 있는 모든 부품
+    # (이어 붙인 부품도 가린다. 더 먼 부품은 길이 reach 인 광선에 닿지 않는다)
+    used = [pid for pid in ids if partners[pid]]
+    scene_ids = [pid for pid in ids if any(_box_distance(boxes[pid], boxes[u]) < reach for u in used)]
+    scene = trimesh.util.concatenate([meshes[pid] for pid in scene_ids])
+    owner = np.repeat(np.arange(len(scene_ids)), [len(meshes[pid].faces) for pid in scene_ids])
+    index = {pid: k for k, pid in enumerate(scene_ids)}
+    tris, normals, tree = scene.triangles, scene.face_normals, scene.triangles_tree
+
+    hits: dict[frozenset, list[float]] = {}
+    for a in used:
+        mesh = meshes[a]
+        near = np.zeros(len(mesh.faces), dtype=bool)
+        tlo, thi = mesh.triangles.min(axis=1), mesh.triangles.max(axis=1)
+        for b in partners[a]:
+            blo, bhi = boxes[b][0] - reach, boxes[b][1] + reach
+            near |= np.all(thi >= blo, axis=1) & np.all(tlo <= bhi, axis=1)
+        weight = mesh.area_faces * near
+        if weight.sum() <= 0:
+            continue
+        pts, fi = trimesh.sample.sample_surface(mesh, SLOT_SAMPLES, face_weight=weight, seed=SLOT_SEED)
+        dirs = mesh.face_normals[fi]
+        origins = pts + dirs * SLOT_RAY_EPS_MM
+        face, dist = _first_hits(tris, tree, origins, dirs, reach)
+        got = face >= 0
+        face, dist, dirs, origins = face[got], dist[got], dirs[got], origins[got]
+        who = owner[face]
+        ok = np.einsum("ij,ij->i", normals[face], dirs) < SLOT_FACING_DOT
+        ok &= np.isin(who, [index[b] for b in partners[a]])
+        ok &= np.array([gap.is_trap(float(x)) for x in dist + SLOT_RAY_EPS_MM], dtype=bool)
+        if not ok.any():
+            continue
+        face, dist, dirs, origins, who = face[ok], dist[ok], dirs[ok], origins[ok], who[ok]
+        # 광선 구간이 다른 부품 속을 지나면(이은 부품에 묻힌 겉면에서 쏘았거나 묻힌 겉면에 닿음) 빈 틈이 아니다.
+        # 처음 닿는 곳까지 어떤 겉면도 지나지 않으므로 구간 가운데 한 점만 보면 된다
+        mid = origins + dirs * (dist / 2)[:, None]
+        free = np.ones(len(mid), dtype=bool)
+        for pid in scene_ids:
+            lo, hi = boxes[pid]
+            box_in = np.all((mid >= lo) & (mid <= hi), axis=1)
+            if box_in.any():
+                free[box_in] &= ~meshes[pid].contains(mid[box_in])
+        for b in partners[a]:
+            sel = free & (who == index[b])
+            if sel.any():
+                hits.setdefault(frozenset((a, b)), []).extend(float(x) for x in dist[sel] + SLOT_RAY_EPS_MM)
+
+    out = []
+    for i, a in enumerate(ids):
+        for b in ids[i + 1:]:
+            ds = hits.get(frozenset((a, b)), [])
+            if len(ds) >= SLOT_MIN_HITS:
+                out.append((a, b, float(np.median(ds))))
     return out

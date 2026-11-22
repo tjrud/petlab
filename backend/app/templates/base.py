@@ -14,7 +14,9 @@ LLM 은 Params 값만 결정한다. 형상은 오직 build() 가 만든다.
 
 from __future__ import annotations
 
+import threading
 from abc import ABC, abstractmethod
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import ClassVar, Literal
 
@@ -26,6 +28,15 @@ from app.rules.loader import SizeRules
 
 # 로컬 좌표계에서 구조물의 측면. 회전 0° 일 때 front = -Y 방향.
 Side = Literal["front", "back", "left", "right"]
+# 통로 단면 모양의 종류 (터널 shape 값과 같다). 통로로 이을 때 양쪽 단면을 같은 종류로 맞춘다
+PortProfile = Literal["round_arch", "pointed_arch", "tube", "box", "house"]
+# 조립(app/modules/compose)에서 부품이 맡는 역할
+#   host: 옆면에 받침·램프를 다는 기준 구조물 (모래목욕통), room_host: 드나드는 방이 있는 기준 구조물 (은신처·집),
+#   connector: 두 방을 잇는 통로 (터널), accessory: 기준 구조물 옆면에 끼우는 부품 (그릇 받침·물병 거치대·램프),
+#   none: 다른 부품과 잇지 않는다 (물속 동굴 등)
+PartRole = Literal["host", "room_host", "connector", "accessory", "none"]
+# 결합 종류별로 자식 부품이 쓰는 연결 지점 (attach_order 의 키)
+AttachKind = Literal["slide", "passage"]
 
 
 class TemplateParams(BaseModel):
@@ -87,6 +98,8 @@ class Anchor:
       - mount: 슬라이드 결합(따로 출력해 도브테일로 끼우는 부품)의 연결판을 붙일 수 있는 영역 (left, right, height).
         면 좌표 (t, u): t = up × normal (바깥에서 볼 때 오른쪽), u = up, 원점 = origin. 연결판은 t ∈ [left, right],
         u ∈ [0, height] 안에만 붙는다 (None 이면 슬라이드 결합을 받을 수 없는 면)
+      - profile: port 가 있는 자리의 통로 단면 종류 (port_profile 이 만드는 단면과 같은 종류).
+        통로로 이을 때 터널 단면을 이 종류로 맞춘다 (None: 통로가 아니거나 알 수 없음)
     """
 
     origin: Vec3
@@ -96,6 +109,27 @@ class Anchor:
     port: float | None = None
     wall_mm: float | None = None
     mount: tuple[float, float, float] | None = None
+    profile: PortProfile | None = None
+
+
+@dataclass(frozen=True)
+class FaceFields:
+    """연결 지점 하나의 치수를 정하는 파라미터 경로 (점 표기, "doors.width_mm" 등). 해당 없으면 None.
+
+    조립 해석기(app/modules/compose)가 이 경로로 부모 면 크기를 키우고(width·height), 끼움 결합 벽 두께(wall)와
+    통로 크기(port)·단면 종류(profile: 값이 PortProfile 인 파라미터, 터널 "shape")를 서로 맞춘다.
+      - width: 면의 가로 길이 (mount 의 left..right 를 넓힌다)
+      - height: 면의 높이 (mount 의 height 를 높인다)
+      - wall: 이 면 뒤 벽 두께 (anchor.wall_mm)
+      - port: 통로 크기 (anchor.port)
+      - profile: 통로 단면 종류를 정하는 파라미터 (anchor.profile)
+    """
+
+    width: str | None = None
+    height: str | None = None
+    wall: str | None = None
+    port: str | None = None
+    profile: str | None = None
 
 
 @dataclass(frozen=True)
@@ -220,6 +254,21 @@ class Template(ABC):
     # 저장된 설계를 다시 만들 때(메시 캐시가 비었을 때) 저장 당시와 같은 형상이 나오게 한다.
     legacy_defaults: ClassVar[dict[str, object]] = {}
 
+    # --- 연결 표준 (app/modules/compose 의 자유 조립). 기본값은 "다른 부품과 잇지 않는다" ---
+    # 조립에서 맡는 역할 (PartRole 참고). "none" 이면 조립 항목의 부품으로 쓸 수 없다
+    role: ClassVar[PartRole] = "none"
+    # 자식으로 붙을 때 쓸 연결 지점 후보 (앞선 것부터): slide = 옆면에 끼우는 결합, passage = 통로로 잇는 결합
+    attach_order: ClassVar[dict[AttachKind, tuple[str, ...]]] = {}
+    # True 면 부모의 출입 면(access side)에 붙어도 출입을 막지 않는다 (램프: 출입구로 올라가는 길)
+    passes_access: ClassVar[bool] = False
+    # 부모 연결 면 높이에 맞춰야 하는 높이 파라미터 (램프 꼭대기 = 부모 면 높이). 없으면 None
+    level_field: ClassVar[str | None] = None
+
+    @property
+    def composable(self) -> bool:
+        """조립 항목의 부품으로 쓸 수 있는지."""
+        return self.role != "none"
+
     def load_stored_params(self, raw: dict) -> TemplateParams:
         """DB 에 저장된 최종 파라미터를 읽는다. 저장 당시 없던 필드는 legacy_defaults 로 채운다."""
         return self.Params.model_validate({**self.legacy_defaults, **raw})
@@ -242,6 +291,60 @@ class Template(ABC):
         if not self.height_field:
             return []
         return [ParamConstraint(self.height_field, max=limit_mm, source="geometry", reason_ko=reason_ko)]
+
+    def cage_height_constraints(
+        self, p: TemplateParams, ctx: RuleContext, limit_mm: float, reason_ko: str
+    ) -> list[ParamConstraint]:
+        """케이지 천장과의 틈 기준으로 높이를 limit_mm 이하로 맞추는 제약. 기본: 높이 파라미터(height_field) 상한.
+
+        height_limit_constraints(어항 물 깊이용)와 따로 둔다: 터널처럼 어항에서만 높이를 정하는 파라미터로 맞추는
+        템플릿이 케이지에서는 지금처럼 높이 제약을 받지 않게. 조립 항목은 부품마다의 제약을 모아 덮어쓴다."""
+        if not self.height_field:
+            return []
+        return [ParamConstraint(self.height_field, max=limit_mm, source="geometry", reason_ko=reason_ko)]
+
+    # --- 연결 표준 메서드 (기본: 연결 정보 없음) ---
+
+    def face_fields(self, p: TemplateParams, anchor: str) -> FaceFields:
+        """연결 지점 anchor 의 치수를 정하는 파라미터 경로. 기본: 모두 없음."""
+        return FaceFields()
+
+    def open_port(self, p: TemplateParams, anchor: str) -> TemplateParams | None:
+        """벽뿐인 연결 지점 anchor 에 통로(출입구)를 내도록 바꾼 파라미터 (은신처 뒷면: 출입구 2개).
+        낼 수 없으면 None (기본)."""
+        return None
+
+    def envelope(self, p: TemplateParams) -> tuple[float, float, float]:
+        """사용 자세 외형 크기 (가로 X, 세로 Y, 높이 Z) mm. 기본: build() 형상의 경계 상자 (파라미터별로 기억한다).
+
+        형상을 만들지 않고 계산할 수 있는 템플릿은 덮어써서 해석적으로 준다 (조립 해석기가 형상 없이 면 크기를 정한다)."""
+        key = (type(p).__qualname__, p.model_dump_json())
+        cache = _envelope_cache(self)
+        with _ENVELOPE_LOCK:
+            hit = cache.get(key)
+            if hit is not None:
+                cache.move_to_end(key)
+                return hit
+        size = self.build(p).bounding_box().size
+        out = (float(size.X), float(size.Y), float(size.Z))
+        with _ENVELOPE_LOCK:
+            cache[key] = out
+            while len(cache) > _ENVELOPE_CACHE_SIZE:
+                cache.popitem(last=False)
+        return out
+
+    def face_needs(self, p: TemplateParams) -> tuple[float | None, float | None]:
+        """이 부품을 옆면에 붙일 때 부모 면 높이의 (최소, 최대) mm. 기본: 제한 없음 (None, None).
+        예: 그릇 받침은 면이 그릇보다 높아야(최소), 물병 거치대는 급수관이 면 위로 나와야(최대) 한다."""
+        return (None, None)
+
+    def joined_constraints(self, p: TemplateParams, ctx: RuleContext, anchor: str) -> list[ParamConstraint]:
+        """이 부품이 연결 지점 anchor 로 다른 부품에 붙었을 때만 더하는 제약 (필드 이름은 이 부품 기준). 기본: 없음."""
+        return []
+
+    def assembly_constraints(self, p: TemplateParams, ctx: RuleContext) -> list[ParamConstraint]:
+        """조립 항목의 부품일 때만 더하는 제약 (혼자 쓸 때의 동작은 바꾸지 않는다). 기본: 없음."""
+        return []
 
     @abstractmethod
     def constraints(self, p: TemplateParams, ctx: RuleContext) -> list[ParamConstraint]:
@@ -289,6 +392,20 @@ class Template(ABC):
     def decor_zones(self, p: TemplateParams) -> list[DecorZone]:
         """장식을 얹을 수 있는 영역 (기본: 없음). 장식은 features() 와 검사 결과를 바꾸지 않아야 한다."""
         return []
+
+
+# envelope() 기본 구현의 파라미터별 기억 (템플릿 인스턴스마다, 최근 것부터 이 개수만)
+_ENVELOPE_CACHE_SIZE = 32
+_ENVELOPE_LOCK = threading.Lock()
+
+
+def _envelope_cache(t: Template) -> OrderedDict:
+    with _ENVELOPE_LOCK:
+        cache = t.__dict__.get("_envelope_cache")
+        if cache is None:
+            cache = OrderedDict()
+            t.__dict__["_envelope_cache"] = cache
+        return cache
 
 
 def cutter_at(anchor: Anchor, profile, depth_mm: float) -> Part:  # noqa: ANN001 (build123d Sketch/Face)
