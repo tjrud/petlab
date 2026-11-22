@@ -1,0 +1,38 @@
+{
+  "key": "twin_hideouts",
+  "name_ko": "터널로 이은 쌍둥이 은신처",
+  "name_en": "Twin hideouts joined by a tunnel",
+  "description_ko": "같은 크기의 은신처 두 개를 앞 출입구끼리 곧은 터널로 이은 구조물. 은신처 두 개와 터널을 따로 출력하고, 터널 양 끝의 끼움 턱을 은신처 앞 출입구에 끼워 조립한다. 터널은 출입구와 같은 둥근 아치 단면이고, 두 은신처의 뒤 출입구로 드나든다.",
+  "description_en": "Two hideouts of the same size whose front entrances are joined by a straight tunnel. The two hideouts and the tunnel print separately; the spigots on both tunnel ends plug into the hideouts' front entrances. The tunnel has the same round-arch cross-section as the entrances, and animals go in and out through the back entrance of either hideout.",
+  "keywords_ko": ["은신처 두 개를 터널로", "은신처 2개를 터널로", "두 은신처를 터널로", "쌍둥이 은신처", "방 두 개 은신처", "방 두 개짜리 은신처"],
+  "keywords_en": ["twin hideouts", "two hideouts connected by a tunnel", "two hideouts joined by a tunnel", "two hideouts linked by a tunnel", "two-room hideout", "two room hideout"],
+  "color": "#a3c27f",
+  "enclosure": true,
+  "params": [
+    {"name": "width_mm", "default": 140, "min": 100, "max": 200, "description_ko": "은신처 외형 가로(X) mm. 두 은신처가 같다", "description_en": "Hideout outer width (X) mm. Both hideouts share it"},
+    {"name": "depth_mm", "default": 110, "min": 90, "max": 200, "description_ko": "은신처 외형 세로(Y) mm. 두 은신처가 같다", "description_en": "Hideout outer depth (Y) mm. Both hideouts share it"},
+    {"name": "height_mm", "default": 100, "min": 70, "max": 160, "description_ko": "은신처 외형 높이(Z) mm. 두 은신처가 같다", "description_en": "Hideout outer height (Z) mm. Both hideouts share it"},
+    {"name": "entrance_mm", "default": 70, "min": 50, "max": 110, "description_ko": "출입구 폭과 터널 내경 mm. 종별 최소값 이상", "description_en": "Entrance width and tunnel inner diameter mm. At least the species minimum"},
+    {"name": "tunnel_length_mm", "default": 100, "min": 80, "max": 200, "description_ko": "터널 길이 mm. 종별 최대 길이 이하", "description_en": "Tunnel length mm. At most the species maximum"},
+    {"name": "wall_mm", "default": 3, "min": 2.4, "max": 6, "description_ko": "벽 두께 mm. 은신처와 터널이 같다", "description_en": "Wall thickness mm. Shared by the hideouts and the tunnel"}
+  ],
+  "size_params": ["width_mm", "depth_mm", "tunnel_length_mm"],
+  "height_param": "height_mm",
+  "parts": [
+    {"id": "a", "template": "hideout", "params": {
+      "width_mm": {"param": "width_mm"}, "depth_mm": {"param": "depth_mm"}, "height_mm": {"param": "height_mm"},
+      "entrance_diameter_mm": {"param": "entrance_mm"}, "entrance_count": 2, "vent_count": 6, "vent_diameter_mm": 4,
+      "wall_thickness_mm": {"param": "wall_mm"}}},
+    {"id": "tube", "template": "tunnel", "params": {
+      "length_mm": {"param": "tunnel_length_mm"}, "inner_diameter_mm": {"param": "entrance_mm"},
+      "shape": "round_arch", "bend_angle_deg": 0, "wall_thickness_mm": {"param": "wall_mm"}}},
+    {"id": "b", "template": "hideout", "params": {
+      "width_mm": {"param": "width_mm"}, "depth_mm": {"param": "depth_mm"}, "height_mm": {"param": "height_mm"},
+      "entrance_diameter_mm": {"param": "entrance_mm"}, "entrance_count": 2, "vent_count": 6, "vent_diameter_mm": 4,
+      "wall_thickness_mm": {"param": "wall_mm"}}}
+  ],
+  "joins": [
+    {"parent": "a.front", "child": "tube.end_b", "passage": true, "mount": "plug"},
+    {"parent": "tube.end_a", "child": "b.front", "passage": "into_child", "mount": "plug"}
+  ]
+}
