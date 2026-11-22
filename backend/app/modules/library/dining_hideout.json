@@ -1,0 +1,74 @@
+{
+  "key": "dining_hideout",
+  "name_ko": "밥그릇과 물병이 달린 은신처",
+  "name_en": "Hideout with a bowl and a water bottle",
+  "description_ko": "은신처 오른쪽 옆면에 시판 밥그릇을 끼워 두는 받침, 왼쪽 옆면에 시판 물병(급수기)을 세워 두는 거치대가 붙은 구조물. 그릇 받침과 물병 거치대는 은신처 옆면의 연결판에 위에서 밀어 끼우고(도브테일), 은신처·그릇 받침·물병 거치대는 따로 출력한다. 그릇과 물병은 사서 쓰고, 받침과 거치대가 밀리거나 엎어지지 않게 잡아 준다.",
+  "description_en": "A hideout with a holder for a store-bought food bowl on its right side face and a stand that holds a store-bought water bottle upright on its left side face. The bowl holder and bottle stand slide down onto plates on the hideout sides (dovetail), and the hideout, bowl holder and bottle stand print separately. Use a bought bowl and bottle; the holder and stand keep them from sliding or tipping over.",
+  "keywords_ko": [
+    "식당 은신처", "식당 같은 은신처", "식당이 있는 은신처", "식당이 달린 은신처",
+    "그릇과 물병이 달린 은신처", "그릇과 물병 달린 은신처", "그릇과 물병이 붙은 은신처", "그릇과 물병 붙은 은신처",
+    "그릇이랑 물병이 달린 은신처", "그릇이랑 물병 달린 은신처", "그릇이랑 물병이 붙은 은신처", "그릇이랑 물병 붙은 은신처",
+    "그릇과 물병이 있는 은신처", "그릇이랑 물병이 있는 은신처",
+    "물병과 밥그릇이 달린 은신처", "물병과 밥그릇 달린 은신처", "물병과 밥그릇이 붙은 은신처", "물병과 밥그릇 붙은 은신처",
+    "물병이랑 밥그릇이 달린 은신처", "물병이랑 밥그릇 달린 은신처", "물병이랑 밥그릇이 붙은 은신처",
+    "물병과 먹이그릇이 달린 은신처", "물병과 먹이 그릇이 달린 은신처", "물병과 그릇이 달린 은신처", "물병과 그릇 받침이 달린 은신처",
+    "그릇과 급수기가 달린 은신처", "그릇과 급수기 달린 은신처", "그릇이랑 급수기가 달린 은신처",
+    "급수기와 밥그릇이 달린 은신처", "급수기와 그릇이 달린 은신처",
+    "은신처에 밥그릇과 물병", "은신처에 밥그릇이랑 물병", "은신처에 먹이그릇과 물병", "은신처에 물병과 밥그릇",
+    "은신처에 물병이랑 밥그릇", "은신처에 그릇 받침과 물병"
+  ],
+  "keywords_en": [
+    "dining hideout",
+    "hideout with a bowl and a water bottle", "hideout with a bowl and water bottle", "hideout with bowl and water bottle",
+    "hideout with a food bowl and a water bottle", "hideout with a food bowl and water bottle",
+    "hideout with food bowl and water bottle", "hideout with a bowl and a bottle", "hideout with bowl and bottle",
+    "hideout with a water bottle and a bowl", "hideout with a water bottle and a food bowl",
+    "hideout with water bottle and bowl", "hideout with water bottle and food bowl",
+    "bowl and water bottle attached", "food bowl and water bottle attached"
+  ],
+  "color": "#d4869c",
+  "enclosure": true,
+  "params": [
+    {"name": "width_mm", "default": 140, "min": 90, "max": 200, "description_ko": "은신처 외형 가로(X) mm. 그릇 받침과 물병 거치대는 이 양옆(오른쪽·왼쪽)에 붙는다", "description_en": "Hideout outer width (X) mm. The bowl holder and the bottle stand attach to both sides of it (right and left)"},
+    {"name": "depth_mm", "default": 120, "min": 80, "max": 200, "description_ko": "은신처 외형 세로(Y) mm. 그릇 받침·물병 거치대를 붙이는 옆면의 폭이라 그릇 받침보다 넓어야 한다. 물병 거치대 바닥판은 가로·세로 모두 이 값의 절반 + 50", "description_en": "Hideout outer depth (Y) mm. This is the width of the side faces the bowl holder and the bottle stand slide onto, so it must be wider than the bowl holder. The bottle stand base is half of this plus 50 on both sides"},
+    {"name": "height_mm", "default": 95, "min": 60, "max": 160, "description_ko": "은신처 외형 높이(Z) mm", "description_en": "Hideout outer height (Z) mm"},
+    {"name": "entrance_mm", "default": 60, "min": 40, "max": 100, "description_ko": "은신처 출입구 폭 mm. 종별 최소값 이상", "description_en": "Hideout entrance width mm. At least the species minimum"},
+    {"name": "entrance_count", "type": "int", "default": 1, "min": 1, "max": 2, "description_ko": "출입구 개수. 1=앞면만, 2=앞·뒷면 마주 보기. 여러 마리를 함께 키우면 2", "description_en": "Number of entrances. 1 = front only, 2 = front and back facing each other. Use 2 when several animals live together"},
+    {"name": "bowl_mm", "default": 90, "min": 60, "max": 140, "description_ko": "그릇 지름 mm. 받침 턱 꼭대기 높이에서 잰 시판 그릇의 바깥 지름 (곧은 그릇이나 위가 넓은 그릇)", "description_en": "Bowl diameter mm. Outer diameter of the bought bowl measured at the top of the holder collar (straight or flared bowls)"},
+    {"name": "bowl_height_mm", "default": 40, "min": 35, "max": 80, "description_ko": "그릇 높이 mm. 바닥에서 테두리까지. 받침 턱은 그 0.6배 높이", "description_en": "Bowl height mm. From the bottom to the rim. The holder collar is 0.6 times this height"},
+    {"name": "bottle_mm", "default": 60, "min": 45, "max": 80, "description_ko": "물병 지름 mm. 컵에 들어가는 물병 몸통의 가장 넓은 바깥 지름", "description_en": "Bottle diameter mm. Widest outer diameter of the bottle body that goes into the cup"},
+    {"name": "cap_mm", "default": 40, "min": 20, "max": 60, "description_ko": "물병 마개 지름 mm. 급수관이 달린 마개의 바깥 지름. 물병 지름보다 10mm 이상 작아야 물병 어깨가 컵 밑에 앉는다", "description_en": "Bottle cap diameter mm. Outer diameter of the cap with the drinking spout. Must be at least 10 mm smaller than the bottle so the bottle shoulder sits in the cup"},
+    {"name": "spout_height_mm", "default": 55, "min": 30, "max": 80, "description_ko": "급수관 높이 mm. 바닥에서 급수관 끝까지, 동물이 서서 입이 닿는 높이", "description_en": "Spout height mm. From the floor to the spout tip, where the animal reaches it standing"},
+    {"name": "spout_drop_mm", "default": 60, "min": 30, "max": 85, "description_ko": "마개·급수관 길이 mm. 컵 밑(마개가 나오는 구멍)에서 급수관 끝까지 세로 길이로, 보통 마개 높이 + 급수관 길이", "description_en": "Cap and spout length mm. Vertical length from the cup bottom (where the cap comes out) to the spout tip, usually the cap height plus the spout length"},
+    {"name": "holder_height_mm", "default": 70, "min": 50, "max": 85, "description_ko": "물병 컵 높이 mm. 물병을 감싸는 컵 밑에서 입구까지, 물병 몸통 높이의 절반쯤", "description_en": "Bottle cup height mm. From the cup bottom to its rim, about half the bottle body height"},
+    {"name": "wall_mm", "default": 3, "min": 2, "max": 5, "description_ko": "벽 두께 mm", "description_en": "Wall thickness mm"}
+  ],
+  "size_params": ["width_mm", "depth_mm"],
+  "height_param": "height_mm",
+  "limits": [
+    {"param": "depth_mm", "min": {"param": "bowl_mm", "scale": 1, "offset": 14},
+     "reason_ko": "그릇 받침이 은신처 오른쪽 옆면 안에 들어가도록 세로를 그릇 받침 폭보다 넓혔습니다",
+     "reason_en": "Made the hideout deeper than the bowl holder so it fits on the right side face"}
+  ],
+  "parts": [
+    {"id": "hide", "template": "hideout", "params": {
+      "width_mm": {"param": "width_mm"}, "depth_mm": {"param": "depth_mm"}, "height_mm": {"param": "height_mm"},
+      "entrance_diameter_mm": {"param": "entrance_mm"}, "entrance_count": {"param": "entrance_count"},
+      "vent_count": 6, "vent_diameter_mm": 4, "wall_thickness_mm": {"param": "wall_mm"}}},
+    {"id": "bowl", "template": "bowl_holder", "params": {
+      "bowl_diameter_mm": {"param": "bowl_mm"}, "bowl_height_mm": {"param": "bowl_height_mm"},
+      "collar_height_mm": {"param": "bowl_height_mm", "scale": 0.6}, "clearance_mm": 1.0,
+      "wall_thickness_mm": {"param": "wall_mm"}}},
+    {"id": "bottle", "template": "bottle_stand", "params": {
+      "bottle_diameter_mm": {"param": "bottle_mm"}, "cap_diameter_mm": {"param": "cap_mm"},
+      "spout_height_mm": {"param": "spout_height_mm"}, "spout_drop_mm": {"param": "spout_drop_mm"},
+      "holder_height_mm": {"param": "holder_height_mm"},
+      "base_width_mm": {"param": "depth_mm", "scale": 0.5, "offset": 50},
+      "base_depth_mm": {"param": "depth_mm", "scale": 0.5, "offset": 50},
+      "clearance_mm": 1.0, "wall_thickness_mm": {"param": "wall_mm"}}}
+  ],
+  "joins": [
+    {"parent": "hide.right", "child": "bowl.back", "mount": "slide"},
+    {"parent": "hide.left", "child": "bottle.back", "mount": "slide"}
+  ]
+}
