@@ -184,6 +184,12 @@ def test_stacking_on_top_gives_a_note(rules, prompt, language, needle):
     ("은신처 두 개가 터널로", ["hide tube hide2 | tube>hide.auto hide2>tube.free_end"]),
     # 2층 집에도 붙인다 ('집'은 2층 집)
     ("2층 집에 물병 거치대 붙여 주세요", ["house bottle | bottle>house.auto"]),
+    # '…달린 A' 와 'A SIDE에 …' 가 기준 부품 낱말 하나를 함께 쓰면 둘 다 그 부품에 붙인다
+    ("경사로 달린 모래목욕통 앞에 밥그릇 받침도 달아줘", ["bath ramp bowl | ramp>bath.front bowl>bath.front"]),
+    ("밥그릇 달린 은신처 오른쪽에 물병 거치대", ["hide bowl bottle | bowl>hide.auto bottle>hide.right"]),
+    ("물병 달린 은신처 앞에 터널로 은신처 하나 더 이어줘",
+     ["hide bottle tube hide2 | bottle>hide.auto tube>hide.front hide2>tube.free_end"]),
+    ("밥그릇 달린 은신처랑 물병 달린 은신처", ["hide bowl | bowl>hide.auto", "hide2 bottle | bottle>hide2.auto"]),
 ])
 def test_korean_phrasings(rules, prompt, expected):
     assert shape(interpret(rules, prompt)) == expected

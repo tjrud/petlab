@@ -1027,9 +1027,22 @@ class _Composer:
     def _find_relations(self, tok: str) -> list[_Relation]:
         found: list[_Relation] = []
         claimed: list[tuple[int, int]] = []
+        heads: list[tuple[int, int]] = []  # 찾은 틀의 기준 부품({A}) 낱말 자리
+
+        def clashes(m: re.Match[str]) -> bool:
+            # 기준 부품 낱말 하나만 함께 쓰는 두 틀은 둘 다 읽는다 ("경사로 달린 모래목욕통 앞에 밥그릇 받침")
+            a = m.span("a") if m.groupdict().get("a") is not None else None
+            for (s, e), h in zip(claimed, heads, strict=True):
+                if not (m.start() < e and s < m.end()):
+                    continue
+                # 겹친 곳이 그 낱말(⟦H12⟧: 그룹 a 는 번호 자리) 안뿐이어야 한다
+                if a is None or a != h or max(s, m.start()) < a[0] - 2 or min(e, m.end()) > a[1] + 1:
+                    return True
+            return False
+
         for kind, rx in _PATTERNS:
             for m in rx.finditer(tok):
-                if any(m.start() < e and s < m.end() for s, e in claimed):
+                if clashes(m):
                     continue
                 g = {k: v for k, v in m.groupdict().items() if v is not None}
                 side = g.get("side")
@@ -1047,6 +1060,7 @@ class _Composer:
                 spans = _subtract(m.span(), fills)
                 found.append(_Relation(kind, m.start(), g, spans))
                 claimed.append(m.span())
+                heads.append(m.span("a") if m.groupdict().get("a") is not None else (-1, -1))
         return sorted(found, key=lambda r: r.start)
 
     def _apply(self, rel: _Relation, mentions: list[_Mention], tok: str) -> bool:
