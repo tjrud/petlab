@@ -79,6 +79,22 @@ TEMPLATE_KEYWORDS_EN: dict[str, re.Pattern[str]] = {
 }
 TEMPLATE_NAMES_EN = {"hideout": "Hideout", "tunnel": "Tunnel", "ramp": "Ramp/stairs", "sand_bath": "Sand bath",
                      "house": "House", "cave": "Underwater cave"}
+
+
+def _module_keywords() -> list[tuple[str, tuple[str, ...], list[re.Pattern[str]]]]:
+    """조립 모듈(모듈 라이브러리)의 이름·낱말. 기본 부품 낱말보다 먼저 찾는다 ("터널 달린 은신처" 등)."""
+    from app.modules.definition import library
+
+    out = []
+    for m in library():
+        TEMPLATE_NAMES_KO.setdefault(m.key, m.name_ko)
+        TEMPLATE_NAMES_EN.setdefault(m.key, m.name_en)
+        out.append((m.key, tuple(m.keywords_ko),
+                    [re.compile(r"\b" + re.escape(w.lower()) + r"\b") for w in m.keywords_en]))
+    return out
+
+
+MODULE_KEYWORDS = _module_keywords()
 HOUSE_TWO_FLOORS_EN = re.compile(r"\b(?:two[ -]?stor(?:y|ey|ies)|2[ -]?stor(?:y|ey)|second floor|upper floor|lofts?)\b")
 HOUSE_EXTERNAL_EN = re.compile(r"\b(?:outside|external|outer|exterior) (?:ramp|stairs?|slope)\b")
 HOUSE_PITCHED_EN = re.compile(r"\b(?:pitched|gabled?|peaked) roofs?\b")
@@ -246,6 +262,21 @@ def _blank(m: re.Match[str]) -> str:
 def _find_templates(text: str, aquarium: bool = False) -> list[str]:
     words_of, rx_of = (AQUARIUM_KEYWORDS, AQUARIUM_KEYWORDS_EN) if aquarium else (TEMPLATE_KEYWORDS, TEMPLATE_KEYWORDS_EN)
     found = []
+    # 조립 모듈 낱말을 먼저 찾고, 찾은 부분은 지워서(같은 길이로) 기본 부품 낱말로 또 잡히지 않게 한다
+    for key, words_ko, words_en in ([] if aquarium else MODULE_KEYWORDS):
+        hit = None
+        for w in words_ko:
+            i = text.find(w)
+            if i >= 0 and (hit is None or i < hit[0]):
+                hit = (i, len(w))
+        lowered = text.lower()
+        for rx in words_en:
+            m = rx.search(lowered)
+            if m and (hit is None or m.start() < hit[0]):
+                hit = (m.start(), m.end() - m.start())
+        if hit:
+            found.append((hit[0], key))
+            text = text[:hit[0]] + "＿" * hit[1] + text[hit[0] + hit[1]:]
     # "집 모양 터널" 의 "집" 은 은신처가 아니라 터널 단면 모양이다 (같은 길이로 바꿔 위치는 그대로)
     if "터널" in text:
         text = text.replace("집 모양", "＿ 모양").replace("집모양", "＿모양")

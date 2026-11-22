@@ -71,6 +71,28 @@ def _library_versions() -> tuple[tuple[str, str], ...]:
     return tuple(out)
 
 
+# 조립 모듈의 형상에 영향을 주는 코드 (모듈 정의 파일·부품 템플릿과 함께 지문에 넣는다)
+ASSEMBLY_MODULES: tuple[str, ...] = ("app.modules.assembly", "app.modules.module_template", "app.modules.definition")
+
+
+def _assembly_digest(key: str) -> str:
+    """조립 모듈(app/modules/library/*.json)의 지문: 정의 파일 + 조립 코드 + 쓰는 부품 템플릿. 없으면 "missing"."""
+    from app.modules.definition import library_files
+    from app.templates.keys import TEMPLATE_MODULES
+
+    path = library_files().get(key)
+    if path is None:
+        return "missing"  # 삭제된 템플릿·모듈
+    data = path.read_bytes()
+    parts = sorted({p["template"] for p in json.loads(data).get("parts", [])})
+    payload = {
+        "definition": file_digest(data),
+        "assembly": {m: _module_digest(m) for m in ASSEMBLY_MODULES},
+        "parts": {k: _module_digest(TEMPLATE_MODULES[k]) if k in TEMPLATE_MODULES else "missing" for k in parts},
+    }
+    return file_digest(json.dumps(payload, sort_keys=True).encode())
+
+
 def geometry_fingerprint(template_keys: Iterable[str], printing: PrintingRules) -> str:
     """주어진 템플릿들의 형상을 만드는 지금 코드·설정의 지문 (SHA-256 hex)."""
     from app.templates.keys import TEMPLATE_MODULES
@@ -78,7 +100,7 @@ def geometry_fingerprint(template_keys: Iterable[str], printing: PrintingRules) 
     templates: dict[str, str] = {}
     for key in sorted(set(template_keys)):
         module = TEMPLATE_MODULES.get(key)
-        templates[key] = _module_digest(module) if module else "missing"  # 없으면 삭제된 템플릿
+        templates[key] = _module_digest(module) if module else _assembly_digest(key)
     payload = {
         "templates": templates,
         "shared": {m: _module_digest(m) for m in SHARED_MODULES},

@@ -183,9 +183,14 @@ _CATALOG_DIR = Path(__file__).parent / "en"
 
 @lru_cache(maxsize=1)
 def catalog() -> Catalog:
+    from app.modules.definition import translations
+
     entries: dict[str, str] = {}
     for f in sorted(_CATALOG_DIR.glob("*.json")):
         entries.update(json.loads(f.read_text(encoding="utf-8")))
+    # 조립 모듈은 정의 파일에 한국어·영어를 함께 둔다 (app/modules/library/*.json)
+    for ko, en in translations().items():
+        entries.setdefault(ko, en)
     return Catalog(entries)
 
 

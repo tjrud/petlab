@@ -23,7 +23,7 @@ RULES = ROOT / "rules"
 HANGUL = re.compile(r"[가-힣]")
 
 # 사용자에게 보이지 않는 문구가 있는 파일
-SKIP_FILES = {"app/llm/prompts.py", "app/i18n/extract.py", "app/i18n/__init__.py"}
+SKIP_FILES = {"app/llm/prompts.py", "app/i18n/extract.py", "app/i18n/__init__.py", "app/modules/definition.py"}  # 모듈 정의 검증 문구는 개발자용
 LOG_FUNCS = {"debug", "info", "warning", "error", "exception", "critical"}
 # 홀로는 번역할 수 없는 조각 (조사 등). 문장 틀 쪽에서 번역한다
 IGNORE = {"이", "가"}

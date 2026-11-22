@@ -57,7 +57,9 @@ def test_engine_context_exposes_habitat_templates_and_buoyancy(rules):
     a, h = actx(rules), hctx(rules)
     assert a.habitat == "aquarium" and h.habitat == "cage"
     assert a.allowed_templates == ("cave", "tunnel")
-    assert h.allowed_templates == ("hideout", "tunnel", "ramp", "sand_bath", "house")
+    # 기본 부품 뒤에 부품이 모두 허용된 조립 모듈(모듈 라이브러리)이 붙는다
+    assert h.allowed_templates[:5] == ("hideout", "tunnel", "ramp", "sand_bath", "house")
+    assert "hideout_with_tunnel" in h.allowed_templates and "hideout_with_tunnel" not in a.allowed_templates
     assert a.buoyancy is not None and a.buoyancy.material_density_g_cm3 == pytest.approx(1.24)
     assert h.buoyancy is None
 

@@ -349,8 +349,14 @@ class RuleBook(BaseModel):
         return self.species_entry(species).habitat
 
     def allowed_templates(self, species: str) -> tuple[str, ...]:
-        """이 종에 만들 수 있는 템플릿 키 (templates 를 적지 않은 케이지 종은 케이지 기본값)."""
-        return self.species_entry(species).allowed_templates
+        """이 종에 만들 수 있는 템플릿 키 (templates 를 적지 않은 케이지 종은 케이지 기본값).
+
+        조립 모듈(app/modules/library)은 쓰는 부품이 모두 이 종에 허용될 때 함께 허용한다."""
+        from app.modules.definition import library
+
+        base = self.species_entry(species).allowed_templates
+        mods = tuple(m.key for m in library() if {p.template for p in m.parts} <= set(base))
+        return base + mods
 
     def buoyancy(self, species: str) -> BuoyancyRules | None:
         """물속 무게 계산용 밀도 (어항 종만). 모르는 종이면 KeyError."""

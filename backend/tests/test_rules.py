@@ -158,7 +158,7 @@ def test_repo_rules_load_aquarium(rules):
     assert set(aq.sizes) == AQUARIUM_SIZES
     assert rules.habitat("aquarium") == "aquarium" and rules.habitat("hamster") == "cage"
     assert rules.allowed_templates("aquarium") == ("cave", "tunnel")
-    assert rules.allowed_templates("hamster") == ("hideout", "tunnel", "ramp", "sand_bath", "house")
+    assert rules.allowed_templates("hamster")[:5] == ("hideout", "tunnel", "ramp", "sand_bath", "house")
     assert rules.buoyancy("hamster") is None
     b = rules.buoyancy("aquarium")
     assert b is not None and b.material_density_g_cm3 > b.water_density_g_cm3
@@ -348,7 +348,7 @@ def test_cage_templates_default(rules_copy):
     _edit_species(rules_copy, strip)
     rb = load_rules(rules_copy)
     assert rb.habitat("hamster") == "cage"
-    assert rb.allowed_templates("hamster") == ("hideout", "tunnel", "ramp", "sand_bath", "house")
+    assert rb.allowed_templates("hamster")[:5] == ("hideout", "tunnel", "ramp", "sand_bath", "house")
     assert rb.species_entry("hamster").max_count == 10
 
 
@@ -364,7 +364,7 @@ def test_cage_size_missing_climb_fields_rejected_only_with_ramp(rules_copy):
 
     _edit_species(rules_copy, no_ramp)
     rb = load_rules(rules_copy)
-    assert rb.allowed_templates("hamster") == ("hideout", "tunnel", "sand_bath")
+    assert rb.allowed_templates("hamster")[:3] == ("hideout", "tunnel", "sand_bath")
     assert rb.size_rules("hamster", "dwarf").max_climb_height_mm is None
 
 

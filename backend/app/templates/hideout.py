@@ -17,6 +17,7 @@ from build123d import Align, Box, Cylinder, Part, Pos, Rot
 from pydantic import Field
 
 from app.templates.base import (
+    Anchor,
     DecorZone,
     Features,
     Opening,
@@ -24,6 +25,7 @@ from app.templates.base import (
     RuleContext,
     Template,
     TemplateParams,
+    cutter_at,
 )
 
 DECOR_KEEPOUT_MM = 4.0   # 장식이 출입구·모서리·지붕판에서 떨어지는 거리
@@ -196,6 +198,32 @@ class HideoutTemplate(Template):
         for x, y in vent_positions(p):
             part = part - Pos(x, y, H - t / 2) * Cylinder(p.vent_diameter_mm / 2, t + 2 * _CUT)
         return part
+
+    def anchors(self, p: HideoutParams) -> dict[str, Anchor]:
+        W, D, H, t = p.width_mm, p.depth_mm, p.height_mm, p.wall_thickness_mm
+        d = p.entrance_diameter_mm
+        z, up = (0.0, 0.0, 1.0), (0.0, 1.0, 0.0)
+        return {
+            # 옆면: 바닥 높이의 면 가운데. 앞면(과 출입구 2개면 뒷면)은 출입구 자리
+            "front": Anchor((0, -D / 2, 0), (0, -1, 0), z, side="front", port=d, wall_mm=t),
+            "back": Anchor((0, D / 2, 0), (0, 1, 0), z, side="back",
+                           port=d if p.entrance_count >= 2 else None, wall_mm=t),
+            "left": Anchor((-W / 2, 0, 0), (-1, 0, 0), z, wall_mm=t),
+            "right": Anchor((W / 2, 0, 0), (1, 0, 0), z, wall_mm=t),
+            # 지붕 위·바닥 아래 (위에 얹기·밑에 받치기)
+            "top": Anchor((0, 0, H), (0, 0, 1), up),
+            "bottom": Anchor((0, 0, 0), (0, 0, -1), up),
+        }
+
+    def port_cutter(self, p: HideoutParams, anchor: str, depth_mm: float) -> Part | None:
+        a = self.anchors(p).get(anchor)
+        if a is None or a.port is None:
+            return None
+        from build123d import Circle, Rectangle
+
+        r = p.entrance_diameter_mm / 2
+        door = Pos(0, -_CUT) * Rectangle(2 * r, r + _CUT, align=(Align.CENTER, Align.MIN)) + Pos(0, r) * Circle(r)
+        return cutter_at(a, door, depth_mm)
 
     def print_rotation(self, p: HideoutParams) -> np.ndarray:
         # X 축 기준 180° 회전: 지붕이 베드에 닿도록 뒤집는다.

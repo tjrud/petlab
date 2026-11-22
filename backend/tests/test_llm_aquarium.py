@@ -94,7 +94,8 @@ def test_api_schema_for_hamster_has_no_cave():
     assert all("decor" in d["properties"] for n, d in schema["$defs"].items() if n.endswith("Item"))
     assert "attach_to" in schema["$defs"]["LLMPlacement"]["properties"]
     # 기본값(모든 템플릿)은 저장된 버전 읽기용: 여섯 템플릿 모두
-    assert schema_templates(api_schema()) == {"hideout", "tunnel", "ramp", "sand_bath", "house", "cave"}
+    # 기본 부품 + 모듈 라이브러리의 조립 모듈 (모듈은 은신처·터널 같은 케이지 부품으로만 만든다)
+    assert schema_templates(api_schema()) >= {"hideout", "tunnel", "ramp", "sand_bath", "house", "cave"}
 
 
 def test_schema_is_cached_per_template_set_regardless_of_order():
@@ -184,7 +185,7 @@ def test_user_message_for_hamster_has_no_aquarium_rows(rules):
 
 def test_template_catalog_filters_by_allowed():
     assert [t["template"] for t in template_catalog(AQUARIUM_TEMPLATES)] == ["tunnel", "cave"]
-    assert [t["template"] for t in template_catalog()] == ["hideout", "tunnel", "ramp", "sand_bath", "house", "cave"]
+    assert [t["template"] for t in template_catalog()][:6] == ["hideout", "tunnel", "ramp", "sand_bath", "house", "cave"]
 
 
 def test_system_prompt_is_species_neutral():

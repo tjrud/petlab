@@ -271,7 +271,14 @@ def _prepare(spec: ItemSpec, index: int, ctx: EngineContext,
             + list(extra or []))
     shallow = _too_shallow(template, ctx, index, label, params)
     params, issues = clamp_params(template, params, ctx.fit_ctx, cons, index, label)
-    return template, params, issues + ([shallow] if shallow is not None else [])
+    return template, params, issues + ([shallow] if shallow is not None else []) + _rule_issues(template, params, ctx, index)
+
+
+def _rule_issues(template: Template, params: TemplateParams, ctx: EngineContext, index: int) -> list[Issue]:
+    """보정으로 고칠 수 없는 템플릿 규칙 위반 (조립 모듈의 고정 부품이 이 종의 기준에 맞지 않는 경우 등)."""
+    return [Issue(code="rule_violation", severity=Severity.error, item_index=index,
+                  message_ko=f"{_label(template, index)}: {msg}")
+            for msg in template.rule_issues(params, ctx.rule_ctx)]
 
 
 def _attach_issues(items: list[BuiltItem]) -> list[Issue]:
@@ -399,6 +406,7 @@ def revalidate(items: list[BuiltItem], ctx: EngineContext) -> ValidationReport:
             extra = (_height_constraint(it.template, ctx, it.params)
                      + attach_constraints(it.template, it.hint, by_index))
             report.extend(constraint_violations(it.template, it.params, ctx.rule_ctx, extra, it.index, it.label_ko))
+            report.extend(_rule_issues(it.template, it.params, ctx, it.index))
     report.extend(validate_all(
         items, ctx.cage, ctx.size_rules, ctx.rules.printing, ctx.min_wall_mm, count=ctx.count,
         buoyancy=ctx.buoyancy,

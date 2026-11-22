@@ -25,6 +25,7 @@ from build123d import Align, Axis, Circle, Part, Plane, Polygon, Pos, Rectangle,
 from pydantic import Field
 
 from app.templates.base import (
+    Anchor,
     Features,
     Opening,
     ParamConstraint,
@@ -32,6 +33,7 @@ from app.templates.base import (
     Side,
     Template,
     TemplateParams,
+    cutter_at,
 )
 
 # 꼭대기 직선부가 시작되는 접점의 각도(꼭대기 기준). 50° 이면 직선부 오버행 = 90-50 = 40° (< 45°)
@@ -134,6 +136,20 @@ def profile(p: TunnelParams):
     outer = _arch(ro, r, 0) & above_floor
     inner = _arch(r, r, -_CUT)
     return outer - inner
+
+
+def inner_profile(p: TunnelParams):
+    """통로 안쪽 단면 (profile 에서 빼는 모양). 로컬 2D 좌표: x=가로, y=높이 (바닥 y=0)."""
+    r = p.inner_diameter_mm / 2
+    if p.shape == "round_arch":
+        return _round_arch(r, r, -_CUT)
+    if p.shape == "box":
+        return Pos(0, -_CUT) * Rectangle(2 * r, 2 * r + _CUT, align=(Align.CENTER, Align.MIN))
+    if p.shape == "house":
+        return _house(r, _house_wall_top(r), -_CUT)
+    if p.shape == "tube":
+        return Pos(0, r + p.wall_thickness_mm) * Circle(r)
+    return _arch(r, r, -_CUT)
 
 
 def height_coefficients(shape: str) -> tuple[float, float]:
@@ -344,6 +360,35 @@ class TunnelTemplate(Template):
         ex, ey = R * math.cos(a), R * math.sin(a)
         second = Pos(ex, ey, 0) * Rot(0, 0, 180) * Pos(-ex, -ey, 0) * first
         return first + second
+
+    def anchors(self, p: TunnelParams) -> dict[str, Anchor]:
+        """양 끝 통로. end_a = 시작(앞, -Y), end_b = 끝. build() 좌표계 기준."""
+        z = (0.0, 0.0, 1.0)
+        d = p.inner_diameter_mm
+        R = bend_radius(p)
+        if R is None:
+            # 곧은 터널: y=0 에서 -Y 로 길이만큼 (앞 끝 y=-L, 뒤 끝 y=0)
+            return {
+                "end_a": Anchor((0, -p.length_mm, 0), (0, -1, 0), z, side="front", port=d),
+                "end_b": Anchor((0, 0, 0), (0, 1, 0), z, side="back", port=d),
+            }
+        a = math.radians(p.bend_angle_deg)
+        start = Anchor((R, 0, 0), (0, -1, 0), z, side="front", port=d)
+        if is_s_curve(p):
+            # 둘째 구간은 첫 구간 끝을 중심으로 180° 돌린 사본: 시작 단면의 상(像)이 끝 단면이다
+            ex, ey = R * math.cos(a), R * math.sin(a)
+            end = Anchor((2 * ex - R, 2 * ey, 0), (0, 1, 0), z, side="back", port=d)
+        else:
+            nx, ny = round(-math.sin(a), 12), round(math.cos(a), 12)
+            end = Anchor((R * math.cos(a), R * math.sin(a), 0), (nx, ny, 0), z,
+                         side=end_side(p.bend_angle_deg, p.path), port=d)
+        return {"end_a": start, "end_b": end}
+
+    def port_cutter(self, p: TunnelParams, anchor: str, depth_mm: float) -> Part | None:
+        a = self.anchors(p).get(anchor)
+        if a is None:
+            return None
+        return cutter_at(a, inner_profile(p), depth_mm)
 
     def print_rotation(self, p: TunnelParams) -> np.ndarray:
         # 곧은 둥근 아치·관·네모: 세워서(터널 축 = Z) 출력하면 단면이 베드와 나란해 서포트가 필요 없다.

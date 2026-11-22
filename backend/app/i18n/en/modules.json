@@ -1,0 +1,17 @@
+{
+ "연결 지점 방향이 0 입니다": "A connection point has a zero direction",
+ "연결 지점의 법선과 위쪽이 수직이 아닙니다": "A connection point's normal and up directions aren't perpendicular",
+ "{0}({1})에 연결 지점 '{2}'이(가) 없습니다": "{0} ({1}) has no connection point '{2}'",
+ "기준(첫) 부품은 빼는 모양(창문 등)일 수 없습니다": "The base (first) part can't be a cut-out shape such as a window",
+ "뿌리 부품에서 이어지지 않는 연결이 있습니다": "Some connections don't lead back to the base part",
+ "{0}의 '{1}' 면은 뚫을 수 없습니다": "The '{1}' face of {0} can't be cut through",
+ "{0}의 '{1}'은(는) 통로가 아닙니다": "'{1}' on {0} isn't a passage",
+ "{0}에 연결 지점 '{1}'이(가) 없습니다": "{0} has no connection point '{1}'",
+ "{0}의 출입구를 {1}이(가) 막습니다": "{1} blocks the entrance of {0}",
+ "{0}({1})와 {2}({3}) 사이 틈 {4}mm 가 끼임 위험 구간({5}~{6}mm)에 있습니다": "The {4} mm gap between {0} ({1}) and {2} ({3}) is in the entrapment risk range ({5}~{6} mm)",
+ "부품 {0}({1}): {2}": "Part {0} ({1}): {2}",
+ "모듈 {0}: 없는 부품 템플릿 {1}": "Module {0}: unknown part template {1}",
+ "조립 형상을 만들지 못했습니다 ({0})": "Couldn't build the assembled shape ({0})",
+ "모듈 key 가 다른 템플릿과 겹칩니다: {0}": "Module key collides with another template: {0}",
+ "{0}: {1} {2}mm 가 끼임 위험 구간({3}~{4}mm)에 있습니다. 더 작게(환기구) 하거나 몸이 지나갈 만큼 크게 하세요.": "{0}: {1} at {2} mm is in the entrapment risk range ({3}~{4} mm). Make it smaller (like a vent) or large enough for the body to pass through."
+}

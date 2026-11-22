@@ -219,6 +219,14 @@ def check_openings(items: list[BuiltItem], size: SizeRules, count: int = 1) -> l
                         f"{it.label_ko}: {op.label_ko} {op.size_mm:g}mm 가 {size.display_name} 기준 최소 {req:g}mm 보다 작습니다.",
                         item_index=it.index, details={"size_mm": op.size_mm, "required_mm": req},
                     ))
+            elif op.kind == "window":
+                if gt.is_trap(op.size_mm):
+                    out.append(_err(
+                        "window_trap",
+                        f"{it.label_ko}: {op.label_ko} {op.size_mm:g}mm 가 끼임 위험 구간"
+                        f"({gt.safe_max_mm:g}~{gt.passable_min_mm:g}mm)에 있습니다. 더 작게(환기구) 하거나 몸이 지나갈 만큼 크게 하세요.",
+                        item_index=it.index, details={"size_mm": op.size_mm},
+                    ))
             elif op.size_mm > gt.safe_max_mm + 1e-6:
                 out.append(_err(
                     "vent_too_large",
