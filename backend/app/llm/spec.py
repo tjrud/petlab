@@ -206,6 +206,11 @@ def connection_problems(parts: list[tuple[str, str]], connections: list[Connecti
             out.append(f"{where}: {child.display_name_ko}은(는) 다른 부품에 붙일 수 없어 기준 부품(parts 의 첫 부품)으로만 "
                        "씁니다")
             continue
+        if child.role in ("connector", "room_host") and parent.role not in ("connector", "room_host"):
+            # 조립 해석기도 막는다 (모래목욕통처럼 출입구가 없고 낼 수도 없는 부품에는 통로를 잇지 못한다)
+            out.append(f"{where}: {parent.display_name_ko}에는 출입구가 없어 {child.display_name_ko}을(를) 이을 수 없습니다. "
+                       "따로 놓는 항목으로 적으세요")
+            continue
         if parent.role == "connector":
             if child.role == "connector":
                 out.append(f"{where}: {parent.display_name_ko} 끝에 {child.display_name_ko}을(를) 바로 이을 수 없습니다 "
@@ -224,6 +229,42 @@ def connection_problems(parts: list[tuple[str, str]], connections: list[Connecti
         free = ends - (1 if pid in has_parent and pid != root else 0)
         if used > free:
             out.append(f"{pid}: {tmpl[pid].display_name_ko}의 남은 끝은 {free}개인데 {used}개를 이었습니다")
+    out += _profile_problems(tmpl, connections)
+    return out
+
+
+def _door_profiles(t: Template) -> frozenset[str]:
+    """방 템플릿의 출입구 단면 모양들 (은신처: 둥근 아치, 집: 뾰족 아치). 모르면 빈 집합."""
+    try:
+        anchors = t.anchors(t.default_params())
+    except Exception:  # noqa: BLE001 (기본값으로 연결 지점을 못 만드는 템플릿은 검사하지 않는다)
+        return frozenset()
+    return frozenset(a.profile for a in anchors.values() if a.port is not None and a.wall_mm is not None and a.profile)
+
+
+def _profile_problems(tmpl: dict[str, Template], connections: list[Connection]) -> list[str]:
+    """터널 하나(또는 방과 방 사이에 끼울 터널)의 양 끝에 출입구 단면 모양이 다른 방(집의 뾰족 아치와 은신처의 둥근
+    아치)을 이으면 한 터널 단면으로 두 출입구를 맞출 수 없다."""
+    rooms: dict[str, list[str]] = {}  # 터널 id → 양 끝의 방 id
+    pairs: list[tuple[str, str]] = []  # 터널 없이 바로 이은 방 (해석기가 터널을 끼운다)
+    for c in connections:
+        parent, child = tmpl.get(c.to), tmpl.get(c.part)
+        if parent is None or child is None:
+            continue
+        if child.role == "connector" and parent.role == "room_host":
+            rooms.setdefault(c.part, []).append(c.to)
+        elif parent.role == "connector" and child.role == "room_host":
+            rooms.setdefault(c.to, []).append(c.part)
+        elif parent.role == "room_host" and child.role == "room_host":
+            pairs.append((c.to, c.part))
+    out: list[str] = []
+    for ids in rooms.values():
+        pairs += [(ids[0], other) for other in ids[1:]]
+    for a, b in pairs:
+        pa, pb = _door_profiles(tmpl[a]), _door_profiles(tmpl[b])
+        if pa and pb and not pa & pb:
+            out.append(f"{a} ↔ {b}: {tmpl[a].display_name_ko}와(과) {tmpl[b].display_name_ko}은(는) 출입구 단면 모양이 달라 "
+                       "터널 하나로 이을 수 없습니다. 터널 양 끝에는 같은 종류의 방을 잇고, 나머지는 따로 놓는 항목으로 적으세요")
     return out
 
 

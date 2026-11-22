@@ -85,7 +85,8 @@
       }
     ],
     "fixed": {
-      "tube.shape": "round_arch"
+      "tube.shape": "round_arch",
+      "hide.entrance_count": 2
     },
     "faces": {
       "tube": "front"

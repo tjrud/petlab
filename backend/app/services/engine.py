@@ -60,7 +60,8 @@ class EngineContext:
     def rule_ctx(self) -> RuleContext:
         return RuleContext(self.size_rules, self.min_wall_mm, self.count,
                            printing_max_overhang_deg=self.rules.printing.max_overhang_deg,
-                           min_feature_mm=self.rules.printing.min_feature_mm)
+                           min_feature_mm=self.rules.printing.min_feature_mm,
+                           build_volume_mm=_bed(self.rules.printing.build_volume_mm))
 
     @property
     def height_limit_mm(self) -> float | None:
@@ -206,6 +207,10 @@ def _too_shallow(template: Template, ctx: EngineContext, index: int, label: str,
     )
 
 
+def _bed(v: tuple[float, float, float]) -> tuple[float, float, float]:
+    return (float(v[0]), float(v[1]), float(v[2]))
+
+
 def _label(template: Template, index: int) -> str:
     return f"{template.display_name_ko} #{index + 1}"
 
@@ -345,10 +350,20 @@ def _prepare_assembly(spec: ItemSpec, index: int, ctx: EngineContext,
             return _part_not_allowed(label, index, rp.id, rp.template, ctx)
     template = template_for(resolved, req.name_ko)
     params = assembly_params(template, part_params)
-    label = _label(template, index)
+    # 해석기 안내는 템플릿이 생기기 전 라벨로 썼다: 같은 항목의 모든 이슈가 같은 라벨이 되도록 바꾼다
+    final = _label(template, index)
+    issues = [_relabel(i, label, final) for i in issues]
+    label = final
     cons = _height_constraint(template, ctx, params) + list(extra or [])
     params, fixed = clamp_params(template, params, ctx.fit_ctx, cons, index, label, max_passes=ASSEMBLY_MAX_PASSES)
     return template, params, _with_part(issues + fixed) + _rule_issues(template, params, ctx, index)
+
+
+def _relabel(issue: Issue, old: str, new: str) -> Issue:
+    prefix = f"{old}: "
+    if old == new or not issue.message_ko.startswith(prefix):
+        return issue
+    return issue.model_copy(update={"message_ko": f"{new}: {issue.message_ko[len(prefix):]}"})
 
 
 def _rule_issues(template: Template, params: TemplateParams, ctx: EngineContext, index: int) -> list[Issue]:

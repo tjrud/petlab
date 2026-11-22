@@ -177,11 +177,21 @@ class RampTemplate(Template):
 
     def assembly_constraints(self, p: RampParams, ctx: RuleContext) -> list[ParamConstraint]:
         """조립 부품인 램프는 따로 출력하므로 길이가 출력 공간에 들어가도록 경사를 높이에 맞춰 가파르게 한다
-        (혼자 쓰는 램프는 지금처럼 이 제약이 없다)."""
-        return [ParamConstraint(
+        (혼자 쓰는 램프는 지금처럼 이 제약이 없다). 그 경사가 종 최대 경사를 넘지 않도록 경사로 높이도 그만큼 낮춘다:
+        조립 항목에서는 램프 높이가 붙는 면 높이를 따르므로 이 상한은 부모 면 높이로 옮겨진다 (compose.derived_constraints)."""
+        out = [ParamConstraint(
             "slope_deg", min=BED_SLOPE_PER_MM * p.height_mm + BED_SLOPE_BASE_DEG, source="printing",
             reason_ko="따로 출력하는 경사로가 프린터 출력 공간에 들어가도록 경사를 가파르게 했습니다",
         )]
+        if p.steps == 0:
+            s = ctx.size
+            h_max = (s.max_ramp_angle_deg - BED_SLOPE_BASE_DEG) / BED_SLOPE_PER_MM
+            out.append(ParamConstraint(
+                "height_mm", max=math.floor(h_max * 10) / 10, source="printing",
+                reason_ko=f"따로 출력하는 경사로가 프린터 출력 공간에 들어가면서 {s.max_ramp_angle_deg:g}° 이하로 "
+                          f"완만하려면 높이가 {math.floor(h_max * 10) / 10:g}mm 이하여야 합니다",
+            ))
+        return out
 
     def features(self, p: RampParams) -> Features:
         return Features(

@@ -663,6 +663,12 @@ def leftover_width(left, placed: dict[str, PlacedPart], j: JoinSpec) -> float:  
     return max(2.0 * float(shapely.maximum_inscribed_circle(g, 0.01).length) for g in geoms)
 
 
+def axis_aligned(rotation: np.ndarray) -> bool:
+    """회전이 축끼리만 바꾸는지 (0°·90°·180°·270°)."""
+    r = np.abs(np.asarray(rotation, dtype=float))
+    return bool(np.allclose(r, np.round(r), atol=1e-6))
+
+
 def slide_problems(parts: list[PartSpec], joins: list[JoinSpec]) -> list[str]:
     """형상 없이 알 수 있는 슬라이드 결합 규칙 위반 (한국어 문구)."""
     out: list[str] = []
@@ -687,6 +693,10 @@ def slide_problems(parts: list[PartSpec], joins: list[JoinSpec]) -> list[str]:
             continue  # join_problems 가 알린다
         if not slide_frame_ok(placed, j):
             out.append(f"{pname}와(과) {cname}의 슬라이드 결합은 옆면끼리만 할 수 있습니다 (세로 면, 위쪽이 위)")
+        elif not axis_aligned(placed[j.parent].rotation):
+            # 연결판 자리는 조립 좌표의 축 정렬 상자로 정한다 (slide_plan): 비스듬한 부모면 연결판이 면을 벗어난다
+            out.append(f"비스듬히 놓인 {pname}(휜 터널 끝의 방)에는 {cname}을(를) 끼울 수 없습니다. "
+                       "터널을 덜 휘게 하거나 다른 방에 붙이세요")
         elif pa.mount is None and pa.port is None:  # 출입구 면은 join_problems 가 '막습니다'로 알린다
             out.append(f"{pname}의 '{j.parent_anchor}' 면에는 슬라이드 결합 연결판을 붙일 수 없습니다")
     return out
@@ -697,6 +707,20 @@ def _side_of(v: np.ndarray) -> Side | None:
         if float(np.dot(v, s)) > 0.99:
             return name  # type: ignore[return-value]
     return None
+
+
+ACCESS_DOT = 0.7  # 쓰지 않은 출입구 방향이 이만큼 맞는 옆면은 모두 드나드는 면 (45° 면 이웃한 두 면)
+
+
+def _sides_near(v: np.ndarray) -> list[Side]:
+    """수평 방향 v 가 향하는 옆면들 (가까운 순). 위·아래를 향하면 빈 목록."""
+    v = np.asarray(v, dtype=float)
+    h = np.array([v[0], v[1], 0.0])
+    if np.linalg.norm(h) < 0.5 * np.linalg.norm(v):
+        return []
+    h /= np.linalg.norm(h)
+    near = [(float(np.dot(h, s)), name) for name, s in _SIDE_VEC.items() if float(np.dot(h, s)) > ACCESS_DOT]
+    return [name for _, name in sorted(near, reverse=True)]  # type: ignore[misc]
 
 
 def merge_features(parts: list[PartSpec], joins: list[JoinSpec], enclosure: bool) -> Features:
@@ -716,14 +740,24 @@ def merge_features(parts: list[PartSpec], joins: list[JoinSpec], enclosure: bool
         anchors = p.template.anchors(p.params)
         walls.append(f.min_wall_thickness_mm)
         openings.extend(f.openings)
+        # 출입구·터널 끝(port)은 연결 지점마다: 쓰지 않은 것의 조립 좌표 방향을 가까운 옆면(비스듬하면 이웃한 두 면)으로.
+        # 이름(side)으로 빼면 휜 터널의 두 끝이 같은 이름일 때 남은 끝까지 빠지고, 비스듬한 끝은 어느 면도 아니게 된다
+        port_sides = {a.side for a in anchors.values() if a.port is not None and a.side}
+        for n, a in anchors.items():
+            if a.port is None or n in used[p.id]:
+                continue
+            world = _sides_near(placed[p.id].vector(np.asarray(a.normal, dtype=float)))
+            if not world:
+                continue
+            exits += 1
+            sides.extend(w for w in world if w not in sides)
         joined_sides = {a.side for n, a in anchors.items() if n in used[p.id] and a.side}
         for s in f.access_sides:
-            if s in joined_sides:
+            if s in joined_sides or s in port_sides:
                 continue
             world = _side_of(placed[p.id].vector(_SIDE_VEC[s]))
             if world and world not in sides:
                 sides.append(world)
-        exits += sum(1 for n, a in anchors.items() if a.port is not None and n not in used[p.id])
         if f.climb_height_mm is not None:
             climb = max(climb or 0.0, f.climb_height_mm)
         if f.slope_deg is not None:
@@ -807,6 +841,7 @@ SLOT_SEED = 0             # 같은 설계면 늘 같은 점을 뽑는다
 SLOT_MIN_HITS = 3         # 두 방향 합쳐 이만큼 닿아야 틈으로 본다 (모서리를 스치는 광선 한두 개는 무시)
 SLOT_FACING_DOT = -0.5    # 닿은 면의 바깥 법선과 광선 방향의 내적이 이보다 작아야 마주 보는 면 (120° 이상)
 SLOT_RAY_EPS_MM = 0.01    # 광선을 겉면에서 이만큼 띄워 쏜다 (자기 면에 바로 닿지 않게)
+SLOT_JOINT_MARGIN_MM = 6.0  # 이은 자리(끼움 구멍 둘레·연결판)를 이만큼 넓혀 틈 검사에서 뺀다
 
 
 def part_meshes(parts: list[PartSpec], joins: list[JoinSpec]) -> dict[str, trimesh.Trimesh]:
@@ -866,9 +901,60 @@ def _first_hits(tris: np.ndarray, tree, origins: np.ndarray, dirs: np.ndarray,
     return face, dist
 
 
+def _joint_masks(parts: list[PartSpec], joins: list[JoinSpec], boxes: dict[str, tuple[np.ndarray, np.ndarray]]
+                 ) -> tuple[dict[frozenset, list], set[frozenset]]:
+    """이은 두 부품 쌍 → 이은 자리 판정 함수들 (점 배열 → 그 자리 안인지), 그리고 아예 보지 않을 쌍.
+    이은 자리의 맞닿은 면·연결판은 틈이 아니다. 한 덩어리(fused)로 이은 쌍과 배치를 알 수 없는 쌍은 예전처럼 보지 않는다.
+
+      - 끼움(통로) 결합: 연결 지점 기준점에서 통로 폭의 반 + 벽 + SLOT_JOINT_MARGIN_MM 안 (구멍 둘레의 벽과 터널 끝)
+      - 슬라이드 결합: 부모 면 위에서 자식이 차지하는 직사각형(자식 상자를 면에 투영)을 SLOT_JOINT_MARGIN_MM 넓히고,
+        면에서 바깥으로 연결판 두께 + SLOT_JOINT_MARGIN_MM 까지 (연결판·도브테일 자리)"""
+    pairs = {frozenset((j.parent, j.child)) for j in joins}
+    if not joins:
+        return {}, set()
+    try:
+        placed = place_parts(parts, joins)
+    except AssemblyError:
+        return {}, pairs
+    m = SLOT_JOINT_MARGIN_MM
+    out: dict[frozenset, list] = {}
+    skip: set[frozenset] = set()
+    for j in joins:
+        key = frozenset((j.parent, j.child))
+        if not j.separate:
+            skip.add(key)
+            continue
+        o, t, u, n = anchor_frame(placed, j.parent, j.parent_anchor)
+        if j.slide:
+            if j.child not in boxes:
+                continue
+            t0, t1 = _project(*boxes[j.child], o, t)
+            u0, u1 = _project(*boxes[j.child], o, u)
+
+            def inside(pts: np.ndarray, o=o, t=t, u=u, n=n, t0=t0, t1=t1, u0=u0, u1=u1) -> np.ndarray:
+                v = pts - o
+                vt, vu, vn = v @ t, v @ u, v @ n
+                return ((vt >= t0 - m) & (vt <= t1 + m) & (vu >= u0 - m) & (vu <= u1 + m)
+                        & (vn >= -m) & (vn <= PLATE_MM + m))
+        else:
+            (pid, pname) = j.port_end
+            (wid, wname) = j.wall_end
+            pa = _anchor(placed[pid].spec, pname)
+            wa = _anchor(placed[wid].spec, wname)
+            r = (pa.port or 0.0) / 2 + (wa.wall_mm or 0.0) + PLUG_SPIGOT_MM + m
+
+            def inside(pts: np.ndarray, o=o, r=r) -> np.ndarray:
+                return np.linalg.norm(pts - o, axis=1) <= r
+        out.setdefault(key, []).append(inside)
+    return out, skip
+
+
 def slot_gaps(parts: list[PartSpec], joins: list[JoinSpec], meshes: dict[str, trimesh.Trimesh],
               gap: GapTrapRule) -> list[tuple[str, str, float]]:
-    """서로 잇지 않은 부품 쌍 사이에서 두 면이 마주 보는 끼임 위험 틈 [(부품 a, 부품 b, 틈 mm)].
+    """부품 쌍 사이에서 두 면이 마주 보는 끼임 위험 틈 [(부품 a, 부품 b, 틈 mm)].
+
+    슬라이드·끼움으로 이은 쌍도 본다 (휜 터널 안쪽과 그 은신처 앞벽 사이 주머니): 이은 자리(_joint_masks: 끼움 구멍 둘레,
+    연결판)에서 쏘거나 거기에 닿는 광선만 뺀다. 한 덩어리(fused)로 이은 쌍은 보지 않는다.
 
     상자 사이 거리가 gap.passable_min_mm 보다 가까운 쌍마다, 상대 부품 가까이(상대 상자를 passable_min 만큼 넓힌 곳)에
     있는 겉면에서 SLOT_SAMPLES 개 점을 면적에 고르게 뽑아(seed SLOT_SEED) 바깥 법선 방향으로 광선을 쏜다. 다른 모든
@@ -884,13 +970,13 @@ def slot_gaps(parts: list[PartSpec], joins: list[JoinSpec], meshes: dict[str, tr
     ids = [p.id for p in parts if p.id in meshes]
     if len(ids) < 2:
         return []
-    joined = {frozenset((j.parent, j.child)) for j in joins}
     reach = float(gap.passable_min_mm)
     boxes = {pid: (np.asarray(meshes[pid].bounds[0], float), np.asarray(meshes[pid].bounds[1], float)) for pid in ids}
+    masks, skip = _joint_masks(parts, joins, boxes)
     partners: dict[str, list[str]] = {pid: [] for pid in ids}
     for i, a in enumerate(ids):
         for b in ids[i + 1:]:
-            if frozenset((a, b)) in joined or _box_distance(boxes[a], boxes[b]) >= reach:
+            if frozenset((a, b)) in skip or _box_distance(boxes[a], boxes[b]) >= reach:
                 continue
             partners[a].append(b)
             partners[b].append(a)
@@ -939,8 +1025,11 @@ def slot_gaps(parts: list[PartSpec], joins: list[JoinSpec], meshes: dict[str, tr
             box_in = np.all((mid >= lo) & (mid <= hi), axis=1)
             if box_in.any():
                 free[box_in] &= ~meshes[pid].contains(mid[box_in])
+        hit_pts = origins + dirs * dist[:, None]
         for b in partners[a]:
             sel = free & (who == index[b])
+            for m in masks.get(frozenset((a, b)), ()):
+                sel &= ~(m(origins) | m(hit_pts))
             if sel.any():
                 hits.setdefault(frozenset((a, b)), []).extend(float(x) for x in dist[sel] + SLOT_RAY_EPS_MM)
 

@@ -108,6 +108,21 @@ def _compile(parts: list[str], greedy: tuple[int, ...]) -> re.Pattern[str]:
     return re.compile(pattern, re.DOTALL)
 
 
+# 자리표시가 품으면 그 틀을 뒤로 미루는 구분 말 (틀의 글 조각에 없을 때). " · " 는 조립 항목 보정 문구의 "부품 · 파라미터"
+_SEPARATORS = (": ", ", ", " · ")
+
+
+def _spans_separator(t: _Template, m: re.Match[str]) -> bool:
+    """틀의 글 조각에 없는 구분 말(': '·', ')을 자리표시가 품는지. "{0}이(가) 달린 {1}" 의 {1} 이 "은신처 #1: 안내 …" 를
+    잡거나, "{0} → {1} 왼쪽" 의 {1} 이 "A 오른쪽, B → C" 처럼 목록을 넘어 잡은 경우다. 이런 맞춤은 다른 틀과 목록 나누기보다
+    뒤로 미룬다 (조립 항목 이름 틀이 안내 문구를 삼키지 않게, 연결 목록을 하나씩 바꾸게)."""
+    lits = "".join(t.literals)
+    seps = [sep for sep in _SEPARATORS if sep not in lits and sep.strip() not in lits]
+    if not seps:
+        return False
+    return any(v is not None and any(sep in v for sep in seps) for v in m.groupdict().values())
+
+
 class Catalog:
     """한국어 원문(자리표시 포함) → 영어. 자리표시가 없는 문구는 사전으로, 있는 문구는 틀(정규식)로 찾는다.
 
@@ -159,12 +174,27 @@ class Catalog:
                 if a is not None:
                     cands.append((a, -t.literal_len, t))
             cands.sort(key=lambda c: (c[0], c[1]))
+            fallback: tuple[_Template, re.Match[str]] | None = None
             for _, _, t in cands:
                 m = t.rx.fullmatch(s)
                 if m is None:
                     continue
+                if _spans_separator(t, m):
+                    fallback = fallback or (t, m)
+                    continue
                 return self._best_split(t, s, self._fill(m, t.en, depth), depth)
-        # "A, B" 처럼 이어 붙인 목록. 붙여 쓴 가운뎃점("그릇 받침·물병 거치대")은 영어에서 쉼표로
+            if fallback is not None:
+                listed = self._split_list(s, depth)
+                if listed is not None and not HANGUL.search(listed):
+                    return listed
+                t, m = fallback
+                return self._best_split(t, s, self._fill(m, t.en, depth), depth)
+        listed = self._split_list(s, depth)
+        return listed if listed is not None else s
+
+    def _split_list(self, s: str, depth: int) -> str | None:
+        """"A, B" 처럼 이어 붙인 목록. 붙여 쓴 가운뎃점("그릇 받침·물병 거치대")은 영어에서 쉼표로. 바뀐 게 없으면 None."""
+        first: str | None = None
         for sep, joiner in ((", ", ", "), (" · ", " · "), ("\n", "\n"), ("·", ", ")):
             if sep in s:
                 parts = s.split(sep)
@@ -172,8 +202,11 @@ class Catalog:
                     continue  # 낱말끼리 붙여 쓴 가운뎃점만 (" · " 를 잘못 끊은 조각이 아니게)
                 out = [self._translate(p, depth + 1) for p in parts]
                 if out != parts:
-                    return joiner.join(out)
-        return s
+                    joined = joiner.join(out)
+                    if not HANGUL.search(joined):
+                        return joined  # 다 바뀐 나누기를 먼저 ("집 · 외형 높이(Z), 지붕 포함" 은 " · " 로)
+                    first = first or joined
+        return first
 
     def _without_particle(self, s: str, depth: int) -> str | None:
         """조사를 붙여 문장에 넣은 이름("그릇 받침을", "터널과", "은신처 2이(가)"): 조사를 뗀 이름이 영어로 다 바뀌면

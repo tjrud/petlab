@@ -41,6 +41,8 @@ import numpy as np
 from pydantic import ValidationError
 
 from app.modules.assembly import (
+    OVERLAP_MM,
+    PLATE_MM,
     PLUG_CLEARANCE_MM,
     PLUG_MIN_LENGTH_MM,
     PLUG_MIN_RING_MM,
@@ -49,6 +51,7 @@ from app.modules.assembly import (
     AssemblyError,
     JoinSpec,
     PartSpec,
+    axis_aligned,
     place_parts,
 )
 from app.modules.structure import (
@@ -71,7 +74,12 @@ from app.templates.base import (
     Template,
     TemplateParams,
 )
-from app.validation.autofix import PART_LABEL_SEP, clamp_params, field_bounds
+from app.validation.autofix import (
+    PART_LABEL_SEP,
+    clamp_params,
+    clip_to_field_bounds,
+    field_bounds,
+)
 from app.validation.report import Issue, Severity
 
 if TYPE_CHECKING:
@@ -108,8 +116,15 @@ ACCESSORY_SIDES = ("right", "left", "back", "front")
 PASSAGE_SIDES = ("front", "back")
 _OPPOSITE = {"front": "back", "back": "front", "left": "right", "right": "left"}
 SIDE_KO = {"front": "앞", "back": "뒤", "left": "왼쪽", "right": "오른쪽", "free_end": "터널 끝"}
+FACE_KO = {"front": "앞면", "back": "뒷면", "left": "왼쪽 면", "right": "오른쪽 면"}
 PROFILE_KO = {"round_arch": "둥근 아치", "pointed_arch": "뾰족 아치", "tube": "둥근 관", "box": "네모",
               "house": "집 모양"}
+# 슬라이드 연결판이 부모 본체 밖으로 더하는 두께 (출력 크기 한도를 셀 때)
+PLATE_OUT_MM = PLATE_MM - OVERLAP_MM
+# 따로 출력하는 본체 한도에서 남기는 여유
+BED_MARGIN_MM = 0.5
+# 출력 공간을 모를 때 (RuleContext.build_volume_mm 이 None)
+DEFAULT_BED_MM = (220.0, 220.0, 250.0)
 # 방향이 이만큼 맞으면 그 면으로 본다 (휜 터널 끝에 붙은 방처럼 기준 부품과 비스듬한 부품: 가장 가까운 면)
 _FACING = 0.7
 
@@ -229,15 +244,18 @@ class _State:
     def parent_join(self, pid: str) -> _Join | None:
         return next((j for j in self.joins if j.child == pid), None)
 
-    def rotation(self, pid: str) -> np.ndarray:
-        """지금까지 이은 부품을 놓았을 때 pid 의 회전 (부품 좌표 → 기준 부품 좌표)."""
+    def placed(self, pid: str) -> dict[str, Any]:
+        """지금까지 이은 부품을 놓은 자리 (부품 id → PlacedPart)."""
         placed_ids = [self.order[0], *(j.child for j in self.joins)]
         parts = [PartSpec(q, self.templates[q], self.params[q]) for q in self.order if q in placed_ids]
         try:
-            placed = place_parts(parts, [j.spec() for j in self.joins])
+            return place_parts(parts, [j.spec() for j in self.joins])
         except AssemblyError as e:  # pragma: no cover - 연결 지점은 해석기가 고른 것만 쓴다
             raise ResolveError(JOIN_UNSUPPORTED, f"{self.label}: {e}", pid) from e
-        return placed[pid].rotation
+
+    def rotation(self, pid: str) -> np.ndarray:
+        """지금까지 이은 부품을 놓았을 때 pid 의 회전 (부품 좌표 → 기준 부품 좌표)."""
+        return self.placed(pid)[pid].rotation
 
     def anchor_at(self, pid: str, side: str) -> str | None:
         """기준 부품 좌표계의 면 side 를 향하는 pid 의 옆 연결 지점 (위·아래 면은 고르지 않는다). 없으면 None."""
@@ -377,8 +395,13 @@ def resolve(
     except ResolveError as e:
         return Issue(code=e.code, severity=Severity.error, item_index=item_index, message_ko=e.message,
                      details=e.details)
+    except ValidationError as e:
+        # 해석기가 정한 값이 부품 범위를 벗어난 경우 (막아 두었지만 예외로 엔진을 멈추지 않게)
+        return err(INVALID_PARAMS, "부품을 잇는 데 필요한 값이 부품의 허용 범위를 벗어났습니다",
+                   errors=e.errors(include_url=False, include_context=False))
     # 6. 저장 형태 (결합은 뿌리부터 너비 우선: 고친 명세를 다시 해석해도 같은 순서가 되게)
     st.joins = _bfs(st.order[0], st.joins)
+    _pin_doors(st)
     resolved = ResolvedAssembly(
         root=st.order[0],
         parts=[ResolvedPart(id=pid, template=st.templates[pid].key) for pid in st.order],
@@ -388,6 +411,25 @@ def resolve(
         faces=dict(st.faces),  # type: ignore[arg-type]
     )
     return resolved, {pid: st.params[pid] for pid in st.order}, st.issues
+
+
+# 방의 출입구 구조를 정하는 파라미터 (통로로 이은 방은 이 값에 기대므로 바뀌었든 아니든 fixed 에 적는다)
+DOOR_STRUCTURE_FIELDS = ("entrance_count", "doors.sides", "ports.sides")
+
+
+def _pin_doors(st: _State) -> None:
+    """통로로 이은 방의 출입구 구조 값을 fixed 에 적는다. 해석기가 바꾼 값만 적으면 고친 명세(이미 바뀐 값)를 다시
+    해석할 때 빠져 저장 형태(canonical)가 달라지므로, 통로가 있는 방이면 늘 적는다."""
+    for pid in st.order:
+        if st.templates[pid].role != "room_host":
+            continue
+        if not any(j.passage is not False and pid in (j.parent, j.child) for j in st.joins):
+            continue
+        values = _leaves(st.params[pid].model_dump())
+        for f in DOOR_STRUCTURE_FIELDS:
+            if f in values:
+                v = values[f]
+                st.fixed[f"{pid}.{f}"] = list(v) if isinstance(v, (list, tuple)) else v
 
 
 def _bfs(root: str, joins: list[_Join]) -> list[_Join]:
@@ -468,7 +510,7 @@ def _attach_accessory(st: _State, parent: str, child: str, at: str) -> None:
     anchors = st.anchors(parent)
     access = set(st.templates[parent].features(st.params[parent]).access_sides)
     rot = st.rotation(parent)
-    if not np.allclose(np.abs(rot), np.round(np.abs(rot)), atol=1e-6):
+    if not axis_aligned(rot):
         # 연결판 자리는 조립 좌표의 축 정렬 상자로 정한다 (assembly.slide_plan): 비스듬한 부모면 연결판이 면보다 넓어진다
         raise ResolveError(JOIN_UNSUPPORTED, f"{st.label}: 비스듬히 놓인 {st.names[parent]}(휜 터널 끝의 방)에는 "
                                              f"{_w(st.names[child], '을/를')} 끼울 수 없습니다", child, parent=parent)
@@ -483,8 +525,17 @@ def _attach_accessory(st: _State, parent: str, child: str, at: str) -> None:
     chosen: str | None = None
     if at in SIDE_VEC:
         want = st.anchor_at(parent, at)
-        if ok(want):
+        crowded = ok(want) and not st.free(parent, want) and _too_wide(st, parent, want, child)  # type: ignore[arg-type]
+        alt = next((n for n in candidates if unused(n)), None) if crowded else None
+        if ok(want) and alt is None:
             chosen = want  # 같은 면에 여럿 붙이면 나란히 놓는다 (_layout_siblings)
+        elif alt is not None:
+            chosen = alt
+            to = st.side_of(parent, chosen)
+            st.info("join_relocated", child,
+                    f"{_w(st.names[child], '을/를')} {st.names[parent]} {SIDE_KO[at]} 대신 {SIDE_KO[to]}에 붙였습니다. "
+                    f"한 면에 모두 붙이면 {_w(st.names[parent], '이/가')} 프린터 출력 공간보다 커집니다.",
+                    parent=parent, **{"from": at, "to": to})
         else:
             chosen = next((n for n in candidates if unused(n)), None)
             if chosen is None:
@@ -504,7 +555,67 @@ def _attach_accessory(st: _State, parent: str, child: str, at: str) -> None:
     child_anchor = next((n for n in slide if n in st.anchors(child)), None)
     if child_anchor is None:
         raise ResolveError(JOIN_UNSUPPORTED, f"{st.label}: {_w(st.names[child], '은/는')} 옆면에 끼울 수 없습니다", child)
+    _check_level(st, parent, chosen, child)
     _add_join(st, _Join(parent, chosen, child, child_anchor, "slide", False), st.side_of(parent, chosen))
+
+
+def level_max(t: Template, q: TemplateParams, ctx: RuleContext) -> float | None:
+    """면 높이에 맞추는 부품(램프)이 가질 수 있는 가장 큰 높이 (자기 제약·조립 제약의 상한). 없으면 None."""
+    if not t.level_field:
+        return None
+    his = [c.max for c in [*t.constraints(q, ctx), *t.assembly_constraints(q, ctx)]
+           if c.field == t.level_field and c.max is not None]
+    return min(his) if his else None
+
+
+def _check_level(st: _State, parent: str, anchor: str, child: str) -> None:
+    """램프처럼 꼭대기를 면 높이에 맞추는 부품: 부모 면 높이를 움직일 파라미터가 없고(집의 박공지붕·2층·창 쪽 면)
+    면이 부품이 오를 수 있는 높이보다 높으면 지금 거절한다 (보정에서 알 수 없는 경사각 충돌로 실패하지 않게)."""
+    tc, tp = st.templates[child], st.templates[parent]
+    a = st.anchors(parent)[anchor]
+    if not tc.level_field or a.mount is None or tp.face_fields(st.params[parent], anchor).height:
+        return
+    hi = level_max(tc, st.params[child], st.ctx)
+    h = float(a.mount[2])
+    if hi is not None and h > hi + 1e-6:
+        raise ResolveError(JOIN_UNSUPPORTED, f"{st.label}: {st.names[parent]} {SIDE_KO[st.side_of(parent, anchor)]} 면 높이 "
+                                             f"{h:.0f}mm 는 {_w(st.names[child], '이/가')} 오를 수 있는 높이({hi:g}mm)보다 높아 "
+                                             "붙일 수 없습니다. 평지붕 1층 집이나 은신처에 붙이세요", child, parent=parent)
+
+
+def bed_xy(ctx: RuleContext) -> float:
+    """따로 출력하는 부품이 놓일 수 있는 바닥 한 변 (정사각형이 아니면 짧은 변)."""
+    v = ctx.build_volume_mm or DEFAULT_BED_MM
+    return float(min(v[0], v[1]))
+
+
+def _too_wide(st: _State, parent: str, anchor: str, child: str) -> bool:
+    """부모 면 anchor 에 이미 붙인 부품들 옆에 child 를 더 붙이면 그 면 가로를 넓혀야 해 부모 본체가 출력 공간을 넘는지."""
+    tp, qp = st.templates[parent], st.params[parent]
+    a = st.anchors(parent)[anchor]
+    ff = tp.face_fields(qp, anchor)
+    cur = _num(_get(qp, ff.width)) if ff.width else None
+    if a.mount is None or cur is None:
+        return False
+    group = [(j.child, j.child_anchor) for j in st.joins
+             if j.mount == "slide" and j.parent == parent and j.parent_anchor == anchor]
+    slide = st.templates[child].attach_order.get("slide", ())
+    ca = next((n for n in slide if n in st.anchors(child)), None)
+    if ca is None:
+        return False
+    group.append((child, ca))
+    widths = [face_width(st.templates[c], st.params[c], n) for c, n in group]
+    need = sum(widths) + sibling_gap(st.ctx) * (len(group) - 1) + 2 * EDGE_MARGIN_MM
+    grown = cur + max(0.0, need - float(a.mount[1] - a.mount[0]))
+    # 그 면 가로 방향으로 붙은 연결판 (그 축의 양 끝 면)
+    plates = sum(1 for j in st.joins if j.mount == "slide" and j.parent == parent
+                 and abs(float(np.dot(_tangent(a), np.asarray(st.anchors(parent)[j.parent_anchor].normal, float)))) > 0.9)
+    return grown > bed_xy(st.ctx) - plates * PLATE_OUT_MM - BED_MARGIN_MM + 1e-6
+
+
+def _tangent(a: Anchor) -> np.ndarray:
+    """연결 면의 가로 방향 (위쪽 × 법선)."""
+    return np.cross(np.asarray(a.up, dtype=float), np.asarray(a.normal, dtype=float))
 
 
 def _why_not_slide(a: Anchor | None, child: Template, access: set[str]) -> str:
@@ -629,6 +740,7 @@ def _attach_room_to_end(st: _State, tunnel: str, room: str, at: str) -> None:
     _add_join(st, _Join(tunnel, chosen, room, door, "plug", "into_child"), face)  # type: ignore[arg-type]
     _tie_port(st, (tunnel, chosen), (room, door))
     _match_profile(st, tunnel=(tunnel, chosen), door=(room, door))
+    _check_room_overlap(st, room, tunnel)
 
 
 def _room_door(st: _State, room: str, other: str) -> str:
@@ -645,6 +757,54 @@ def _room_door(st: _State, room: str, other: str) -> str:
             return n
     raise ResolveError(FACE_UNAVAILABLE, f"{st.label}: {st.names[room]}에 {_w(st.names[other], '을/를')} 이을 출입구가 없습니다",
                        room, parent=other)
+
+
+# 방끼리 겹침 검사에서 겹친다고 볼 깊이 (맞닿기만 한 것은 겹침이 아니다)
+OVERLAP_TOLERANCE_MM = 1.0
+
+
+def _footprint(t: Template, q: TemplateParams, placed: Any) -> np.ndarray | None:
+    """방·받침대(host) 바닥 사각형의 꼭짓점 4개 (조립 좌표 XY). 외형을 해석적으로 알고 XY 가운데가 원점인
+    템플릿만 (형상을 만들지 않는다). 모르면 None."""
+    if t.role not in ("host", "room_host") or type(t).envelope is Template.envelope:
+        return None
+    w, d, _ = t.envelope(q)
+    corners = np.array([[-w / 2, -d / 2, 0.0], [w / 2, -d / 2, 0.0], [w / 2, d / 2, 0.0], [-w / 2, d / 2, 0.0]])
+    return np.array([placed.point(c)[:2] for c in corners])
+
+
+def _rects_overlap(a: np.ndarray, b: np.ndarray) -> float:
+    """두 볼록 사각형(꼭짓점 4개, XY)이 겹치는 깊이 (분리축 검사: 모든 변 법선 방향 겹침 길이의 최솟값, 떨어져 있으면 0)."""
+    depth = np.inf
+    for poly in (a, b):
+        for i in range(4):
+            e = poly[(i + 1) % 4] - poly[i]
+            n = np.array([-e[1], e[0]])
+            norm = np.linalg.norm(n)
+            if norm < 1e-9:
+                continue
+            n /= norm
+            pa, pb = a @ n, b @ n
+            depth = min(depth, min(pa.max(), pb.max()) - max(pa.min(), pb.min()))
+            if depth <= 0:
+                return 0.0
+    return float(depth)
+
+
+def _check_room_overlap(st: _State, room: str, tunnel: str) -> None:
+    """터널 끝에 붙인 방이 이미 놓은 방·받침대와 겹치는지 (휜 터널이 짧으면 두 방이 겹친다). 겹치면 지금 알린다."""
+    placed = st.placed(room)
+    mine = _footprint(st.templates[room], st.params[room], placed[room])
+    if mine is None:
+        return
+    for pid in placed:
+        if pid == room:
+            continue
+        other = _footprint(st.templates[pid], st.params[pid], placed[pid])
+        if other is not None and _rects_overlap(mine, other) > OVERLAP_TOLERANCE_MM:
+            raise ResolveError(JOIN_UNSUPPORTED, f"{st.label}: {_w(st.names[tunnel], '이/가')} 짧거나 많이 휘어 {_w(st.names[pid], '과/와')} "
+                                                 f"{_w(st.names[room], '이/가')} 겹칩니다. 터널을 덜 휘게 하거나 더 길게 하세요",
+                               room, parent=tunnel, other=pid)
 
 
 # ── 행 4: 방과 방 사이 터널 ──
@@ -670,7 +830,8 @@ def _insert_tunnel(st: _State, parent: str, room: str, at: str) -> None:
     pf = st.templates[parent].face_fields(st.params[parent], door)
     tf = tunnel_t.face_fields(q, tunnel_t.attach_order["passage"][0])
     if pf.port and tf.port:
-        data[tf.port] = _get(st.params[parent], pf.port)
+        # 터널이 받을 수 있는 범위로 자른다 (출입구가 더 넓으면 조립 항목 보정이 출입구를 낮추거나 param_conflict 로 알린다)
+        data[tf.port] = clip_to_field_bounds(tunnel_t.Params, tf.port, _get(st.params[parent], pf.port))
     st.params[link] = tunnel_t.Params.model_validate(data)
     st.names = _names(st)
     _clamp_part(st, link)
@@ -697,6 +858,26 @@ def _tie_port(st: _State, upstream: tuple[str, str], downstream: tuple[str, str]
     follower = f"{down}.{df}"
     if follower != owner and follower not in st.ties:
         st.ties[follower] = owner
+        _apply_tie(st, follower, owner)
+
+
+def _apply_tie(st: _State, follower: str, owner: str) -> None:
+    """따르는 값을 지금 주인 값으로 바꾸고 그 부품을 다시 보정한다. 방향을 정하기 전에 해 두어야 터널의 휘는 각도처럼
+    내경에 따라 바뀌는 값이 최종 내경으로 정해진다 (조립 항목 보정에서 바뀌면 그 뒤에 붙인 방이 기울어진다).
+    해석기가 정한 값이 아니므로 fixed 에는 적지 않는다."""
+    fid, fpath = split_ref(follower)
+    oid, opath = split_ref(owner)
+    value = _num(_get(st.params[oid], opath))
+    if value is None or fid not in st.params:
+        return
+    t = st.templates[fid]
+    data = st.params[fid].model_dump()
+    new = clip_to_field_bounds(t.Params, fpath, value)
+    if _get(data, fpath) == new:
+        return
+    _set(data, fpath, new)
+    st.params[fid] = t.Params.model_validate(data)
+    _clamp_part(st, fid)
 
 
 def _match_profile(st: _State, tunnel: tuple[str, str], door: tuple[str, str]) -> None:
@@ -713,13 +894,19 @@ def _match_profile(st: _State, tunnel: tuple[str, str], door: tuple[str, str]) -
                                              f"{PROFILE_KO.get(profile, profile)}) 한 터널로 이을 수 없습니다",
                            tid, parent=did)
     old = _get(st.params[tid], pf)
+    first = key not in st.fixed
     if old != profile:
         st.set_value(tid, pf, profile)
+        _clamp_part(st, tid)  # 단면에 따라 바뀌는 제약 (휘는 각도 등)을 방향을 정하기 전에
         if tid not in st.inserted:
             st.info("passage_shape_matched", tid, f"{st.names[tid]} 단면을 {st.names[did]} 출입구와 같은 "
                                                   f"{_w(PROFILE_KO.get(profile, profile), '으로/로')} 바꿨습니다 (출입구 둘레에 틈이 남지 "
                                                   "않게)", **{"from": old, "to": profile})
     st.fixed[key] = profile
+    if first and st.templates[tid].features(st.params[tid]).extra.get("bent_needs_support"):
+        st.info("passage_shape_matched", tid, f"휜 {_w(st.names[tid], '은/는')} {st.names[did]} 출입구에 맞춘 "
+                                              f"{PROFILE_KO.get(profile, profile)} 단면이라 지붕 안쪽에 서포트를 넣어 출력해야 "
+                                              "합니다 (곧은 터널은 서포트가 필요 없습니다)", support=True)
 
 
 # ── 3. 나갈 출입구 ──
@@ -739,12 +926,64 @@ def _fill_exits(st: _State) -> None:
             continue
         if any(a.port is not None and st.free(pid, n) for n, a in anchors.items()):
             continue
-        order = [_OPPOSITE[n] for n in through if n in _OPPOSITE] + list(t.attach_order.get("passage", ()))
-        for n in dict.fromkeys(order):
-            if n in anchors and st.free(pid, n) and is_plain_wall(anchors[n]) and _open(st, pid, n):
-                st.info("exit_added", pid, f"{st.names[pid]}의 출입구를 통로로 이어 {SIDE_KO[st.side_of(pid, n)]}에 "
-                                           "드나들 출입구를 하나 더 냈습니다", anchor=n)
+        order = [n for n in dict.fromkeys([_OPPOSITE[n] for n in through if n in _OPPOSITE]
+                                          + list(t.attach_order.get("passage", ())))
+                 if n in anchors and is_plain_wall(anchors[n])]
+        done = False
+        for n in order:
+            if st.free(pid, n) and _open(st, pid, n):
+                _exit_added(st, pid, n)
+                done = True
                 break
+        if done:
+            continue
+        # 출입구를 낼 수 있는 벽을 받침·거치대가 차지했으면 그 부품을 다른 옆면으로 옮기고 출입구를 낸다
+        for n in order:
+            if _vacate(st, pid, n) and _open(st, pid, n):
+                _exit_added(st, pid, n)
+                done = True
+                break
+        if not done and order:
+            who = [st.names[j.child] for j in st.used(pid, order[0]) if j.parent == pid]
+            side = FACE_KO[st.side_of(pid, order[0])]
+            raise ResolveError(FACE_UNAVAILABLE, f"{st.label}: {st.names[pid]} {side}에 {_w('·'.join(who) or '다른 부품', '이/가')} "
+                                                 "있어 나갈 출입구를 낼 수 없습니다. 그 부품을 다른 옆면에 붙이세요", pid,
+                               anchor=order[0])
+
+
+def _exit_added(st: _State, pid: str, n: str) -> None:
+    st.info("exit_added", pid, f"{st.names[pid]}의 출입구를 통로로 이어 {SIDE_KO[st.side_of(pid, n)]}에 "
+                               "드나들 출입구를 하나 더 냈습니다", anchor=n)
+
+
+def _vacate(st: _State, pid: str, anchor: str) -> bool:
+    """pid 의 면 anchor 에 슬라이드로 끼운 부품을 모두 다른 빈 옆면으로 옮긴다 (안내 join_relocated). 다 옮겼으면 True.
+    통로·다른 결합이 쓰는 면이거나 옮길 빈 옆면이 없으면 아무것도 바꾸지 않고 False."""
+    used = st.used(pid, anchor)
+    if not used or any(j.parent != pid or j.mount != "slide" for j in used):
+        return False
+    anchors = st.anchors(pid)
+    access = set(st.templates[pid].features(st.params[pid]).access_sides)
+    moves: list[tuple[_Join, str]] = []
+    taken: set[str] = set()
+    for j in used:
+        tc = st.templates[j.child]
+        to = next((n for n in (st.anchor_at(pid, s) for s in ACCESSORY_SIDES)
+                   if n is not None and n != anchor and n not in taken and st.free(pid, n)
+                   and can_slide(anchors[n], tc, access)), None)
+        if to is None:
+            return False
+        moves.append((j, to))
+        taken.add(to)
+    for j, to in moves:
+        before = st.side_of(pid, anchor)
+        j.parent_anchor, j.shift = to, 0.0
+        after = st.side_of(pid, to)
+        st.faces[j.child] = after
+        st.info("join_relocated", j.child, f"{_w(st.names[j.child], '을/를')} {st.names[pid]} {SIDE_KO[before]} 대신 "
+                                           f"{SIDE_KO[after]}에 붙였습니다. {FACE_KO[before]}에는 드나들 출입구를 냅니다.",
+                parent=pid, **{"from": before, "to": after})
+    return True
 
 
 # ── 5. 한 면에 여럿 ──
@@ -842,6 +1081,7 @@ def derived_constraints(resolved: ResolvedAssembly, p: TemplateParams, ctx: Rule
     out = [redirect(c) for c in own]
     out += [redirect(c) for c in _plug_constraints(resolved, parts, q, names)]
     out += [redirect(c) for c in _face_constraints(resolved, parts, q, names, sibling_gap(ctx))]
+    out += [redirect(c) for c in _bed_constraints(resolved, parts, q, names, bed_xy(ctx))]
     out += _equalities(resolved, parts, p, names, levels)
     return out
 
@@ -933,6 +1173,33 @@ def _face_constraints(resolved: ResolvedAssembly, parts: Mapping[str, Template],
                         # 면이 hi 보다 낮으면 그만큼 높일 여유가 있다 (다른 자식의 최소 높이가 올릴 수 있게)
                         f"{pid}.{ff.height}", max=cur + (hi - h),
                         reason_ko=f"{names[j.child_id]}보다 높지 않도록 {names[pid]} 면 높이를 {hi:g}mm 이하로 맞췄습니다"))
+    return out
+
+
+def _bed_constraints(resolved: ResolvedAssembly, parts: Mapping[str, Template], q: Mapping[str, TemplateParams],
+                     names: Mapping[str, str], bed: float) -> list[ParamConstraint]:
+    """연결판을 붙인 부모 본체가 출력 공간에 들어가도록: 면 가로 파라미터마다 ≤ 출력 바닥 − 그 방향 연결판 두께.
+    (면을 넓히는 제약과 부딪히면 param_conflict 로 실패한다. 경고만 남기고 출력할 수 없는 본체를 내지 않게)"""
+    out: list[ParamConstraint] = []
+    hosts = list(dict.fromkeys(j.parent_id for j in resolved.joins if j.mount == "slide"))
+    for pid in hosts:
+        tp, qp = parts[pid], q[pid]
+        anchors = tp.anchors(qp)
+        normals = [np.asarray(anchors[j.parent_anchor].normal, dtype=float) for j in resolved.joins
+                   if j.mount == "slide" and j.parent_id == pid and j.parent_anchor in anchors]
+        done: set[str] = set()
+        for name, a in anchors.items():
+            if not _horizontal(a):
+                continue
+            ff = tp.face_fields(qp, name)
+            if not ff.width or ff.width in done or _num(_get(qp, ff.width)) is None:
+                continue
+            done.add(ff.width)
+            axis = _tangent(a)
+            n = sum(1 for v in normals if abs(float(np.dot(v, axis))) > 0.9)
+            out.append(ParamConstraint(
+                f"{pid}.{ff.width}", max=bed - n * PLATE_OUT_MM - BED_MARGIN_MM, source="printing",
+                reason_ko=f"부품을 끼운 {_w(names[pid], '이/가')} 프린터 출력 공간({bed:g}mm)에 들어가야 합니다"))
     return out
 
 

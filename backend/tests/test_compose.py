@@ -372,15 +372,17 @@ def test_side_width_grows_for_the_bottle_stand(dwarf) -> None:
 
 
 def test_siblings_share_a_side_with_passable_gap(dwarf) -> None:
+    # 출력 공간이 넉넉하면 (두 그릇 받침이 한 면에 들어가는 본체) 같은 면에 나란히
+    big = dataclasses.replace(dwarf, build_volume_mm=(400.0, 400.0, 400.0))
     res, params, _ = resolve_ok(request([("hide", "hideout", HIDE), ("bowl", "bowl_holder", BOWL),
                                          ("bowl2", "bowl_holder", BOWL)],
-                                        [("bowl", "hide", "right"), ("bowl2", "hide", "right")]), dwarf)
+                                        [("bowl", "hide", "right"), ("bowl2", "hide", "right")]), big)
     w = compose.face_width(P["bowl_holder"], params["bowl"], "back")
-    gap = compose.sibling_gap(dwarf)
-    assert gap > dwarf.size.gap_trap.passable_min_mm
+    gap = compose.sibling_gap(big)
+    assert gap > big.size.gap_trap.passable_min_mm
     # 바깥에서 볼 때 왼쪽부터 connections 순서로, 가운데 맞춤
     assert [j.shift for j in res.joins] == [pytest.approx(-(w + gap) / 2), pytest.approx((w + gap) / 2)]
-    _, p, _ = settle(res, params, dwarf)
+    _, p, _ = settle(res, params, big)
     assert p.hide.depth_mm == pytest.approx(2 * w + gap + 2 * compose.EDGE_MARGIN_MM)
 
 

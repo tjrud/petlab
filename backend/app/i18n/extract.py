@@ -111,9 +111,37 @@ def rule_strings() -> dict[str, list[str]]:
     return found
 
 
+def desc_strings() -> dict[str, list[str]]:
+    """자동 보정 문구가 쓰는 파라미터 이름 (autofix._desc: 필드 설명의 첫 문장, 단위 뺌). 템플릿의 모든 필드."""
+    from pydantic import BaseModel
+
+    from app.templates.registry import all_templates
+    from app.validation.autofix import _desc
+
+    def fields(cls: type[BaseModel], prefix: str = "") -> list[str]:
+        out: list[str] = []
+        for name, f in cls.model_fields.items():
+            a = f.annotation
+            if isinstance(a, type) and issubclass(a, BaseModel):
+                out += fields(a, f"{prefix}{name}.")
+            else:
+                out.append(prefix + name)
+        return out
+
+    found: dict[str, list[str]] = {}
+    for t in all_templates():
+        if t.key == "assembly":
+            continue
+        for name in fields(t.Params):
+            d = _desc(t.Params, name)
+            if HANGUL.search(d):
+                found.setdefault(d, []).append(f"{t.key}.{name}")
+    return found
+
+
 def all_strings() -> dict[str, list[str]]:
     out = code_strings()
-    for k, v in rule_strings().items():
+    for k, v in [*rule_strings().items(), *desc_strings().items()]:
         out.setdefault(k, []).extend(v)
     return out
 

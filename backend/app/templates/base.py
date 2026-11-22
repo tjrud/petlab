@@ -205,6 +205,9 @@ class RuleContext:
     printing_max_overhang_deg: float | None = None
     # 장식의 최소 형상 크기(printing.yaml min_feature_mm). None 이면 장식을 적용하지 않는다
     min_feature_mm: float | None = None
+    # 기준 프린터 출력 공간 (printing.yaml build_volume_mm). 조립 항목이 따로 출력하는 본체가 들어가도록 면을 넓히는
+    # 한도로 쓴다. None 이면 220×220×250 으로 본다
+    build_volume_mm: tuple[float, float, float] | None = None
     # 어항: 구조물 최대 높이 (물 깊이 − 구조물 위 최소 물 깊이). 엔진이 새 설계를 보정할 때만 준다.
     # 높이를 이 안에 맞추려면 다른 값도 바꿔야 하는 템플릿(물속 동굴: 지붕 높이)이 그 값을 함께 조정할 때 쓴다
     height_limit_mm: float | None = None

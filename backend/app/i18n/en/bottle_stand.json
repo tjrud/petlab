@@ -17,5 +17,14 @@
  "넘어지지 않도록 바닥판 세로는 전체 높이({0}mm)의 절반 이상이고 컵 앞으로 {1}mm 이상 나와야 합니다": "So the stand does not tip over, the base plate depth must be at least half the total height ({0} mm) and extend at least {1} mm in front of the cup",
  "넘어지지 않도록 바닥판 가로는 전체 높이({0}mm)의 절반 이상이고 컵보다 넓어야 합니다": "So the stand does not tip over, the base plate width must be at least half the total height ({0} mm) and wider than the cup",
  "물병·마개와 컵 사이 틈새 mm (한쪽). 물병이 한쪽으로 밀려도 발가락이 끼지 않도록 종별 안전 틈새의 절반보다 작게": "Fit gap between the bottle or cap and the cup in mm (per side). Less than half the species' safe gap so toes cannot get caught even when the bottle is pushed to one side",
- "물병이 한쪽으로 밀려도 반대쪽 틈(틈새의 2배)이 {0}mm 를 넘지 않아야 발가락이 끼지 않습니다": "Even when the bottle is pushed to one side, the gap on the other side (twice the clearance) must not exceed {0} mm so toes cannot get caught"
+ "물병이 한쪽으로 밀려도 반대쪽 틈(틈새의 2배)이 {0}mm 를 넘지 않아야 발가락이 끼지 않습니다": "Even when the bottle is pushed to one side, the gap on the other side (twice the clearance) must not exceed {0} mm so toes cannot get caught",
+ "물병 몸통 바깥 지름 (컵에 들어가는 부분의 가장 넓은 곳)": "bottle body outer diameter (widest point inside the cup)",
+ "물병 마개(급수관이 달린 뚜껑) 바깥 지름": "bottle cap outer diameter (lid with the drinking tube)",
+ "바닥에서 급수관 끝까지 높이 (동물이 서서 입이 닿는 높이)": "height from floor to drinking-tube tip (where a standing animal's mouth reaches)",
+ "컵 밑(마개가 나오는 구멍)에서 급수관 끝까지 세로 길이": "vertical length from cup bottom (cap hole) to drinking-tube tip",
+ "물병을 감싸는 컵 높이 (컵 밑 ~ 컵 입구)": "height of the cup around the bottle (cup bottom to rim)",
+ "바닥판 가로(X)": "base plate width (X)",
+ "바닥판 세로(Y)": "base plate depth (Y)",
+ "컵 벽 두께 (바닥판·뒤판은 이보다 두꺼울 수 있다)": "cup wall thickness (base and back plates may be thicker)",
+ "물병·마개와 컵 사이 틈새 (한쪽)": "gap between bottle/cap and cup (per side)"
 }

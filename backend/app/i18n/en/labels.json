@@ -23,5 +23,12 @@
  "지붕 경사(도)": "roof slope (degrees)",
  "{0} #{1}": "{0} #{1}",
  "[탐색]": "[Explore]",
- "(탐색)": "(Explore)"
+ "(탐색)": "(Explore)",
+ "단면 모양": "cross-section shape",
+ "휘는 모양 (bend_angle_deg > 0 일 때)": "bend style (when bend_angle_deg > 0)",
+ "층 수": "number of floors",
+ "2층 오르는 수단": "way up to the second floor",
+ "바깥 램프가 닿는 2층 출입구 면 (external_ramp)": "second-floor entrance side for the outside ramp (external_ramp)",
+ "출입구를 낼 면 (1~2개, 서로 다른 면)": "entrance sides (1–2, different sides)",
+ "터널 연결부(바깥 플랜지가 있는 아치)를 낼 면 (0~2개, 출입구와 다른 면)": "tunnel port sides (arch with an outside flange; 0–2, not on entrance sides)"
 }

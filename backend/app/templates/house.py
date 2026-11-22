@@ -371,8 +371,12 @@ class HouseTemplate(Template):
             port = "doors.width_mm"
         elif anchor in p.ports.sides:
             port = "ports.diameter_mm"
+        # 평지붕 1층 집처럼 연결판 높이가 외형 높이 그대로인 면은 높이 = 외형 높이 (램프 높이·받침 높이를 맞출 때
+        # 집 높이를 움직일 수 있게). 지붕·2층·창이 정하는 면은 두지 않는다
+        flat = a.mount is not None and abs(float(a.mount[2]) - p.height_mm) < 1e-6
         return FaceFields(
             width="depth_mm" if anchor in ("left", "right") else "width_mm",
+            height="height_mm" if flat else None,
             wall="walls.thickness_mm" if a.wall_mm is not None else None,
             port=port,
         )

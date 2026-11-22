@@ -235,7 +235,7 @@ def connection_text(t: Template, keys: tuple[str, ...]) -> str | None:
         ends = len(t.attach_order.get("passage", ()))
         parts.append(f"방의 출입구 면에 붙인다 (to=방, at=그 면). 끝은 {ends}개라 남은 끝(at=free_end)에 "
                      f"{_obj(_join_names(rooms) or '방')} 하나 이을 수 있다. 끝에 {_obj(t.display_name_ko)} 바로 잇지는 "
-                     "않는다")
+                     "않는다. 한 터널의 두 끝에는 같은 종류의 방(은신처끼리, 집끼리)만 잇는다")
     elif t.role == "accessory":
         text = "기준 구조물 옆면에 붙인다 (to=기준 구조물, at=right·left·back·front·auto). 다른 부품을 붙이지 않는다"
         if t.passes_access:

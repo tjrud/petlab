@@ -31,7 +31,9 @@ MIN_PARTS = 2
 MAX_PARTS = 8
 # 부품 id: 소문자로 시작, 소문자·숫자·밑줄 (최대 41자). model_ 로 시작하면 조립 파라미터 모델 필드와 겹친다
 PART_ID_MAX_LEN = 41
-PART_ID_PATTERN = r"^(?!model_)[a-z][a-z0-9_]{0,40}$"
+# body 는 기준 부품 묶음의 출력 파트 이름(파일 이름)이라 부품 id 로 쓰지 않는다
+RESERVED_PART_IDS = ("body",)
+PART_ID_PATTERN = r"^(?!model_)(?!body$)[a-z][a-z0-9_]{0,40}$"
 _PART_ID = re.compile(PART_ID_PATTERN)
 # "부품id.연결지점" (결합), "부품id.파라미터경로" (ties·fixed: 중첩 파라미터는 점 표기)
 _NAME = r"[a-z][a-z0-9_]{0,40}"
@@ -85,7 +87,7 @@ def tree_problems(ids: Sequence[str], edges: Sequence[tuple[str, str]]) -> list[
         out.append(f"조립 항목의 부품은 {MIN_PARTS}~{MAX_PARTS}개여야 합니다 (지금 {len(ids)}개)")
     bad = [i for i in ids if not _PART_ID.match(i)]
     if bad:
-        out.append(f"부품 id 는 소문자로 시작하는 소문자·숫자·밑줄(최대 {PART_ID_MAX_LEN}자, model_ 로 시작하지 않음)이어야 합니다: {bad}")
+        out.append(f"부품 id 는 소문자로 시작하는 소문자·숫자·밑줄(최대 {PART_ID_MAX_LEN}자, model_ 로 시작하지 않고 body 가 아님)이어야 합니다: {bad}")
     dup = sorted({i for i in ids if ids.count(i) > 1})
     if dup:
         out.append(f"부품 id 가 겹칩니다: {dup}")

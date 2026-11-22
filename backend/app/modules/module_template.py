@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import threading
 from abc import abstractmethod
 from collections.abc import Callable
@@ -121,6 +122,21 @@ class _Layout:
     owners: tuple[frozenset[str], ...] = ()  # 출력 파트마다 그 파트를 이루는 부품 id
 
 
+def unique_keys(parts: list[PrintPart]) -> list[PrintPart]:
+    """출력 파트 key(파일 이름)가 겹치지 않게: 앞서 나온 key 와 같으면 뒤에 _2, _3 … 을 붙인다 (겹치지 않으면 그대로).
+    부품 id 가 다른 부품의 "{id}_{파트}" 와 같을 때(id "bottle_base" 와 물병 거치대 bottle 의 받침판) 캐시·내려받기 파일이
+    서로 덮어쓰지 않게 한다."""
+    seen: set[str] = set()
+    out: list[PrintPart] = []
+    for pp in parts:
+        key, n = pp.key, 2
+        while key in seen:
+            key, n = f"{pp.key}_{n}", n + 1
+        seen.add(key)
+        out.append(pp if key == pp.key else dataclasses.replace(pp, key=key))
+    return out
+
+
 class AssemblyTemplate(Template):
     """부품 여러 개를 연결 지점끼리 이어 붙인 조립 템플릿의 기반 (인스턴스마다 key·Params 가 다르다).
 
@@ -181,12 +197,11 @@ class AssemblyTemplate(Template):
         return out + self._geometry_issues(p, ctx)
 
     def _gap_issues(self, p: TemplateParams, ctx: RuleContext) -> list[str]:
-        """서로 잇지 않은 부품의 마주 보는 면 사이 틈이 끼임 위험 구간이면 오류 (assembly.slot_gaps).
+        """부품의 마주 보는 면 사이 틈이 끼임 위험 구간이면 오류 (assembly.slot_gaps, 이은 쌍은 이은 자리만 뺀다).
         열린 모서리를 사이에 둔 부품처럼 마주 보는 면이 없는 자리는 세지 않는다."""
         parts, joins = self.expand(p)
-        solids = [q for q in parts if not q.template.cutter]
-        if len(solids) < 3:
-            return []  # 형상 부품이 둘이면 둘은 반드시 이어져 있다
+        if sum(1 for q in parts if not q.template.cutter) < 2:
+            return []
         meshes = self._cached("meshes", p, lambda: part_meshes(parts, joins))
         gt = ctx.size.gap_trap
         names = self.part_names(parts)
@@ -335,7 +350,7 @@ class AssemblyTemplate(Template):
         if not extras:
             body = built if built is not None else self.build(p)
             return [PrintPart("본체", body, self.print_rotation(p))]
-        return [PrintPart("본체", self._body(p), self.print_rotation(p)), *extras]
+        return unique_keys([PrintPart("본체", self._body(p), self.print_rotation(p)), *extras])
 
     def _body(self, p: TemplateParams):  # noqa: ANN202
         """부품마다 첫 출력 파트(본체)만 모아 조립한 형상. 따로 출력하는 파트가 없으면 build() 와 같다.
@@ -478,7 +493,7 @@ class AssemblyTemplate(Template):
                 name, key, solid, rot = e
                 out.append(PrintPart(name, solid, rot, key=key, thin_ok=tuple(thin.get(id(e), ()))))
                 owners.append(frozenset({q.id}))
-        return _Layout(tuple(out), plans, contacts, tuple(owners))
+        return _Layout(tuple(unique_keys(out)), plans, contacts, tuple(owners))
 
     @staticmethod
     def _plate_gaps(layout: _Layout, plan: SlidePlan, j: JoinSpec, parts: list[PartSpec],

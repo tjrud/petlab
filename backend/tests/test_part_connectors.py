@@ -172,7 +172,10 @@ def test_face_fields_per_side():
     assert HIDEOUT.face_fields(HideoutParams(entrance_count=2), "back").port == "entrance_diameter_mm"
     assert HIDEOUT.face_fields(HideoutParams(), "top") == FaceFields()
     hp = HouseParams()
-    assert HOUSE.face_fields(hp, "right") == FaceFields(width="depth_mm", wall="walls.thickness_mm")
+    # 평지붕 1층: 연결판 높이 = 외형 높이라 높이 파라미터가 있다. 박공지붕은 지붕이 정해 없다
+    assert HOUSE.face_fields(hp, "right") == FaceFields(width="depth_mm", height="height_mm", wall="walls.thickness_mm")
+    pitched = HouseParams(roof={"kind": "pitched", "pitch_deg": 50.0, "tip_deg": 50.0})
+    assert HOUSE.face_fields(pitched, "right") == FaceFields(width="depth_mm", wall="walls.thickness_mm")
     assert HOUSE.face_fields(hp, "front") == FaceFields(width="width_mm", wall="walls.thickness_mm", port="doors.width_mm")
     assert HOUSE.face_fields(_house("ports_right"), "right").port == "ports.diameter_mm"
     sp = SandBathParams()
@@ -331,8 +334,11 @@ def test_ramp_assembly_slope_fits_the_bed(rules):
     c = RuleContext(rules.size_rules("hamster", "syrian"), rules.min_wall_for("hamster", "syrian"))
     p = RampParams(height_mm=85, slope_deg=20)
     out = RAMP.assembly_constraints(p, c)
-    assert [(x.field, x.source) for x in out] == [("slope_deg", "printing")]
+    assert [(x.field, x.source) for x in out] == [("slope_deg", "printing"), ("height_mm", "printing")]
     assert out[0].min == pytest.approx(BED_SLOPE_PER_MM * 85 + BED_SLOPE_BASE_DEG)
+    # 그 경사가 종 최대 경사를 넘지 않는 높이까지만 (조립 항목에서는 부모 면 높이로 옮겨진다)
+    s = c.size
+    assert BED_SLOPE_PER_MM * out[1].max + BED_SLOPE_BASE_DEG <= s.max_ramp_angle_deg + 1e-9
     # 혼자 쓰는 램프는 이 제약이 없다
     assert all(x.field != "slope_deg" or x.min is None for x in RAMP.constraints(p, c))
     assert RAMP.joined_constraints(p, c, "landing") == []

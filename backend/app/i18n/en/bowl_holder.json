@@ -8,5 +8,10 @@
  "그릇이 한쪽으로 밀리면 반대쪽 틈이 틈새의 두 배가 됩니다. 그 틈이 {0}mm 를 넘으면 발가락이 낄 수 있습니다": "When the bowl is pushed to one side, the gap on the other side becomes twice the fit gap. If that gap is over {0} mm, toes can get caught",
  "시중 사기·스테인리스 밥그릇을 끼워 두는 받침. 3D 출력한 그릇은 적층 틈에 음식 찌꺼기가 끼어 위생에 좋지 않아 그릇은 사서 쓰고, 받침은 그릇이 엎어지거나 밀려나지 않게 잡아 준다. 뒷면이 평평해 은신처 벽 등에 붙일 수 있다. 곧은 그릇이나 위가 넓은 그릇용이다 (아래가 넓은 그릇은 턱 위쪽 틈이 넓어진다). 그릇 지름·높이, 틈새, 턱 높이, 벽 두께를 정한다.": "A holder for a store-bought ceramic or stainless-steel food bowl. 3D-printed bowls are unhygienic because food residue collects in the layer lines, so the bowl is bought and the holder keeps it from being tipped over or pushed around. The flat back can sit against a hideout wall. For straight-sided bowls or bowls that are wider at the top (with a bowl that is wider at the bottom, the gap at the top of the collar gets wider). Sets the bowl diameter and height, fit clearance, collar height and wall thickness.",
  "그릇 바깥 지름 mm. 턱 꼭대기 높이에서 잰 지름 (곧은 그릇은 테두리 지름). 그 아래에 이보다 넓은 곳이 있는 그릇(아래가 넓은 그릇)은 턱 위쪽 틈이 넓어져 쓸 수 없다": "Bowl outer diameter in mm, measured at the height of the collar top (for a straight-sided bowl, the rim diameter). A bowl that is wider anywhere below that height (wider at the bottom) cannot be used, because the gap at the top of the collar gets wider",
- "벽에 붙인 그릇 받침은 그릇과 벽 사이 홈이 깊지 않도록 턱을 그릇 테두리보다 {0}mm 낮은 높이까지 올립니다": "On a wall-mounted bowl holder, the rim is raised to {0} mm below the bowl's edge so the groove between the bowl and the wall stays shallow"
+ "벽에 붙인 그릇 받침은 그릇과 벽 사이 홈이 깊지 않도록 턱을 그릇 테두리보다 {0}mm 낮은 높이까지 올립니다": "On a wall-mounted bowl holder, the rim is raised to {0} mm below the bowl's edge so the groove between the bowl and the wall stays shallow",
+ "그릇 바깥 지름": "bowl outer diameter",
+ "그릇 높이 (바닥~테두리)": "bowl height (base to rim)",
+ "그릇과 받침 벽 사이 한쪽 틈새": "gap between bowl and holder wall (per side)",
+ "벽·바닥판 두께": "wall and floor plate thickness",
+ "그릇을 둘러싸는 턱 높이 (바닥판 위)": "collar height around the bowl (above the floor plate)"
 }

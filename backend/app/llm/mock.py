@@ -415,6 +415,7 @@ SIDE_NAMES_EN = {"right": "right side", "left": "left side", "front": "front", "
 # 면 낱말 (한국어·영어). both = 양옆(오른쪽·왼쪽), top = 위에 얹기 (아직 지원하지 않아 안내만 한다)
 SIDE_WORDS_KO: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("both", ("양옆", "양 옆", "양쪽", "양편", "좌우")),
+    ("frontback", ("앞뒤", "앞 뒤", "앞뒷면")),
     ("right", ("오른쪽", "오른편", "우측")),
     ("left", ("왼쪽", "왼편", "좌측")),
     ("front", ("앞쪽", "앞면", "앞편", "정면", "앞")),
@@ -425,6 +426,7 @@ SIDE_WORDS_KO: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 SIDE_WORDS_EN: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("both", ("both sides", "either side", "each side")),
+    ("frontback", ("front and back", "both ends")),
     ("right", ("right",)), ("left", ("left",)), ("front", ("front",)), ("back", ("back", "rear")),
     ("top", ("top",)), ("free_end", ("other end", "far end", "end")),
 )
@@ -476,8 +478,8 @@ _FRAG = {
     "LINKV": r"(?:이어|이은|이을|잇|연결|붙여|달아)",
     "LINKP": r"(?:이은|이어진|이어지는|연결된|연결한|연결되는|잇는|이어\s*놓은|이어준)",
     "PART": r"(?:달려\s*있는|붙어\s*있는|달린|붙은|붙인|딸린|있는|연결된|연결되는|이어진|이어지는|장착된|갖춘|곁들인)",
-    "CNT": r"(?:\s*(?P<cnt>두|둘|2)\s*(?:개|채)?)",
-    "ECNT": r"(?P<cnt>two|2|twin|a\s+pair\s+of|pair\s+of)\s+",
+    "CNT": r"(?:\s*(?P<cnt>두|둘|세|셋|네|넷|다섯|[2-9])\s*(?:개|채)?)",
+    "ECNT": r"(?P<cnt>two|three|four|five|[2-9]|twin|a\s+pair\s+of|pair\s+of)\s+",
 }
 
 
@@ -508,6 +510,7 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = tuple((kind, _expand(t)) fo
     ("twin", r"(?P<twin>쌍둥이\s*)?{R}{CNT}?(?:를|을|가|이|는|은)?{F}{T}(?:으로|로)(?:{F}{LINKV})?"),
     ("twin", r"(?P<cnt>두|2)\s*(?:개의|채의|개|채)?\s*{R}(?:를|을|가|이|는|은)?{F}{T}(?:으로|로)(?:{F}{LINKV})?"),
     ("twin", r"{T}(?:으로|로)\s*{LINKP}{F}(?P<twin>쌍둥이\s*)?{R}{CNT}?"),
+    ("twin", r"{T}(?:으로|로){F}{R}{CNT}(?:를|을)?{F}{LINKV}"),
     ("twin", r"(?:connect|join|link)\s+{ECNT}{R}\s+(?:together\s+)?(?:with|via|through|by|using)\s+{ART}{T}"),
     ("twin", r"{ECNT}{R}{FE}(?:joined|connected|linked|attached)\s+(?:together\s+)?(?:by|with|via|through|using)\s+{ART}{T}"),
     ("twin", r"{T}\s+(?:connecting|joining|linking)\s+{ECNT}{R}"),
@@ -517,6 +520,8 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = tuple((kind, _expand(t)) fo
     ("chain", r"(?:connect|join|link)\s+{ART}{AH}\s+(?:and|to|with)\s+{ART}{BH}\s+(?:with|via|through|by|using)\s+{ART}{T}"),
     ("chain", r"{AH}\s+and\s+{ART}{BH}\s+(?:joined|connected|linked)\s+(?:together\s+)?(?:by|with|via|through)\s+{ART}{T}"),
     # P4 터널로 방 잇기
+    # {R} 하나 더 터널로 이어 (주어 = 지금 말하는 기준 구조물)
+    ("tunnel", r"{R}(?:을|를)?\s*(?:하나|한\s*개|한\s*채)\s*더{F}{T}(?:으로|로){F}{LINKV}"),
     # (면을 말한 틀을 먼저: 면이 없는 틀이 왼쪽부터 찾으면 면 낱말을 사이 말로 넘긴다)
     ("tunnel", r"(?:{A}(?:의)?\s*)?{SIDE}{SPART}{F}{T}(?:으로|로){F}{R}(?:을|를|도|이|가)?{F}{LINKV}"),
     ("tunnel", r"(?:{A}(?:의)?\s*)?{SIDE}{SPART}{F}{T}(?:으로|로)\s*{LINKP}{F}{R}"),
@@ -529,6 +534,15 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = tuple((kind, _expand(t)) fo
     ("roof", r"{B}{FE}(?:up\s+)?to\s+the\s+(?:roof|top)\s+of\s+{ART}{A}"),
     # {a} with {b…} (on the SIDE): 영어 면 틀보다 먼저 ('a hideout with a bowl on the right')
     ("head", r"{A}{FE}\b(?:with|that\s+has|having)\s+{ART}{BL}(?:\s+(?:attached|on\s+it|on\s+the\s+side))?(?:\s+{ESIDE})?"),
+    # 영어 소유격: {b…} on the {a}'s SIDE (side) / the {a}'s SIDE (side) gets|has {b…}
+    ("side", (r"{BL}\s+(?:(?:attached|mounted|fixed|placed|clipped|slid|fitted)\s+)?(?:on|at|to|onto|against)\s+{ART}{A}['’]s\s+"
+              r"(?P<side>right|left|front|back|rear)(?:(?:\s+hand)?\s+sides?)?")),
+    ("side", (r"(?:on|at|to)?\s*{ART}{A}['’]s\s+(?P<side>right|left|front|back|rear)(?:(?:\s+hand)?\s+sides?)?,?\s+"
+              r"(?:gets|has|should\s+have|needs|with|holds)\s+{ART}{BL}")),
+    # 옮기기: {B}를 SIDE로 옮겨 / move the {b} to the SIDE (이미 붙은 부품의 면을 바꾼다)
+    ("move", r"{B}(?:을|를|은|는|도)?\s*{SIDE}{SPART}\s*(?:옮겨|옮기|옮길|이동|바꿔|바꾸)"),
+    ("move", (r"(?:move|shift|switch)\s+{ART}{B}\s+(?:over\s+)?to\s+(?:the\s+)?(?P<side>right|left|front|back|rear)"
+              r"(?:(?:\s+hand)?\s+sides?)?")),
     # P1 {A} SIDE에 {B…}
     ("side", r"{A}(?:의)?\s*{SIDE}{SPART}{F}{BL}"),
     # P1b {B…}를 {A} SIDE에
@@ -537,7 +551,8 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = tuple((kind, _expand(t)) fo
     ("side", r"{A}(?:에다가|에다|에는|에도|에)\s*{F}{BL}"),
     ("side", r"{BL}(?:을|를|은|는|도)\s*{A}(?:에다가|에다|에)\s*{F}{ATTV}"),
     # 영어: {b…} on the SIDE (of the {a}) / in front of / behind / next to / attach {b} to {a}
-    ("side", r"{BL}\s+(?:(?:attached|mounted|fixed|placed|clipped|slid|fitted)\s+)?{ESIDE}(?:\s+of\s+{ART}{A})?"),
+    ("side", (r"{BL}\s+(?:(?:attached|mounted|fixed|placed|clipped|slid|fitted)\s+)?{ESIDE}"
+              r"(?:\s+of\s+(?:{ART}{A}|the\s+(?P<ord>first|second|third|fourth|1st|2nd|3rd|4th)(?:\s+one)?))?")),
     ("side", r"{ESIDE}(?:\s+of\s+{ART}{A})?,?\s+(?:(?:put|add|place|attach|mount|there\s+is|have)\s+)?{ART}{BL}"),
     ("side", r"{BL}\s+(?P<side>in\s+front)\s+of\s+{ART}{A}"),
     ("side", r"{BL}\s+(?P<side>behind)\s+{ART}{A}"),
@@ -549,8 +564,31 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = tuple((kind, _expand(t)) fo
     ("head", r"{BL}(?:이|가|을|를|와|과|이랑|랑|하고)?\s*(?:{SIDE}{SPART}\s*)?{PART}\s*{F}{A}"),
     # P2 SIDE에 {B…} (부품 낱말 없이 면만: 지금 말하는 기준 구조물, 끝이면 마지막 터널)
     ("side", r"{SIDE}{SPART}{F}{BL}"),
+    # P2b {B…} 달아줘 (면 없이, 주어에 빈 면으로: 수정 요청 '터널 달아줘')
+    ("side", r"{BL}(?:을|를|도)?\s*(?:붙여|붙이고|달아|연결해|연결하고|끼워)"),
 ))
 _EXTRA_SIDES = {"in front": "front", "behind": "back", "next to": "auto", "beside": "auto"}
+# 두 면을 한 번에 말하는 낱말 → (면, 면)
+_PAIR_SIDES = {"both": ("right", "left"), "frontback": ("front", "back")}
+# 부품 낱말 뒤 개수 ('밥그릇 두 개', '터널 2개', 'two bowls' 는 앞에서)
+_COUNT_AFTER = re.compile(r"^\s*(?:을|를|이|가|도|은|는)?\s*(?P<n>두|둘|세|셋|네|넷|다섯|여섯|[2-9])\s*(?:개|채|대)(?:를|을|씩)?")
+_COUNT_BEFORE = re.compile(r"\b(?P<n>two|three|four|five|six|[2-9])\s+(?:(?:more|extra|small|big|large)\s+)?$")
+_COUNT_WORDS = {"두": 2, "둘": 2, "세": 3, "셋": 3, "네": 4, "넷": 4, "다섯": 5, "여섯": 6,
+                "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "twin": 2, "pair of": 2, "a pair of": 2}
+# 서수 ('두 번째 은신처', 'the second hideout'): 그 템플릿의 n 번째 부품
+_ORDINAL_BEFORE = re.compile(r"(?:(?P<ko>첫|두|세|네)\s*번째|(?P<ko2>첫|둘|셋|넷)째)\s*$"
+                             r"|\bthe\s+(?P<en>first|second|third|fourth|1st|2nd|3rd|4th)\s+$")
+_ORDINALS = {"첫": 1, "두": 2, "둘": 2, "세": 3, "셋": 3, "네": 4, "넷": 4, "first": 1, "second": 2, "third": 3,
+             "fourth": 4, "1st": 1, "2nd": 2, "3rd": 3, "4th": 4}
+# 한 조립 항목에서 터널로 잇는 방의 수 (방 n 개 + 터널 n−1 개 ≤ MAX_PARTS)
+MAX_CHAIN_ROOMS = 4
+
+
+def _count(word: str | None) -> int:
+    if not word:
+        return 2
+    w = re.sub(r"\s+", " ", word.strip())
+    return int(w) if w.isdigit() else _COUNT_WORDS.get(w, 2)
 
 
 @dataclass
@@ -562,6 +600,9 @@ class _Mention:
     clause: int = -1
     more: bool = False  # '하나 더'·'another'
     inst: str | None = None  # 가리키는 부품 id
+    ordinal: int | None = None  # '두 번째'·'the second': 그 템플릿의 n 번째 부품
+    count: int = 1  # '밥그릇 두 개'·'two bowls'
+    count_span: tuple[int, int] | None = None  # 개수 말의 원문 위치 (지운다)
 
 
 @dataclass
@@ -611,6 +652,7 @@ class _Composer:
         self.clause_text: list[str] = []
         self.orphans: dict[int, str | None] = {}  # 부품 낱말 없는 절 → 그 절의 주어
         self.decor_dropped = False  # 장식이 있던 직전 항목을 조립 항목에 넣었는지 (조립 항목에는 아직 장식이 없다)
+        self.linked_now: set[str] = set()  # 이번 요청에서 면을 정해 붙인 자식 부품
         self._seed(previous)
 
     # ── 부품 ──
@@ -670,6 +712,13 @@ class _Composer:
     def _resolve(self, m: _Mention, *, new: bool = False, distinct: tuple[str | None, ...] = ()) -> str:
         """부품 낱말이 가리키는 부품: 이미 정했으면 그대로, '하나 더'·new 면 새 부품(같은 템플릿 부품의 사본),
         아니면 같은 템플릿의 마지막 부품 (distinct 에 든 부품이면 새 부품)."""
+        if m.inst is None and m.ordinal is not None and not new:
+            same = sorted((p for p, part in self.parts.items() if part.key == m.key), key=lambda p: self.parts[p].order)
+            if m.ordinal <= len(same):
+                m.inst = same[m.ordinal - 1]
+                self._touch(m.inst)
+            elif same and m.ordinal == len(same) + 1:
+                m.inst = self._add(m.key, copy_of=same[-1])
         if m.inst is None:
             last = self.latest.get(m.key)
             if new or m.more or last is None or last in distinct:
@@ -781,7 +830,29 @@ class _Composer:
         self.edges.pop(child, None)
         self.edges[child] = (parent, at)
         self.active |= {child, parent}
+        self.linked_now.add(child)
         return True
+
+    def _again(self, m: _Mention, kid: str, parent: str, at: str) -> str:
+        """같은 요청에서 이미 다른 면을 정해 붙인 받침·터널을 다른 면에 다시 말하면 ('오른쪽에 밥그릇, 왼쪽에 밥그릇')
+        옮기지 않고 같은 값의 부품을 하나 더 만든다. 면 없이 붙였던 것(auto)에 면을 정하는 말은 그 부품의 면이다."""
+        old = self.edges.get(kid)
+        if (kid not in self.linked_now or old is None or old[1] in ("auto", "free_end") or old == (parent, at)
+                or at in ("auto", "free_end") or self._role(kid) in HOST_ROLES):
+            return kid
+        new = self._add(self.parts[kid].key, copy_of=kid)
+        self.parts[new].clauses = list(self.parts[kid].clauses)
+        m.inst = new
+        return new
+
+    def _copies(self, kid: str, n: int) -> list[str]:
+        """kid 와 같은 값의 부품을 n − 1 개 더 (개수 말)."""
+        out = [kid]
+        for _ in range(n - 1):
+            c = self._add(self.parts[kid].key, copy_of=kid)
+            self.parts[c].clauses = list(self.parts[kid].clauses)
+            out.append(c)
+        return out
 
     # ── 글 읽기 ──
 
@@ -895,6 +966,17 @@ class _Composer:
                 m.clause = ci
                 before, after = low[span[0]:m.start], low[m.end:span[1]]
                 m.more = bool(_MORE_AFTER.match(after) or _MORE_BEFORE.search(before))
+                o = _ORDINAL_BEFORE.search(before)
+                if o is not None:
+                    m.ordinal = _ORDINALS[o.group("ko") or o.group("ko2") or o.group("en")]
+                    m.more = m.more and not (o.group("en") and re.search(r"\bthe\s+\S+\s+$", before))
+                c = _COUNT_AFTER.match(after)
+                if c is not None:
+                    m.count = _count(c.group("n"))
+                    m.count_span = (m.end + c.start("n"), m.end + c.end())
+                elif (c := _COUNT_BEFORE.search(before)) is not None:
+                    m.count = _count(c.group("n"))
+                    m.count_span = (span[0] + c.start(), span[0] + c.end())
             if not ms:  # 부품 낱말 없는 절 ('환기구 8개로')은 그 때의 주어 부품 값에 쓴다 (주어가 아직 없으면 다음 주어)
                 self.orphans[ci] = self.subject
                 continue
@@ -981,13 +1063,28 @@ class _Composer:
                 self._note("터널 끝에는 은신처·집 같은 방만 이을 수 있어 따로 두었습니다.",
                            "Only rooms such as a hideout or house can sit at a tunnel end, so the parts stand on their own.")
                 return False
+        if side in _PAIR_SIDES and rel.kind not in ("side", "head"):
+            side = _PAIR_SIDES[side][0]
         if rel.kind == "twin":
             r, t = get("r"), get("t")
+            n = _count(g.get("cnt"))
+            if n > MAX_CHAIN_ROOMS:
+                self._note(f"터널로 잇는 방은 한 구조물에 {MAX_CHAIN_ROOMS}개까지라 {MAX_CHAIN_ROOMS}개만 이었습니다.",
+                           f"One structure can link at most {MAX_CHAIN_ROOMS} rooms with tunnels, so I linked "
+                           f"{MAX_CHAIN_ROOMS}.")
+                n = MAX_CHAIN_ROOMS
             a = self._resolve(r)
             tube = self._resolve(t, new=True)
-            b = self._add(r.key, copy_of=a)
-            self.parts[b].clauses.append(r.clause)
-            ok = self.link(tube, a, "auto") and self.link(b, tube, "free_end")
+            ok = True
+            prev = a
+            for k in range(n - 1):
+                if k > 0:
+                    tube = self._add(t.key, copy_of=tube)
+                    self.parts[tube].clauses.append(t.clause)
+                b = self._add(r.key, copy_of=a)
+                self.parts[b].clauses.append(r.clause)
+                ok = self.link(tube, prev, "auto") and self.link(b, tube, "free_end") and ok
+                prev = b
         elif rel.kind == "chain":
             a = self._resolve(get("a"))
             tube = self._resolve(get("t"), new=True)
@@ -1013,6 +1110,15 @@ class _Composer:
                 ok = self.link(tube, room, side or "auto")  # 이을 기준이 없으면 그 방에 터널을 단다
             else:
                 ok = self.link(tube, parent, side or "auto") and self.link(room, tube, "free_end")
+        elif rel.kind == "move":
+            b = get("b")
+            kid = self._resolve(b)
+            old = self.edges.get(kid)
+            if old is None or side in (None, "top", "free_end"):
+                return False
+            if side in _PAIR_SIDES:
+                side = _PAIR_SIDES[side][0]
+            ok = self.link(kid, old[0], side)
         elif rel.kind in ("side", "head", "roof"):
             children = [mentions[i] for i in g["bl"]] or ([get("b")] if "b" in g else [])
             if rel.kind == "head":
@@ -1037,6 +1143,13 @@ class _Composer:
                         return False
                     if any(primitives()[c.key].role in HOST_ROLES and not c.more for c in children):
                         return False
+                if parent is not None and g.get("ord") and side != "free_end":
+                    # 'on the right of the first (one)': 주어와 같은 템플릿의 n 번째 부품
+                    same = sorted((p for p, part in self.parts.items() if part.key == self.parts[parent].key),
+                                  key=lambda p: self.parts[p].order)
+                    k = _ORDINALS[g["ord"]]
+                    if k <= len(same):
+                        parent = same[k - 1]
                 if parent is None:
                     return False
                 # 터널 끝에 다는 방은 그 터널이 달린 방과 다른 부품이다 ("집 오른쪽에 터널 달고 그 끝에 은신처")
@@ -1044,14 +1157,27 @@ class _Composer:
                 kids = [self._resolve(c, distinct=above) for c in children]
             if rel.kind == "roof":
                 side = "auto" if self.parts[kids[0]].key == "ramp" else "top"
+            # 개수 말 ('밥그릇 두 개'): 같은 값의 부품을 그만큼
+            if rel.kind != "roof":
+                more_kids: list[str] = []
+                for c, kid in zip(children, kids):
+                    n = c.count if self._role(kid) not in HOST_ROLES else 1
+                    if n > 1 and c.count_span is not None:
+                        self.blank.append(c.count_span)
+                    more_kids += self._copies(kid, n) if n > 1 else [kid]
+                kids = more_kids
             sides = [side or "auto"] * len(kids)
-            if side == "both":
+            if side in _PAIR_SIDES:
                 if len(kids) == 1:
                     copy = self._add(self.parts[kids[0]].key, copy_of=kids[0])
                     self.parts[copy].clauses += self.parts[kids[0]].clauses
                     kids.append(copy)
-                sides = ["right", "left"] + ["auto"] * (len(kids) - 2)
+                sides = list(_PAIR_SIDES[side]) + ["auto"] * (len(kids) - 2)
+            by_kid = dict(zip(kids, children))
             for kid, at in zip(kids, sides):
+                m0 = by_kid.get(kid)
+                if m0 is not None and rel.kind == "side":
+                    kid = self._again(m0, kid, parent, at)
                 ok = self.link(kid, parent, at) or ok
         return ok
 
@@ -1120,9 +1246,71 @@ def _strip_locatives(text: str) -> str:
                   lambda m: " " * len(m.group(0)), out, flags=re.IGNORECASE)
 
 
-def _remove_parts(it: dict, keys: set[str], en: bool = False) -> dict | None:
-    """조립 항목에서 keys 템플릿 부품과 그 아래 부품을 뺀다. 뿌리가 빠지면 None, 하나만 남으면 일반 항목."""
-    drop = {p["id"] for p in it["parts"] if p["template"] in keys}
+_REMOVE_VERB = re.compile(r"빼|삭제|없애|제거|\b(?:remove|delete|take\s+(?:out|away)|get\s+rid\s+of|drop|without)\b",
+                          re.IGNORECASE)
+_REMOVE_CUT = re.compile(r"[,，;.!?\n]+|\s*그리고\s*|\s+and\s+|\s+then\s+|(?<=고)\s+")
+# 빼는 부품 낱말 뒤의 '하나'·'한 개' / 앞의 'one' (그 템플릿 부품을 모두가 아니라 하나만 뺀다)
+_ONE_AFTER = re.compile(r"^\s*(?:을|를|만|도)?\s*(?:하나|한\s*개|1\s*개)")
+_ONE_BEFORE = re.compile(r"\b(?:one|a\s+single)\s+(?:of\s+the\s+)?$")
+
+
+def _split_remove(text: str) -> tuple[str, str]:
+    """수정 요청을 절로 나눠 (빼는 말이 있는 절, 나머지 절) 글로."""
+    parts = [c for c in _REMOVE_CUT.split(text) if c and c.strip()]
+    rm = [c for c in parts if _REMOVE_VERB.search(c)]
+    keep = [c for c in parts if not _REMOVE_VERB.search(c)]
+    return (" ".join(rm) or text), " ".join(keep)
+
+
+def _single_keys(text: str, keys: list[str]) -> set[str]:
+    """'물병 하나 빼줘'·'remove one bottle': 하나만 빼는 템플릿."""
+    low = _en(text)
+    out: set[str] = set()
+    for key in keys:
+        for w in TEMPLATE_KEYWORDS.get(key, ()):
+            for m in re.finditer(re.escape(w), text):
+                if _ONE_AFTER.match(text[m.end():]):
+                    out.add(key)
+        rx = TEMPLATE_KEYWORDS_EN.get(key)
+        if rx is not None:
+            for m in rx.finditer(low):
+                if _ONE_BEFORE.search(low[:m.start()]):
+                    out.add(key)
+    return out
+
+
+def _remove_items(items: list[dict], keys: set[str], single: set[str], en: bool) -> list[dict]:
+    """keys 템플릿 부품(과 그 아래 부품)을 뺀다. single 에 든 템플릿은 마지막 부품 하나만."""
+    only: set[tuple[int, str]] = set()  # (항목 번호, 부품 id): single 템플릿에서 뺄 하나
+    for key in single:
+        for idx in range(len(items) - 1, -1, -1):
+            it = items[idx]
+            if it["template"] == ASSEMBLY_KEY:
+                ids = [p["id"] for p in it["parts"] if p["template"] == key]
+                if ids:
+                    only.add((idx, ids[-1]))
+                    break
+            elif it["template"] == key:
+                only.add((idx, ""))
+                break
+    out = []
+    for idx, it in enumerate(items):
+        if it["template"] == ASSEMBLY_KEY:
+            ids = {pid for i, pid in only if i == idx}
+            rest = _remove_parts(it, keys - single, en, ids=ids)
+            if rest is not None:
+                out.append(rest)
+        elif it["template"] in single:
+            if (idx, "") not in only:
+                out.append(it)
+        elif it["template"] not in keys:
+            out.append(it)
+    return out
+
+
+def _remove_parts(it: dict, keys: set[str], en: bool = False, ids: set[str] | None = None) -> dict | None:
+    """조립 항목에서 keys 템플릿 부품(과 ids 부품)과 그 아래 부품을 뺀다. 뿌리가 빠지면 None, 하나만 남으면 일반 항목."""
+    drop = {p["id"] for p in it["parts"] if p["template"] in keys or p["id"] in (ids or set())}
     changed = True
     while changed:
         changed = False
@@ -1218,8 +1406,13 @@ class MockInterpreter:
             items = kept
         low = _en(text)
         removing = req.previous is not None and (any(w in text for w in REMOVE) or bool(REMOVE_EN.search(low)))
-        remove_keys = [k for k in _find_templates(_strip_locatives(text), aquarium=aquarium) if k in registry] \
+        # 빼는 말은 그 절에만: '물병 빼고 터널 달아줘' 는 물병을 빼고 나머지 절(터널 달기)은 보통 수정으로 읽는다
+        remove_text, keep_text = _split_remove(text) if removing else (text, "")
+        remove_keys = [k for k in _find_templates(_strip_locatives(remove_text), aquarium=aquarium) if k in registry] \
             if removing else []
+        if remove_keys and keep_text.strip():
+            items = _remove_items(items, set(remove_keys), _single_keys(remove_text, remove_keys), en)
+            text, low, remove_keys = keep_text, _en(keep_text), []
 
         # 조립 문법: 붙이기·달기·잇기를 찾아 조립 항목으로 묶고, 쓴 글 조각은 지운다 (빼기 요청에는 쓰지 않는다)
         composer = None
@@ -1251,19 +1444,11 @@ class MockInterpreter:
         factor = _scale_factor(text)
 
         if remove_keys:
-            keys = set(remove_keys)
-            out = []
-            for it in items:
-                if it["template"] == ASSEMBLY_KEY:
-                    rest = _remove_parts(it, keys, en)
-                    if rest is not None:
-                        out.append(rest)
-                elif it["template"] not in keys:
-                    out.append(it)
-            items = out
+            items = _remove_items(items, set(remove_keys), _single_keys(remove_text, remove_keys), en)
             requested = []
         elif composer is not None:
             items = self._compose_items(composer, items, req, ctx, factor, zone, grouped, attach_field)
+            notes += [n for n in composer.notes if n not in notes]  # 묶음을 나누며 더한 안내
 
         if req.previous is not None and not remove_keys:
             if any(w in text for w in ADD) or ADD_EN.search(low):
@@ -1440,6 +1625,18 @@ class MockInterpreter:
                     "placement": placement, "reason_ko": reason}
             problems = connection_problems([(ids[p], comp.parts[p].key) for p in group], [Connection(**c) for c in conns])
             if problems:  # 연결 표준 검사를 빠져나간 경우: 부품을 따로 놓는다 (실제 LLM 이면 재시도할 오류)
+                listed = ", ".join(dict.fromkeys(comp._name(p) for p in group))
+                if any("단면 모양이 달라" in x for x in problems):
+                    comp._note(f"집과 은신처는 출입구 모양이 달라 터널 하나로 이을 수 없어 따로 두었습니다 ({listed}).",
+                               f"A house and a hideout have different door shapes and can't share one tunnel, so the "
+                               f"parts stand on their own ({listed.lower()}).")
+                elif any("출입구가 없어" in x for x in problems):
+                    comp._note(f"출입구가 없는 구조물에는 터널이나 방을 이을 수 없어 따로 두었습니다 ({listed}).",
+                               f"A tunnel or room can't join a structure without a doorway, so the parts stand on their "
+                               f"own ({listed.lower()}).")
+                else:
+                    comp._note(f"이을 수 없는 연결이라 부품을 따로 두었습니다 ({listed}).",
+                               f"Those parts can't be joined that way, so they stand on their own ({listed.lower()}).")
                 return {"_split": [{"template": comp.parts[p].key, "params": params[p], "placement": dict(placement),
                                     "reason_ko": reason} for p in group]}
             return item

@@ -584,7 +584,12 @@ def test_plug_each_tunnel_shape(rules, shape, bend):
                 {"id": "tube", "template": "tunnel", "params": _tunnel(shape, bend_angle_deg=bend)}],
                [{"parent": "h.right", "child": "tube.end_b", "passage": True, "mount": "plug"}])
     p = t.Params()
-    assert t.rule_issues(p, dwarf(rules)) == []
+    issues = t.rule_issues(p, dwarf(rules))
+    if bend == 0:
+        assert issues == []
+    else:
+        # 90° 휜 터널 안쪽과 은신처 옆벽 사이 주머니는 끼임 틈이다 (slot_gaps 는 이은 쌍도 이은 자리만 빼고 본다)
+        assert issues and all("끼임 위험" in m for m in issues), issues
     m = part_to_mesh(t.build(p))
     assert mesh_health(m).ok and m.body_count == 1
     _check_tunnel_printable(t, p, rules, overhang=not (shape in NEEDS_STANDING and bend > 0))

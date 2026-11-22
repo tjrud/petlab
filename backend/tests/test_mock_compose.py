@@ -452,3 +452,77 @@ def test_decoration_is_left_out_of_assemblies_with_a_note(rules):
     assert shape(spec) == ["hide bowl | bowl>hide.auto"]
     assert any("장식" in n for n in spec.notes_ko)
     assert interpret(rules, "벌집 무늬 은신처").items[0].decor.pattern == "honeycomb"  # 따로 놓는 은신처는 예전 그대로
+
+
+# ── 리뷰에서 찾은 해석 문제 (회귀) ──
+
+
+@pytest.mark.parametrize("prompt,expected", [
+    # 같은 받침·터널을 다른 면에 다시 말하면 하나 더 (앞 요청을 옮기지 않는다)
+    ("은신처 오른쪽에 밥그릇, 왼쪽에 밥그릇", ["hide bowl bowl2 | bowl>hide.right bowl2>hide.left"]),
+    ("은신처 앞에 터널, 뒤에 터널", ["hide tube tube2 | tube>hide.front tube2>hide.back"]),
+    ("은신처 앞에 터널 달고 뒤에도 터널 달아줘", ["hide tube tube2 | tube>hide.front tube2>hide.back"]),
+    ("은신처 오른쪽에 물병, 왼쪽에도 물병", ["hide bottle bottle2 | bottle>hide.right bottle2>hide.left"]),
+    # 터널로 방 여러 개
+    ("터널로 은신처 두 개 연결해줘", ["hide tube hide2 | tube>hide.auto hide2>tube.free_end"]),
+    ("터널로 은신처 두 개 이어줘", ["hide tube hide2 | tube>hide.auto hide2>tube.free_end"]),
+    ("은신처 3개를 터널로 이어줘",
+     ["hide tube hide2 tube2 hide3 | tube>hide.auto hide2>tube.free_end tube2>hide2.auto hide3>tube2.free_end"]),
+    ("터널로 이은 은신처 3개",
+     ["hide tube hide2 tube2 hide3 | tube>hide.auto hide2>tube.free_end tube2>hide2.auto hide3>tube2.free_end"]),
+    # 개수 말
+    ("은신처 오른쪽에 밥그릇 두 개", ["hide bowl bowl2 | bowl>hide.right bowl2>hide.right"]),
+    ("은신처에 터널 두 개 달아줘", ["hide tube tube2 | tube>hide.auto tube2>hide.auto"]),
+    # 앞뒤
+    ("은신처 앞뒤로 터널 연결", ["hide tube tube2 | tube>hide.front tube2>hide.back"]),
+])
+def test_review_korean_phrasings(rules, prompt, expected):
+    assert shape(interpret(rules, prompt)) == expected
+
+
+def test_review_too_many_rooms_in_a_tunnel_chain_gets_a_note(rules):
+    spec = interpret(rules, "은신처 다섯 개를 터널로 이어줘")
+    assert len(spec.items[0].parts) == 7  # 방 4 + 터널 3
+    assert any("4개까지" in n for n in spec.notes_ko)
+
+
+@pytest.mark.parametrize("prompt,expected", [
+    ("three hideouts connected by tunnels",
+     ["hide tube hide2 tube2 hide3 | tube>hide.auto hide2>tube.free_end tube2>hide2.auto hide3>tube2.free_end"]),
+    ("put a bowl on the hideout's right side", ["hide bowl | bowl>hide.right"]),
+    ("a bowl on the hideout's left side", ["hide bowl | bowl>hide.left"]),
+    ("the hideout's right side gets a bowl", ["hide bowl | bowl>hide.right"]),
+    ("two hideouts connected by a tunnel with a bowl on the right of the first",
+     ["hide tube bowl hide2 | tube>hide.auto bowl>hide.right hide2>tube.free_end"]),
+])
+def test_review_english_phrasings(rules, prompt, expected):
+    assert shape(interpret(rules, prompt, language="en")) == expected
+
+
+@pytest.mark.parametrize("prompt,needle", [
+    ("2층 집 앞에 터널로 은신처 이어줘", "출입구 모양이 달라"),
+    ("모래목욕통 앞에 터널 연결", "출입구가 없는"),
+])
+def test_review_joins_the_engine_rejects_are_split_with_a_note(rules, prompt, needle):
+    spec = interpret(rules, prompt)
+    assert all(it.template != "assembly" for it in spec.items)
+    assert any(needle in n for n in spec.notes_ko)
+
+
+@pytest.mark.parametrize("prompts,expected,lang", [
+    (["은신처 두 개를 터널로 이어줘", "두 번째 은신처 오른쪽에 밥그릇 달아줘"],
+     ["hide tube hide2 bowl | tube>hide.auto hide2>tube.free_end bowl>hide2.right"], "ko"),
+    (["밥그릇 달린 은신처", "밥그릇을 왼쪽으로 옮겨줘"], ["hide bowl | bowl>hide.left"], "ko"),
+    (["a hideout with a bowl on the right", "move the bowl to the left"], ["hide bowl | bowl>hide.left"], "en"),
+    (["은신처 오른쪽에 밥그릇, 왼쪽에 물병 달아줘", "물병 빼고 터널 달아줘"],
+     ["hide bowl tube | bowl>hide.right tube>hide.auto"], "ko"),
+    (["밥그릇 달린 은신처", "은신처 하나 더 터널로 이어줘"],
+     ["hide bowl tube hide2 | bowl>hide.auto tube>hide.auto hide2>tube.free_end"], "ko"),
+    (["은신처 양옆에 물병", "물병 하나 빼줘"], ["hide bottle | bottle>hide.right"], "ko"),
+    (["은신처 양옆에 물병", "물병 빼줘"], ["hideout"], "ko"),
+])
+def test_review_revisions(rules, prompts, expected, lang):
+    spec = _revise(rules, prompts, language=lang)
+    assert shape(spec) == expected
+    if prompts[-1] in ("밥그릇을 왼쪽으로 옮겨줘", "move the bowl to the left"):
+        assert spec.items[0].placement.zone == "auto"  # 구조물 전체를 케이지 왼쪽으로 옮기지 않는다
