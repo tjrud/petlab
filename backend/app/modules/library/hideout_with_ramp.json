@@ -4,9 +4,9 @@
   "name_en": "Hideout with a roof ramp",
   "description_ko": "오른쪽 옆면에 지붕으로 올라가는 경사로(또는 계단)가 붙은 은신처. 경사로는 따로 출력해 은신처 옆면의 연결판에 위에서 밀어 끼우고, 꼭대기 발판이 지붕과 같은 높이라 지붕 위를 전망대로 쓴다. 지붕 환기구는 밟아도 발가락이 끼지 않게 작게 낸다.",
   "description_en": "A hideout with a ramp (or stairs) up to its roof on the right side. The ramp prints separately and slides down onto a plate on the hideout's side face; its top landing is level with the roof, so the roof becomes a lookout deck. The roof vents are kept small so toes don't catch when walking over them.",
-  "keywords_ko": ["경사로 달린 은신처", "옥상 올라가는 은신처", "계단 달린 은신처", "램프 달린 은신처", "지붕에 올라가는 은신처", "지붕으로 올라가는 은신처", "옥상으로 올라가는 은신처", "경사로가 있는 은신처", "계단이 있는 은신처"],
-  "keywords_en": ["hideout with a ramp", "hideout with ramp", "hideout with stairs", "ramp to the roof", "ramp up to the roof", "rooftop hideout"],
-  "color": "#d4909f",
+  "keywords_ko": ["경사로 달린 은신처", "옥상 올라가는 은신처", "계단 달린 은신처", "램프 달린 은신처", "지붕에 올라가는 은신처", "지붕으로 올라가는 은신처", "옥상으로 올라가는 은신처", "경사로가 있는 은신처", "계단이 있는 은신처", "경사로가 달린 은신처", "경사로 붙은 은신처", "경사로가 붙은 은신처", "램프가 달린 은신처", "램프 붙은 은신처", "오르막 달린 은신처", "계단이 달린 은신처", "계단 붙은 은신처", "계단이 붙은 은신처", "은신처에 경사로 붙", "은신처에 경사로를 붙", "은신처에 계단 붙", "은신처에 계단을 붙", "경사로 달린 숨숨집", "계단 달린 숨숨집"],
+  "keywords_en": ["hideout with a ramp", "hideout with ramp", "hideout with stairs", "rooftop hideout", "hideout with a ramp to the roof", "hideout with stairs to the roof", "hideout with steps", "hideout with a roof ramp", "ramp up to the roof of the hideout", "ramp to the roof of the hideout", "stairs up to the roof of the hideout"],
+  "color": "#3f8fb0",
   "enclosure": true,
   "params": [
     {"name": "width_mm", "default": 130, "min": 80, "max": 200, "description_ko": "은신처 외형 가로(X) mm", "description_en": "Hideout outer width (X) mm"},
@@ -15,7 +15,7 @@
     {"name": "entrance_mm", "default": 70, "min": 40, "max": 90, "description_ko": "출입구 폭 mm. 종별 최소값 이상", "description_en": "Entrance width mm. At least the species minimum"},
     {"name": "entrance_count", "type": "int", "default": 1, "min": 1, "max": 2, "description_ko": "출입구 개수. 1=앞면만, 2=앞·뒷면. 여러 마리면 2", "description_en": "Number of entrances. 1 = front only, 2 = front and back. 2 for several animals"},
     {"name": "ramp_width_mm", "default": 80, "min": 50, "max": 150, "description_ko": "경사로 폭 mm. 몸이 지나갈 수 있는 폭 이상, 은신처 세로 이하", "description_en": "Ramp width mm. Wide enough to pass, at most the hideout depth"},
-    {"name": "slope_deg", "default": 26, "min": 15, "max": 30, "description_ko": "경사각(도). 계단이면 평균 경사", "description_en": "Slope angle (degrees). Average slope for stairs"},
+    {"name": "slope_deg", "default": 26, "min": 20, "max": 30, "description_ko": "경사각(도). 계단이면 평균 경사", "description_en": "Slope angle (degrees). Average slope for stairs"},
     {"name": "steps", "type": "int", "default": 0, "min": 0, "max": 8, "description_ko": "계단 단 수. 0 이면 미끄럼 방지 턱이 있는 경사로", "description_en": "Number of steps. 0 makes a ramp with anti-slip ridges"},
     {"name": "wall_mm", "default": 3, "min": 2, "max": 5, "description_ko": "벽 두께 mm", "description_en": "Wall thickness mm"}
   ],

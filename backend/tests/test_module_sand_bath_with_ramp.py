@@ -200,6 +200,9 @@ def test_text_is_translated(t):
     ("계단 달린 모래목욕통 만들어 주세요", "ko"),
     ("경사로가 달린 모래 목욕통을 오른쪽에 넣어 주세요", "ko"),
     ("a sand bath with a ramp, please", "en"),
+    ("램프 달린 모래 목욕통", "ko"),
+    ("모래목욕통 앞에 경사로를 붙여 주세요", "ko"),
+    ("a dust bath with stairs", "en"),
 ])
 @pytest.mark.parametrize("size", SIZES)
 def test_mock_interpreter_picks_the_module(rules, prompt, language, size):
@@ -214,6 +217,8 @@ def test_mock_interpreter_picks_the_module(rules, prompt, language, size):
     )
     spec = MockInterpreter().interpret(req).spec
     assert [it.template for it in spec.items] == [KEY]
+    # 계단을 말하면 계단 (램프와 같은 모의 해석 규칙), 아니면 미끄럼 방지 턱 경사로
+    assert (spec.items[0].params.steps > 0) == ("계단" in prompt or "stairs" in prompt)
     if "오른쪽" in prompt:
         assert spec.items[0].placement.zone == "right"
     res = run_engine(to_item_specs(spec), EngineContext(cage=cage, species="hamster", size=size, count=1, rules=rules))

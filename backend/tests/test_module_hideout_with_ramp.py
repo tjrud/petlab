@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-import numpy as np
 import pytest
 from build123d import Pos
 
@@ -99,7 +98,7 @@ def _cases(t):
     yield {n: d.min for n, d in sizes.items()}
     yield {n: d.max for n, d in sizes.items()}
     yield {"height_mm": 100}
-    yield {"slope_deg": 15}
+    yield {"slope_deg": 20}
     yield {"steps": 4, "height_mm": 100}
     yield {"entrance_mm": 90, "entrance_count": 2}
 
@@ -159,7 +158,7 @@ def test_ramp_follows_species_climb_rules(t, rules, size):
 
 def test_limits_keep_the_ramp_printable_and_on_the_face(t, rules):
     """높은 은신처는 경사를 올려 경사로를 프린터에 맞추고, 은신처 세로보다 넓은 경사로는 줄인다."""
-    p = fixed(t, rules, "syrian", height_mm=100, slope_deg=15)
+    p = fixed(t, rules, "syrian", height_mm=100, slope_deg=20)
     assert p.slope_deg > 29 and p.slope_deg <= 30
     p = fixed(t, rules, "syrian", depth_mm=90, ramp_width_mm=120)
     assert p.ramp_width_mm == pytest.approx(90)
@@ -182,8 +181,24 @@ def _req(rules, prompt: str, size: str = "syrian", language: str = "ko") -> Inte
     ("옥상으로 올라가는 경사로 달린 은신처 만들어줘", "ko"),
     ("지붕에 올라가는 은신처가 필요해요", "ko"),
     ("계단 달린 은신처", "ko"),
+    ("경사로가 붙은 은신처", "ko"),
+    ("은신처에 경사로 붙여줘", "ko"),
     ("A hideout with a ramp up to the roof please", "en"),
+    ("a hideout with stairs", "en"),
 ])
 def test_mock_interpreter_picks_the_module(rules, prompt, language):
     spec = MockInterpreter().interpret(_req(rules, prompt, language=language)).spec
     assert [it.template for it in spec.items] == [KEY]
+    # 계단을 말하면 계단, 아니면 미끄럼 방지 턱 경사로 (램프와 같은 규칙)
+    stairs = "계단" in prompt or "stairs" in prompt
+    assert (spec.items[0].params.steps > 0) == stairs
+
+
+@pytest.mark.parametrize("prompt,expected", [
+    # 은신처를 말하지 않는 '지붕까지 경사로'만으로 모듈을 고르면 남은 'hideout'·'house' 가 은신처를 하나 더 만든다
+    ("a ramp up to the roof of the hideout", ["hideout_with_ramp"]),
+    ("a two-story house with a ramp up to the roof", ["house", "ramp"]),
+])
+def test_mock_interpreter_makes_no_extra_hideout(rules, prompt, expected):
+    spec = MockInterpreter().interpret(_req(rules, prompt, language="en")).spec
+    assert [it.template for it in spec.items] == expected

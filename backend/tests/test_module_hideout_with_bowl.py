@@ -124,7 +124,7 @@ def test_print_parts_fit_and_slide_play(t, rules):
 
 @pytest.mark.parametrize("raw", [
     {"bowl_mm": 140, "wall_mm": 5, "depth_mm": 80, "width_mm": 90},   # 가장 큰 그릇·두꺼운 벽, 작은 은신처
-    {"bowl_mm": 60, "bowl_height_mm": 80, "width_mm": 200, "depth_mm": 200, "height_mm": 160},
+    {"bowl_mm": 60, "bowl_height_mm": 60, "width_mm": 200, "depth_mm": 200, "height_mm": 160},
 ])
 @pytest.mark.parametrize("size", SIZES)
 def test_extremes_are_fixed_and_printable(t, rules, size, raw):
@@ -195,3 +195,41 @@ def test_separate_hideout_and_bowl_stay_separate(rules):
         allowed_templates=rules.allowed_templates("hamster"),
     )
     assert [it.template for it in MockInterpreter().interpret(req).spec.items] == ["hideout", "bowl_holder"]
+
+
+@pytest.mark.parametrize("bowl_height", [35, 40, 60])
+def test_bowl_collar_leaves_only_a_shallow_groove_against_the_wall(t, bowl_height):
+    """사서 쓰는 그릇은 형상에 없어 그릇 바깥 벽과 은신처 벽 사이 홈(1 + 벽 + 3.7mm 폭)은 엔진이 재지 않는다.
+    받침 턱을 그릇 테두리 − 5mm 까지 올려 그 홈을 5mm 깊이로 줄인다."""
+    p = t.Params(bowl_height_mm=bowl_height)
+    parts, _ = t.expand(p)
+    q = next(x for x in parts if x.id == "bowl").params
+    assert q.bowl_height_mm - q.collar_height_mm <= 5.0 + 1e-9
+
+
+@pytest.mark.parametrize("size", SIZES)
+def test_low_hideout_is_raised_above_a_tall_bowl(t, rules, size):
+    """그릇 테두리가 지붕보다 높지 않게 은신처 높이 ≥ 그릇 높이 + 15 (limits)."""
+    c = ctx(rules, size)
+    p, _ = clamp_params(t, t.Params(height_mm=60, bowl_height_mm=60), c)
+    assert p.height_mm >= 75 and p.bowl_height_mm == 60
+    assert t.rule_issues(p, c) == []
+
+
+@pytest.mark.parametrize("prompt,language,expected", [
+    # 은신처를 말하지 않는 'bowl attached' 로 모듈을 고르면 은신처가 하나 더 생긴다
+    ("a ramp with a bowl attached", "en", ["ramp", "bowl_holder"]),
+    ("a bowl attached to the hideout", "en", [KEY]),
+    ("밥그릇 달린 숨숨집", "ko", [KEY]),
+    ("숨숨집에 밥그릇 붙여 주세요", "ko", [KEY]),
+])
+def test_mock_keywords_name_the_hideout(rules, prompt, language, expected):
+    req = InterpretRequest(
+        prompt=prompt,
+        habitat=HabitatInfo("hamster", "햄스터", "dwarf", 1, Cage(800, 500, 400)),
+        size_rules=rules.size_rules("hamster", "dwarf"),
+        min_wall_mm=rules.min_wall_for("hamster", "dwarf"),
+        language=language,
+        allowed_templates=rules.allowed_templates("hamster"),
+    )
+    assert [it.template for it in MockInterpreter().interpret(req).spec.items] == expected

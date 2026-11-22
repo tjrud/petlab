@@ -151,11 +151,11 @@ def test_print_parts_fit_and_slide_play(t, rules):
 
 @pytest.mark.parametrize("raw", [
     # 가장 큰 그릇·물병·높은 급수관, 두꺼운 벽, 작은 은신처 (물병 거치대가 가장 높다: 250mm)
-    {"width_mm": 90, "depth_mm": 80, "height_mm": 60, "entrance_mm": 100, "entrance_count": 2, "bowl_mm": 140,
-     "bowl_height_mm": 80, "bottle_mm": 80, "cap_mm": 20, "spout_height_mm": 80, "spout_drop_mm": 85,
+    {"width_mm": 90, "depth_mm": 100, "height_mm": 60, "entrance_mm": 100, "entrance_count": 2, "bowl_mm": 140,
+     "bowl_height_mm": 60, "bottle_mm": 80, "cap_mm": 20, "spout_height_mm": 80, "spout_drop_mm": 85,
      "holder_height_mm": 85, "wall_mm": 5},
     # 가장 작은 그릇·물병·낮은 급수관, 얇은 벽, 큰 은신처
-    {"width_mm": 200, "depth_mm": 200, "height_mm": 160, "entrance_mm": 40, "bowl_mm": 60, "bowl_height_mm": 35,
+    {"width_mm": 200, "depth_mm": 200, "height_mm": 110, "entrance_mm": 40, "bowl_mm": 60, "bowl_height_mm": 35,
      "bottle_mm": 45, "cap_mm": 60, "spout_height_mm": 30, "spout_drop_mm": 30, "holder_height_mm": 50, "wall_mm": 2},
 ])
 @pytest.mark.parametrize("size", SIZES)
@@ -251,10 +251,77 @@ def test_simpler_requests_are_not_taken(rules, prompt, language):
         assert keys == ["hideout_with_bowl"]
 
 
-def test_module_keywords_are_matched_before_the_bowl_module():
-    """모의 해석기는 모듈을 라이브러리 순서로 보며 먼저 찾은 모듈이 그 낱말을 지운다. "물병과 밥그릇이 달린 은신처" 에는
-    hideout_with_bowl 낱말("밥그릇이 달린 은신처")이 들어 있으므로 이 모듈이 먼저 찾아져야 한다."""
-    order = [k for k, _, _ in MODULE_KEYWORDS]
-    assert KEY in order
-    if "hideout_with_bowl" in order:
-        assert order.index(KEY) < order.index("hideout_with_bowl")
+@pytest.mark.parametrize("prompt,language", [
+    ("물병과 밥그릇이 달린 은신처", "ko"),
+    ("밥그릇하고 물병이 달린 은신처", "ko"),
+    ("밥그릇, 물병 달린 은신처", "ko"),
+    ("물통과 밥그릇이 달린 은신처", "ko"),
+    ("hideout with a bowl and a water bottle", "en"),
+    ("hideout with a drinker and a bowl", "en"),
+])
+def test_module_wins_over_one_attachment_modules_in_any_library_order(rules, monkeypatch, prompt, language):
+    """"물병과 밥그릇이 달린 은신처" 에는 hideout_with_bowl 낱말("밥그릇이 달린 은신처")도 들어 있다. 모의 해석기는 모든
+    모듈의 낱말 가운데 긴 것부터 고르므로 라이브러리(파일) 순서를 뒤집어도 이 모듈이 된다."""
+    from app.llm import mock
+
+    for order in (MODULE_KEYWORDS, list(reversed(MODULE_KEYWORDS))):
+        monkeypatch.setattr(mock, "MODULE_KEYWORDS", order)
+        assert [it.template for it in _interpret(rules, prompt, language=language).items] == [KEY], order[0][0]
+
+
+@pytest.mark.parametrize("prompt,expected", [
+    # 따로 놓는다는 요청은 붙인 모듈이 아니다 ("은신처에 …" 낱말은 '달·붙'까지 맞아야 한다)
+    ("은신처에 밥그릇과 물병을 따로 놓아 주세요", ["hideout", "bowl_holder", "bottle_stand"]),
+    ("I need a bowl and water bottle attached to the cage wall", ["bowl_holder", "bottle_stand"]),
+])
+def test_separate_or_wall_requests_are_not_taken(rules, prompt, expected):
+    language = "en" if prompt.isascii() else "ko"
+    assert [it.template for it in _interpret(rules, prompt, language=language).items] == expected
+
+
+@pytest.mark.parametrize("size", SIZES)
+def test_smallest_depth_keeps_the_bottle_stand_on_the_side_face(t, rules, size):
+    """물병 거치대 바닥판은 세로의 절반 + 50 이라 세로 100 미만이면 옆면 밖으로 나간다: 세로 최소값이 100 이다."""
+    assert next(d for d in t.defn.params if d.name == "depth_mm").min == 100
+    ectx = EngineContext(cage=Cage(1000, 600, 500), species="hamster", size=size, count=1, rules=rules)
+    res = run_engine([ItemSpec(template=KEY, params=t.Params(depth_mm=100, bowl_mm=60, width_mm=90).model_dump())], ectx)
+    assert not res.report.errors, [(i.code, i.message_ko) for i in res.report.errors]
+
+
+def test_shrinking_into_a_narrow_cage_keeps_the_design_valid(t, rules):
+    """좁은 케이지(세로 150)에서 공간 보정이 크기를 줄여도 물병 거치대 바닥판이 옆면 안에 남고, 저장한 설계를 다시
+    검증(revalidate)해도 오류가 없다."""
+    from app.services.engine import revalidate
+
+    ectx = EngineContext(cage=Cage(600, 150, 400), species="hamster", size="dwarf", count=1, rules=rules)
+    res = run_engine([ItemSpec(template=KEY, params=t.Params(bowl_mm=70).model_dump())], ectx)
+    p = res.items[0].params
+    assert p.depth_mm >= _parts(t, p)["bottle"].base_width_mm
+    assert not [i for i in revalidate(res.items, ectx).issues if i.severity == Severity.error]
+
+
+@pytest.mark.parametrize("size", SIZES)
+def test_tallest_hideout_is_no_taller_than_the_shortest_bottle_stand(t, rules, size):
+    """은신처가 물병 거치대보다 높으면 연결판이 거치대 높이에서 끝나 그 위로 물병(형상에 없음)과 은신처 벽 사이에 틈이
+    남는다: 은신처 높이 최대값에서 거치대를 가장 낮게 해도 연결판이 지붕까지 올라가고 틈이 없다."""
+    c = ctx(rules, size)
+    raw = {"height_mm": 110, "entrance_mm": 100, "wall_mm": 5, "spout_height_mm": 30, "spout_drop_mm": 30,
+           "holder_height_mm": 50}
+    p, _ = clamp_params(t, t.Params(**raw), c)
+    assert t.rule_issues(p, c) == []
+    assert total_height(_parts(t, p)["bottle"]) >= p.height_mm
+    layout = t._layout(p)
+    parts, joins = t.expand(p)
+    for ji, plan in layout.plans.items():
+        if joins[ji].child == "bottle":
+            assert plan.h == pytest.approx(p.height_mm)
+        assert t._plate_gaps(layout, plan, joins[ji], parts, joins) == ()
+
+
+@pytest.mark.parametrize("bowl_height", [35, 40, 60])
+def test_bowl_collar_leaves_only_a_shallow_groove_against_the_wall(t, bowl_height):
+    """사서 쓰는 그릇은 형상에 없어 그릇과 은신처 벽 사이 홈은 엔진이 재지 않는다: 받침 턱을 테두리 − 5mm 까지 올려
+    그 홈을 5mm 깊이로 줄이고, 은신처는 그릇보다 높다."""
+    p = t.Params(bowl_height_mm=bowl_height)
+    q = _parts(t, p)["bowl"]
+    assert q.bowl_height_mm - q.collar_height_mm <= 5.0 + 1e-9

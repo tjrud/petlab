@@ -97,6 +97,8 @@ export const CHOICE_LABELS: Record<string, Record<string, string>> = {
   },
   path: { arc: "한 방향 곡선", s_curve: "S자" },
   "roof.kind": { flat: "평 지붕", pitched: "경사 지붕", rounded: "둥근 지붕" },
+  // 조립 모듈 파라미터 (터널이 이어진 집의 지붕 모양)
+  roof: { flat: "평 지붕", pitched: "경사 지붕", rounded: "둥근 지붕" },
   "floors.climb": { internal_ramp: "내부 경사로", external_ramp: "바깥 램프" },
   "floors.exit_side": SIDE_LABELS,
   "doors.sides": SIDE_LABELS,

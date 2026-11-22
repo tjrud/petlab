@@ -26,8 +26,8 @@ from app.validation.checks import overhang_area
 
 KEY = "twin_hideouts"
 SIZES = ["dwarf", "syrian"]
-# 끼움 턱(1.5mm)이 갉음 기준 벽 두께보다 얇아 메시 두께 측정이 내는 경고 (엔진의 알려진 한계, app/modules/README.md)
-KNOWN_WARNINGS = {"wall_thin_measured"}
+# 끼움 턱(1.5mm)은 메시 두께 측정에서 빠지므로(PrintPart.thin_ok) 경고가 없어야 한다
+KNOWN_WARNINGS: set[str] = set()
 
 
 def _ctx(rules, size: str) -> RuleContext:
@@ -61,7 +61,7 @@ def test_definition_shares_hideout_params_and_plugs_both_ends():
     assert tube.params["shape"] == "round_arch" and tube.params["bend_angle_deg"] == 0
     assert tube.params["inner_diameter_mm"] == Bind(param="entrance_mm")
     assert [(j.parent, j.child, j.passage, j.mount) for j in m.joins] == [
-        ("a.front", "tube.end_b", True, "plug"), ("tube.end_a", "b.front", "into_child", "plug")]
+        ("a.front", "tube.end_b", True, "plug"), ("tube.end_a", "hideout_b.front", "into_child", "plug")]
     assert m.enclosure and m.height_param == "height_mm"
 
 
@@ -102,7 +102,7 @@ def test_print_parts_fit_the_printer_and_do_not_intersect(rules, size, end):
     assert t.rule_issues(p, _ctx(rules, size)) == []
     bed = sorted(rules.printing.build_volume_mm[:2])
     pps = t.print_parts(p)
-    assert [pp.key for pp in pps] == ["body", "tube", "b"]
+    assert [pp.key for pp in pps] == ["body", "tube", "hideout_b"]
     for pp in pps:
         pm = to_print_orientation(part_to_mesh(pp.part), pp.rotation)
         assert mesh_health(pm).ok and pm.body_count == 1, pp.key
@@ -119,7 +119,7 @@ def test_tunnel_plugs_into_both_hideouts_with_clearance(rules):
     parts, joins = t.expand(p)
     placed = place_parts(parts, joins)
     tube = pps["tube"]
-    for hideout, key in (("a", "body"), ("b", "b")):
+    for hideout, key in (("a", "body"), ("hideout_b", "hideout_b")):
         _, tt, u, _n = anchor_frame(placed, hideout, "front")
         for d in (tt, -tt, u):
             assert _volume(pps[key], Pos(*(d * 0.15)) * tube) < 1.0, (hideout, d)
@@ -144,6 +144,11 @@ def _mock(rules, prompt: str, size: str = "dwarf", language: str = "ko"):
     ("방 두 개 은신처가 있으면 좋겠어요", "ko"),
     ("Two hideouts connected by a tunnel, please", "en"),
     ("I'd like twin hideouts in the left corner", "en"),
+    # 모듈 이름 그대로: '터널' 이 남아 따로 터널이 하나 더 생기지 않는다
+    ("터널로 이은 쌍둥이 은신처", "ko"),
+    ("Twin hideouts joined by a tunnel", "en"),
+    ("은신처 두개를 터널로 이어줘", "ko"),
+    ("two hideouts connected with a tunnel", "en"),
 ])
 def test_mock_interpreter_reads_the_module(rules, prompt, language):
     assert KEY in rules.allowed_templates("hamster")

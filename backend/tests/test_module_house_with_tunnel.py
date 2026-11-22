@@ -51,14 +51,13 @@ def _volume(a, b) -> float:
 
 @pytest.mark.parametrize("size", HAMSTERS)
 def test_defaults_pass_the_engine(rules, size):
-    """넓은 케이지에 기본값으로 하나: 오류 없음. 경고는 끼움 턱(1.5mm)의 메시 두께 측정뿐이다 (README 의 알려진 한계)."""
+    """넓은 케이지에 기본값으로 하나: 오류·경고 없음 (끼움 턱 1.5mm 는 메시 두께 측정에서 빠진다, PrintPart.thin_ok)."""
     t = get_template(KEY)
     ectx = EngineContext(cage=Cage(1000, 600, 500), species="hamster", size=size, count=1, rules=rules)
     res = run_engine([ItemSpec(template=KEY, params=t.Params().model_dump())], ectx)
     assert not res.report.errors, [(i.code, i.message_ko) for i in res.report.errors]
     warnings = [i for i in res.report.issues if i.severity == Severity.warning]
-    assert all(i.code == "wall_thin_measured" and i.details.get("part") == "tube" for i in warnings), \
-        [(i.code, i.message_ko) for i in warnings]
+    assert not warnings, [(i.code, i.message_ko) for i in warnings]
     assert res.items and res.items[0].placement is not None
 
 
@@ -149,6 +148,10 @@ def test_tunnel_follows_the_species_entrance(rules, size):
     ("터널 달린 집을 왼쪽에 놓아 주세요", "ko"),
     ("터널이 이어진 집 하나 만들어 줘", "ko"),
     ("A house with a tunnel in the left corner, please", "en"),
+    ("터널이 붙은 집", "ko"),
+    ("터널 연결된 집 만들어 줘", "ko"),
+    # hideout_with_tunnel 의 'tunnel attached' 보다 긴 낱말이 이긴다
+    ("a house with a tunnel attached", "en"),
 ])
 @pytest.mark.parametrize("size", HAMSTERS)
 def test_mock_interpreter_picks_the_module(rules, prompt, language, size):
@@ -170,3 +173,24 @@ def test_hideout_keywords_still_pick_the_hideout_module(rules):
         allowed_templates=rules.allowed_templates("hamster"),
     )
     assert [it.template for it in MockInterpreter().interpret(req).spec.items] == ["hideout_with_tunnel"]
+
+
+@pytest.mark.parametrize("size", HAMSTERS)
+@pytest.mark.parametrize("cage_h", [230, 250])
+def test_defaults_fit_a_low_cage(rules, size, cage_h):
+    """기본값은 평 지붕 120mm: 깔짚을 깔아 높이가 250mm 쯤인 흔한 케이지에서도 오류가 없다
+    (경사 지붕은 190mm 안팎이 필요해 고를 때만 높이를 올린다)."""
+    t = get_template(KEY)
+    assert t.Params().roof == "flat" and t.Params().height_mm == 120
+    ectx = EngineContext(cage=Cage(1000, 500, cage_h), species="hamster", size=size, count=1, rules=rules)
+    res = run_engine([ItemSpec(template=KEY, params=t.Params().model_dump())], ectx)
+    assert not res.report.errors, [(i.code, i.message_ko) for i in res.report.errors]
+
+
+def test_pitched_roof_raises_the_height(rules):
+    from app.validation.autofix import clamp_params
+
+    t = get_template(KEY)
+    c = RuleContext(rules.size_rules("hamster", "syrian"), rules.min_wall_for("hamster", "syrian"), 1)
+    p, _ = clamp_params(t, t.Params(roof="pitched"), c)
+    assert p.height_mm > 180 and t.rule_issues(p, c) == []

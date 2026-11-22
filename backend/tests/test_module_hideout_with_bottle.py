@@ -128,6 +128,26 @@ def test_plate_ends_flush_with_roof_so_no_gap_above_it(t):
 
 
 @pytest.mark.parametrize("size", HAMSTERS)
+def test_tallest_hideout_is_no_taller_than_the_shortest_stand(t, rules, size):
+    """은신처가 거치대보다 높으면 연결판이 거치대 높이에서 끝나 그 위로 물병(형상에 없음)과 은신처 벽 사이에 12.7mm 틈이
+    남는다. 은신처 높이 최대값에서 거치대를 가장 낮게 해도 거치대가 지붕보다 높아 연결판이 지붕까지 올라가고 틈이 없다."""
+    c = rctx(rules, size)
+    raw = {"height_mm": 110, "spout_height_mm": 30, "spout_drop_mm": 40, "holder_height_mm": 45}
+    p, _ = clamp_params(t, t.Params(**raw), c)
+    assert p.height_mm == 110 and t.rule_issues(p, c) == []
+    parts, joins = t.expand(p)
+    stand = next(q for q in parts if q.id == "bottle").params
+    assert total_height(stand) > p.height_mm
+    layout = t._layout(p)
+    (ji, plan), = layout.plans.items()
+    assert plan.h == pytest.approx(p.height_mm)
+    assert t._plate_gaps(layout, plan, joins[ji], parts, joins) == ()
+    # 높이 최대값은 가장 넓은 출입구·두꺼운 벽도 받는다 (출입구 + 벽 두 겹 ≤ 높이)
+    widest = {d.name: d.max for d in t.defn.params if d.name in ("entrance_mm", "wall_mm")}
+    assert widest["entrance_mm"] + 2 * widest["wall_mm"] <= p.height_mm
+
+
+@pytest.mark.parametrize("size", HAMSTERS)
 def test_shallow_hideout_is_widened_to_fit_the_stand(t, rules, size):
     """은신처 세로가 거치대 바닥판 + 10mm 보다 작으면 자동 보정이 세로를 늘린다 (limits)."""
     c = rctx(rules, size)
@@ -155,6 +175,9 @@ def _mock(rules, prompt: str, size: str = "syrian", language: str = "ko"):
     ("급수기 붙은 은신처가 필요해요", "ko"),
     ("유리 수조라 물병 거치대가 붙은 은신처를 넣고 싶어요", "ko"),
     ("I'd like a hideout with a water bottle stand", "en"),
+    ("물통 달린 은신처", "ko"),
+    ("은신처에 물병 거치대를 붙여 주세요", "ko"),
+    ("물병 거치대가 붙은 숨숨집", "ko"),
 ])
 def test_mock_interpreter_reads_the_module(rules, prompt, language):
     assert KEY in rules.allowed_templates("hamster")
