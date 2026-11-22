@@ -1,5 +1,5 @@
 import { useT } from "@/i18n/client";
-import { describeDecor, flattenParams, formatParam, PARAM_LABELS, TEMPLATE_COLORS } from "@/lib/templates";
+import { describeDecor, flattenParams, formatParam, itemColor, paramLabel } from "@/lib/templates";
 import type { Item } from "@/lib/types";
 
 export default function ItemList({
@@ -36,7 +36,7 @@ export default function ItemList({
                   <span
                     aria-hidden
                     className="h-3 w-3 rounded-full"
-                    style={{ background: errorItems.has(it.index) ? "#e05252" : TEMPLATE_COLORS[it.template] }}
+                    style={{ background: errorItems.has(it.index) ? "#e05252" : itemColor(it) }}
                   />
                   <span className="font-semibold">{it.label_ko}</span>
                   <span className="ml-auto text-xs text-stone-500">
@@ -54,7 +54,7 @@ export default function ItemList({
                     <dl className="grid grid-cols-2 gap-x-3 gap-y-1">
                       {flattenParams(it.params).map(([k, v]) => (
                         <div key={k} className="flex justify-between gap-2">
-                          <dt className="text-stone-500">{PARAM_LABELS[k] ? t(PARAM_LABELS[k]) : k}</dt>
+                          <dt className="text-stone-500">{paramLabel(it, k, t)}</dt>
                           <dd className="font-medium">{formatParam(k, v, t)}</dd>
                         </div>
                       ))}

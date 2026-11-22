@@ -305,6 +305,17 @@ def _exportable(v: DesignVersion) -> bool:
     return v.passed and bool(v.items)
 
 
+def _module_display(key: str) -> dict:
+    """조립 모듈이면 파라미터 이름(설명 첫 문장, 단위 뺌)과 뷰어 색. 형상 커널을 불러오지 않는다."""
+    from app.modules.definition import library
+
+    for m in library():
+        if m.key == key:
+            labels = {p.name: p.description_ko.split(".")[0].replace(" mm", "").strip() for p in m.params}
+            return {"param_labels_ko": labels, "color": m.color}
+    return {}
+
+
 class DesignService:
     def __init__(self, rules: RuleBook, interpreter: Callable[[], Interpreter], mesh_dir: Path,
                  limits: DesignLimits | None = None):
@@ -684,6 +695,7 @@ class DesignService:
                 parts=[PartOut(**part) for part in _stored_parts(it)] or [PartOut(key="body", name_ko="본체",
                                                                                    size_mm=it["print_size_mm"])],
                 decor=it.get("decor"),
+                **_module_display(it["template"]),
             )
             for it in v.items
         ]

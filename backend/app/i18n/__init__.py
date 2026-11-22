@@ -217,6 +217,9 @@ def _should(key: str | None) -> bool:
 def translate_json(data: object, cat: Catalog | None = None, key: str | None = None) -> object:
     cat = cat or catalog()
     if isinstance(data, dict):
+        if _should(key):
+            # "…_ko" 열쇠 아래의 사전(파라미터 이름 등)은 값을 바꾼다 (안쪽 열쇠는 이름이라 그대로)
+            return {k: cat.translate(v) if isinstance(v, str) else translate_json(v, cat, k) for k, v in data.items()}
         return {k: translate_json(v, cat, k) for k, v in data.items()}
     if isinstance(data, list):
         return [translate_json(v, cat, key) for v in data]

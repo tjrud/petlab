@@ -196,6 +196,10 @@ export type Item = {
   parts?: ItemPart[];
   /** 장식 (무늬·글귀 각인). 없으면 null. 줄이거나 뺀 경우는 검증 이슈(decor_reduced·decor_skipped)로 온다 */
   decor?: Decor | null;
+  /** 조립 모듈(모듈 라이브러리)의 파라미터 이름 (서버가 화면 언어로 보낸다). 기본 부품은 비어 있다 */
+  param_labels_ko?: Record<string, string>;
+  /** 조립 모듈의 뷰어 색 (없으면 템플릿 기본색) */
+  color?: string | null;
 };
 
 export type Severity = "error" | "warning" | "info";

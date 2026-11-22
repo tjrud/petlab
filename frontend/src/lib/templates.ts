@@ -13,6 +13,18 @@ export const TEMPLATE_COLORS: Record<string, string> = {
   cave: "#c98a6a", // 물속 동굴 (어항): 물 색(파랑)과 구별되는 테라코타
 };
 
+/** 구조물 색: 조립 모듈은 서버가 준 색, 기본 부품은 템플릿 색 */
+export function itemColor(it: { template: string; color?: string | null }): string {
+  return it.color ?? TEMPLATE_COLORS[it.template] ?? "#c8a27a";
+}
+
+/** 파라미터 이름: 조립 모듈은 서버가 준 이름(이미 화면 언어), 기본 부품은 PARAM_LABELS 를 번역 */
+export function paramLabel(it: { param_labels_ko?: Record<string, string> }, key: string, t: TFunction): string {
+  const fromServer = it.param_labels_ko?.[key];
+  if (fromServer) return fromServer;
+  return PARAM_LABELS[key] ? t(PARAM_LABELS[key]) : key;
+}
+
 export const PARAM_LABELS: Record<string, string> = {
   width_mm: "가로",
   depth_mm: "세로",
