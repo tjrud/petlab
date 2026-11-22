@@ -2,20 +2,22 @@
 
 엔진(보정·배치·검증·저장·내려받기)은 템플릿만 안다. 모듈 하나를 템플릿 하나로 감싸면
   - Params: 모듈이 드러낸 파라미터 (LLM 이 정한다)
-  - constraints: 부품의 종별·출력 제약을 묶인 관계(scale·offset)로 모듈 파라미터 제약으로 되돌린 것
+  - constraints: 부품의 종별·출력 제약을 묶인 관계(scale·offset)로 모듈 파라미터 제약으로 되돌린 것 + 모듈 limits
+    (자식 부품이 부모 면 안에 들어가게 하는 모듈 파라미터끼리의 관계)
   - build: 부품을 조립한 형상
   - features: 부품 특징을 합친 것 (출입 면·출입구 수·통로 크기 등)
   - print_parts / print_rotation: 부품끼리 붙은 본체는 여섯 방향으로 눕혀 보고 서포트가 가장 적은 자세로,
     부품이 따로 출력하는 파트(집의 지붕 뚜껑 등)는 그 부품이 정한 자세 그대로.
     슬라이드 결합(mount="slide")이 있으면 한 덩어리로 붙은 부품 묶음마다 출력 파트 하나 (연결판의 도브테일 홈·
     자식의 도브테일 혀는 출력 파트에만 있다). 홈·혀가 있는 묶음은 도브테일이 세로로 서는 두 자세(사용·뒤집기) 중에서 고른다
-  - rule_issues: 부품 규칙 + 조립 규칙 + 형상 검사 (통로가 출입구를 다 덮는지, 따로 출력하는 파트끼리 겹치는지,
+  - rule_issues: 부품 규칙 + 자동 보정으로 맞출 수 없는 limits + 조립 규칙 + 형상 검사 (통로가 출입구를 다 덮는지, 따로 출력하는 파트끼리 겹치는지,
     슬라이드 결합 연결판 자리·끼임 틈)
 가 되어 기존 흐름을 그대로 탄다.
 """
 
 from __future__ import annotations
 
+import math
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -53,7 +55,7 @@ from app.modules.assembly import (
     slot_cutters,
     tongue_solid,
 )
-from app.modules.definition import Bind, ModuleDef
+from app.modules.definition import Bind, LimitDef, ModuleDef, bound_value
 from app.templates.base import (
     Features,
     ParamConstraint,
@@ -252,6 +254,44 @@ class ModuleTemplate(Template):
                 hi = None if c.max is None else (c.max - b.offset) / b.scale
                 out.append(ParamConstraint(b.param, min=lo, max=hi, source=c.source,
                                            reason_ko=c.reason_ko, blocking=c.blocking))
+        for lim, lo, hi in self._limit_bounds(p):
+            # param 의 범위 밖으로 가야만 맞출 수 있는 쪽은 내지 않는다 (rule_issues 가 오류로 남긴다: 자동 보정은 묶인 쪽을
+            # 바꾸지 않으므로 고칠 수 없다). 보정은 패스마다 그 패스 시작 값으로 이 범위를 다시 계산해 사슬을 따라간다
+            lo_ok, hi_ok = self._limit_fixable(lim.param, lo, hi)
+            if (lo_ok and lo is not None) or (hi_ok and hi is not None):
+                out.append(ParamConstraint(lim.param, min=lo if lo_ok else None, max=hi if hi_ok else None,
+                                           source="geometry", reason_ko=lim.reason_ko))
+        return out
+
+    # ── 모듈 limits ──
+
+    def _limit_bounds(self, p: TemplateParams) -> list[tuple[LimitDef, float | None, float | None]]:
+        """limit 마다 (정의, 지금 값에서의 min, max)."""
+        values = {d.name: getattr(p, d.name) for d in self.defn.params if d.type != "choice"}
+        return [(lim, bound_value(lim.min, values), bound_value(lim.max, values)) for lim in self.defn.limits]
+
+    def _limit_fixable(self, name: str, lo: float | None, hi: float | None) -> tuple[bool, bool]:
+        """param 을 그 범위(ParamDef min·max) 안에서 움직여 min·max 를 맞출 수 있는지 (정수 파라미터는 반올림해 본다)."""
+        d = next(x for x in self.defn.params if x.name == name)
+        integer = d.type == "int"
+        lo_ok = lo is None or (math.ceil(lo - 1e-9) if integer else lo) <= d.max + 1e-9  # type: ignore[operator]
+        hi_ok = hi is None or (math.floor(hi + 1e-9) if integer else hi) >= d.min - 1e-9  # type: ignore[operator]
+        return lo_ok, hi_ok
+
+    def _limit_issues(self, p: TemplateParams) -> list[str]:
+        """자동 보정으로 맞출 수 없는 limit 위반 (param 의 범위 밖이어야 맞는 경우)."""
+        out: list[str] = []
+        for lim, lo, hi in self._limit_bounds(p):
+            d = next(x for x in self.defn.params if x.name == lim.param)
+            v = getattr(p, lim.param)
+            lo_ok, hi_ok = self._limit_fixable(lim.param, lo, hi)
+            name = _short(d.description_ko)
+            if lo is not None and not lo_ok and v < lo - 1e-6:
+                out.append(f"{name}은(는) {_num(lo)} 이상이어야 하지만 최대 {_num(d.max)} 까지라 자동으로 맞출 수 없습니다. "
+                           f"{lim.reason_ko}")
+            if hi is not None and not hi_ok and v > hi + 1e-6:
+                out.append(f"{name}은(는) {_num(hi)} 이하여야 하지만 최소 {_num(d.min)} 까지라 자동으로 맞출 수 없습니다. "
+                           f"{lim.reason_ko}")
         return out
 
     def rule_issues(self, p: TemplateParams, ctx: RuleContext) -> list[str]:
@@ -265,6 +305,7 @@ class ModuleTemplate(Template):
                 if c.violates(_get_path(part.params, c.field)):
                     out.append(f"부품 {part.template.display_name_ko}({part.id}): {c.reason_ko}")
             out += [f"부품 {part.template.display_name_ko}({part.id}): {m}" for m in part.template.rule_issues(part.params, ctx)]
+        out += self._limit_issues(p)
         out += join_problems(parts, joins)
         out += slide_problems(parts, joins)
         if not out:
@@ -677,6 +718,16 @@ def _best_rotation(mesh, candidates: tuple[np.ndarray, ...] = _DOWN_ROTATIONS) -
 
 def _key(p: TemplateParams) -> str:
     return p.model_dump_json()
+
+
+def _short(description: str) -> str:
+    """파라미터 설명의 첫 문장에서 단위를 뺀 이름 (자동 보정 문구와 같은 꼴: app/validation/autofix._desc)."""
+    return description.split(".")[0].replace(" mm", "")
+
+
+def _num(x: float | None) -> str:
+    x = float(x or 0.0)
+    return f"{x:g}" if x.is_integer() else f"{x:.1f}"
 
 
 @lru_cache(maxsize=64)

@@ -172,6 +172,16 @@ def test_sand_bath_anchors(kw):
     assert a["front"].side == "front"
     # 출입 홈은 위가 트인 턱이라 통로가 아니고, 모래가 쏟아지지 않도록 어느 벽도 뚫지 않는다
     assert all(x.port is None and x.wall_mm is None for x in a.values())
+    # 슬라이드 결합 연결판 자리: 옆·뒤는 면 전체, 앞면은 가로 전체 × 턱 높이 (출입 홈 아래)
+    W, D, H = p.width_mm, p.depth_mm, p.basin_depth_mm + p.wall_thickness_mm
+    assert a["front"].mount == pytest.approx((-W / 2, W / 2, p.lip_height_mm))
+    assert a["back"].mount == pytest.approx((-W / 2, W / 2, H))
+    assert a["left"].mount == pytest.approx((-D / 2, D / 2, H)) and a["right"].mount == pytest.approx((-D / 2, D / 2, H))
+    assert a["bottom"].mount is None
+    # 앞면 연결판 꼭대기(턱 높이)는 출입 홈 바닥과 같고, 연결판 가로 범위에 홈이 들어 있다 (홈은 그 위로만 파여 있다)
+    m = part_to_mesh(SAND.build(p))
+    y = -p.depth_mm / 2 + p.wall_thickness_mm / 2
+    assert m.contains([[0, y, p.lip_height_mm - 0.5]])[0] and not m.contains([[0, y, p.lip_height_mm + 0.5]])[0]
 
 
 # ── 조립 ───────────────────────────────────────────────────

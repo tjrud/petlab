@@ -26,5 +26,7 @@
  "{0}의 뒷면이 {1}의 연결판에 닿는 곳이 좁거나 낮아 도브테일을 낼 수 없습니다": "The back of {0} touches {1}'s mounting plate over too narrow or too low an area for a dovetail",
  "{0}의 연결판 위로 벽과 {1} 사이에 {2}mm 틈이 생겨 끼임 위험 구간({3}~{4}mm)에 있습니다": "Above {0}'s mounting plate, the {2} mm gap between the wall and {1} is in the entrapment risk range ({3}~{4} mm)",
  "{0}의 뒷면과 {1}의 벽·지붕 사이에 폭이 {2}~{3}mm 로 벌어지는 틈이 생겨 끼임 위험 구간({4}~{5}mm)에 있습니다. {6}을(를) {7}의 처마보다 낮게 하거나 지붕이 기울지 않은 면에 붙이세요": "Between the back of {0} and the wall or roof of {1} there is a gap that widens from {2} to {3} mm, inside the entrapment risk range ({4}~{5} mm). Keep {6} below the eaves of {7}, or mount it on a face without a sloping roof",
- "모듈 {0}: 파라미터 {1}={2} 로 부품 파라미터를 만들 수 없습니다 ({3})": "Module {0}: parameter {1}={2} doesn't produce valid part parameters ({3})"
+ "모듈 {0}: 파라미터 {1}={2} 로 부품 파라미터를 만들 수 없습니다 ({3})": "Module {0}: parameter {1}={2} doesn't produce valid part parameters ({3})",
+ "{0}은(는) {1} 이상이어야 하지만 최대 {2} 까지라 자동으로 맞출 수 없습니다. {3}": "{0} must be at least {1}, but it only goes up to {2}, so it can't be adjusted automatically. {3}",
+ "{0}은(는) {1} 이하여야 하지만 최소 {2} 까지라 자동으로 맞출 수 없습니다. {3}": "{0} must be at most {1}, but it only goes down to {2}, so it can't be adjusted automatically. {3}"
 }

@@ -6,6 +6,8 @@
     자동 보정한다.
   - joins: "부품id.연결지점" 끼리 잇는다. 자식은 부모의 연결 지점에 마주 보게 붙는다.
     passage=True 면 자식 통로(터널 끝 등)의 단면으로 부모 벽을 뚫어 드나들 수 있게 한다.
+  - limits: 모듈 파라미터끼리의 관계 (예: 은신처 세로 ≥ 그릇 받침 외형 폭 + 여유). 자식 부품이 부모 면 안에 들어가게
+    하는 데 쓴다. 자동 보정은 limit 의 param 만 움직인다 (min/max 쪽 파라미터는 그대로).
   - 이름·설명은 한국어와 영어를 함께 둔다 (응답 언어 번역 카탈로그에 더해진다).
 
 저장된 설계는 모듈 key 로 다시 만든다. 그래서 공개한 모듈 파일은 형상이 바뀌게 고치지 않는다:
@@ -68,6 +70,40 @@ class Bind(_Strict):
     param: str
     scale: float = Field(1.0, gt=0)
     offset: float = 0.0
+
+
+# 모듈 limits 의 사슬(한 limit 의 범위가 다른 limit 이 움직이는 파라미터에 기대는 것)의 최대 길이.
+# 자동 보정(app/validation/autofix.clamp_params)은 패스마다 그 패스 시작 값으로 제약을 다시 계산하므로 한 패스에
+# 사슬 한 고리씩 따라간다. 부품 제약이 먼저 움직이는 패스와 마지막 확인 패스까지 MAX_PASSES(8) 안에 끝나게 둔다
+LIMIT_CHAIN_MAX = 4
+
+
+class LimitDef(_Strict):
+    """모듈 파라미터 하나의 범위를 다른 모듈 파라미터로 정한다: min ≤ param ≤ max.
+
+    min·max 는 숫자이거나 다른 모듈 파라미터에 묶은 값(scale × 파라미터 + offset). 자동 보정은 param 을 움직여 맞추고,
+    param 의 범위(ParamDef min·max) 안에서 맞출 수 없으면 규칙 오류로 남는다 (묶인 쪽 파라미터는 바꾸지 않는다)."""
+
+    param: str
+    min: Bind | float | None = None
+    max: Bind | float | None = None
+    reason_ko: str
+    reason_en: str
+
+    @model_validator(mode="after")
+    def _some(self) -> LimitDef:
+        if self.min is None and self.max is None:
+            raise ValueError(f"limit {self.param}: min 이나 max 가 필요합니다")
+        return self
+
+
+def bound_value(v: Bind | float | None, values: dict[str, float]) -> float | None:
+    """limit 의 min·max 값 (values: 모듈 파라미터 이름 → 값)."""
+    if v is None:
+        return None
+    if isinstance(v, Bind):
+        return v.scale * float(values[v.param]) + v.offset
+    return float(v)
 
 
 # 상수는 숫자·글·참거짓, 또는 글 목록 (집의 "doors.sides": ["left"] 처럼 면 목록)
@@ -143,6 +179,8 @@ class ModuleDef(_Strict):
     height_param: str | None = None
     # 출입 기준 (은신처처럼 드나드는 공간이 있는 모듈이면 True: 바깥 출입구 수를 종별 최소 개수와 비교)
     enclosure: bool = False
+    # 모듈 파라미터끼리의 범위 관계 (자동 보정·규칙 오류). 아래 _limits 가 불러올 때 검사한다
+    limits: list[LimitDef] = Field(default_factory=list)
 
     @field_validator("key")
     @classmethod
@@ -185,7 +223,51 @@ class ModuleDef(_Strict):
         for n in [*self.size_params, *([self.height_param] if self.height_param else [])]:
             if n not in names:
                 raise ValueError(f"없는 파라미터: {n}")
+        self._limits()
         return self
+
+    def _limits(self) -> None:
+        """limits 검사: 파라미터가 있고 숫자인지, 자기 자신에 묶지 않았는지, 사슬이 짧은지,
+        기본값에서 min ≤ max 이고 기본값이 범위 안인지 (아니면 기본 설계부터 자동 보정이 값을 바꾼다)."""
+        if not self.limits:
+            return
+        defs = {p.name: p for p in self.params}
+        numeric = {n for n, p in defs.items() if p.type != "choice"}
+        deps: dict[str, set[str]] = {}
+        for lim in self.limits:
+            if lim.param not in defs:
+                raise ValueError(f"limit: 없는 파라미터 {lim.param}")
+            if lim.param not in numeric:
+                raise ValueError(f"limit: 숫자 파라미터만 제한할 수 있습니다 ({lim.param})")
+            for side in (lim.min, lim.max):
+                if not isinstance(side, Bind):
+                    continue
+                if side.param not in defs:
+                    raise ValueError(f"limit {lim.param}: 없는 파라미터 {side.param}")
+                if side.param not in numeric:
+                    raise ValueError(f"limit {lim.param}: 숫자 파라미터에만 묶을 수 있습니다 ({side.param})")
+                if side.param == lim.param:
+                    raise ValueError(f"limit {lim.param}: 자기 자신에 묶을 수 없습니다")
+                deps.setdefault(lim.param, set()).add(side.param)
+
+        def chain(n: str, seen: frozenset[str]) -> int:
+            return max((1 + chain(m, seen | {m}) for m in deps.get(n, ()) if m not in seen), default=0)
+
+        longest = max(chain(n, frozenset({n})) for n in deps) if deps else 0
+        if longest > LIMIT_CHAIN_MAX:
+            raise ValueError(f"limit 사슬이 너무 깁니다 ({longest} > {LIMIT_CHAIN_MAX}): 자동 보정이 다 따라가지 못합니다")
+        values = {n: float(defs[n].default) for n in numeric}
+        for name in dict.fromkeys(lim.param for lim in self.limits):
+            mine = [lim for lim in self.limits if lim.param == name]
+            los = [v for v in (bound_value(lim.min, values) for lim in mine) if v is not None]
+            his = [v for v in (bound_value(lim.max, values) for lim in mine) if v is not None]
+            lo, hi = max(los, default=None), min(his, default=None)
+            if lo is not None and hi is not None and lo > hi + 1e-9:
+                raise ValueError(f"limit {name}: 기본값에서 min {lo:g} 이 max {hi:g} 보다 큽니다")
+            v = values[name]
+            if (lo is not None and v < lo - 1e-9) or (hi is not None and v > hi + 1e-9):
+                raise ValueError(f"limit {name}: 기본값 {v:g} 이 기본값에서의 범위 "
+                                 f"[{'' if lo is None else f'{lo:g}'}, {'' if hi is None else f'{hi:g}'}] 밖입니다")
 
 
 def load_module_file(path: Path) -> ModuleDef:
@@ -220,4 +302,6 @@ def translations() -> dict[str, str]:
             short_ko = p.description_ko.split(".")[0].replace(" mm", "")
             short_en = p.description_en.split(".")[0].replace(" mm", "")
             out.setdefault(short_ko, short_en)
+        for lim in m.limits:
+            out[lim.reason_ko] = lim.reason_en
     return out

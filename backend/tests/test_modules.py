@@ -27,6 +27,7 @@ from app.templates.hideout import HideoutParams, HideoutTemplate
 from app.templates.registry import get_template, primitives
 from app.templates.tunnel import TunnelParams, TunnelTemplate
 from app.validation.checks import overhang_area
+from app.validation.report import Severity
 
 MODULES = [m.key for m in library()]
 HAMSTERS = [("hamster", "syrian"), ("hamster", "dwarf")]
@@ -504,3 +505,199 @@ def test_slide_child_above_sloped_roof_eave_is_a_trap(rules, anchor, trap):
     if not trap:
         assert issues == []
 
+
+
+# 5. 모듈 limits (모듈 파라미터끼리의 범위 관계)
+
+BOWL_PARAMS = [
+    {"name": "depth_mm", "default": 130, "min": 80, "max": 200, "description_ko": "은신처 외형 세로(Y) mm",
+     "description_en": "Hideout outer depth (Y) mm"},
+    {"name": "bowl_mm", "default": 90, "min": 60, "max": 150, "description_ko": "그릇 지름 mm", "description_en": "Bowl diameter mm"},
+    {"name": "door_mm", "default": 50, "min": 40, "max": 110, "description_ko": "출입구 폭 mm", "description_en": "Door width mm"},
+]
+# 그릇 받침 외형 폭 = 그릇 지름 + 2 × 틈새(1) + 2 × 벽(3) = 그릇 + 8. 은신처 오른쪽 면(세로 전체) 안에 2mm 여유를 두고 들어간다
+DEPTH_FITS_BOWL = {"param": "depth_mm", "min": {"param": "bowl_mm", "scale": 1, "offset": 10},
+                   "reason_ko": "그릇 받침이 은신처 옆면 안에 들어가도록 세로를 그릇 받침 폭보다 넓혔습니다",
+                   "reason_en": "Made the hideout deeper than the bowl holder so it fits on the side face"}
+
+
+def _bowl_module(limits=(DEPTH_FITS_BOWL,), params=BOWL_PARAMS) -> ModuleTemplate:
+    return ModuleTemplate(ModuleDef.model_validate({
+        "key": "limit_test", "name_ko": "시험", "name_en": "test", "description_ko": "시험", "description_en": "test",
+        "params": list(params), "limits": list(limits),
+        "parts": [{"id": "hide", "template": "hideout", "params": {
+                      "width_mm": 160, "depth_mm": {"param": "depth_mm"}, "entrance_diameter_mm": {"param": "door_mm"}}},
+                  {"id": "bowl", "template": "bowl_holder", "params": {"bowl_diameter_mm": {"param": "bowl_mm"}}}],
+        "joins": [{"parent": "hide.right", "child": "bowl.back", "mount": "slide"}],
+    }), PARTS)
+
+
+def _limit_def(**kw):
+    return {"key": "lim", "name_ko": "a", "name_en": "a", "description_ko": "a", "description_en": "a",
+            "params": BOWL_PARAMS + [{"name": "shape", "type": "choice", "choices": ["a", "b"], "default": "a",
+                                      "description_ko": "x", "description_en": "x"}],
+            "parts": [{"id": "a", "template": "hideout"}], **kw}
+
+
+@pytest.mark.parametrize("limit,match", [
+    ({"param": "nope", "min": 1}, "없는 파라미터"),
+    ({"param": "depth_mm", "min": {"param": "nope"}}, "없는 파라미터"),
+    ({"param": "depth_mm", "min": {"param": "depth_mm", "offset": 1}}, "자기 자신"),
+    ({"param": "shape", "min": 1}, "숫자 파라미터"),
+    ({"param": "depth_mm", "min": {"param": "shape"}}, "숫자 파라미터"),
+    ({"param": "depth_mm"}, "min 이나 max"),
+    ({"param": "depth_mm", "min": {"param": "bowl_mm", "offset": 50}}, "기본값 130 이"),          # 기본값에서 140 이 필요
+    ({"param": "depth_mm", "min": {"param": "bowl_mm"}, "max": {"param": "door_mm"}}, "min 90 이 max 50"),
+])
+def test_limit_definition_is_checked_at_load(limit, match):
+    with pytest.raises(ValidationError, match=match):
+        ModuleDef.model_validate(_limit_def(limits=[{**limit, "reason_ko": "x", "reason_en": "x"}]))
+
+
+def test_limit_chain_length_is_bounded():
+    """사슬이 자동 보정 패스 수 안에 끝나도록 길이를 제한한다 (패스마다 한 고리씩 따라간다)."""
+    from app.modules.definition import LIMIT_CHAIN_MAX
+    from app.validation.autofix import MAX_PASSES
+
+    assert LIMIT_CHAIN_MAX + 2 <= MAX_PASSES
+    names = [f"p{i}" for i in range(LIMIT_CHAIN_MAX + 2)]
+    params = [{"name": n, "default": 100 + 10 * i, "min": 0, "max": 500, "description_ko": "x", "description_en": "x"}
+              for i, n in enumerate(names)]
+    chain = [{"param": b, "min": {"param": a, "offset": 10}, "reason_ko": "x", "reason_en": "x"}
+             for a, b in itertools.pairwise(names)]
+    base = {"key": "c", "name_ko": "a", "name_en": "a", "description_ko": "a", "description_en": "a", "params": params,
+            "parts": [{"id": "a", "template": "hideout"}]}
+    ModuleDef.model_validate({**base, "limits": chain[:LIMIT_CHAIN_MAX]})
+    with pytest.raises(ValidationError, match="사슬"):
+        ModuleDef.model_validate({**base, "limits": chain})
+
+
+def test_limit_raises_a_too_small_parent(rules):
+    """은신처 세로가 그릇 받침보다 좁으면(슬라이드 연결판이 면 밖으로 나간다) 자동 보정이 세로를 넓힌다."""
+    from app.validation.autofix import clamp_params
+
+    t = _bowl_module()
+    c = dwarf(rules)
+    small = t.Params(depth_mm=90.0, bowl_mm=120.0)
+    assert any("넓거나" in m for m in t.rule_issues(small, c))  # limit 이 없으면 생기는 문제
+    cons = [k for k in t.constraints(small, c) if k.field == "depth_mm" and k.reason_ko == DEPTH_FITS_BOWL["reason_ko"]]
+    assert [k.min for k in cons] == [130.0]
+    p, issues = clamp_params(t, small, c)
+    assert p.depth_mm == 130.0 and p.bowl_mm == 120.0
+    adjusted = [i for i in issues if i.code == "param_adjusted"]
+    assert len(adjusted) == 1 and DEPTH_FITS_BOWL["reason_ko"] in adjusted[0].message_ko
+    assert not [i for i in issues if i.severity == Severity.error]
+    assert t.rule_issues(p, c) == []
+
+
+def test_chained_limits_converge_in_one_autofix(rules):
+    """부품 제약(종별 최소 출입구) → 그릇 ≥ 출입구 + 30 → 세로 ≥ 그릇 + 10: 패스마다 한 고리씩 따라가 한 번의 보정으로 맞는다."""
+    from app.validation.autofix import clamp_params
+
+    bowl_vs_door = {"param": "bowl_mm", "min": {"param": "door_mm", "offset": 30},
+                    "reason_ko": "그릇 지름을 출입구보다 30mm 넓혔습니다", "reason_en": "Made the bowl 30 mm wider than the door"}
+    t = _bowl_module(limits=(DEPTH_FITS_BOWL, bowl_vs_door))
+    c = RuleContext(rules.size_rules("hamster", "syrian"), rules.min_wall_for("hamster", "syrian"),
+                    printing_max_overhang_deg=rules.printing.max_overhang_deg)
+    door = c.size.entrance_min_diameter_mm
+    p, issues = clamp_params(t, t.Params(depth_mm=80.0, bowl_mm=60.0, door_mm=40.0), c)
+    assert (p.door_mm, p.bowl_mm, p.depth_mm) == (door, door + 30, door + 40)
+    assert not [i for i in issues if i.severity == Severity.error], [i.message_ko for i in issues]
+    assert t.rule_issues(p, c) == []
+
+
+def test_limit_that_autofix_cannot_reach_is_a_rule_issue(rules):
+    """세로 범위(최대 150) 안에서는 그릇 140 + 10 을 맞출 수 없다: 자동 보정은 묶인 쪽(그릇)을 바꾸지 않으므로
+    제약으로 내지 않고(보정이 엉뚱한 값을 만들지 않게) 규칙 오류로 남긴다."""
+    from app.validation.autofix import clamp_params
+
+    params = [dict(d, max=150) if d["name"] == "depth_mm" else d for d in BOWL_PARAMS]
+    t = _bowl_module(params=params)
+    c = dwarf(rules)
+    p = t.Params(depth_mm=150.0, bowl_mm=145.0)
+    assert not [k for k in t.constraints(p, c) if k.reason_ko == DEPTH_FITS_BOWL["reason_ko"]]
+    p2, _ = clamp_params(t, p, c)
+    assert p2.depth_mm == 150.0
+    msgs = t.rule_issues(p2, c)
+    assert any("155 이상이어야 하지만 최대 150 까지라 자동으로 맞출 수 없습니다" in m and DEPTH_FITS_BOWL["reason_ko"] in m
+               for m in msgs), msgs
+    # 맞출 수 있으면 규칙 오류가 아니라 자동 보정 몫이다
+    assert not any("자동으로 맞출 수 없습니다" in m for m in t.rule_issues(t.Params(depth_mm=100.0, bowl_mm=100.0), c))
+
+
+def test_limit_reasons_are_translated(monkeypatch):
+    """limit 문구(한국어·영어)는 정의 파일에서 번역 카탈로그로 들어간다."""
+    from app.modules import definition
+
+    m = ModuleDef.model_validate(_limit_def(limits=[{**DEPTH_FITS_BOWL}], params=BOWL_PARAMS))
+    monkeypatch.setattr(definition, "library", lambda: (m,))
+    assert definition.translations()[DEPTH_FITS_BOWL["reason_ko"]] == DEPTH_FITS_BOWL["reason_en"]
+
+
+# 6. 모래목욕통 앞면에 슬라이드로 붙인 턱 높이 램프
+
+def test_slide_ramp_on_sand_bath_front_lands_at_the_lip(rules):
+    """앞면 연결판은 턱 높이 아래에서 경사로 끝나 출입 홈을 덮지 않고, 턱 높이 램프의 발판이 턱 윗면 높이에 닿는다.
+    출입 면은 모래목욕통 앞면(이어져 빠진다)에서 램프 입구로 넘어간다."""
+    from app.modules.assembly import SLOPE_RISE
+    from app.templates.sand_bath import SandBathParams
+
+    sp = SandBathParams()
+    lip, D, t_w = sp.lip_height_mm, sp.depth_mm, sp.wall_thickness_mm
+    t = module([{"id": "bath", "template": "sand_bath", "params": {}},
+                {"id": "ramp", "template": "ramp", "params": {"height_mm": lip, "width_mm": 80, "slope_deg": 25}}],
+               [{"parent": "bath.front", "child": "ramp.landing", "mount": "slide"}])
+    p = t.Params()
+    assert t.rule_issues(p, dwarf(rules)) == []
+    plan = next(iter(t._layout(p).plans.values()))
+    assert plan.top == pytest.approx(lip) and plan.h == pytest.approx(lip - SLOPE_RISE * (PLATE_MM - OVERLAP_MM))
+    pps = _check_printable(t, p, rules)
+    assert set(pps) == {"body", "ramp"}
+    assert pps["ramp"].part.bounding_box().max.Z == pytest.approx(lip, abs=1e-6)  # 발판 = 턱 윗면 높이
+    m = part_to_mesh(t.build(p))
+    assert mesh_health(m).ok and m.body_count == 1
+    # 출입 홈(턱 위)과 그 앞은 비어 있다: 연결판이 홈을 덮지 않는다
+    y_wall = -D / 2
+    probes = [[0, y_wall + t_w / 2, lip + 1], [0, y_wall - 1.0, lip + 1], [0, y_wall - 3.0, lip + 0.5]]
+    assert not m.contains(probes).any()
+    assert m.contains([[0, y_wall - 1.0, lip - 2.0]])[0]  # 연결판 경사 끝 (벽에서 1mm: 턱 − 1.2mm 높이까지)
+    f = t.features(p)
+    assert f.access_sides == ("front",)  # 램프 입구 (앞, -Y)
+    parts, joins = t.expand(p)
+    entry = parts[1].template.anchors(parts[1].params)["entry"]
+    assert place_parts(parts, joins)["ramp"].point(entry.origin)[1] < y_wall - 50  # 램프 입구가 앞쪽 바깥에
+
+
+# 7. 출력 크기: 라이브러리 모듈의 모든 출력 파트가 기준 프린터에 들어가는지
+
+# 출력 공간을 넘는 것으로 알려진 공개 모듈 (형상을 바꿀 수 없다: 새 key 로 고친다). 값: 사유
+KNOWN_OVERSIZE = {
+    "hideout_with_tunnel": "은신처 세로 + 터널 길이가 한 덩어리라 골든 햄스터 기본값(110 + 120)부터 220mm 를 넘는다",
+}
+
+
+@pytest.mark.parametrize("key", MODULES)
+def test_every_module_print_part_fits_the_printer(key, rules):
+    """기본값과 크기 파라미터 끝값을 햄스터 크기마다 자동 보정한 값(엔진이 실제로 만드는 값)에서, 출력 파트마다 출력 자세로
+    기준 프린터 출력 공간에 들어가야 한다 (엔진의 check_build_volume 으로 잰다)."""
+    from app.domain import PlacementHint
+    from app.services.engine import build_item
+    from app.validation.autofix import clamp_params
+    from app.validation.checks import check_build_volume
+
+    t = get_template(key)
+    seen: set[str] = set()
+    over: list[tuple] = []
+    for raw in _extremes(t):
+        for species, size in HAMSTERS:
+            c = RuleContext(rules.size_rules(species, size), rules.min_wall_for(species, size),
+                            printing_max_overhang_deg=rules.printing.max_overhang_deg)
+            p, _ = clamp_params(t, t.Params.model_validate(raw), c)
+            if p.model_dump_json() in seen:
+                continue
+            seen.add(p.model_dump_json())
+            item = build_item(0, t, p, PlacementHint(), rules.printing)
+            over += [(size, p.model_dump(), i.message_ko) for i in check_build_volume([item], rules.printing)]
+    if over and key in KNOWN_OVERSIZE:
+        pytest.xfail(f"{KNOWN_OVERSIZE[key]}: {over}")
+    assert not over, over
