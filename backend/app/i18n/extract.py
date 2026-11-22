@@ -23,8 +23,9 @@ RULES = ROOT / "rules"
 HANGUL = re.compile(r"[가-힣]")
 
 # 사용자에게 보이지 않는 문구가 있는 파일
-SKIP_FILES = {"app/llm/prompts.py", "app/i18n/extract.py", "app/i18n/__init__.py", "app/modules/definition.py"}  # 모듈 정의 검증 문구는 개발자용
+SKIP_FILES = {"app/llm/prompts.py", "app/i18n/extract.py", "app/i18n/__init__.py"}
 LOG_FUNCS = {"debug", "info", "warning", "error", "exception", "critical"}
+LOGGER_NAMES = {"log", "logger", "logging", "_log"}
 # 홀로는 번역할 수 없는 조각 (조사 등). 문장 틀 쪽에서 번역한다
 IGNORE = {"이", "가"}
 
@@ -44,6 +45,11 @@ def _template(node: ast.AST) -> str | None:
     return None
 
 
+def _is_logger(node: ast.AST) -> bool:
+    """log.info(…) 처럼 로거에 부른 것인지 (조립 해석기의 st.info(…) 같은 안내 문구는 사용자에게 보인다)."""
+    return isinstance(node, ast.Name) and node.id in LOGGER_NAMES
+
+
 def _skip_parents(tree: ast.AST) -> set[int]:
     """문서 문자열·로그 호출·detail= 인자 안의 노드 id."""
     skip: set[int] = set()
@@ -54,7 +60,7 @@ def _skip_parents(tree: ast.AST) -> set[int]:
                 skip.add(id(body[0].value))
         if isinstance(node, ast.Call):
             f = node.func
-            if isinstance(f, ast.Attribute) and f.attr in LOG_FUNCS:
+            if isinstance(f, ast.Attribute) and f.attr in LOG_FUNCS and _is_logger(f.value):
                 for sub in ast.walk(node):
                     skip.add(id(sub))
             for kw in node.keywords:

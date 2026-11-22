@@ -51,6 +51,9 @@ def parse_lang(header: str | None, cookie: str | None) -> Lang:
     return DEFAULT_LANG
 
 
+# 이름 뒤에 붙는 조사 (받침에 따라 고른 것과 받침을 모를 때 둘 다 적은 것). 긴 것부터 뗀다
+_PARTICLES = ("이(가)", "을(를)", "은(는)", "와(과)", "과(와)", "으로", "이", "가", "을", "를", "은", "는", "과", "와", "로")
+
 # 이보다 긴 문구는 틀에 맞춰 보지 않는다 (LLM 이 쓴 설명 같은 자유 글: 틀에 맞을 일이 없고, 길면 정규식이 느리다)
 MAX_TEMPLATE_INPUT = 600
 
@@ -68,12 +71,15 @@ class _Template:
         self.ends_with_literal = bool(self.parts[-1])
 
     def anchor(self, s: str) -> int | None:
-        """글 조각이 차례대로 다 들어 있으면 첫 글 조각의 위치 (없으면 None). 정규식보다 훨씬 싸게 걸러낸다."""
+        """글 조각이 차례대로 다 들어 있으면 첫 글 조각의 위치 (없으면 None). 정규식보다 훨씬 싸게 걸러낸다.
+
+        빈칸뿐인 글 조각("{0} {1} 대신 …" 의 첫 빈칸)은 위치로 치지 않는다: 바깥 문장("{0}: {1}")의 자리표시에 든
+        빈칸에서도 맞아 바깥 틀보다 앞서기 때문이다 (빈칸뿐인 틀은 첫 빈칸 위치)."""
         if self.starts_with_literal and not s.startswith(self.parts[0]):
             return None
         if self.ends_with_literal and not s.endswith(self.parts[-1]):
             return None
-        pos, first = 0, None
+        pos, first, solid = 0, None, None
         for lit in self.literals:
             if not lit:
                 continue
@@ -82,7 +88,11 @@ class _Template:
                 return None
             if first is None:
                 first = i
+            if solid is None and lit.strip():
+                solid = i
             pos = i + len(lit)
+        if solid is not None:
+            return solid
         return first if first is not None else 0
 
 
@@ -139,6 +149,9 @@ class Catalog:
         stripped = s.strip()
         if stripped != s and stripped in self.exact:
             return s.replace(stripped, self.exact[stripped])
+        bare = self._without_particle(s, depth)
+        if bare is not None:
+            return bare
         if len(s) <= MAX_TEMPLATE_INPUT:
             cands = []
             for t in self.templates:
@@ -151,14 +164,27 @@ class Catalog:
                 if m is None:
                     continue
                 return self._best_split(t, s, self._fill(m, t.en, depth), depth)
-        # "A, B" 처럼 이어 붙인 목록
-        for sep in (", ", " · ", "\n"):
+        # "A, B" 처럼 이어 붙인 목록. 붙여 쓴 가운뎃점("그릇 받침·물병 거치대")은 영어에서 쉼표로
+        for sep, joiner in ((", ", ", "), (" · ", " · "), ("\n", "\n"), ("·", ", ")):
             if sep in s:
                 parts = s.split(sep)
+                if sep == "·" and any(not p or p != p.strip() for p in parts):
+                    continue  # 낱말끼리 붙여 쓴 가운뎃점만 (" · " 를 잘못 끊은 조각이 아니게)
                 out = [self._translate(p, depth + 1) for p in parts]
                 if out != parts:
-                    return sep.join(out)
+                    return joiner.join(out)
         return s
+
+    def _without_particle(self, s: str, depth: int) -> str | None:
+        """조사를 붙여 문장에 넣은 이름("그릇 받침을", "터널과", "은신처 2이(가)"): 조사를 뗀 이름이 영어로 다 바뀌면
+        그 영어 (영어 문장 틀에는 조사 자리가 없다). 다 바뀌지 않으면 None (한국어 문구를 자르지 않는다)."""
+        for suffix in _PARTICLES:
+            if len(s) > len(suffix) and s.endswith(suffix):
+                stem = s[: -len(suffix)]
+                out = self._translate(stem, depth + 1)
+                if out != stem and not HANGUL.search(out):
+                    return out
+        return None
 
     def _best_split(self, t: _Template, s: str, best: str, depth: int) -> str:
         """자리표시 둘이 빈칸 하나로만 나뉘면("{1} {2}") 어디서 끊을지 모호하다: 한국어가 남으면 다른 끊기도 해 본다."""

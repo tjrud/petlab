@@ -312,3 +312,30 @@ def test_long_free_text_is_fast():
         t0 = time.perf_counter()
         c.translate(s)
         assert time.perf_counter() - t0 < 0.5
+
+
+def test_part_names_with_particles_and_middle_dots():
+    """조립 안내는 부품 이름에 조사를 붙이고("그릇 받침을"), 여러 부품을 가운뎃점으로 잇는다("그릇 받침·물병 거치대").
+    조사를 뗀 이름이 영어로 다 바뀔 때만 떼고, 바뀌지 않는 한국어는 자르지 않는다."""
+    from app.i18n import Catalog
+
+    c = Catalog({"그릇 받침": "Bowl holder", "물병 거치대": "Water bottle stand", "은신처": "Hideout",
+                 "{0} 붙인 면이 {1}mm 이상 높도록 높였습니다": "Raised the face {0} is mounted on to at least {1} mm",
+                 "{0}가 달린 {1}": "{1} with {0}"})
+    assert c.translate("그릇 받침을 붙인 면이 75mm 이상 높도록 높였습니다") == \
+        "Raised the face Bowl holder is mounted on to at least 75 mm"
+    assert c.translate("그릇 받침이(가)") == "Bowl holder"
+    assert c.translate("그릇 받침·물병 거치대가 달린 은신처") == "Hideout with Bowl holder, Water bottle stand"
+    assert c.translate("길이") == "길이"  # 떼어도 영어가 없으면 그대로
+    assert c.translate("은신처 · 세로") == "Hideout · 세로"  # 띄어 쓴 가운뎃점은 쉼표로 바꾸지 않는다
+
+
+def test_label_prefixed_notice_uses_the_outer_template():
+    """조립 해석기 안내는 "조립 구조물 이름: 안내" 꼴이다. 안내 틀이 빈칸으로 시작해도("{0} {1} 터널로 …")
+    구조물 이름 속 빈칸에 붙지 않고 바깥 틀("{0}: {1}")이 먼저 나눈다."""
+    from app.i18n import Catalog
+
+    c = Catalog({"{0}: {1}": "{0}: {1}", "조립 구조물": "Assembled structure", "은신처": "Hideout", "은신처 2": "Hideout 2",
+                 "{0} {1} 터널로 이었습니다": "Connected {0} and {1} with a tunnel"})
+    assert c.translate("조립 구조물: 은신처와 은신처 2를 터널로 이었습니다") == \
+        "Assembled structure: Connected Hideout and Hideout 2 with a tunnel"

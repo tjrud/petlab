@@ -122,8 +122,7 @@ def template_keys(templates: Iterable[str] | None = None) -> tuple[str, ...]:
 
     종마다 만들 수 있는 템플릿(규칙 파일 species.<종>.templates)만 계약에 넣을 때 쓴다.
     순서·중복이 달라도 같은 집합이면 같은 모델·스키마를 쓴다. 모르는 키나 빈 목록은 ValueError.
-    레지스트리에 남아 있는 고정 조립 모듈(app/modules/library)의 키는 받되 계약에 넣지 않는다: 부품을 고르고
-    잇는 일은 조립 항목(template "assembly")이 맡는다."""
+    부품을 고르고 잇는 일은 조립 항목(template "assembly")이 맡는다."""
     prim = primitives()
     # 부품 전용(창문 등)은 LLM 이 고르지 않는다
     registered = [t.key for t in all_templates() if t.standalone and t.key in prim]

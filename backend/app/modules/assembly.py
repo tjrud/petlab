@@ -799,23 +799,8 @@ def plug_problems(parts: list[PartSpec], joins: list[JoinSpec]) -> list[str]:
     return out
 
 
-def internal_gaps(parts: list[PartSpec], joins: list[JoinSpec], shape_bounds: dict[str, tuple]) -> list[tuple[str, str, float]]:
-    """서로 잇지 않은 부품 쌍 사이의 틈 (축 정렬 상자 사이 거리). 끼임 틈 검사에 쓴다."""
-    joined = {frozenset((j.parent, j.child)) for j in joins}
-    out = []
-    ids = [p.id for p in parts]
-    for i, a in enumerate(ids):
-        for b in ids[i + 1:]:
-            if frozenset((a, b)) in joined:
-                continue
-            (alo, ahi), (blo, bhi) = shape_bounds[a], shape_bounds[b]
-            gap = np.maximum(0.0, np.maximum(np.asarray(blo) - ahi, np.asarray(alo) - bhi))
-            out.append((a, b, float(np.linalg.norm(gap))))
-    return out
-
-
 # ── 마주 보는 면 사이 틈 (slot_gaps) ──
-# 잇지 않은 두 부품 사이에 몸이 끼는 틈은 두 면이 서로 마주 볼 때 생긴다. 상자 사이 거리(internal_gaps)는
+# 잇지 않은 두 부품 사이에 몸이 끼는 틈은 두 면이 서로 마주 볼 때 생긴다. 상자 사이 거리만 보면
 # 은신처 앞 모서리를 사이에 둔 그릇 받침과 터널처럼 마주 보는 면이 없는 자리까지 틈으로 센다.
 SLOT_SAMPLES = 600        # 부품마다 겉면에서 고르게 뽑는 점 수 (상대 부품 가까이에 있는 면에서만)
 SLOT_SEED = 0             # 같은 설계면 늘 같은 점을 뽑는다
@@ -893,7 +878,7 @@ def slot_gaps(parts: list[PartSpec], joins: list[JoinSpec], meshes: dict[str, tr
     틈으로 돌려준다.
 
     meshes: 부품 id → 조립 좌표의 닫힌 trimesh (바깥 법선, part_meshes). 메시가 없는 부품(빼는 모양)은 건너뛴다.
-    상자 거리만 보는 internal_gaps 와 달리 열린 모서리 너머 거리는 틈으로 세지 않는다."""
+    상자 사이 거리만 보는 검사와 달리 열린 모서리 너머 거리는 틈으로 세지 않는다."""
     import trimesh
 
     ids = [p.id for p in parts if p.id in meshes]

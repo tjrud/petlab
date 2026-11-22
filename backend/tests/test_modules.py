@@ -1,12 +1,14 @@
-"""모듈 라이브러리: 라이브러리의 모든 조립 모듈을 기본값과 크기 범위 끝값으로 만들어 기준을 확인한다.
+"""조립 엔진(app/modules/assembly, AssemblyTemplate): 연결 지점끼리 잇기, 통로, 슬라이드·끼움 결합, 형상 검사.
 
-새 모듈 파일(app/modules/library/*.json)을 넣으면 여기서 함께 검사된다.
+부품과 결합을 그대로 적은 시험용 조립(Inline)으로 엔진 기능을 본다. 조립 해석기(app/modules/compose)가 고르지 않는
+결합(한 덩어리 fused, 문 없는 옆벽에 낸 통로, 띄운 자식 등)도 엔진은 다룰 수 있어야 하므로 해석기를 거치지 않는다.
+자유 조립(해석기 → ComposedTemplate)의 안전 기준은 tests/test_presets.py, 결합 표는 tests/test_compose.py 가 본다.
 """
 
 from __future__ import annotations
 
 import itertools
-import json
+from typing import Any
 
 import numpy as np
 import pytest
@@ -14,117 +16,118 @@ from build123d import Pos
 from pydantic import ValidationError
 
 from app.geometry.mesh import mesh_health, part_to_mesh, to_print_orientation
-from app.modules.assembly import OVERLAP_MM, PLATE_MM, AssemblyError, JoinSpec, PartSpec, merge_features, place_parts
-from app.modules.definition import ModuleDef, library
-from app.modules.module_template import ModuleTemplate
-from app.services.engine import EngineContext, ItemSpec, run_engine
-from app.domain import Cage
+from app.modules.assembly import (
+    OVERLAP_MM,
+    PLATE_MM,
+    AssemblyError,
+    JoinSpec,
+    PartSpec,
+    join_problems,
+    merge_features,
+    place_parts,
+    plug_problems,
+    slide_problems,
+)
+from app.modules.module_template import AssemblyTemplate
+from app.modules.structure import ResolvedJoin
 from app.rules.loader import GapTrapRule
-from app.templates.base import RuleContext
-from app.templates.bottle_stand import BottleStandTemplate
-from app.templates.bowl_holder import BowlHolderTemplate
+from app.templates.base import RuleContext, TemplateParams
 from app.templates.hideout import HideoutParams, HideoutTemplate
-from app.templates.registry import get_template, primitives
+from app.templates.registry import primitives
 from app.templates.tunnel import TunnelParams, TunnelTemplate
 from app.validation.checks import overhang_area
-from app.validation.report import Severity
 
-MODULES = [m.key for m in library()]
-HAMSTERS = [("hamster", "syrian"), ("hamster", "dwarf")]
+PARTS = primitives()
+
+
+class NoParams(TemplateParams):
+    """시험용 조립은 파라미터가 없다 (부품 값은 정의에 적은 그대로)."""
+
+
+def _set(values: dict, path: str, value: Any) -> None:
+    *heads, last = path.split(".")
+    for name in heads:
+        values = values[name]
+    values[last] = value
+
+
+class Inline(AssemblyTemplate):
+    """부품(템플릿 기본값 + 적은 값, 점 표기 경로 가능)과 결합을 그대로 적은 시험용 조립.
+
+    결합: {"parent": "a.front", "child": "t.end_b", "passage": False | True | "into_child",
+           "mount": "fused" | "slide" | "plug", "shift": mm, "lift": mm}.
+    규칙: 부품 규칙 + 조립 규칙(연결 지점·슬라이드·끼움), 그것이 맞으면 형상 검사 (ComposedTemplate 과 같은 순서)."""
+
+    key = "inline_test"
+    display_name_ko = "시험 조립"
+    Params = NoParams
+
+    def __init__(self, parts: list[dict], joins: list[dict] = (), enclosure: bool = False):
+        super().__init__()
+        self._parts: list[PartSpec] = []
+        for d in parts:
+            t = PARTS[d["template"]]
+            base = t.default_params().model_dump()
+            for path, v in d.get("params", {}).items():
+                _set(base, path, v)
+            self._parts.append(PartSpec(d["id"], t, t.Params.model_validate(base)))
+        self._joins = [
+            JoinSpec(j["parent"].split(".")[0], j["parent"].split(".")[1], j["child"].split(".")[0],
+                     j["child"].split(".")[1], shift=j.get("shift", 0.0), lift=j.get("lift", 0.0),
+                     passage=bool(j.get("passage", False)), mount=j.get("mount", "fused"),
+                     reverse=j.get("passage") == "into_child")
+            for j in joins
+        ]
+        self._enclosure = enclosure
+
+    def expand(self, p: TemplateParams) -> tuple[list[PartSpec], list[JoinSpec]]:
+        return list(self._parts), list(self._joins)
+
+    @property
+    def enclosure(self) -> bool:
+        return self._enclosure
+
+    @property
+    def has_slide(self) -> bool:
+        return any(j.slide for j in self._joins)
+
+    @property
+    def split(self) -> bool:
+        return any(j.mount in ("slide", "plug") for j in self._joins)
+
+    def constraints(self, p: TemplateParams, ctx: RuleContext) -> list:
+        return []
+
+    def rule_issues(self, p: TemplateParams, ctx: RuleContext) -> list[str]:
+        parts, joins = self.expand(p)
+        out: list[str] = []
+        for q in parts:
+            out += [f"{q.template.display_name_ko}({q.id}): {m}" for m in q.template.rule_issues(q.params, ctx)]
+        out += join_problems(parts, joins) + slide_problems(parts, joins) + plug_problems(parts, joins)
+        if not out:
+            out += self._geometry_rule_issues(p, ctx)
+        return out
+
+
+def module(parts: list[dict], joins: list[dict] = ()) -> Inline:
+    return Inline(parts, joins)
 
 
 def ctx(rules, species="hamster", size="syrian") -> RuleContext:
     return RuleContext(rules.size_rules(species, size), rules.min_wall_for(species, size))
 
 
-def _extremes(t: ModuleTemplate):
-    """기본값 + 크기 파라미터를 모두 최소/최대로."""
-    base = t.Params().model_dump()
-    yield base
-    for end in ("min", "max"):
-        p = dict(base)
-        for d in t.defn.params:
-            if d.name in t.defn.size_params:
-                p[d.name] = getattr(d, end)
-        yield p
+def dwarf(rules) -> RuleContext:
+    return RuleContext(rules.size_rules("hamster", "dwarf"), rules.min_wall_for("hamster", "dwarf"),
+                       printing_max_overhang_deg=rules.printing.max_overhang_deg)
 
 
-def test_library_is_not_empty_and_keys_are_unique():
-    assert MODULES, "모듈 라이브러리가 비어 있습니다"
-    assert len(set(MODULES)) == len(MODULES)
-    prims = primitives()
-    for m in library():
-        assert m.key not in prims
-        for part in m.parts:
-            assert part.template in prims, f"{m.key}: 부품 {part.template} 이(가) 기본 부품이 아닙니다"
+def _volume(a, b) -> float:
+    inter = a & b
+    return float(inter.volume) if inter is not None else 0.0
 
 
-@pytest.mark.parametrize("key", MODULES)
-def test_every_module_builds_closed_printable_meshes(key):
-    t = get_template(key)
-    for raw in _extremes(t):
-        p = t.Params.model_validate(raw)
-        mesh = part_to_mesh(t.build(p))
-        assert mesh_health(mesh).ok, (key, raw)
-        for pp in t.print_parts(p):
-            pm = to_print_orientation(part_to_mesh(pp.part), pp.rotation)
-            assert mesh_health(pm).ok, (key, pp.key)
-            assert pm.bounds[0][2] == pytest.approx(0, abs=1e-6)
-
-
-@pytest.mark.parametrize("key", MODULES)
-@pytest.mark.parametrize("species,size", HAMSTERS)
-def test_every_module_passes_validation_in_a_roomy_cage(key, species, size, rules):
-    """기본 파라미터로 넓은 케이지에 하나만 놓으면 (자동 보정 뒤) 오류 없이 통과해야 한다."""
-    t = get_template(key)
-    ectx = EngineContext(cage=Cage(1000, 600, 500), species=species, size=size, count=1, rules=rules)
-    res = run_engine([ItemSpec(template=key, params=t.Params().model_dump())], ectx)
-    errors = [i for i in res.report.errors]
-    assert not errors, [(i.code, i.message_ko) for i in errors]
-    assert res.items and res.items[0].placement is not None
-
-
-@pytest.mark.parametrize("key", MODULES)
-def test_module_text_has_english(key):
-    from app.i18n import catalog
-
-    m = next(d for d in library() if d.key == key)
-    cat = catalog()
-    for ko in [m.name_ko, m.description_ko, *[p.description_ko for p in m.params]]:
-        assert cat.translate(ko) != ko or not any("가" <= c <= "힣" for c in ko), ko
-
-
-def test_module_constraints_map_part_rules_back_to_module_params(rules):
-    """부품의 종별 최소값(출입구·터널 내경)이 묶인 모듈 파라미터의 하한이 되어 자동 보정된다."""
-    t = get_template("hideout_with_tunnel")
-    c = ctx(rules, size="syrian")
-    cons = [k for k in t.constraints(t.Params(entrance_mm=40), c) if k.field == "entrance_mm" and k.min is not None]
-    need = max(c.size.entrance_min_diameter_mm, c.size.tunnel_min_inner_diameter_mm)
-    assert max(k.min for k in cons) == pytest.approx(need)
-
-
-def test_fixed_part_value_that_breaks_a_species_rule_is_an_error(rules):
-    """모듈이 상수로 정한 부품 값이 종 기준을 어기면 자동 보정할 수 없는 오류로 남는다."""
-    defn = ModuleDef.model_validate({
-        "key": "tiny_tunnel_test", "name_ko": "시험", "name_en": "test", "description_ko": "시험",
-        "description_en": "test", "params": [],
-        "parts": [{"id": "t", "template": "tunnel", "params": {"inner_diameter_mm": 35}}],
-    })
-    t = ModuleTemplate(defn, primitives())
-    issues = t.rule_issues(t.Params(), ctx(rules, size="syrian"))
-    assert any("터널" in m for m in issues)
-
-
-def test_blocking_an_entrance_without_a_passage_is_an_error(rules):
-    defn = ModuleDef.model_validate({
-        "key": "blocked_test", "name_ko": "시험", "name_en": "test", "description_ko": "시험",
-        "description_en": "test", "params": [],
-        "parts": [{"id": "a", "template": "hideout", "params": {}}, {"id": "b", "template": "hideout", "params": {}}],
-        "joins": [{"parent": "a.front", "child": "b.left"}],
-    })
-    t = ModuleTemplate(defn, primitives())
-    assert any("막습니다" in m for m in t.rule_issues(t.Params(), ctx(rules)))
-
+# ── 연결 지점끼리 잇기 ─────────────────────────────────────────
 
 def test_join_places_child_face_to_face():
     """자식 연결 지점은 부모 연결 지점에 마주 보게 놓인다 (법선 반대, 위쪽 같음, 기준점 일치)."""
@@ -170,33 +173,6 @@ def test_unknown_anchor_is_reported():
         place_parts([h, t], [JoinSpec("h", "nowhere", "t", "end_a")])
 
 
-def test_module_definition_rejects_dangling_parts():
-    with pytest.raises(ValueError):
-        ModuleDef.model_validate({
-            "key": "bad", "name_ko": "a", "name_en": "a", "description_ko": "a", "description_en": "a",
-            "params": [], "parts": [{"id": "a", "template": "hideout"}, {"id": "b", "template": "tunnel"}],
-        })
-
-
-def test_library_files_are_valid_json_with_both_languages():
-    from app.modules.definition import LIBRARY_DIR
-
-    for f in LIBRARY_DIR.glob("*.json"):
-        data = json.loads(f.read_text(encoding="utf-8"))
-        assert data["name_en"] and data["description_en"], f.name
-        assert all(p.get("description_en") for p in data["params"]), f.name
-
-
-def test_print_rotation_is_support_light_for_every_module():
-    for key in MODULES:
-        t = get_template(key)
-        p = t.Params()
-        pm = to_print_orientation(part_to_mesh(t._body(p)), t.print_rotation(p))
-        # 여섯 방향 가운데 가장 나은 자세: 사용 자세보다 나쁘지 않다
-        upright = to_print_orientation(part_to_mesh(t._body(p)), np.eye(3))
-        assert overhang_area(pm, 45) <= overhang_area(upright, 45) + 1.0, key
-
-
 @pytest.mark.parametrize("a,b", list(itertools.combinations(["front", "back", "left", "right"], 2)))
 def test_side_names_survive_rotation(a, b):
     """옆면 이름 ↔ 방향 변환이 서로 맞다 (조립 특징의 출입 면 계산)."""
@@ -206,32 +182,15 @@ def test_side_names_survive_rotation(a, b):
     assert _side_of(np.asarray(_SIDE_VEC[b], dtype=float)) == b
 
 
-# ── 조립 엔진 형상 검사·중첩 파라미터·슬라이드 결합 ─────────────────────────
-
-# 그릇 받침·물병 거치대는 레지스트리 등록 전이라 직접 넣는다
-PARTS = {**primitives(), "bowl_holder": BowlHolderTemplate(), "bottle_stand": BottleStandTemplate()}
-
-
-def module(parts, joins=(), params=()) -> ModuleTemplate:
-    return ModuleTemplate(ModuleDef.model_validate({
-        "key": "engine_test", "name_ko": "시험", "name_en": "test", "description_ko": "시험", "description_en": "test",
-        "params": list(params), "parts": parts, "joins": list(joins),
-    }), PARTS)
-
-
-def dwarf(rules) -> RuleContext:
-    return RuleContext(rules.size_rules("hamster", "dwarf"), rules.min_wall_for("hamster", "dwarf"),
-                       printing_max_overhang_deg=rules.printing.max_overhang_deg)
-
-
-def _volume(a, b) -> float:
-    inter = a & b
-    return float(inter.volume) if inter is not None else 0.0
+def test_blocking_an_entrance_without_a_passage_is_an_error(rules):
+    t = module([{"id": "a", "template": "hideout"}, {"id": "b", "template": "hideout"}],
+               [{"parent": "a.front", "child": "b.left"}])
+    assert any("막습니다" in m for m in t.rule_issues(t.Params(), ctx(rules)))
 
 
 # 1. 통로가 출입구를 다 덮는지
 
-def _tunnel_into(parent: str, parent_params: dict, anchor: str, shape: str, d: float) -> ModuleTemplate:
+def _tunnel_into(parent: str, parent_params: dict, anchor: str, shape: str, d: float) -> Inline:
     return module(
         [{"id": "a", "template": parent, "params": parent_params},
          {"id": "t", "template": "tunnel", "params": {"length_mm": 100, "inner_diameter_mm": d, "shape": shape,
@@ -271,14 +230,6 @@ def test_hairline_leftover_is_not_an_error(rules, shape, d, gap):
     assert any("틈이 남습니다" in m for m in t.rule_issues(t.Params(), dwarf(rules))) == gap
 
 
-@pytest.mark.parametrize("species,size", HAMSTERS)
-def test_library_tunnel_hideout_has_no_geometry_issues(rules, species, size):
-    t = get_template("hideout_with_tunnel")
-    c = RuleContext(rules.size_rules(species, size), rules.min_wall_for(species, size))
-    p = t.Params(entrance_mm=max(60.0, c.size.entrance_min_diameter_mm, c.size.tunnel_min_inner_diameter_mm))
-    assert t.rule_issues(p, c) == []
-
-
 # 2. 따로 출력하는 파트끼리 겹치지 않는지
 
 PITCHED_HOUSE = {"roof.kind": "pitched", "height_mm": 200}
@@ -302,44 +253,18 @@ def test_part_joined_into_roof_cap_band_is_an_error(rules, ramp_h, overlap):
         assert issues == []
 
 
-# 3. 중첩 파라미터(점 표기)
+# 3. 중첩 파라미터(점 표기)로 정한 집 연결부
 
-PORT_PARAMS = [
-    {"name": "port_mm", "default": 60, "min": 40, "max": 110, "description_ko": "연결부 폭", "description_en": "port"},
-    {"name": "wall_mm", "default": 3, "min": 1.5, "max": 6, "description_ko": "벽 두께", "description_en": "wall"},
-    {"name": "windows", "default": 2, "min": 0, "max": 4, "description_ko": "창 개수", "description_en": "windows"},
-]
-
-
-def _house_with_tunnel(**house) -> ModuleTemplate:
+def _house_with_tunnel(**house) -> Inline:
+    """경사 지붕 집의 오른쪽 연결부(점 표기로 정한 중첩 파라미터)에 같은 폭의 뾰족 아치 터널을 한 덩어리 통로로."""
     hp = {"roof.kind": "pitched", "height_mm": 220, "width_mm": 180, "depth_mm": 150, "ports.sides": ["right"],
-          "ports.diameter_mm": {"param": "port_mm"}, "doors.width_mm": {"param": "port_mm"},
-          "walls.thickness_mm": {"param": "wall_mm"}, "windows.count": {"param": "windows"}, **house}
+          "ports.diameter_mm": 60, "doors.width_mm": 60, "walls.thickness_mm": 3, "windows.count": 2, **house}
     return module(
         [{"id": "house", "template": "house", "params": hp},
-         {"id": "tube", "template": "tunnel", "params": {"inner_diameter_mm": {"param": "port_mm"}, "shape": "pointed_arch",
-                                                         "length_mm": 100, "wall_thickness_mm": {"param": "wall_mm"}}}],
-        [{"parent": "house.right", "child": "tube.end_b", "passage": True}], PORT_PARAMS,
+         {"id": "tube", "template": "tunnel", "params": {"inner_diameter_mm": 60, "shape": "pointed_arch",
+                                                         "length_mm": 100, "wall_thickness_mm": 3}}],
+        [{"parent": "house.right", "child": "tube.end_b", "passage": True}],
     )
-
-
-def test_dotted_part_params_set_nested_values(rules):
-    t = _house_with_tunnel()
-    parts, _ = t.expand(t.Params(port_mm=65.0, wall_mm=4.0, windows=2.4))
-    hp = parts[0].params
-    assert hp.roof.kind == "pitched" and hp.ports.sides == ["right"] and hp.ports.diameter_mm == 65.0
-    assert hp.walls.thickness_mm == 4.0 and hp.doors.width_mm == 65.0
-    assert hp.windows.count == 2 and isinstance(hp.windows.count, int)  # 중첩 int 필드로 반올림
-
-
-def test_dotted_bindings_map_nested_constraints_back(rules):
-    """집의 점 표기 제약(ports.diameter_mm, walls.thickness_mm)이 묶인 모듈 파라미터의 하한이 된다."""
-    t = _house_with_tunnel()
-    c = RuleContext(rules.size_rules("hamster", "syrian"), rules.min_wall_for("hamster", "syrian"))
-    cons = t.constraints(t.Params(port_mm=40.0, wall_mm=1.5), c)
-    port = max(k.min for k in cons if k.field == "port_mm" and k.min is not None)
-    assert port == pytest.approx(max(c.size.tunnel_min_inner_diameter_mm, c.size.entrance_min_diameter_mm))
-    assert max(k.min for k in cons if k.field == "wall_mm" and k.min is not None) == pytest.approx(c.min_wall_mm)
 
 
 def test_house_tunnel_module_builds_and_passes(rules):
@@ -352,32 +277,19 @@ def test_house_tunnel_module_builds_and_passes(rules):
     assert {pp.key for pp in t.print_parts(p)} == {"body", "house_roof"}
 
 
-def test_fixed_nested_value_breaking_a_rule_is_an_error(rules):
-    t = _house_with_tunnel(**{"walls.thickness_mm": 1.5})
-    assert any("벽 두께" in m for m in t.rule_issues(t.Params(), dwarf(rules)))
-
-
-@pytest.mark.parametrize("params", [{"roof.knd": "pitched"}, {"roof.kind": "dome"}, {"nope": 1}])
-def test_unknown_or_invalid_nested_params_are_rejected_at_load(params):
-    with pytest.raises(ValueError):
-        module([{"id": "house", "template": "house", "params": params}])
-
-
-@pytest.mark.parametrize("param,bind", [
-    ({"name": "roof", "type": "choice", "choices": ["flat", "dome"], "default": "flat"}, "roof.kind"),
-    ({"name": "windows", "type": "int", "default": 2, "min": 0, "max": 9}, "windows.count"),
-])
-def test_module_param_extremes_must_make_valid_part_params(param, bind):
-    """기본값은 맞아도 다른 선택지·최대값이 부품 범위 밖이면 고른 순간 엔진이 멈추므로 불러올 때 거부한다."""
-    p = {**param, "description_ko": "x", "description_en": "x"}
-    with pytest.raises(ValueError, match=param["name"]):
-        module([{"id": "house", "template": "house", "params": {bind: {"param": param["name"]}}}], params=[p])
-
-
 # 4. 슬라이드 결합 (따로 출력해 도브테일로 끼운다)
 
+
+def test_slide_join_spelling():
+    """저장 형태의 결합: 슬라이드는 통로가 아니고, 끼움은 통로로만, 모르는 결합 방식은 받지 않는다."""
+    with pytest.raises(ValidationError):
+        ResolvedJoin(parent="a.right", child="b.back", mount="slide", passage="into_parent")
+    with pytest.raises(ValidationError):
+        ResolvedJoin(parent="a.right", child="b.back", mount="glued", passage=False)
+
+
 def _slide(child: str, child_params: dict, *, anchor: str = "right", child_anchor: str = "back",
-           hideout: dict | None = None, **join) -> ModuleTemplate:
+           hideout: dict | None = None, **join) -> Inline:
     return module([{"id": "hide", "template": "hideout", "params": hideout or {"width_mm": 160, "depth_mm": 130}},
                    {"id": "c", "template": child, "params": child_params}],
                   [{"parent": f"hide.{anchor}", "child": f"c.{child_anchor}", "mount": "slide", **join}])
@@ -394,16 +306,6 @@ def _check_printable(t, p, rules, fit: bool = True) -> dict:
             assert all(a <= b for a, b in zip(sorted(pm.extents[:2]), sorted([bx, by]))) and pm.extents[2] <= bz, pp.key
         out[pp.key] = pp
     return out
-
-
-def test_slide_definition_rules():
-    base = {"key": "s", "name_ko": "a", "name_en": "a", "description_ko": "a", "description_en": "a", "params": [],
-            "parts": [{"id": "a", "template": "hideout"}, {"id": "b", "template": "bowl_holder"}]}
-    with pytest.raises(ValidationError):
-        ModuleDef.model_validate({**base, "joins": [{"parent": "a.right", "child": "b.back", "mount": "slide",
-                                                     "passage": True}]})
-    with pytest.raises(ValidationError):
-        ModuleDef.model_validate({**base, "joins": [{"parent": "a.right", "child": "b.back", "mount": "glued"}]})
 
 
 def test_slide_bowl_holder_on_hideout(rules):
@@ -506,151 +408,7 @@ def test_slide_child_above_sloped_roof_eave_is_a_trap(rules, anchor, trap):
         assert issues == []
 
 
-
-# 5. 모듈 limits (모듈 파라미터끼리의 범위 관계)
-
-BOWL_PARAMS = [
-    {"name": "depth_mm", "default": 130, "min": 80, "max": 200, "description_ko": "은신처 외형 세로(Y) mm",
-     "description_en": "Hideout outer depth (Y) mm"},
-    {"name": "bowl_mm", "default": 90, "min": 60, "max": 150, "description_ko": "그릇 지름 mm", "description_en": "Bowl diameter mm"},
-    {"name": "door_mm", "default": 50, "min": 40, "max": 110, "description_ko": "출입구 폭 mm", "description_en": "Door width mm"},
-]
-# 그릇 받침 외형 폭 = 그릇 지름 + 2 × 틈새(1) + 2 × 벽(3) = 그릇 + 8. 은신처 오른쪽 면(세로 전체) 안에 2mm 여유를 두고 들어간다
-DEPTH_FITS_BOWL = {"param": "depth_mm", "min": {"param": "bowl_mm", "scale": 1, "offset": 10},
-                   "reason_ko": "그릇 받침이 은신처 옆면 안에 들어가도록 세로를 그릇 받침 폭보다 넓혔습니다",
-                   "reason_en": "Made the hideout deeper than the bowl holder so it fits on the side face"}
-
-
-def _bowl_module(limits=(DEPTH_FITS_BOWL,), params=BOWL_PARAMS) -> ModuleTemplate:
-    return ModuleTemplate(ModuleDef.model_validate({
-        "key": "limit_test", "name_ko": "시험", "name_en": "test", "description_ko": "시험", "description_en": "test",
-        "params": list(params), "limits": list(limits),
-        "parts": [{"id": "hide", "template": "hideout", "params": {
-                      "width_mm": 160, "depth_mm": {"param": "depth_mm"}, "entrance_diameter_mm": {"param": "door_mm"}}},
-                  {"id": "bowl", "template": "bowl_holder", "params": {"bowl_diameter_mm": {"param": "bowl_mm"}}}],
-        "joins": [{"parent": "hide.right", "child": "bowl.back", "mount": "slide"}],
-    }), PARTS)
-
-
-def _limit_def(**kw):
-    return {"key": "lim", "name_ko": "a", "name_en": "a", "description_ko": "a", "description_en": "a",
-            "params": BOWL_PARAMS + [{"name": "shape", "type": "choice", "choices": ["a", "b"], "default": "a",
-                                      "description_ko": "x", "description_en": "x"}],
-            "parts": [{"id": "a", "template": "hideout"}], **kw}
-
-
-@pytest.mark.parametrize("limit,match", [
-    ({"param": "nope", "min": 1}, "없는 파라미터"),
-    ({"param": "depth_mm", "min": {"param": "nope"}}, "없는 파라미터"),
-    ({"param": "depth_mm", "min": {"param": "depth_mm", "offset": 1}}, "자기 자신"),
-    ({"param": "shape", "min": 1}, "숫자 파라미터"),
-    ({"param": "depth_mm", "min": {"param": "shape"}}, "숫자 파라미터"),
-    ({"param": "depth_mm"}, "min 이나 max"),
-    ({"param": "depth_mm", "min": {"param": "bowl_mm", "offset": 50}}, "기본값 130 이"),          # 기본값에서 140 이 필요
-    ({"param": "depth_mm", "min": {"param": "bowl_mm"}, "max": {"param": "door_mm"}}, "min 90 이 max 50"),
-])
-def test_limit_definition_is_checked_at_load(limit, match):
-    with pytest.raises(ValidationError, match=match):
-        ModuleDef.model_validate(_limit_def(limits=[{**limit, "reason_ko": "x", "reason_en": "x"}]))
-
-
-def test_limit_chain_length_is_bounded():
-    """사슬이 자동 보정 패스 수 안에 끝나도록 길이를 제한한다 (패스마다 한 고리씩 따라간다)."""
-    from app.modules.definition import LIMIT_CHAIN_MAX
-    from app.validation.autofix import MAX_PASSES
-
-    assert LIMIT_CHAIN_MAX + 2 <= MAX_PASSES
-    names = [f"p{i}" for i in range(LIMIT_CHAIN_MAX + 2)]
-    params = [{"name": n, "default": 100 + 10 * i, "min": 0, "max": 500, "description_ko": "x", "description_en": "x"}
-              for i, n in enumerate(names)]
-    chain = [{"param": b, "min": {"param": a, "offset": 10}, "reason_ko": "x", "reason_en": "x"}
-             for a, b in itertools.pairwise(names)]
-    base = {"key": "c", "name_ko": "a", "name_en": "a", "description_ko": "a", "description_en": "a", "params": params,
-            "parts": [{"id": "a", "template": "hideout"}]}
-    ModuleDef.model_validate({**base, "limits": chain[:LIMIT_CHAIN_MAX]})
-    with pytest.raises(ValidationError, match="사슬"):
-        ModuleDef.model_validate({**base, "limits": chain})
-
-
-@pytest.mark.parametrize("limits", [
-    # 서로 밀어 올리는 두 관계: 자동 보정이 둘 다 범위 끝으로 달아난다
-    [("depth_mm", "min", "bowl_mm", 2, -50), ("bowl_mm", "min", "depth_mm", 1, -40)],
-    # 같은 관계를 양쪽에서 적은 것: 그릇을 키우면 보정이 세로를 넓히고 그릇도 줄인다 (묶인 쪽이 움직인다)
-    [("depth_mm", "min", "bowl_mm", 1, 40), ("bowl_mm", "max", "depth_mm", 1, -40)],
-    # 셋이 도는 순환
-    [("depth_mm", "min", "bowl_mm", 1, 10), ("bowl_mm", "min", "door_mm", 1, 30), ("door_mm", "max", "depth_mm", 1, -60)],
-])
-def test_limit_cycle_is_rejected_at_load(limits):
-    """limit 순환은 불러올 때 거부한다 (사슬 길이 검사는 순환을 한 고리로 센다)."""
-    lims = [{"param": a, side: {"param": b, "scale": k, "offset": off}, "reason_ko": "x", "reason_en": "x"}
-            for a, side, b, k, off in limits]
-    with pytest.raises(ValidationError, match="순환"):
-        ModuleDef.model_validate(_limit_def(limits=lims, params=BOWL_PARAMS))
-
-
-def test_limit_raises_a_too_small_parent(rules):
-    """은신처 세로가 그릇 받침보다 좁으면(슬라이드 연결판이 면 밖으로 나간다) 자동 보정이 세로를 넓힌다."""
-    from app.validation.autofix import clamp_params
-
-    t = _bowl_module()
-    c = dwarf(rules)
-    small = t.Params(depth_mm=90.0, bowl_mm=120.0)
-    assert any("넓거나" in m for m in t.rule_issues(small, c))  # limit 이 없으면 생기는 문제
-    cons = [k for k in t.constraints(small, c) if k.field == "depth_mm" and k.reason_ko == DEPTH_FITS_BOWL["reason_ko"]]
-    assert [k.min for k in cons] == [130.0]
-    p, issues = clamp_params(t, small, c)
-    assert p.depth_mm == 130.0 and p.bowl_mm == 120.0
-    adjusted = [i for i in issues if i.code == "param_adjusted"]
-    assert len(adjusted) == 1 and DEPTH_FITS_BOWL["reason_ko"] in adjusted[0].message_ko
-    assert not [i for i in issues if i.severity == Severity.error]
-    assert t.rule_issues(p, c) == []
-
-
-def test_chained_limits_converge_in_one_autofix(rules):
-    """부품 제약(종별 최소 출입구) → 그릇 ≥ 출입구 + 30 → 세로 ≥ 그릇 + 10: 패스마다 한 고리씩 따라가 한 번의 보정으로 맞는다."""
-    from app.validation.autofix import clamp_params
-
-    bowl_vs_door = {"param": "bowl_mm", "min": {"param": "door_mm", "offset": 30},
-                    "reason_ko": "그릇 지름을 출입구보다 30mm 넓혔습니다", "reason_en": "Made the bowl 30 mm wider than the door"}
-    t = _bowl_module(limits=(DEPTH_FITS_BOWL, bowl_vs_door))
-    c = RuleContext(rules.size_rules("hamster", "syrian"), rules.min_wall_for("hamster", "syrian"),
-                    printing_max_overhang_deg=rules.printing.max_overhang_deg)
-    door = c.size.entrance_min_diameter_mm
-    p, issues = clamp_params(t, t.Params(depth_mm=80.0, bowl_mm=60.0, door_mm=40.0), c)
-    assert (p.door_mm, p.bowl_mm, p.depth_mm) == (door, door + 30, door + 40)
-    assert not [i for i in issues if i.severity == Severity.error], [i.message_ko for i in issues]
-    assert t.rule_issues(p, c) == []
-
-
-def test_limit_that_autofix_cannot_reach_is_a_rule_issue(rules):
-    """세로 범위(최대 150) 안에서는 그릇 140 + 10 을 맞출 수 없다: 자동 보정은 묶인 쪽(그릇)을 바꾸지 않으므로
-    제약으로 내지 않고(보정이 엉뚱한 값을 만들지 않게) 규칙 오류로 남긴다."""
-    from app.validation.autofix import clamp_params
-
-    params = [dict(d, max=150) if d["name"] == "depth_mm" else d for d in BOWL_PARAMS]
-    t = _bowl_module(params=params)
-    c = dwarf(rules)
-    p = t.Params(depth_mm=150.0, bowl_mm=145.0)
-    assert not [k for k in t.constraints(p, c) if k.reason_ko == DEPTH_FITS_BOWL["reason_ko"]]
-    p2, _ = clamp_params(t, p, c)
-    assert p2.depth_mm == 150.0
-    msgs = t.rule_issues(p2, c)
-    assert any("155 이상이어야 하지만 최대 150 까지라 자동으로 맞출 수 없습니다" in m and DEPTH_FITS_BOWL["reason_ko"] in m
-               for m in msgs), msgs
-    # 맞출 수 있으면 규칙 오류가 아니라 자동 보정 몫이다
-    assert not any("자동으로 맞출 수 없습니다" in m for m in t.rule_issues(t.Params(depth_mm=100.0, bowl_mm=100.0), c))
-
-
-def test_limit_reasons_are_translated(monkeypatch):
-    """limit 문구(한국어·영어)는 정의 파일에서 번역 카탈로그로 들어간다."""
-    from app.modules import definition
-
-    m = ModuleDef.model_validate(_limit_def(limits=[{**DEPTH_FITS_BOWL}], params=BOWL_PARAMS))
-    monkeypatch.setattr(definition, "library", lambda: (m,))
-    assert definition.translations()[DEPTH_FITS_BOWL["reason_ko"]] == DEPTH_FITS_BOWL["reason_en"]
-
-
-# 6. 모래목욕통 앞면에 슬라이드로 붙인 턱 높이 램프
+# 5. 모래목욕통 앞면에 슬라이드로 붙인 턱 높이 램프
 
 def test_slide_ramp_on_sand_bath_front_lands_at_the_lip(rules):
     """앞면 연결판은 턱 높이 아래에서 경사로 끝나 출입 홈을 덮지 않고, 턱 높이 램프의 발판이 턱 윗면 높이에 닿는다.
@@ -684,48 +442,13 @@ def test_slide_ramp_on_sand_bath_front_lands_at_the_lip(rules):
     assert place_parts(parts, joins)["ramp"].point(entry.origin)[1] < y_wall - 50  # 램프 입구가 앞쪽 바깥에
 
 
-# 7. 출력 크기: 라이브러리 모듈의 모든 출력 파트가 기준 프린터에 들어가는지
-
-# 출력 공간을 넘는 것으로 알려진 공개 모듈 (형상을 바꿀 수 없다: 새 key 로 고친다). 값: 사유
-KNOWN_OVERSIZE = {
-    "hideout_with_tunnel": "은신처 세로 + 터널 길이가 한 덩어리라 골든 햄스터 기본값(110 + 120)부터 220mm 를 넘는다",
-}
-
-
-@pytest.mark.parametrize("key", MODULES)
-def test_every_module_print_part_fits_the_printer(key, rules):
-    """기본값과 크기 파라미터 끝값을 햄스터 크기마다 자동 보정한 값(엔진이 실제로 만드는 값)에서, 출력 파트마다 출력 자세로
-    기준 프린터 출력 공간에 들어가야 한다 (엔진의 check_build_volume 으로 잰다)."""
-    from app.domain import PlacementHint
-    from app.services.engine import build_item
-    from app.validation.autofix import clamp_params
-    from app.validation.checks import check_build_volume
-
-    t = get_template(key)
-    seen: set[str] = set()
-    over: list[tuple] = []
-    for raw in _extremes(t):
-        for species, size in HAMSTERS:
-            c = RuleContext(rules.size_rules(species, size), rules.min_wall_for(species, size),
-                            printing_max_overhang_deg=rules.printing.max_overhang_deg)
-            p, _ = clamp_params(t, t.Params.model_validate(raw), c)
-            if p.model_dump_json() in seen:
-                continue
-            seen.add(p.model_dump_json())
-            item = build_item(0, t, p, PlacementHint(), rules.printing)
-            over += [(size, p.model_dump(), i.message_ko) for i in check_build_volume([item], rules.printing)]
-    if over and key in KNOWN_OVERSIZE:
-        pytest.xfail(f"{KNOWN_OVERSIZE[key]}: {over}")
-    assert not over, over
-
-
-# 8. 거꾸로 통로 (passage="into_child") 와 끼움 결합 (mount="plug")
+# 6. 거꾸로 통로 (passage="into_child") 와 끼움 결합 (mount="plug")
 
 def _tunnel(shape: str = "pointed_arch", **kw) -> dict:
     return {"length_mm": 120, "inner_diameter_mm": 60, "shape": shape, "wall_thickness_mm": 3, **kw}
 
 
-def _twin(shape: str = "pointed_arch", mount: str = "plug", hideout: dict | None = None, **tunnel) -> ModuleTemplate:
+def _twin(shape: str = "pointed_arch", mount: str = "plug", hideout: dict | None = None, **tunnel) -> Inline:
     """은신처 A 앞문 ← 터널 → 은신처 B 앞문. 터널 끝(end_a)이 부모라 B 의 벽은 거꾸로 통로로 뚫는다."""
     h = hideout or {"entrance_count": 2}
     return module([{"id": "a", "template": "hideout", "params": h},
@@ -735,17 +458,14 @@ def _twin(shape: str = "pointed_arch", mount: str = "plug", hideout: dict | None
                    {"parent": "tube.end_a", "child": "b.front", "passage": "into_child", "mount": mount}])
 
 
-def test_passage_and_plug_definition_spelling():
-    base = {"key": "s", "name_ko": "a", "name_en": "a", "description_ko": "a", "description_en": "a", "params": [],
-            "parts": [{"id": "a", "template": "tunnel"}, {"id": "b", "template": "hideout"}]}
-    d = ModuleDef.model_validate({**base, "joins": [{"parent": "a.end_a", "child": "b.front", "passage": "into_child",
-                                                     "mount": "plug"}]})
-    assert d.joins[0].into_child and d.joins[0].mount == "plug"
-    assert not ModuleDef.model_validate({**base, "joins": [{"parent": "a.end_a", "child": "b.front",
-                                                            "passage": "into_parent"}]}).joins[0].into_child
-    for bad in ({"mount": "plug"}, {"passage": "sideways"}):
+def test_passage_and_plug_join_spelling():
+    """저장 형태의 결합: 거꾸로 통로(into_child)는 reverse, 끼움은 통로가 있어야 하고, 모르는 통로 값은 받지 않는다."""
+    j = ResolvedJoin(parent="a.end_a", child="b.front", mount="plug", passage="into_child")
+    assert j.reverse and j.join_spec().reverse and j.join_spec().plug and j.join_spec().passage
+    assert not ResolvedJoin(parent="a.end_a", child="b.front", mount="plug", passage="into_parent").reverse
+    for bad in ({"mount": "plug", "passage": False}, {"mount": "plug", "passage": "sideways"}):
         with pytest.raises(ValidationError):
-            ModuleDef.model_validate({**base, "joins": [{"parent": "a.end_a", "child": "b.front", **bad}]})
+            ResolvedJoin(parent="a.end_a", child="b.front", **bad)
 
 
 def test_reverse_passage_cuts_the_child_wall_and_counts_exits(rules):

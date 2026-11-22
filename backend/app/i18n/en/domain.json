@@ -247,5 +247,10 @@
  "S자 터널은 한 번에 90° 까지만 휠 수 있어 휘는 각도를 줄였습니다": "S-shaped tunnels can bend at most 90° each way, so the bend angle was reduced",
  "{0}: 휜 터널을 이 단면으로 만들면 지붕 안쪽에 서포트가 필요해요 (오버행 {1}mm²). 서포트 없이 출력하려면 끝이 뾰족한 아치나 집 모양 단면을 고르세요.": "{0}: a curved tunnel with this cross-section needs supports under the roof (overhang {1} mm²). To print without supports, choose the pointed-arch or house shape.",
  "{0} 터널은 최대 {1}mm 라 이 내경으로는 S자를 한 번에 {2}° 까지만 휠 수 있습니다": "Tunnels for the {0} can be at most {1} mm long, so with this inner diameter an S-curve can bend only up to {2}° each way",
- "{0}: 천장 꼭대기가 둥글거나 평평한 단면이라 끝이 뾰족한 아치·집 모양 단면보다 천장 아래에 공기가 더 많이 남아 물속에서 뜨기 쉬워요. 어항에는 끝이 뾰족한 아치나 집 모양 단면을 권합니다.": "{0}: this cross-section has a rounded or flat ceiling top, so more air stays trapped under the ceiling than with a pointed-arch or house shape, and it floats more easily underwater. For aquariums, a pointed-arch or house-shaped cross-section is recommended."
+ "{0}: 천장 꼭대기가 둥글거나 평평한 단면이라 끝이 뾰족한 아치·집 모양 단면보다 천장 아래에 공기가 더 많이 남아 물속에서 뜨기 쉬워요. 어항에는 끝이 뾰족한 아치나 집 모양 단면을 권합니다.": "{0}: this cross-section has a rounded or flat ceiling top, so more air stays trapped under the ceiling than with a pointed-arch or house shape, and it floats more easily underwater. For aquariums, a pointed-arch or house-shaped cross-section is recommended.",
+ "{0}: 부품 {1}({2})은(는) {3}에는 만들 수 없는 구조물입니다.": "{0}: part {1} ({2}) isn't available for {3}.",
+ "{0}: 조립 구조물의 부품·연결 정보가 없습니다.": "{0}: the assembled structure has no parts or connections.",
+ "{0}: 지원하지 않는 부품입니다 ({1}: {2}).": "{0}: unsupported part ({1}: {2}).",
+ "{0}: {1}({2})의 파라미터가 허용 범위를 벗어났습니다.": "{0}: the parameters of {1} ({2}) are outside the allowed range.",
+ "따로 출력하는 경사로가 프린터 출력 공간에 들어가도록 경사를 가파르게 했습니다": "Made the slope steeper so the separately printed ramp fits the printer's build volume"
 }

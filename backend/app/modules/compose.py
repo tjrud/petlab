@@ -930,7 +930,8 @@ def _face_constraints(resolved: ResolvedAssembly, parts: Mapping[str, Template],
                         reason_ko=f"{_w(names[j.child_id], '을/를')} 붙인 면이 {lo:g}mm 이상 높도록 높였습니다"))
                 if hi is not None:
                     out.append(ParamConstraint(
-                        f"{pid}.{ff.height}", max=cur - max(0.0, h - hi),
+                        # 면이 hi 보다 낮으면 그만큼 높일 여유가 있다 (다른 자식의 최소 높이가 올릴 수 있게)
+                        f"{pid}.{ff.height}", max=cur + (hi - h),
                         reason_ko=f"{names[j.child_id]}보다 높지 않도록 {names[pid]} 면 높이를 {hi:g}mm 이하로 맞췄습니다"))
     return out
 
