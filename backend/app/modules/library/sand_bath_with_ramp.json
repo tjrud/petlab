@@ -1,0 +1,46 @@
+{
+  "key": "sand_bath_with_ramp",
+  "name_ko": "경사로 달린 모래목욕통",
+  "name_en": "Sand bath with an entry ramp",
+  "description_ko": "모래목욕통 앞 출입 홈에 턱 높이까지 오르는 경사로(또는 계단)가 붙은 구조물. 모래목욕통 앞면의 연결판에 경사로를 위에서 밀어 끼우고(도브테일), 둘은 따로 출력한다. 경사로 꼭대기 발판은 턱 윗면과 같은 높이이고 폭은 출입 홈과 같다.",
+  "description_en": "A sand bath with a ramp (or steps) rising to the lip of its front entry notch. The ramp slides down onto a plate on the sand bath front (dovetail), and the two print separately. The ramp's top landing is level with the lip and as wide as the entry notch.",
+  "keywords_ko": [
+    "경사로 달린 모래목욕통", "경사로가 달린 모래목욕통", "경사로 붙은 모래목욕통", "경사로가 붙은 모래목욕통",
+    "경사로 있는 모래목욕통", "경사로가 있는 모래목욕통",
+    "계단 달린 모래목욕통", "계단이 달린 모래목욕통", "계단 붙은 모래목욕통", "계단이 붙은 모래목욕통",
+    "계단 있는 모래목욕통", "계단이 있는 모래목욕통",
+    "램프 달린 모래목욕통", "램프가 달린 모래목욕통", "램프 붙은 모래목욕통", "램프가 붙은 모래목욕통",
+    "오르막 달린 모래목욕통", "오르막이 달린 모래목욕통",
+    "경사로 달린 모래 목욕통", "경사로가 달린 모래 목욕통", "계단 달린 모래 목욕통", "계단이 달린 모래 목욕통",
+    "경사로 달린 모래통", "계단 달린 모래통",
+    "모래목욕통에 경사로", "모래목욕통에 계단", "모래목욕통에 램프", "모래 목욕통에 경사로", "모래 목욕통에 계단"
+  ],
+  "keywords_en": [
+    "sand bath with a ramp", "sand bath with ramp", "sand bath with an entry ramp", "sand bath with a step",
+    "sand bath with steps", "sand bath with stairs", "sand bath ramp", "sand bath steps",
+    "dust bath with a ramp", "dust bath with ramp", "dust bath with steps",
+    "ramp to the sand bath", "steps to the sand bath", "ramp into the sand bath"
+  ],
+  "color": "#e8b83a",
+  "params": [
+    {"name": "width_mm", "default": 216, "min": 206, "max": 220, "description_ko": "모래목욕통 외형 가로(X) mm. 출입 홈과 경사로 폭은 그 절반 − 벽 두께", "description_en": "Sand bath outer width (X) mm. The entry notch and the ramp are half of it minus the wall"},
+    {"name": "depth_mm", "default": 212, "min": 206, "max": 216, "description_ko": "모래목욕통 외형 세로(Y) mm. 앞면 연결판을 더해 출력 공간에 들어가는 216mm 까지", "description_en": "Sand bath outer depth (Y) mm. Up to 216 mm so it still fits the printer with the front plate"},
+    {"name": "basin_depth_mm", "default": 55, "min": 45, "max": 100, "description_ko": "모래목욕통 안쪽 깊이 mm. 종별 최소값 이상", "description_en": "Sand bath inner depth mm. At least the species minimum"},
+    {"name": "lip_height_mm", "default": 30, "min": 20, "max": 45, "description_ko": "턱 높이 mm. 출입 홈 턱과 경사로 꼭대기 발판의 높이. 종별 최대 턱 높이 이하", "description_en": "Lip height mm. Height of the entry lip and the ramp's top landing. At most the species maximum step height"},
+    {"name": "slope_deg", "default": 25, "min": 15, "max": 30, "description_ko": "경사로 경사각. 계단이면 평균 경사(도). 종별 최대 경사 이하", "description_en": "Ramp angle. Average slope for steps (degrees). At most the species maximum"},
+    {"name": "steps", "type": "int", "default": 0, "min": 0, "max": 3, "description_ko": "계단 단 수. 0 이면 미끄럼 방지 턱이 있는 경사로", "description_en": "Number of steps. 0 makes a ramp with anti-slip ridges"}
+  ],
+  "size_params": ["width_mm", "depth_mm"],
+  "parts": [
+    {"id": "bath", "template": "sand_bath", "params": {
+      "width_mm": {"param": "width_mm"}, "depth_mm": {"param": "depth_mm"},
+      "basin_depth_mm": {"param": "basin_depth_mm"}, "lip_height_mm": {"param": "lip_height_mm"},
+      "wall_thickness_mm": 3}},
+    {"id": "ramp", "template": "ramp", "params": {
+      "height_mm": {"param": "lip_height_mm"}, "width_mm": {"param": "width_mm", "scale": 0.5, "offset": -3},
+      "slope_deg": {"param": "slope_deg"}, "steps": {"param": "steps"}}}
+  ],
+  "joins": [
+    {"parent": "bath.front", "child": "ramp.landing", "mount": "slide"}
+  ]
+}
