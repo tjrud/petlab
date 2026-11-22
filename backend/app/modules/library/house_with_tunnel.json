@@ -1,0 +1,37 @@
+{
+  "key": "house_with_tunnel",
+  "name_ko": "터널이 이어진 집",
+  "name_en": "House with attached tunnel",
+  "description_ko": "집 오른쪽 터널 연결부에 뾰족 아치 터널을 끼운 구조물. 집 앞 출입구와 터널 끝으로 드나든다. 집 본체(경사 지붕이면 지붕 뚜껑도)와 터널을 따로 출력하고, 터널 끝의 끼움 턱을 연결부 구멍에 밀어 넣어 잇는다.",
+  "description_en": "A house with a pointed-arch tunnel plugged into the tunnel port on its right side. Enter through the front door or the tunnel end. The house body (and the roof cap for a pitched roof) and the tunnel print separately; push the spigot on the tunnel end into the port hole to join them.",
+  "keywords_ko": ["터널 달린 집", "터널이 이어진 집", "터널과 연결된 집", "터널 붙은 집"],
+  "keywords_en": ["house with a tunnel", "house with tunnel", "house with an attached tunnel"],
+  "color": "#8fa86e",
+  "enclosure": true,
+  "params": [
+    {"name": "width_mm", "default": 170, "min": 110, "max": 210, "description_ko": "집 외형 가로(X) mm. 지붕 뚜껑 포함", "description_en": "House outer width (X) mm. Including the roof cap"},
+    {"name": "depth_mm", "default": 140, "min": 110, "max": 180, "description_ko": "집 외형 세로(Y) mm. 지붕 뚜껑 포함", "description_en": "House outer depth (Y) mm. Including the roof cap"},
+    {"name": "height_mm", "default": 195, "min": 110, "max": 250, "description_ko": "집 외형 높이(Z) mm. 지붕 꼭대기까지", "description_en": "House outer height (Z) mm. Up to the top of the roof"},
+    {"name": "roof", "type": "choice", "default": "pitched", "choices": ["pitched", "flat"], "description_ko": "지붕 모양. pitched=경사(박공) 지붕, flat=평 지붕", "description_en": "Roof shape. pitched=gabled roof, flat=flat roof"},
+    {"name": "entrance_mm", "default": 70, "min": 50, "max": 90, "description_ko": "출입구 폭과 터널 내경 mm. 종별 최소값 이상", "description_en": "Door width and tunnel inner diameter mm. At least the species minimum"},
+    {"name": "tunnel_length_mm", "default": 100, "min": 80, "max": 200, "description_ko": "터널 길이 mm", "description_en": "Tunnel length mm"},
+    {"name": "wall_mm", "default": 3, "min": 2.4, "max": 5, "description_ko": "벽 두께 mm", "description_en": "Wall thickness mm"}
+  ],
+  "size_params": ["width_mm", "depth_mm", "tunnel_length_mm"],
+  "height_param": "height_mm",
+  "parts": [
+    {"id": "house", "template": "house", "params": {
+      "width_mm": {"param": "width_mm"}, "depth_mm": {"param": "depth_mm"}, "height_mm": {"param": "height_mm"},
+      "roof.kind": {"param": "roof"}, "roof.pitch_deg": 50,
+      "doors.sides": ["front"], "doors.width_mm": {"param": "entrance_mm"},
+      "ports.sides": ["right"], "ports.diameter_mm": {"param": "entrance_mm"}, "ports.flange_mm": 3,
+      "windows.count": 2, "windows.diameter_mm": 4,
+      "walls.thickness_mm": {"param": "wall_mm"}}},
+    {"id": "tube", "template": "tunnel", "params": {
+      "length_mm": {"param": "tunnel_length_mm"}, "inner_diameter_mm": {"param": "entrance_mm"},
+      "shape": "pointed_arch", "bend_angle_deg": 0, "wall_thickness_mm": {"param": "wall_mm"}}}
+  ],
+  "joins": [
+    {"parent": "house.right", "child": "tube.end_b", "passage": true, "mount": "plug"}
+  ]
+}
