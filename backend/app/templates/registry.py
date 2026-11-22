@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 from app.templates.base import Template
+from app.templates.bottle_stand import BottleStandTemplate
+from app.templates.bowl_holder import BowlHolderTemplate
 from app.templates.cave import CaveTemplate
 from app.templates.hideout import HideoutTemplate
 from app.templates.house import HouseTemplate
@@ -22,6 +24,8 @@ _PRIMITIVES: dict[str, Template] = {
         SandBathTemplate(),
         HouseTemplate(),
         CaveTemplate(),
+        BowlHolderTemplate(),
+        BottleStandTemplate(),
     )
 }
 

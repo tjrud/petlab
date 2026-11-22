@@ -26,9 +26,12 @@ TEMPLATE_KEYWORDS: dict[str, tuple[str, ...]] = {
     # 조립형 집: 2층·지붕 모양·창·터널 연결 요청. "집" 만 말하면 은신처다
     "house": ("2층", "이층", "복층", "경사 지붕", "뾰족 지붕", "둥근 지붕", "아치 지붕", "지붕 집", "창문", "터널 연결",
               "터널이 붙는", "터널을 붙"),
+    # 시판 그릇·물병을 붙잡아 두는 받침 (그릇·물병 자체는 출력하지 않는다)
+    "bowl_holder": ("그릇 받침", "밥그릇", "먹이 그릇", "먹이그릇", "밥통", "그릇"),
+    "bottle_stand": ("물병 거치대", "물병", "급수기", "물통"),
 }
 TEMPLATE_NAMES_KO = {"hideout": "은신처", "tunnel": "터널", "ramp": "램프/계단", "sand_bath": "모래목욕통", "house": "집",
-                     "cave": "물속 동굴"}
+                     "cave": "물속 동굴", "bowl_holder": "그릇 받침", "bottle_stand": "물병 거치대"}
 # 집 부품 키워드
 HOUSE_TWO_FLOORS = ("2층", "이층", "복층")
 HOUSE_EXTERNAL = ("바깥 램프", "외부 램프", "바깥 경사로", "외부 경사로", "밖에 램프", "밖에 경사로")
@@ -76,9 +79,12 @@ TEMPLATE_KEYWORDS_EN: dict[str, re.Pattern[str]] = {
     "house": re.compile(r"\b(?:two[ -]?stor(?:y|ey|ies)|2[ -]?stor(?:y|ey)|second floor|upper floor|lofts?|"
                         r"pitched roofs?|gabled? roofs?|peaked roofs?|rounded roofs?|arched roofs?|windows?|"
                         r"tunnel (?:port|connection|connector))\b"),
+    "bowl_holder": re.compile(r"\b(?:bowl ?holders?|food ?bowls?|bowls?|food ?dish(?:es)?|feeders?)\b"),
+    "bottle_stand": re.compile(r"\b(?:(?:water ?)?bottle ?(?:stands?|holders?)|water ?bottles?|bottles?|drinkers?)\b"),
 }
 TEMPLATE_NAMES_EN = {"hideout": "Hideout", "tunnel": "Tunnel", "ramp": "Ramp/stairs", "sand_bath": "Sand bath",
-                     "house": "House", "cave": "Underwater cave"}
+                     "house": "House", "cave": "Underwater cave", "bowl_holder": "Bowl holder",
+                     "bottle_stand": "Water bottle stand"}
 
 
 def _module_keywords() -> list[tuple[str, tuple[str, ...], list[re.Pattern[str]]]]:

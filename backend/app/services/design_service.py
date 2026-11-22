@@ -514,7 +514,7 @@ class DesignService:
             min_wall_mm=ctx.min_wall_mm,
             previous=previous,
             language=get_lang(),  # 영어 페이지에서 만들면 설명(summary_ko 등)도 영어로
-            allowed_templates=entry.allowed_templates,  # 이 종에 만들 수 있는 구조물만 LLM 에게 보인다
+            allowed_templates=ctx.allowed_templates,  # 이 종에 만들 수 있는 구조물(조립 모듈 포함)만 LLM 에게 보인다
         )
         result = self._interpreter().interpret(req)
         engine_result = run_engine(to_item_specs(result.spec), ctx)

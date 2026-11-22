@@ -88,7 +88,7 @@ def test_api_schema_for_aquarium_has_only_cave_and_tunnel():
 
 def test_api_schema_for_hamster_has_no_cave():
     schema = api_schema(CAGE_TEMPLATES)
-    assert schema_templates(schema) == {"hideout", "tunnel", "ramp", "sand_bath", "house"}
+    assert schema_templates(schema) == {"hideout", "tunnel", "ramp", "sand_bath", "house", "bowl_holder", "bottle_stand"}
     assert "CaveParams" not in schema["$defs"]
     # 케이지 계약은 main 그대로 모든 항목에 decor, 배치에 attach_to 가 있다
     assert all("decor" in d["properties"] for n, d in schema["$defs"].items() if n.endswith("Item"))
@@ -180,7 +180,7 @@ def test_user_message_for_hamster_has_no_aquarium_rows(rules):
     for absent in ("물 깊이", "어항", "물속 동굴", "만들 수 있는 구조물", "속이 빈", MATERIAL_RULE_KEY):
         assert absent not in head, absent
     templates = [t["template"] for t in json.loads(rest.split("## 보호자 요구사항")[0])]
-    assert templates == ["hideout", "tunnel", "ramp", "sand_bath", "house"]
+    assert templates == ["hideout", "tunnel", "ramp", "sand_bath", "house", "bowl_holder", "bottle_stand"]
 
 
 def test_template_catalog_filters_by_allowed():

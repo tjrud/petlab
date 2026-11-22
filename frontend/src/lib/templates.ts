@@ -11,6 +11,8 @@ export const TEMPLATE_COLORS: Record<string, string> = {
   sand_bath: "#e6cf8f",
   house: "#c97f6b",
   cave: "#c98a6a", // 물속 동굴 (어항): 물 색(파랑)과 구별되는 테라코타
+  bowl_holder: "#d6b48a",
+  bottle_stand: "#8fb3c9",
 };
 
 /** 구조물 색: 조립 모듈은 서버가 준 색, 기본 부품은 템플릿 색 */
@@ -46,6 +48,18 @@ export const PARAM_LABELS: Record<string, string> = {
   // 집(house)의 roof.pitch_deg "지붕 경사"(Roof pitch)와 다른 낱말: 번역 사전은 한국어 원문이 열쇠라 같으면 영어도 하나뿐이다
   roof_slope_deg: "지붕 기울기",
   shape: "단면 모양",
+  // 그릇 받침·물병 거치대
+  bowl_diameter_mm: "그릇 지름",
+  bowl_height_mm: "그릇 높이",
+  clearance_mm: "끼움 여유",
+  collar_height_mm: "테두리 높이",
+  bottle_diameter_mm: "물병 지름",
+  cap_diameter_mm: "뚜껑 지름",
+  spout_height_mm: "물꼭지 높이",
+  spout_drop_mm: "꼭지 길이",
+  holder_height_mm: "컵 높이",
+  base_width_mm: "받침판 가로",
+  base_depth_mm: "받침판 세로",
   path: "휘는 모양",
   // 집(house) 템플릿: 중첩 파라미터는 점 표기 키로 보여 준다
   "walls.thickness_mm": "벽 두께",

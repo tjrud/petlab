@@ -24,9 +24,21 @@ from app.models import CageLayout, Design, DesignVersion, MarketEvent, MarketIte
 from app.schemas import MARKET_CATEGORIES
 
 # 설계 템플릿 → 탐색 분류. 어항의 물속 동굴(cave)도 숨는 곳이라 은신처로 본다
-TEMPLATE_CATEGORY = {"hideout": "hideout", "tunnel": "tunnel", "ramp": "ramp", "sand_bath": "sand_bath",
+TEMPLATE_CATEGORY = {"hideout": "hideout", "house": "hideout", "tunnel": "tunnel", "ramp": "ramp", "sand_bath": "sand_bath",
                      "cave": "hideout"}
 CATEGORY_NAME = MARKET_CATEGORIES
+
+
+def template_category(key: str) -> str | None:
+    """설계 템플릿 키 → 탐색 분류. 조립 모듈은 기준(첫) 부품의 분류를 따른다 (터널 달린 은신처 → 은신처)."""
+    if key in TEMPLATE_CATEGORY:
+        return TEMPLATE_CATEGORY[key]
+    from app.modules.definition import library
+
+    for m in library():
+        if m.key == key:
+            return TEMPLATE_CATEGORY.get(m.parts[0].template)
+    return None
 EVENT_WEIGHT = {"view": 1.0, "download": 3.0, "copy": 3.0}
 
 
@@ -80,7 +92,7 @@ def profile(db: Session, user: User, habitat_of: HabitatOf | None = None) -> dic
     )
     for items in db.scalars(latest):
         for it in items or []:
-            cat = TEMPLATE_CATEGORY.get(it.get("template", ""))
+            cat = template_category(it.get("template", ""))
             if cat:
                 designs[cat] += 1
 
