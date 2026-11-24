@@ -12,6 +12,7 @@ import copy
 import json
 import re
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Any
 
 from app.i18n import catalog
@@ -28,7 +29,7 @@ from app.llm.spec import (
     parse_spec,
 )
 from app.modules.structure import MAX_PARTS
-from app.templates.base import RuleContext
+from app.templates.base import RuleContext, Template
 from app.templates.registry import all_templates, primitives
 from app.validation.autofix import clip_to_field_bounds
 
@@ -109,11 +110,15 @@ MISSING_KEYWORDS: dict[str, _Missing] = {
 }
 
 
-def _find_missing(text: str, en: bool) -> list[dict]:
-    """글에 나온 카탈로그에 없는 부품 (나온 차례대로) → missing_parts 항목."""
+def _find_missing(text: str, en: bool, claimed: frozenset[str] = frozenset()) -> list[dict]:
+    """글에 나온 카탈로그에 없는 부품 (나온 차례대로) → missing_parts 항목.
+    claimed: 이 요청에 내놓은 라이브러리 부품이 맡은 낱말 (소문자). 그 낱말을 가진 없는 부품은 이제 있으므로 알리지 않는다."""
     low = _en(text)
     found = []
     for m in MISSING_KEYWORDS.values():
+        if claimed and (any(w.casefold() in claimed for w in (*m.words_ko, m.name_ko, m.name_en))
+                        or any(m.rx_en.fullmatch(w) for w in claimed)):
+            continue
         positions = [text.find(w) for w in m.words_ko if w in text]
         if hit := m.rx_en.search(low):
             positions.append(hit.start())
@@ -121,12 +126,6 @@ def _find_missing(text: str, en: bool) -> list[dict]:
             found.append((min(positions), m))
     return [{"name_ko": m.name_en if en else m.name_ko, "purpose_ko": m.purpose_en if en else m.purpose_ko}
             for _, m in sorted(found, key=lambda x: x[0])]
-
-
-def _missing_note(name: str, en: bool) -> str:
-    if en:
-        return f"The {name} you asked for isn't available as a part yet, so it was built from other parts."
-    return f"요청하신 {name}은(는) 아직 부품이 없어 다른 부품으로 만들었어요."
 
 
 # 영어 요청용 키워드 (소문자로 바꾼 글에 단어 경계로 찾는다). 한국어 키워드와 함께 확인한다
@@ -145,6 +144,132 @@ TEMPLATE_KEYWORDS_EN: dict[str, re.Pattern[str]] = {
 TEMPLATE_NAMES_EN = {"hideout": "Hideout", "tunnel": "Tunnel", "ramp": "Ramp/stairs", "sand_bath": "Sand bath",
                      "house": "House", "cave": "Underwater cave", "bowl_holder": "Bowl holder",
                      "bottle_stand": "Water bottle stand"}
+
+
+# ── 부품 라이브러리 (app/library) 부품: 낱말·이름·부품 id 는 게시된 부품 파일에서 읽는다 (설계 문서 §10) ──────────
+# 코드 부품의 표(TEMPLATE_KEYWORDS·TEMPLATE_NAMES_*·PART_IDS)에 없는 템플릿 키는 라이브러리에서 찾는다.
+# 낱말은 이 요청에 내놓은(allowed) 라이브러리 부품만, 같은 계열(family)은 내놓은 것 중 가장 새 판만 쓴다.
+# 코드 부품의 낱말과 똑같은 라이브러리 낱말은 쓰지 않는다 ('2층'은 집, '터널 연결'은 터널과 연결 말): 코드 부품의 해석을
+# 바꾸지 않는다.
+
+
+def _library_part(key: str) -> dict | None:
+    """라이브러리 부품 파일 (색인에 있는 키만, 상태 무관). 없거나 읽지 못하면 None."""
+    from app.library import index  # 가벼운 모듈 (json·pydantic)
+
+    if key in TEMPLATE_KEYWORDS or not index.is_library_key(key):
+        return None
+    return index.read_part(key)
+
+
+def _library_text(key: str, field: str, en: bool) -> str | None:
+    """라이브러리 부품의 name 같은 {ko, en} 글. 색인에 없는 초안(검증기의 overlay)은 템플릿의 부품 파일에서 읽는다."""
+    part = _library_part(key)
+    if part is not None:
+        return part[field]["en" if en else "ko"]
+    pf = getattr(primitives().get(key), "part_file", None)
+    text = getattr(pf, field, None) if pf is not None else None
+    return getattr(text, "en" if en else "ko", None) if text is not None else None
+
+
+class _Names(dict):
+    """템플릿 키 → 이름. 코드 부품은 표에서, 라이브러리 부품은 부품 파일의 이름(응답 언어)에서, 모르면 키 그대로."""
+
+    def __init__(self, table: dict[str, str], en: bool):
+        super().__init__(table)
+        self.en = en
+
+    def __missing__(self, key: str) -> str:
+        name = _library_text(key, "name", self.en)
+        if name is None:
+            t = primitives().get(key)
+            name = catalog().translate(t.display_name_ko) if t is not None and self.en else (
+                t.display_name_ko if t is not None else key)
+        return name
+
+
+def _names(en: bool) -> _Names:
+    return _Names(TEMPLATE_NAMES_EN if en else TEMPLATE_NAMES_KO, en)
+
+
+def _part_id(key: str) -> str:
+    """조립 항목에서 쓰는 기본 부품 id: 코드 부품은 PART_IDS, 라이브러리 부품은 부품 파일의 part_id."""
+    if key in PART_IDS:
+        return PART_IDS[key]
+    part = _library_part(key)
+    if part is not None:
+        return str(part["part_id"])
+    pf = getattr(primitives().get(key), "part_file", None)
+    return str(pf.part_id) if pf is not None else key
+
+
+def _code_words() -> tuple[set[str], list[re.Pattern[str]]]:
+    ko = {w for words in TEMPLATE_KEYWORDS.values() for w in words}
+    ko |= set(HOUSE_TWO_FLOORS + HOUSE_EXTERNAL + HOUSE_PITCHED + HOUSE_ROUNDED + HOUSE_PORT + HOUSE_FLOOR)
+    return ko, list(TEMPLATE_KEYWORDS_EN.values())
+
+
+def _en_words_rx(words: list[str]) -> re.Pattern[str] | None:
+    """영어 낱말 목록 → 단어 경계 정규식 (복수형 s·es 도). 낱말 안의 빈칸·하이픈은 빈칸·하이픈·붙여 쓰기 모두 받는다."""
+    if not words:
+        return None
+    alts = []
+    for w in sorted(words, key=len, reverse=True):
+        parts = [re.escape(x) for x in re.split(r"[\s-]+", w.lower()) if x]
+        alts.append(r"[ -]?".join(parts))
+    return re.compile(r"\b(?:" + "|".join(alts) + r")(?:e?s)?\b")
+
+
+@dataclass(frozen=True)
+class _LibraryWords:
+    """이 요청에 내놓은 라이브러리 부품의 낱말 (key → 한국어 낱말, 영어 정규식)과, 라이브러리 부품이 맡은 모든 낱말."""
+
+    ko: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    en: dict[str, re.Pattern[str]] = field(default_factory=dict)
+    claimed: frozenset[str] = frozenset()  # 소문자 낱말 (한국어·영어·채우는 요청 이름) — 없는 부품 안내를 막는다
+
+
+def _library_words(allowed: list[str]) -> _LibraryWords:
+    """allowed 중 라이브러리 부품(활성)의 낱말. 같은 계열은 allowed 에 든 가장 새 판만."""
+    from app.library import index
+
+    lib = [k for k in allowed if k not in TEMPLATE_KEYWORDS and index.is_library_key(k)]
+    if not lib:
+        return _LibraryWords()
+    newest: dict[str, tuple[int, str]] = {}
+    for k in lib:
+        parsed = index.parse_key(k)
+        if parsed is not None and (parsed[0] not in newest or parsed[1] > newest[parsed[0]][0]):
+            newest[parsed[0]] = (parsed[1], k)
+    words = index.keywords()  # 활성 부품만
+    code_ko, code_en = _code_words()
+    ko: dict[str, tuple[str, ...]] = {}
+    en: dict[str, re.Pattern[str]] = {}
+    claimed: set[str] = set()
+    for _, key in sorted(newest.values(), key=lambda v: lib.index(v[1])):
+        kw = words.get(key)
+        if kw is None:
+            continue
+        part = index.read_part(key)
+        claimed |= {w.casefold() for w in kw["ko"] + kw["en"]}
+        claimed |= {w.casefold() for w in part.get("fulfills") or []}
+        # 부품 이름도 낱말로 쓴다 ('화장실 트레이'·'litter tray')
+        ko_words = tuple(w for w in dict.fromkeys([part["name"]["ko"], *kw["ko"]]) if w not in code_ko)
+        en_words = [w for w in dict.fromkeys([part["name"]["en"].lower(), *kw["en"]])
+                    if not any(rx.fullmatch(w.lower()) for rx in code_en)]
+        if ko_words:
+            ko[key] = ko_words
+        if (rx := _en_words_rx(en_words)) is not None:
+            en[key] = rx
+    return _LibraryWords(ko, en, frozenset(claimed))
+
+
+def _library_hits(text: str, low: str, lw: _LibraryWords) -> list[tuple[int, int, str]]:
+    """글의 라이브러리 부품 낱말 자리 (시작, 끝, key). 한국어는 원문, 영어는 소문자 글에서 찾는다."""
+    hits = [(m.start(), m.end(), key) for key, words in lw.ko.items() for w in words
+            for m in re.finditer(re.escape(w), text)]
+    hits += [(m.start(), m.end(), key) for key, rx in lw.en.items() for m in rx.finditer(low)]
+    return sorted(hits)
 
 
 HOUSE_TWO_FLOORS_EN = re.compile(r"\b(?:two[ -]?stor(?:y|ey|ies)|2[ -]?stor(?:y|ey)|second floor|upper floor|lofts?)\b")
@@ -311,13 +436,19 @@ def _blank(m: re.Match[str]) -> str:
     return " " * len(m.group(0))
 
 
-def _find_templates(text: str, aquarium: bool = False) -> list[str]:
+def _find_templates(text: str, aquarium: bool = False, lib: _LibraryWords | None = None) -> list[str]:
     words_of, rx_of = (AQUARIUM_KEYWORDS, AQUARIUM_KEYWORDS_EN) if aquarium else (TEMPLATE_KEYWORDS, TEMPLATE_KEYWORDS_EN)
     found = []
     # "집 모양 터널" 의 "집" 은 은신처가 아니라 터널 단면 모양이다 (같은 길이로 바꿔 위치는 그대로)
     if "터널" in text:
         text = text.replace("집 모양", "＿ 모양").replace("집모양", "＿모양")
     low = _en(text)
+    if lib is not None and not aquarium:
+        # 라이브러리 부품 낱말을 먼저 찾고 지운다 ('모래 화장실'의 '모래'를 모래목욕통으로 읽지 않게, 위치는 그대로)
+        for s0, e0, key in _library_hits(text, low, lib):
+            found.append((s0, key))
+            text = text[:s0] + " " * (e0 - s0) + text[e0:]
+            low = low[:s0] + " " * (e0 - s0) + low[e0:]
     if rx_of["tunnel"].search(low):
         # "house-shaped tunnel" 의 house 는 은신처(어항은 물속 동굴)가 아니라 터널 단면 모양이다
         low = HOUSE_SHAPE_EN.sub(lambda mm: "_" * len(mm.group(0)), low)
@@ -337,7 +468,7 @@ def _find_templates(text: str, aquarium: bool = False) -> list[str]:
             if ko_rx is not None:
                 text = ko_rx.sub(_blank, text)
             low = rx_of[key].sub(_blank, low)
-    keys = [k for _, k in sorted(found)]
+    keys = list(dict.fromkeys(k for _, k in sorted(found)))
     if "house" in keys:
         # "2층 집" 의 "집"·"house with windows" 의 "house" 는 은신처가 아니라 조립형 집이다
         keys = [k for k in keys if k != "hideout"]
@@ -551,6 +682,14 @@ def _expand(template: str) -> re.Pattern[str]:
 #   head   {B…}(이) 달린 {A}               → B → A.auto (P3; A 는 다른 '달린 A' 와 다른 부품)
 #   roof   {A} 지붕으로 올라가는 {램프}      → 램프 → A.auto
 _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = tuple((kind, _expand(t)) for kind, t in (
+    # P7 갈림방: {허브}로 {R} n 개 (터널 갈림길처럼 출입구가 여럿인 방에 방 n 개를 터널로 잇는다)
+    ("hub", r"{AH}(?:으로|로)\s*(?:{LINKP})?{F}{R}{CNT}(?:를|을)?(?:{F}{LINKV})?"),
+    ("hub", r"{R}{CNT}(?:를|을|가|이)?{F}{AH}(?:으로|로){F}{LINKV}"),
+    ("hub", r"(?:connect|join|link)\s+{ECNT}{R}\s+(?:together\s+)?(?:with|via|through|by|using|around|to)\s+{ART}{AH}"),
+    ("hub", (r"{ECNT}{R}{FE}(?:joined|connected|linked|attached)\s+(?:together\s+)?(?:by|with|via|through|using|to)\s+"
+             r"{ART}{AH}")),
+    ("hub", r"{ECNT}{R}\s+(?:around|off|on)\s+{ART}{AH}"),
+    ("hub", r"{AH}\s+(?:connecting|joining|linking|with)\s+{ECNT}{R}"),
     # P6 쌍둥이
     ("twin", r"(?P<twin>쌍둥이\s*)?{R}{CNT}?(?:를|을|가|이|는|은)?{F}{T}(?:으로|로)(?:{F}{LINKV})?"),
     ("twin", r"(?P<cnt>두|2)\s*(?:개의|채의|개|채)?\s*{R}(?:를|을|가|이|는|은)?{F}{T}(?:으로|로)(?:{F}{LINKV})?"),
@@ -683,9 +822,11 @@ def _josa(word: str, with_batchim: str, without: str) -> str:
 class _Composer:
     """요청 글 → 부품(인스턴스)·연결. 직전 설계의 부품도 인스턴스로 올려 두고 새 연결을 더한다 (수정 요청)."""
 
-    def __init__(self, text: str, allowed: list[str], previous: list[dict], en: bool):
+    def __init__(self, text: str, allowed: list[str], previous: list[dict], en: bool,
+                 lib: _LibraryWords | None = None):
         self.text = text
         self.en = en
+        self.lib = lib or _LibraryWords()
         self.keys = [k for k in allowed if k in primitives() and primitives()[k].composable]
         self.parts: dict[str, _Part] = {}
         self.edges: dict[str, tuple[str, str]] = {}  # 자식 → (부모, at)
@@ -703,7 +844,7 @@ class _Composer:
     # ── 부품 ──
 
     def _new_id(self, key: str) -> str:
-        base = PART_IDS.get(key, key)
+        base = _part_id(key)
         taken = set(self.parts)
         if base not in taken:
             return base
@@ -822,8 +963,7 @@ class _Composer:
         return t.role != "connector" and "passage" in t.attach_order
 
     def _name(self, pid: str) -> str:
-        names = TEMPLATE_NAMES_EN if self.en else TEMPLATE_NAMES_KO
-        return names[self.parts[pid].key]
+        return _names(self.en)[self.parts[pid].key]
 
     def _note(self, ko: str, en: str) -> None:
         msg = en if self.en else ko
@@ -920,6 +1060,7 @@ class _Composer:
                 hits += [(m.start(), m.end(), key) for m in re.finditer(re.escape(w), text)]
             if key in TEMPLATE_KEYWORDS_EN:
                 hits += [(m.start(), m.end(), key) for m in TEMPLATE_KEYWORDS_EN[key].finditer(text)]
+        hits += [h for h in _library_hits(text, text, self.lib) if h[2] in self.keys]
         merged: list[list[Any]] = []
         for s, e, key in sorted(hits):
             if merged and merged[-1][2] == key and s < merged[-1][1]:
@@ -1027,7 +1168,8 @@ class _Composer:
                 continue
             tok, where = self._tokenize(low, span, ms)
             blank_before = len(self.blank)
-            rels = self._find_relations(tok)
+            hubs = {i for i, m in ms if self._door_count(m.key) >= 3}
+            rels = self._find_relations(tok, hubs)
             pending = sorted((m for _, m in ms), key=lambda m: m.start)
             for rel in rels:
                 rel_start = where[rel.start]
@@ -1069,7 +1211,8 @@ class _Composer:
         idx = mentions.index(m)
         return any(idx in r.groups["ids"] for r in rels)
 
-    def _find_relations(self, tok: str) -> list[_Relation]:
+    def _find_relations(self, tok: str, hubs: set[int] | frozenset[int] = frozenset()) -> list[_Relation]:
+        """hubs: 갈림방(P7)이 될 수 있는 부품 낱말 번호 (기본값에서 출입구가 셋 이상인 방)."""
         found: list[_Relation] = []
         claimed: list[tuple[int, int]] = []
         heads: list[tuple[int, int]] = []  # 찾은 틀의 기준 부품({A}) 낱말 자리
@@ -1099,6 +1242,8 @@ class _Composer:
                         continue  # 케이지 안 위치 (구석·벽·케이지 왼쪽 …)
                 if kind == "twin" and "twin" not in g and "cnt" not in g:
                     continue  # 하나만 말한 방은 P4 (터널로 이은 은신처)
+                if kind == "hub" and int(g["a"]) not in hubs:
+                    continue  # 출입구가 셋 이상인 방만 갈림방이다 ('은신처로 …'·'a house with two hideouts' 는 다른 틀)
                 g["ids"] = [int(i) for _, i in _TOKEN.findall(m.group(0))]
                 g["bl"] = [int(i) for _, i in _TOKEN.findall(g["bl"])] if "bl" in g else []
                 fills = [m.span(k) for k in m.groupdict() if k.startswith("f") and m.group(k) is not None]
@@ -1124,6 +1269,8 @@ class _Composer:
                 return False
         if side in _PAIR_SIDES and rel.kind not in ("side", "head"):
             side = _PAIR_SIDES[side][0]
+        if rel.kind == "hub":
+            return self._hub(get("a"), get("r"), _count(g.get("cnt")))
         if rel.kind == "twin":
             r, t = get("r"), get("t")
             n = _count(g.get("cnt"))
@@ -1240,6 +1387,46 @@ class _Composer:
                 ok = self.link(kid, parent, at) or ok
         return ok
 
+    def _door_count(self, key: str) -> int:
+        """기본값에서 터널을 이을 수 있는 출입구 수 (방만: attach_order passage 의 면 중 port 가 있는 것)."""
+        return _door_count(primitives()[key]) if self._passable(key) else 0
+
+    def _hub(self, hm: _Mention, rm: _Mention, n: int) -> bool:
+        """{허브}로 {방} n 개: 첫 방 ← 터널 ← 허브 ← 터널 ← 방 … (방은 첫 방의 사본). 허브는 출입구가 여럿인 다른 방
+        (예: 터널 갈림길). 터널을 쓸 수 없으면 방을 허브에 바로 붙인다 (해석기가 터널을 끼운다)."""
+        if hm.key == rm.key or not (self._passable(hm.key) and self._passable(rm.key)):
+            return False
+        hub_name = _names(self.en)[hm.key]
+        doors = self._door_count(hm.key)
+        limit = min(doors, MAX_CHAIN_ROOMS, (MAX_PARTS - 1) // 2)
+        if limit < 2:
+            return False
+        if n > limit:
+            if limit == doors:
+                self._note(f"{hub_name}에는 출입구가 {doors}개라 방을 {limit}개만 이었습니다.",
+                           f"The {hub_name.lower()} has {doors} doors, so I linked {limit} rooms.")
+            else:
+                self._note(f"한 구조물에 부품은 {MAX_PARTS}개까지라 방을 {limit}개만 이었습니다.",
+                           f"One structure can have at most {MAX_PARTS} parts, so I linked {limit} rooms.")
+            n = limit
+        first = self._resolve(rm)
+        hub = self._resolve(hm, distinct=(first,))
+        tunnel = "tunnel" if "tunnel" in self.keys else None
+
+        def join(child: str, parent: str) -> bool:
+            if tunnel is None:
+                return self.link(child, parent, "auto")
+            tube = self._add(tunnel)
+            self.parts[tube].clauses += self.parts[child].clauses
+            return self.link(tube, parent, "auto") and self.link(child, tube, "free_end")
+
+        ok = join(hub, first)
+        for _ in range(n - 1):
+            room = self._add(rm.key, copy_of=first)
+            self.parts[room].clauses += self.parts[first].clauses
+            ok = join(room, hub) and ok
+        return ok
+
     # ── 결과 ──
 
     def groups(self) -> list[list[str]]:
@@ -1276,9 +1463,16 @@ class _Composer:
         return name, links
 
 
+@lru_cache(maxsize=64)
+def _door_count(t: Template) -> int:
+    anchors = t.anchors(t.default_params())
+    return sum(1 for side in t.attach_order.get("passage", ()) if anchors.get(side) is not None
+               and anchors[side].port is not None)
+
+
 def _assembly_name(keys: list[str], en: bool) -> str:
     """조립 항목 이름: '그릇 받침·물병 거치대가 달린 은신처' / 'Hideout with bowl holder and water bottle stand'."""
-    names = TEMPLATE_NAMES_EN if en else TEMPLATE_NAMES_KO
+    names = _names(en)
     kids = list(dict.fromkeys(names[k] for k in keys[1:]))
     if en:
         low = [k.lower() for k in kids]
@@ -1321,16 +1515,17 @@ def _split_remove(text: str) -> tuple[str, str]:
     return (" ".join(rm) or text), " ".join(keep)
 
 
-def _single_keys(text: str, keys: list[str]) -> set[str]:
+def _single_keys(text: str, keys: list[str], lib: _LibraryWords | None = None) -> set[str]:
     """'물병 하나 빼줘'·'remove one bottle': 하나만 빼는 템플릿."""
     low = _en(text)
     out: set[str] = set()
+    lib = lib or _LibraryWords()
     for key in keys:
-        for w in TEMPLATE_KEYWORDS.get(key, ()):
+        for w in TEMPLATE_KEYWORDS.get(key, ()) or lib.ko.get(key, ()):
             for m in re.finditer(re.escape(w), text):
                 if _ONE_AFTER.match(text[m.end():]):
                     out.add(key)
-        rx = TEMPLATE_KEYWORDS_EN.get(key)
+        rx = TEMPLATE_KEYWORDS_EN.get(key) or lib.en.get(key)
         if rx is not None:
             for m in rx.finditer(low):
                 if _ONE_BEFORE.search(low[:m.start()]):
@@ -1404,28 +1599,30 @@ class MockInterpreter:
     def _reason_en(req: InterpretRequest, key: str) -> str:
         if is_aquarium(req):  # 크기 구분 이름은 규칙 파일의 한국어 이름을 카탈로그로 바꾼다
             group = catalog().translate(req.size_rules.display_name)
-            return (f"Found '{TEMPLATE_NAMES_EN[key]}' in your request and used the standard tank values "
+            return (f"Found '{_names(True)[key]}' in your request and used the standard tank values "
                     f"for the {group}.")
-        return (f"Found '{TEMPLATE_NAMES_EN[key]}' in your request and used the standard values "
+        return (f"Found '{_names(True)[key]}' in your request and used the standard values "
                 f"for a {pet_name_en(req)}.")
 
     @staticmethod
     def _reason_ko(req: InterpretRequest, key: str) -> str:
         if is_aquarium(req):
-            return (f"요구사항에서 '{TEMPLATE_NAMES_KO[key]}'을(를) 찾아 {req.size_rules.display_name} "
+            return (f"요구사항에서 '{_names(False)[key]}'을(를) 찾아 {req.size_rules.display_name} "
                     "수조 기준에 맞춰 구성했습니다.")
-        return (f"요구사항에서 '{TEMPLATE_NAMES_KO[key]}'을(를) 찾아 {req.habitat.species_name_ko} "
+        return (f"요구사항에서 '{_names(False)[key]}'을(를) 찾아 {req.habitat.species_name_ko} "
                 f"{req.size_rules.display_name} 기준값으로 구성했습니다.")
 
     def interpret(self, req: InterpretRequest) -> InterpretResult:
         text = req.prompt
         en = req.language == "en"
-        names_of = TEMPLATE_NAMES_EN if en else TEMPLATE_NAMES_KO
+        names_of = _names(en)
         registry = {t.key: t for t in all_templates()}
         ctx = RuleContext(req.size_rules, req.min_wall_mm, req.habitat.count)
         notes: list[str] = []
         aquarium = is_aquarium(req)
         allowed = [k for k in req.allowed_templates if k in registry]  # 이 종에 만들 수 있는 구조물
+        # 이 요청에 내놓은 라이브러리 부품의 낱말 (어항에는 라이브러리 부품이 없다: v1 은 케이지만)
+        lib = _library_words(allowed) if not is_aquarium(req) else _LibraryWords()
         # 아무것도 말하지 않았을 때 만들 기본 구조물: 케이지는 은신처, 어항은 물속 동굴(허용 목록의 첫 템플릿)
         default_key = "hideout" if "hideout" in allowed or not allowed else allowed[0]
         # 조립 항목은 기준 구조물(은신처·집·모래목욕통)이 있는 묶음의 계약에만 있다 (spec._item_union)
@@ -1468,22 +1665,22 @@ class MockInterpreter:
         # 빼는 말은 그 절에만: '물병 빼고 터널 달아줘' 는 물병을 빼고 나머지 절(터널 달기)은 보통 수정으로 읽는다
         remove_text, keep_text = _split_remove(text) if removing else (text, "")
         # 카탈로그에 없는 부품 (빼는 절의 말은 요청이 아니다)
-        missing = _find_missing(keep_text if removing else text, en)
-        remove_keys = [k for k in _find_templates(_strip_locatives(remove_text), aquarium=aquarium) if k in registry] \
-            if removing else []
+        missing = _find_missing(keep_text if removing else text, en, lib.claimed)
+        remove_keys = [k for k in _find_templates(_strip_locatives(remove_text), aquarium=aquarium, lib=lib)
+                       if k in registry] if removing else []
         if remove_keys and keep_text.strip():
-            items = _remove_items(items, set(remove_keys), _single_keys(remove_text, remove_keys), en)
+            items = _remove_items(items, set(remove_keys), _single_keys(remove_text, remove_keys, lib), en)
             text, low, remove_keys = keep_text, _en(keep_text), []
 
         # 조립 문법: 붙이기·달기·잇기를 찾아 조립 항목으로 묶고, 쓴 글 조각은 지운다 (빼기 요청에는 쓰지 않는다)
         composer = None
         rest_text = text
         if compose_on and not remove_keys:
-            composer = _Composer(text, allowed, items, en)
+            composer = _Composer(text, allowed, items, en, lib)
             rest_text = composer.run()
             notes += composer.notes
 
-        requested = _find_templates(rest_text, aquarium=aquarium)
+        requested = _find_templates(rest_text, aquarium=aquarium, lib=lib)
         unsupported = [k for k in requested if k not in registry]
         if unsupported:
             names = ", ".join(names_of[k] for k in unsupported)
@@ -1505,7 +1702,7 @@ class MockInterpreter:
         factor = _scale_factor(text)
 
         if remove_keys:
-            items = _remove_items(items, set(remove_keys), _single_keys(remove_text, remove_keys), en)
+            items = _remove_items(items, set(remove_keys), _single_keys(remove_text, remove_keys, lib), en)
             requested = []
         elif composer is not None:
             items = self._compose_items(composer, items, req, ctx, factor, zone, grouped, attach_field)
@@ -1551,8 +1748,8 @@ class MockInterpreter:
                              else "구체적인 구조물 언급이 없어 기본 은신처 1개로 설계했습니다.")
             else:
                 notes.append(f"No specific structure was mentioned, so I designed one standard "
-                             f"{TEMPLATE_NAMES_EN[default_key].lower()}." if en
-                             else f"구체적인 구조물 언급이 없어 기본 {TEMPLATE_NAMES_KO[default_key]} 1개로 설계했습니다.")
+                             f"{names_of[default_key].lower()}." if en
+                             else f"구체적인 구조물 언급이 없어 기본 {names_of[default_key]} 1개로 설계했습니다.")
         for it in items:
             it.pop("_new", None)
 
@@ -1600,8 +1797,8 @@ class MockInterpreter:
                 reason = ("Every structure was removed, so I kept the standard hideout." if en
                           else "구조물이 모두 제외되어 기본 은신처를 남겼습니다.")
             else:
-                reason = (f"Every structure was removed, so I kept the standard {TEMPLATE_NAMES_EN[default_key].lower()}."
-                          if en else f"구조물이 모두 제외되어 기본 {TEMPLATE_NAMES_KO[default_key]}을(를) 남겼습니다.")
+                reason = (f"Every structure was removed, so I kept the standard {names_of[default_key].lower()}."
+                          if en else f"구조물이 모두 제외되어 기본 {names_of[default_key]}을(를) 남겼습니다.")
             items.append({
                 "template": default_key, "params": t.default_params(ctx).model_dump(),
                 "placement": {"zone": "auto", "group": None, "rotation": None,
@@ -1614,11 +1811,12 @@ class MockInterpreter:
                 it.pop("decor", None)
             elif decor_field:
                 it.setdefault("decor", None)
-        names = ", ".join(it["name_ko"] if it["template"] == ASSEMBLY_KEY else names_of.get(it["template"], it["template"])
+        names = ", ".join(it["name_ko"] if it["template"] == ASSEMBLY_KEY else names_of[it["template"]]
                           for it in items)
         summary = (f"[Dev mock interpreter] Read your request by keywords and designed: {names}." if en
                    else f"[개발용 모의 해석기] 요구사항을 키워드로 해석해 {names}을(를) 설계했습니다.")
-        notes += [_missing_note(m["name_ko"], en) for m in missing]
+        # 없는 부품(missing)은 화면이 missing_parts 로 따로 알린다 (설계 화면의 '아직 부품 라이브러리에 없어요' 안내).
+        # 같은 말을 notes_ko 에 또 적지 않는다
         spec_json = json.dumps({
             "summary_ko": summary,
             "items": items,

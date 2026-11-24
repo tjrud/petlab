@@ -54,7 +54,7 @@
       "rule_default": "ctx.default_wall_mm",
       "desc": {
         "ko": "벽·바닥 두께 mm",
-        "en": "Wall and floor thickness mm"
+        "en": "wall/floor thickness mm"
       }
     },
     "width_mm": {
@@ -65,7 +65,7 @@
       "rule_default": "max(130, 2 * rule.gap_trap.passable_min_mm + 2 * wall_thickness_mm)",
       "desc": {
         "ko": "외형 가로(X) mm. 안에서 돌아설 수 있게 종별 통과 폭의 2배 이상",
-        "en": "Outer width (X) mm. At least twice the species' passable width so it can turn around"
+        "en": "outer width (X) mm. At least twice the species' passable width so it can turn around"
       }
     },
     "depth_mm": {
@@ -76,7 +76,7 @@
       "rule_default": "max(130, 2 * rule.gap_trap.passable_min_mm + 2 * wall_thickness_mm)",
       "desc": {
         "ko": "외형 세로(Y) mm",
-        "en": "Outer depth (Y) mm"
+        "en": "outer depth (Y) mm"
       }
     },
     "lip_height_mm": {

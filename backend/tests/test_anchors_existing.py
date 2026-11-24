@@ -6,6 +6,8 @@ import numpy as np
 import pytest
 
 from app.geometry.mesh import mesh_health, part_to_mesh
+from app.library.verify.anchors import build_mesh
+from app.library.verify.anchors import check_anchors as verify_anchors
 from app.modules.assembly import (
     JoinSpec,
     PartSpec,
@@ -17,7 +19,13 @@ from app.modules.assembly import (
 )
 from app.templates.base import RuleContext
 from app.templates.hideout import HideoutParams, HideoutTemplate
-from app.templates.house import HouseParams, HouseTemplate, eave_height, is_cap, make_shell
+from app.templates.house import (
+    HouseParams,
+    HouseTemplate,
+    eave_height,
+    is_cap,
+    make_shell,
+)
 from app.templates.parts.common import arch_height
 from app.templates.parts.levels import PORCH_MM
 from app.templates.parts.shell import SKIRT_MM
@@ -53,44 +61,12 @@ def house_params(rules, name: str) -> HouseParams:
     return p
 
 
-def _surface_probe(t, p, name, a) -> np.ndarray:
-    """기준점 근처에서 형상 표면 위에 있어야 하는 점. 통로 자리는 기준점(개구부 아래 가운데)이 비어 있으므로
-    개구부 꼭대기 바로 위의 벽(플랜지) 위 점을 쓴다."""
-    o, up = np.asarray(a.origin, float), np.asarray(a.up, float)
-    if a.port is None:
-        return o
-    if isinstance(t, HouseTemplate) and name in p.ports.sides:
-        # 플랜지 고리: 안쪽 아치 꼭대기(≈ arch_height(d) − CUT)와 바깥 아치 꼭대기 사이
-        inner = arch_height(a.port) - 1.0
-        outer = arch_height(a.port + 2 * p.walls.thickness_mm)
-        return o + up * (inner + outer) / 2
-    return o + up * (arch_height(a.port) + 2.0)
-
-
 def check_anchors(t, p):
-    m = part_to_mesh(t.build(p))
-    lo, hi = m.bounds
-    for name, a in t.anchors(p).items():
-        n, up = np.asarray(a.normal, float), np.asarray(a.up, float)
-        assert np.linalg.norm(n) == pytest.approx(1) and np.linalg.norm(up) == pytest.approx(1), name
-        assert abs(float(n @ up)) < 1e-9, name
-        o = np.asarray(a.origin, float)
-        if name == "bottom":
-            # 밑면: 바닥 평면 위, 외곽 안 (바닥이 열린 구조물은 기준점 자체가 빈 곳이다)
-            assert o[2] == pytest.approx(lo[2], abs=1e-6)
-            assert np.all(o[:2] >= lo[:2]) and np.all(o[:2] <= hi[:2])
-            continue
-        q = _surface_probe(t, p, name, a)
-        _, dist, _ = m.nearest.on_surface([q])
-        assert dist[0] <= 0.5, (name, q, dist[0])
-        # 바깥 방향: 법선 쪽으로 조금 나간 점은 형상 밖, 안쪽으로 조금 들어간 점은 형상 안 (기준점이 바닥 모서리면 조금 위에서)
-        lift = 0.5 if abs(n[2]) < 0.5 and a.port is None else 0.0
-        s = q + up * lift
-        assert not m.contains([s + n * 1.0])[0], (name, "normal points inward")
-        assert m.contains([s - n * 0.4])[0], (name, "origin not on the outer face")
-        # 출입구 면의 side 는 출입 면이다 (은신처 뒷면은 출입구가 아니어도 side="back" 을 단다: 슬라이드 결합용)
-        if a.side is not None and a.port is not None:
-            assert a.side in t.features(p).access_sides, name
+    """연결 지점이 형상 바깥면 위에 있고 방향이 맞는지 (검증기 C01·C02, app.library.verify.anchors 와 같은 검사).
+    통로 자리는 개구부 꼭대기 바로 위 벽(집 연결부는 플랜지 고리) 위 점으로 본다."""
+    m = build_mesh(t, p)
+    bad = [r for r in verify_anchors(t, p, m) if not r.ok]
+    assert not bad, [(r.id, r.path, r.message) for r in bad]
     return m
 
 

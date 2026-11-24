@@ -3,6 +3,7 @@
 import { useSearchParams } from "next/navigation";
 import { type FormEvent, useEffect, useId, useMemo, useState } from "react";
 
+import LibraryList, { type LibraryState, libraryStatusLabel } from "@/components/admin/LibraryList";
 import LoginRequired, { AuthChecking } from "@/components/LoginRequired";
 import Pagination from "@/components/Pagination";
 import RetryAlert from "@/components/RetryAlert";
@@ -11,8 +12,10 @@ import { Link, useRouter, useT } from "@/i18n/client";
 import type { TFunction } from "@/i18n/translate";
 import { api, ApiError, errorText, isAuthError } from "@/lib/api";
 import type {
+  LibraryEntry,
   Paged,
   PartRequest,
+  PartRequestCounts,
   PartRequestDetail,
   PartRequestPatch,
   PartRequestSort,
@@ -20,7 +23,8 @@ import type {
 } from "@/lib/types";
 import { formatDate, formatDateTime, ui } from "@/lib/ui";
 
-// 관리자 화면: 부품 요청 (해석기가 카탈로그에 없다고 한 부품의 수요, backend app/api/admin.py).
+// 관리자 화면: 부품 요청 (해석기가 카탈로그에 없다고 한 부품의 수요, backend app/api/admin.py)과
+// 그 아래 읽기 전용 부품 라이브러리 (LibraryList). 요청을 부품 공개로 바꿀 때 부품 키는 라이브러리에서 고른다.
 // 상태·정렬·검색어·페이지는 주소에 남긴다 (?status=planned&sort=recent&q=쳇바퀴&page=2).
 
 const BASE = "/admin/part-requests";
@@ -165,6 +169,51 @@ function PartRequestsList({ userId }: { userId: string }) {
   const key = `${userId}|${hrefFor(query)}|${attempt}`;
   const uid = useId();
 
+  // 상태 탭의 요청 수 (검색어가 있으면 그 이름만). 저장·합치기 뒤에 다시 센다
+  const [countsTick, setCountsTick] = useState(0);
+  const countsKey = `${userId}|${query.q}|${attempt}|${countsTick}`;
+  const [counts, setCounts] = useState<{ q: string; data: PartRequestCounts["counts"] } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    api.partRequestCounts(query.q || undefined).then(
+      (r) => {
+        if (alive) setCounts({ q: query.q, data: r.counts });
+      },
+      () => {
+        /* 탭에 수 없이 보인다 */
+      },
+    );
+    return () => {
+      alive = false;
+    };
+  }, [countsKey, query.q]);
+  // 다시 세는 동안에는 앞의 수를 그대로 보인다 (검색어가 바뀌면 지운다)
+  const shownCounts = counts && counts.q === query.q ? counts.data : null;
+
+  // 부품 라이브러리 (아래 목록과 부품 키 고르기)
+  const [libraryAttempt, setLibraryAttempt] = useState(0);
+  const [library, setLibrary] = useState<{ attempt: number; state: Exclude<LibraryState, null> } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    api.adminLibrary().then(
+      (data) => {
+        if (alive) setLibrary({ attempt: libraryAttempt, state: { kind: "ok", data } });
+      },
+      (e: unknown) => {
+        if (alive)
+          setLibrary({
+            attempt: libraryAttempt,
+            state: { kind: "error", message: errorText(e, t("부품 라이브러리를 불러오지 못했어요.")) },
+          });
+      },
+    );
+    return () => {
+      alive = false;
+    };
+  }, [userId, libraryAttempt, t]);
+  const libraryState: LibraryState = library && library.attempt === libraryAttempt ? library.state : null;
+  const libraryParts = libraryState?.kind === "ok" ? libraryState.data.parts : null;
+
   // 주소의 검색어가 바뀌면(뒤로 가기 등) 입력칸도 맞춘다
   const [shownQ, setShownQ] = useState(query.q);
   if (shownQ !== query.q) {
@@ -227,12 +276,14 @@ function PartRequestsList({ userId }: { userId: string }) {
     }
   }
 
-  const replaceRow = (row: PartRequest) =>
+  const replaceRow = (row: PartRequest) => {
     setResult((r) =>
       r && r.kind === "ok"
         ? { ...r, data: { ...r.data, items: r.data.items.map((x) => (x.id === row.id ? row : x)) } }
         : r,
     );
+    setCountsTick((n) => n + 1);
+  };
 
   const r = result?.key === key ? result : null;
   let body: React.ReactNode;
@@ -286,6 +337,7 @@ function PartRequestsList({ userId }: { userId: string }) {
                   expanded={open === row.id}
                   onToggle={() => setOpen((o) => (o === row.id ? null : row.id))}
                   speciesLabel={speciesLabel}
+                  library={libraryParts}
                   mergeTargets={items.filter((x) => x.id !== row.id && x.status !== "merged")}
                   onUpdated={replaceRow}
                   onMerged={() => {
@@ -319,6 +371,11 @@ function PartRequestsList({ userId }: { userId: string }) {
               }`}
             >
               {statusLabel(t, s)}
+              {shownCounts && (
+                <span className={`ml-1.5 tabular-nums ${query.status === s ? "text-stone-300" : "text-stone-400"}`}>
+                  {shownCounts[s] ?? 0}
+                </span>
+              )}
             </Link>
           ))}
         </nav>
@@ -377,6 +434,11 @@ function PartRequestsList({ userId }: { userId: string }) {
       <p className="text-xs text-stone-500">
         {t("회원 정보는 보이지 않고, 예시는 연락처를 지운 요청 앞부분만 보여요. 설계를 지워도 부품 요청 기록은 남아요.")}
       </p>
+
+      {/* 로그인이 풀렸거나 관리자가 아니게 됐으면 위의 안내만 보인다 */}
+      {!(r?.kind === "error" && (r.authCode || r.status === 403)) && (
+        <LibraryList state={libraryState} onRetry={() => setLibraryAttempt((n) => n + 1)} speciesLabel={speciesLabel} />
+      )}
     </div>
   );
 }
@@ -387,6 +449,7 @@ function RequestRows({
   expanded,
   onToggle,
   speciesLabel,
+  library,
   mergeTargets,
   onUpdated,
   onMerged,
@@ -395,6 +458,7 @@ function RequestRows({
   expanded: boolean;
   onToggle: () => void;
   speciesLabel: (key: string) => string;
+  library: LibraryEntry[] | null;
   mergeTargets: PartRequest[];
   onUpdated: (row: PartRequest) => void;
   onMerged: () => void;
@@ -474,6 +538,7 @@ function RequestRows({
             <RequestPanel
               row={row}
               speciesLabel={speciesLabel}
+              library={library}
               mergeTargets={mergeTargets}
               onUpdated={onUpdated}
               onMerged={onMerged}
@@ -494,12 +559,15 @@ type DetailState = { id: string; attempt: number } & (
 function RequestPanel({
   row,
   speciesLabel,
+  library,
   mergeTargets,
   onUpdated,
   onMerged,
 }: {
   row: PartRequest;
   speciesLabel: (key: string) => string;
+  /** 부품 라이브러리 (받지 못했으면 null: 부품 키를 직접 적는다) */
+  library: LibraryEntry[] | null;
   mergeTargets: PartRequest[];
   onUpdated: (row: PartRequest) => void;
   onMerged: () => void;
@@ -655,17 +723,30 @@ function RequestPanel({
               <label htmlFor={`${uid}-key`} className={ui.label}>
                 {t("부품 키")}
               </label>
-              <input
-                id={`${uid}-key`}
-                aria-describedby={`${uid}-key-hint`}
-                value={publishedKey}
-                onChange={(e) => setPublishedKey(e.target.value)}
-                placeholder="family@v1"
-                maxLength={64}
-                className={ui.input}
-              />
+              {library ? (
+                <PartKeySelect
+                  id={`${uid}-key`}
+                  describedBy={`${uid}-key-hint`}
+                  value={publishedKey}
+                  onChange={setPublishedKey}
+                  library={library}
+                  suggested={row.fulfilled_by}
+                />
+              ) : (
+                <input
+                  id={`${uid}-key`}
+                  aria-describedby={`${uid}-key-hint`}
+                  value={publishedKey}
+                  onChange={(e) => setPublishedKey(e.target.value)}
+                  placeholder="family@v1"
+                  maxLength={64}
+                  className={ui.input}
+                />
+              )}
               <p id={`${uid}-key-hint`} className="mt-1 text-xs text-stone-500">
-                {t("부품 공개로 바꾸려면 부품 라이브러리에 있는 부품 키를 적어 주세요.")}
+                {library
+                  ? t("부품 공개로 바꾸려면 이 요청을 채우는 라이브러리 부품을 골라 주세요.")
+                  : t("부품 공개로 바꾸려면 부품 라이브러리에 있는 부품 키를 적어 주세요.")}
               </p>
             </div>
           )}
@@ -733,5 +814,61 @@ function RequestPanel({
         )}
       </div>
     </div>
+  );
+}
+
+/** 부품 키 고르기: 이 요청을 채우는 부품(fulfilled_by)을 먼저, 그다음 나머지. 목록에 없는 저장된 키도 남겨 둔다 */
+function PartKeySelect({
+  id,
+  describedBy,
+  value,
+  onChange,
+  library,
+  suggested,
+}: {
+  id: string;
+  describedBy: string;
+  value: string;
+  onChange: (key: string) => void;
+  library: LibraryEntry[];
+  suggested: string[];
+}) {
+  const t = useT();
+  const label = (p: LibraryEntry) =>
+    p.status === "active" ? `${p.name_ko} (${p.key})` : `${p.name_ko} (${p.key}) · ${libraryStatusLabel(t, p.status)}`;
+  const first = library.filter((p) => suggested.includes(p.key));
+  const rest = library.filter((p) => !suggested.includes(p.key));
+  const unknown = value !== "" && !library.some((p) => p.key === value);
+  return (
+    <select id={id} aria-describedby={describedBy} value={value} onChange={(e) => onChange(e.target.value)} className={ui.input}>
+      <option value="">{t("부품 키 없음")}</option>
+      {unknown && <option value={value}>{value}</option>}
+      {first.length > 0 ? (
+        <>
+          <optgroup label={t("이 요청을 채우는 부품")}>
+            {first.map((p) => (
+              <option key={p.key} value={p.key}>
+                {label(p)}
+              </option>
+            ))}
+          </optgroup>
+          {rest.length > 0 && (
+            <optgroup label={t("다른 부품")}>
+              {rest.map((p) => (
+                <option key={p.key} value={p.key}>
+                  {label(p)}
+                </option>
+              ))}
+            </optgroup>
+          )}
+        </>
+      ) : (
+        rest.map((p) => (
+          <option key={p.key} value={p.key}>
+            {label(p)}
+          </option>
+        ))
+      )}
+    </select>
   );
 }

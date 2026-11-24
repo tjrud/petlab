@@ -252,6 +252,15 @@ with TestClient(create_app(make_settings(Path(tempfile.mkdtemp())))) as c:
               "/admin/part-requests", "/admin/part-requests/export", "/admin/part-requests/" + "0" * 32):
         r = c.get(p)
         assert r.status_code < 500, (p, r.status_code)
+# 부품 라이브러리의 가벼운 길: 색인 읽기·키 목록·지문·종별 게이팅 (설계 문서 R9)
+from app.geometry.fingerprint import geometry_fingerprint
+from app.library import index
+from app.rules.loader import load_rules
+from app.templates.keys import known_template_keys
+rules = load_rules(Path("rules"))
+index.entries(); index.hidden_keys(); index.blocked_keys()
+geometry_fingerprint(list(known_template_keys()) + ["ghost@v1"], rules.printing)
+rules.offered_templates("hamster")
 print("heavy=" + ",".join(h for h in HEAVY if h in sys.modules))
 """
 
@@ -271,7 +280,59 @@ def test_light_requests_do_not_load_the_geometry_kernel_or_llm_sdk():
 
 
 def test_template_key_map_matches_registry():
-    from app.templates.keys import TEMPLATE_MODULES
+    """코드 부품 키는 모듈 이름 표(TEMPLATE_MODULES)와, 라이브러리 부품 키는 색인(index.json)과 같다 (설계 문서 §9.4).
+    레지스트리 순서는 코드 부품 뒤에 라이브러리 부품이다."""
+    from app.library import index
+    from app.templates.keys import TEMPLATE_MODULES, known_template_keys
     from app.templates.registry import primitives
 
-    assert TEMPLATE_MODULES == {k: type(t).__module__ for k, t in primitives().items()}
+    prims = primitives()
+    assert TEMPLATE_MODULES == {k: type(t).__module__ for k, t in prims.items() if k in TEMPLATE_MODULES}
+    library = [k for k in prims if k not in TEMPLATE_MODULES]
+    assert library == list(index.keys())
+    assert all(type(prims[k]).__module__ == "app.library.template" for k in library)
+    assert tuple(prims) == known_template_keys()
+
+
+def test_library_index_read_is_fast_for_50_parts(tmp_path, monkeypatch):
+    """색인 읽기(키·상태·숨김 목록·지문)는 부품 50개에서 20ms 이하 (설계 문서 §15). 부품 파일은 읽지 않는다."""
+    import hashlib
+    import json
+    import time
+
+    from app.geometry import fingerprint as fp
+    from app.library import index
+
+    parts = {}
+    for i in range(50):
+        family = f"part_{i:02d}"
+        sha = hashlib.sha256(family.encode()).hexdigest()
+        parts[f"{family}@v1"] = {
+            "sha256": sha, "status": ("active", "retired", "blocked")[i % 3], "published_at": "2026-12-01",
+            "family": family, "version": 1, "role": "accessory", "habitats": ["cage"],
+            "verified_for": {"hamster": ["dwarf", "syrian"]}, "rule_fields_used": ["entrance_min_diameter_mm"],
+            "rules_digest": {"hamster/dwarf": sha, "hamster/syrian": sha},
+            "golden": {"hamster/dwarf/default": {"params": {"wall_thickness_mm": 3.0}, "files": {"print_0.stl": sha}}},
+            "superseded_by": None, "reason": None, "request_ids": [],
+        }
+    (tmp_path / "index.json").write_text(json.dumps({"v": 1, "parts": parts}), encoding="utf-8")
+    monkeypatch.setattr(index, "LIBRARY_DIR", tmp_path)
+    for m in fp.DSL_MODULES:
+        fp._module_digest(m)  # 소스 해시는 프로세스에 한 번만 읽는다 (색인 읽기와 따로)
+
+    def read() -> float:
+        index.clear_cache()
+        t0 = time.perf_counter()
+        keys = index.keys()
+        index.hidden_keys()
+        index.blocked_keys()
+        for k in keys:
+            fp._template_digest(k)
+        return time.perf_counter() - t0
+
+    try:
+        best = min(read() for _ in range(5))
+        assert len(index.keys()) == 50
+    finally:
+        index.clear_cache()
+    assert best <= 0.020, f"{best * 1000:.1f} ms"

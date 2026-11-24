@@ -1,0 +1,3 @@
+# 부품 초안 (python -m app.library new/check/preview/verify). 내용은 저장소에 넣지 않는다; 폴더만 둔다
+library_drafts/*
+!library_drafts/.gitkeep

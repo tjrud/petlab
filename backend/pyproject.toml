@@ -39,5 +39,6 @@ testpaths = ["tests"]
 pythonpath = ["."]
 markers = [
     "live: 실제 Anthropic API를 호출하는 테스트 (ANTHROPIC_API_KEY 필요)",
+    "contract_full: 코드 부품 계약 검사의 전체 프로필 (모든 변형; 느리다. -m contract_full 로 돌린다)",
 ]
-addopts = "-m 'not live'"
+addopts = "-m 'not live and not contract_full'"

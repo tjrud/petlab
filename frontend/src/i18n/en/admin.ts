@@ -65,6 +65,43 @@ const en: Record<string, string> = {
   "예시 지우기": "Clear examples",
   "이 요청의 예시 글을 모두 지울까요? 되돌릴 수 없어요.": "Clear all examples for this request? This can't be undone.",
   "예시 글을 지웠어요.": "Examples cleared.",
+
+  // 부품 요청 → 부품 키 고르기 (부품 라이브러리에서)
+  "부품 공개로 바꾸려면 이 요청을 채우는 라이브러리 부품을 골라 주세요.":
+    "To mark it published, choose the library part that covers this request.",
+  "부품 키 없음": "No part key",
+  "이 요청을 채우는 부품": "Parts that cover this request",
+  "다른 부품": "Other parts",
+
+  // 부품 라이브러리 (LibraryList, 읽기 전용)
+  "부품 라이브러리": "Part library",
+  "게시한 부품이에요. 게시·폐기·차단은 개발 도구로만 하고, 여기서는 보기만 해요.":
+    "Published parts. Publishing, retiring and blocking are done only with the developer tool; this list is read-only.",
+  "부품 라이브러리를 불러오는 중…": "Loading the part library…",
+  "부품 라이브러리를 불러오지 못했어요.": "Couldn't load the part library.",
+  "색인과 파일이 맞지 않는 곳이 있어요. audit 으로 확인해 주세요.":
+    "The index and the files don't match in some places. Check with audit.",
+  "게시한 부품이 아직 없어요.": "No parts have been published yet.",
+  "역할": "Role",
+  "공개 상태": "Availability",
+  "검증한 종·크기": "Verified species and sizes",
+  "채우는 요청": "Covers requests",
+  "게시일": "Published",
+  "마지막 검증": "Last verification",
+  "받침 부품": "Base part",
+  "방 부품": "Room part",
+  "붙이는 부품": "Attachment",
+  "단독 부품": "Standalone part",
+  "쓰는 중": "Active",
+  "새 설계에 쓰지 않음": "Retired",
+  "내려받기 막음": "Blocked",
+  "새 판: {key}": "Replaced by: {key}",
+  "검증 기록 없음": "No verification record",
+  "실패": "Failed",
+  "전체 검증": "Full verification",
+  "빠른 검증": "Quick verification",
+  "검사 {n}개 · 실패 {f}개": "{n} checks · {f} failed",
+  "스키마 예산 초과: {species}": "Over the schema budget: {species}",
 };
 
 export default en;

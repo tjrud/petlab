@@ -1,4 +1,6 @@
-"""모의 해석기: 카탈로그에 없는 부품(쳇바퀴·해먹·그네·시소)을 missing_parts 와 안내로 알린다."""
+"""모의 해석기: 카탈로그에 없는 부품(쳇바퀴·해먹·그네·시소)을 missing_parts 로 알린다.
+
+설계 화면이 missing_parts 로 따로 알리므로 notes_ko 에는 같은 안내를 적지 않는다 (같은 말이 두 번 보이지 않게)."""
 
 from __future__ import annotations
 
@@ -42,28 +44,27 @@ def test_wheel_with_a_hideout_builds_the_hideout_and_lists_the_wheel(base):
     spec = _mock(base, "은신처랑 쳇바퀴 만들어줘")
     assert [it.template for it in spec.items] == ["hideout"]
     assert _missing(spec) == [("쳇바퀴", "달리기 운동")]
-    assert "요청하신 쳇바퀴은(는) 아직 부품이 없어 다른 부품으로 만들었어요." in spec.notes_ko
+    assert not any("쳇바퀴" in n for n in spec.notes_ko)
 
 
-def test_only_a_missing_part_gives_the_default_hideout_and_the_note(base):
+def test_only_a_missing_part_gives_the_default_hideout_without_notes(base):
     spec = _mock(base, "해먹 만들어 주세요")
     assert [it.template for it in spec.items] == ["hideout"]
     assert _missing(spec) == [("해먹", "매달려 쉬기")]
-    assert spec.notes_ko == ["요청하신 해먹은(는) 아직 부품이 없어 다른 부품으로 만들었어요."]
+    assert spec.notes_ko == []
 
 
 def test_several_missing_parts_keep_their_order(base):
     spec = _mock(base, "시소랑 그네, 그리고 쳇바퀴도 넣어 주세요")
     assert [n for n, _ in _missing(spec)] == ["시소", "그네", "쳇바퀴"]
-    assert len([n for n in spec.notes_ko if n.startswith("요청하신")]) == 3
+    assert not any(n.startswith("요청하신") for n in spec.notes_ko)
 
 
 def test_english_request_uses_english_names(base):
     spec = _mock(base, "A hideout and an exercise wheel, please", language="en")
     assert [it.template for it in spec.items] == ["hideout"]
     assert _missing(spec) == [("exercise wheel", "running exercise")]
-    assert ("The exercise wheel you asked for isn't available as a part yet, so it was built from other parts."
-            in spec.notes_ko)
+    assert not any("wheel" in n for n in spec.notes_ko)
     assert _missing(_mock(base, "a hammock and a see-saw", language="en")) == [("hammock", "hanging rest"),
                                                                               ("seesaw", "play")]
 
@@ -85,8 +86,3 @@ def test_missing_part_next_to_an_assembly_request(base):
     assert spec.items[0].template == "assembly"
     assert _missing(spec) == [("쳇바퀴", "달리기 운동")]
 
-
-def test_the_note_is_translated_for_english_pages():
-    from app.i18n import catalog
-    assert catalog().translate("요청하신 쳇바퀴은(는) 아직 부품이 없어 다른 부품으로 만들었어요.") == (
-        "The exercise wheel you asked for isn't available as a part yet, so it was built from other parts.")

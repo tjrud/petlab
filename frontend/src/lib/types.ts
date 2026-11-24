@@ -588,6 +588,28 @@ export type PartRequestExport = {
   }[];
 };
 
+/** 부품의 마지막 검증 실행 요약 (app/library/reports/<key>.json 의 마지막 항목) */
+export type LibraryReport = {
+  result: "pass" | "fail" | null;
+  profile: string | null;
+  verifier: string | null;
+  started_at: string | null;
+  seconds: number | null;
+  /** 보고서에 쌓인 실행 수 */
+  runs: number;
+  variants: number | null;
+  checks: number | null;
+  failed: number | null;
+  unreachable: number | null;
+  /** 이 부품이 LLM 스키마에 더하는 글자 수 */
+  schema_chars_added: number | null;
+  /** 종 → 스키마 예산 안에 드는지 (들지 않으면 종 목록에 넣지 않는다) */
+  gate_ok: Record<string, boolean>;
+};
+
+export type LibraryRole = "host" | "room_host" | "accessory" | "none";
+export type LibraryStatus = "active" | "retired" | "blocked";
+
 /** 부품 라이브러리 항목 (GET /admin/library, app/library/index.json) */
 export type LibraryEntry = {
   /** "family@vN" */
@@ -595,13 +617,39 @@ export type LibraryEntry = {
   family: string;
   version: number;
   name_ko: string;
-  role: "host" | "room_host" | "accessory" | "none";
-  status: "active" | "retired" | "blocked";
+  role: LibraryRole;
+  status: LibraryStatus;
+  habitats: string[];
   /** 종 → 검증한 크기 */
   verified_for: Record<string, string[]>;
+  /** YYYY-MM-DD */
   published_at: string;
   /** 이 부품이 채우는 부품 요청 이름 (name_key) */
   fulfills: string[];
-  /** 마지막 검증 요약 (없으면 null) */
-  report?: Record<string, unknown> | null;
+  superseded_by: string | null;
+  /** 폐기·차단 까닭 */
+  reason_ko: string | null;
+  request_ids: string[];
+  /** 마지막 검증 요약 (보고서가 없으면 null) */
+  report: LibraryReport | null;
 };
+
+/** GET /admin/library: 항목(key 순)과, 색인·파일이 맞지 않는 곳 */
+export type LibraryList = { parts: LibraryEntry[]; problems: string[] };
+
+/** GET /admin/part-requests/counts: 상태별 요청 수 (검색어가 있으면 그 이름만) */
+export type PartRequestCounts = { counts: Record<PartRequestStatus | "all", number> };
+
+/** 라이브러리 부품 하나의 표시 정보 (GET /library/display). …_ko 값은 서버가 요청 언어로 바꿔 준다 */
+export type LibraryPartDisplay = {
+  name_ko: string;
+  color: string;
+  status: LibraryStatus;
+  /** 파라미터 이름 → 화면 이름·단위 */
+  params: Record<string, { label_ko: string; unit: "mm" | "deg" | null }>;
+  /** 고르는 값 파라미터 → 값 → 화면 이름 */
+  choices: Record<string, Record<string, { label_ko: string }>>;
+};
+
+/** 부품 key("family@vN") → 표시 정보 */
+export type LibraryDisplay = Record<string, LibraryPartDisplay>;

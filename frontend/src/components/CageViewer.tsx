@@ -6,8 +6,10 @@ import { Component, Suspense, useMemo, useState, type ReactNode } from "react";
 import * as THREE from "three";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 
-import { useT } from "@/i18n/client";
+import { useLang, useT } from "@/i18n/client";
 import { api } from "@/lib/api";
+import { isLibraryKey } from "@/lib/libraryDisplay";
+import { useLibraryDisplay } from "@/lib/useLibraryDisplay";
 import { itemColor } from "@/lib/templates";
 import type { Cage, HabitatKind, Item } from "@/lib/types";
 
@@ -134,6 +136,9 @@ function CageBox({ cage, kind }: { cage: Cage; kind: HabitatKind }) {
 
 export default function CageViewer({ cage, kind = "cage", items, selected, errorItems, onSelect }: Props) {
   const t = useT();
+  const lang = useLang();
+  // 라이브러리 부품의 색은 표시 정보를 받은 뒤에 정해진다 (받으면 다시 그린다)
+  useLibraryDisplay(items.some((it) => isLibraryKey(it.assembly?.parts[0]?.template ?? it.template)), lang);
   const { width_mm: W, depth_mm: D, height_mm: H } = cage;
   const S = Math.max(W, D, H);
   // three.js 월드 좌표(Y-up)에서 케이지 중심: (W/2, H/2, -D/2)

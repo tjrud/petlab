@@ -1,7 +1,10 @@
 // 구조물 종류별 표시 정보 (뷰어 색상, 파라미터 이름)
-// 파라미터 이름은 한국어 원문으로 두고, 보여 줄 때 t(PARAM_LABELS[k]) 로 번역한다
+// 파라미터 이름은 한국어 원문으로 두고, 보여 줄 때 t(PARAM_LABELS[k]) 로 번역한다.
+// 라이브러리 부품(family@vN)은 정적 표에 없고 서버의 표시 정보(lib/libraryDisplay.ts)로 채운다. 그 이름은 서버가
+// 이미 화면 언어로 바꿔 주므로 t() 를 거치지 않는다. 표시 정보를 아직 받지 않았으면 키 그대로 보인다.
 
 import type { TFunction } from "@/i18n/translate";
+import { isLibraryKey, libraryPart, libraryPartWithParam } from "@/lib/libraryDisplay";
 import type { AssemblyJoin, Decor } from "@/lib/types";
 
 export const TEMPLATE_COLORS: Record<string, string> = {
@@ -20,14 +23,35 @@ export function itemColor(it: { template: string; assembly?: { parts: { template
   return templateColor(it.assembly?.parts[0]?.template ?? it.template);
 }
 
-/** 템플릿 색 (조립 항목의 부품 점 색) */
+/** 템플릿 색 (조립 항목의 부품 점 색). 라이브러리 부품은 표시 정보의 색 */
 export function templateColor(template: string): string {
-  return TEMPLATE_COLORS[template] ?? "#c8a27a";
+  return TEMPLATE_COLORS[template] ?? libraryPart(template)?.color ?? "#c8a27a";
 }
 
-/** 파라미터 이름: PARAM_LABELS 를 번역 (없으면 key 그대로) */
-export function paramLabel(key: string, t: TFunction): string {
-  return PARAM_LABELS[key] ? t(PARAM_LABELS[key]) : key;
+/** 라이브러리 부품의 표시 정보: 어느 부품인지 알면 그 부품, 모르면 그 파라미터를 가진 부품 */
+function libraryFor(key: string, template?: string) {
+  if (template !== undefined) return isLibraryKey(template) ? libraryPart(template) : undefined;
+  return libraryPartWithParam(key);
+}
+
+/**
+ * 파라미터 이름. template 이 라이브러리 부품이면 그 부품이 정한 이름이 먼저이고, 그다음 PARAM_LABELS 를 번역,
+ * 그다음 (template 을 모를 때) 같은 파라미터를 가진 라이브러리 부품의 이름, 없으면 key 그대로.
+ */
+export function paramLabel(key: string, t: TFunction, template?: string): string {
+  const lib = libraryFor(key, template)?.params[key]?.label_ko;
+  if (lib && template !== undefined) return lib;
+  if (PARAM_LABELS[key]) return t(PARAM_LABELS[key]);
+  return lib ?? key;
+}
+
+/** 고르는 값의 이름 (paramLabel 과 같은 순서로 찾는다). 없으면 값 그대로 */
+export function choiceLabel(key: string, value: string, t: TFunction, template?: string): string {
+  const lib = libraryFor(key, template)?.choices[key]?.[value]?.label_ko;
+  if (lib && template !== undefined) return lib;
+  const label = CHOICE_LABELS[key]?.[value];
+  if (label) return t(label);
+  return lib ?? value;
 }
 
 export const PARAM_LABELS: Record<string, string> = {
@@ -38,6 +62,7 @@ export const PARAM_LABELS: Record<string, string> = {
   entrance_count: "출입구 개수",
   vent_count: "환기구 개수",
   vent_diameter_mm: "환기구 지름",
+  side_doors: "옆면 출입구", // 은신처 옆면 출입구 (none·left·right·both)
   wall_thickness_mm: "벽 두께",
   length_mm: "길이",
   inner_diameter_mm: "내경",
@@ -99,6 +124,7 @@ export const CHOICE_LABELS: Record<string, Record<string, string>> = {
     house: "집 모양",
   },
   path: { arc: "한 방향 곡선", s_curve: "S자" },
+  side_doors: { none: "없음", left: "왼쪽", right: "오른쪽", both: "양쪽" },
   "roof.kind": { flat: "평 지붕", pitched: "경사 지붕", rounded: "둥근 지붕" },
   "floors.climb": { internal_ramp: "내부 경사로", external_ramp: "바깥 램프" },
   "floors.exit_side": SIDE_LABELS,
@@ -143,17 +169,15 @@ export function flattenParams(params: Record<string, ParamValue>): [string, Para
   });
 }
 
-export function formatParam(key: string, value: ParamValue, t: TFunction): string {
+/** 파라미터 값. template 은 그 값을 가진 부품의 템플릿 키 (라이브러리 부품의 선택지 이름을 찾는다) */
+export function formatParam(key: string, value: ParamValue, t: TFunction, template?: string): string {
   if (typeof value === "boolean") return value ? t("있음") : t("없음");
   if (Array.isArray(value)) {
     if (value.length === 0) return t("없음");
-    return value.map((v) => formatParam(key, v, t)).join(" · ");
+    return value.map((v) => formatParam(key, v, t, template)).join(" · ");
   }
   if (typeof value === "object") return "";
-  if (typeof value === "string") {
-    const label = CHOICE_LABELS[key]?.[value];
-    return label ? t(label) : value;
-  }
+  if (typeof value === "string") return choiceLabel(key, value, t, template);
   const v = Number.isInteger(value) ? value.toString() : value.toFixed(1);
   if (key.endsWith("_mm")) return `${v}mm`;
   if (key.endsWith("_deg")) return `${v}°`;

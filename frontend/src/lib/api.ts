@@ -9,7 +9,8 @@ import type {
   Design,
   DesignListItem,
   Habitat,
-  LibraryEntry,
+  LibraryDisplay,
+  LibraryList,
   MarketConfig,
   MarketFile,
   MarketItem,
@@ -18,6 +19,7 @@ import type {
   Me,
   Paged,
   PartRequest,
+  PartRequestCounts,
   PartRequestDetail,
   PartRequestExport,
   PartRequestPatch,
@@ -239,7 +241,12 @@ export const api = {
   /** status 를 주지 않으면 open·planned */
   exportPartRequests: (status?: PartRequestStatus | "all", limit = 200) =>
     request<PartRequestExport>(`/admin/part-requests/export?limit=${limit}${status ? `&status=${status}` : ""}`),
-  adminLibrary: () => request<LibraryEntry[]>("/admin/library"),
+  /** 상태 탭의 요청 수 (검색어가 있으면 그 이름만) */
+  partRequestCounts: (q?: string) =>
+    request<PartRequestCounts>(`/admin/part-requests/counts${q ? `?q=${encodeURIComponent(q)}` : ""}`),
+  adminLibrary: () => request<LibraryList>("/admin/library"),
+  /** 라이브러리 부품 표시 정보 (누구나). 이름은 lang 으로 받는다 (lib/libraryDisplay.ts 가 언어별로 한 번만 부른다) */
+  libraryDisplay: (lang: Lang) => request<{ parts: LibraryDisplay }>("/library/display", { headers: { "X-Lang": lang } }),
 
   exportUrl: (id: string, format: "stl" | "3mf", version: number) =>
     `${API_BASE}/designs/${encodeURIComponent(id)}/export?format=${format}&version=${version}`,

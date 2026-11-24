@@ -673,3 +673,14 @@ def test_retry_after_assembly_tree_error(req):
     assert "free_end 는 터널에 이을 때만" in client.calls[1]["messages"][2]["content"]
     schema = client.calls[0]["output_config"]["format"]["schema"]
     assert "AssemblyItem" in schema["$defs"]
+
+
+def test_system_prompt_replaces_unlisted_templates_and_keeps_missing_parts_out_of_notes():
+    """§10: 직전 설계의 목록에 없는 템플릿(폐기·차단한 부품, 종 규칙에서 빠진 부품)은 같은 역할의 목록 템플릿으로 바꾼다.
+    없는 부품은 화면이 missing_parts 로 알리므로 notes_ko 에 같은 안내를 적지 않는다."""
+    from app.llm.prompts import SYSTEM_PROMPT
+
+    assert "직전 설계에 사용 가능한 템플릿 목록에 없는 템플릿이 있으면 같은 역할의 목록 템플릿으로 바꿉니다" in SYSTEM_PROMPT
+    rules = SYSTEM_PROMPT.split("missing_parts 에 {name_ko, purpose_ko}", 1)[1].split("\n조립", 1)[0]
+    assert "notes_ko 에는 같은 안내를 적지 않습니다" in rules
+    assert "notes_ko 에도" not in rules

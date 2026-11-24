@@ -534,3 +534,21 @@ def test_volume_note_pair_rules(rules_copy, edit, match):
     _edit_species(rules_copy, lambda d: edit(_aq(d, "small_fish")["aquatic"]))
     with pytest.raises(RuleFileError, match=match):
         load_rules(rules_copy)
+
+
+def test_offered_templates_equal_allowed_without_library_parts(rules):
+    """코드 부품만 적은 종은 새 설계에 내놓는 목록(offered)이 allowed 와 같다. 라이브러리 부품의 게이팅·폐기는
+    tests/test_library_wiring.py 가 확인한다."""
+    for species in rules.species_file.species:
+        assert rules.offered_templates(species) == rules.allowed_templates(species)
+        assert rules.species_entry(species).library_templates == ()
+
+
+def test_unknown_key_message_lists_known_keys(rules_copy):
+    from app.templates.keys import known_template_keys
+
+    _edit_species(rules_copy, lambda d: d["species"]["hamster"].update(templates=["hideout", "wheel@v1"]))
+    with pytest.raises(RuleFileError, match="알 수 없는 템플릿 키") as e:
+        load_rules(rules_copy)
+    assert "wheel@v1" in str(e.value)
+    assert all(k in str(e.value) for k in known_template_keys())

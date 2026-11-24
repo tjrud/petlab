@@ -211,5 +211,10 @@
   "합칠 부품 요청을 찾을 수 없어요.": "The part request to merge into wasn't found.",
   "이미 다른 요청에 합친 요청에는 합칠 수 없어요.": "You can't merge into a request that is already merged into another one.",
   "merged 상태로 바꾸려면 합칠 요청을 함께 골라 주세요.": "To set the status to merged, also choose the request to merge into.",
-  "햄스터용": "for hamsters"
+  "햄스터용": "for hamsters",
+  "{0} 부품은 더 이상 새 설계에 쓰지 않아요: {1}": "The {0} part is no longer used in new designs: {1}",
+  "{0} 부품은 더 이상 새 설계에 쓰지 않아요.": "The {0} part is no longer used in new designs.",
+  "{0} 부품은 안전 문제로 내려받을 수 없어요: {1}": "The {0} part can't be downloaded because of a safety problem: {1}",
+  "{0} 부품은 안전 문제로 내려받을 수 없어요.": "The {0} part can't be downloaded because of a safety problem.",
+  "안전 문제로 내려받기를 막은 부품({0})이 들어 있어 내려받을 수 없어요. 다른 부품으로 설계를 수정해 주세요.": "This design includes a part blocked for a safety problem ({0}), so it can't be downloaded. Please revise the design to use other parts."
 }

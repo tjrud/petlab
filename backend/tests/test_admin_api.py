@@ -1,4 +1,5 @@
-"""관리자 API (/admin/part-requests): 권한, 목록(쪽·정렬·거르기), 자세히, 정리(PATCH), 합치기, 내보내기."""
+"""관리자 API (/admin/part-requests, /admin/library): 권한, 목록(쪽·정렬·거르기), 상태별 개수, 자세히, 정리(PATCH),
+합치기, 내보내기, 부품 라이브러리 목록."""
 
 from __future__ import annotations
 
@@ -56,7 +57,8 @@ def names(r) -> list[str]:
 
 
 @pytest.mark.parametrize("method, path", [
-    ("get", "/admin/part-requests"), ("get", "/admin/part-requests/export"),
+    ("get", "/admin/part-requests"), ("get", "/admin/part-requests/export"), ("get", "/admin/part-requests/counts"),
+    ("get", "/admin/library"),
     ("get", "/admin/part-requests/" + "a" * 32), ("patch", "/admin/part-requests/" + "a" * 32),
 ])
 def test_anonymous_401_member_403(client, method, path):
@@ -120,6 +122,22 @@ def test_list_sort_filter_and_paging(admin):
     assert names(admin.get("/admin/part-requests?status=planned")) == ["해먹"]
     assert len(names(admin.get("/admin/part-requests?status=all"))) == 4
     assert admin.get("/admin/part-requests?status=bogus").status_code == 422
+
+
+def test_counts_per_status_follow_the_search(admin):
+    a = seed(admin, "쳇바퀴", designs=2)
+    seed(admin, "해먹")
+    b = seed(admin, "그네")
+    c = seed(admin, "바퀴")
+    admin.patch(f"/admin/part-requests/{b}", json={"status": "planned"})
+    admin.patch(f"/admin/part-requests/{c}", json={"merged_into": a})
+    r = admin.get("/admin/part-requests/counts")
+    assert r.status_code == 200
+    assert r.json() == {"counts": {"open": 2, "planned": 1, "published": 0, "rejected": 0, "merged": 1, "all": 4}}
+    # 검색어가 있으면 그 이름만 (목록과 같은 조건)
+    assert admin.get("/admin/part-requests/counts?q=바퀴").json()["counts"] == \
+        {"open": 1, "planned": 0, "published": 0, "rejected": 0, "merged": 1, "all": 2}
+    assert admin.get("/admin/part-requests/counts?q=없는이름").json()["counts"]["all"] == 0
 
 
 def test_list_is_fast_for_1000_rows(admin):
@@ -305,3 +323,63 @@ def test_export(admin):
     assert len(admin.get("/admin/part-requests/export?status=all&limit=2").json()["requests"]) == 2
     assert admin.get("/admin/part-requests/export?limit=201").status_code == 422
     assert "user0" not in r.text and "user_id" not in r.text
+
+
+# ── 부품 라이브러리 목록 (/admin/library) ──────────────────
+
+
+def test_library_list(admin, tmp_path, monkeypatch):
+    from app.library import index
+    from tests.test_library_api import DECK, JUNCTION, make_library
+
+    run = {"verifier": "verify/1", "profile": "full", "key": JUNCTION, "result": "pass",
+           "started_at": "2026-12-01T10:02:11Z", "seconds": 312.6,
+           "counts": {"variants": 44, "unreachable": 0, "checks": 1312, "failed": 0},
+           "schema": {"chars_added": 2210, "totals": {"hamster": 28140}, "gate_ok": {"hamster": True}}}
+    root = make_library(tmp_path / "lib", {
+        JUNCTION: {"request_ids": ["a" * 32]},
+        DECK: {"role": "host", "status": "blocked", "verified_for": {"hamster": ["dwarf"]},
+               "reason": {"ko": "안전 문제가 있습니다", "en": "There is a safety problem"}},
+    }, reports={JUNCTION: [{"result": "fail", "profile": "quick"}, run]})
+    (root / "parts" / "stray@v1.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(index, "LIBRARY_DIR", root)
+    index.clear_cache()
+    try:
+        r = admin.get("/admin/library")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        deck, hub = body["parts"]  # key 순
+        assert hub == {
+            "key": JUNCTION, "family": "tunnel_junction", "version": 1, "name_ko": index.read_part(JUNCTION)["name"]["ko"],
+            "role": "room_host", "status": "active", "habitats": ["cage"],
+            "verified_for": {"hamster": ["dwarf", "syrian"]}, "published_at": "2026-12-01",
+            "fulfills": index.read_part(JUNCTION)["fulfills"], "superseded_by": None, "reason_ko": None,
+            "request_ids": ["a" * 32],
+            "report": {"result": "pass", "profile": "full", "verifier": "verify/1",
+                       "started_at": "2026-12-01T10:02:11Z", "seconds": 312.6, "runs": 2, "variants": 44,
+                       "checks": 1312, "failed": 0, "unreachable": 0, "schema_chars_added": 2210,
+                       "gate_ok": {"hamster": True}},
+        }
+        assert (deck["key"], deck["status"], deck["role"]) == (DECK, "blocked", "host")
+        assert deck["reason_ko"] == "안전 문제가 있습니다" and deck["report"] is None
+        assert sorted(body["problems"]) == [f"{DECK}: report file missing", "stray@v1.json: not in the index"]
+        # 폐기·차단 까닭은 영어 요청이면 영어로 (게시 도구가 library.json 에 넣는 짝)
+        from app import i18n
+        cat = i18n.Catalog(index.i18n_pairs())
+        monkeypatch.setattr(i18n, "catalog", lambda: cat)
+        en = admin.get("/admin/library", headers={"X-Lang": "en"}).json()["parts"]
+        assert en[0]["reason_ko"] == "There is a safety problem" and en[1]["name_ko"] == index.read_part(JUNCTION)["name"]["en"]
+    finally:
+        index.clear_cache()
+
+
+def test_library_list_when_empty(admin, tmp_path, monkeypatch):
+    from app.library import index
+    from tests.test_library_api import make_library
+
+    monkeypatch.setattr(index, "LIBRARY_DIR", make_library(tmp_path / "lib", {}))
+    index.clear_cache()
+    try:
+        assert admin.get("/admin/library").json() == {"parts": [], "problems": []}
+    finally:
+        index.clear_cache()

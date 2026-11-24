@@ -7,8 +7,8 @@ Anchor.profile 이 port_profile 이 만드는 단면과 같은 종류인지, env
 from __future__ import annotations
 
 import pytest
-from build123d import Align, Rectangle
 
+from app.library.verify.anchors import bumped, profile_iou
 from app.templates.base import FaceFields, Template
 from app.templates.bottle_stand import (
     BottleStandParams,
@@ -31,7 +31,7 @@ from app.templates.ramp import (
 )
 from app.templates.sand_bath import SandBathParams, SandBathTemplate
 from app.templates.tunnel import TunnelParams, TunnelTemplate, inner_profile
-from app.validation.autofix import get_path, set_path
+from app.validation.autofix import get_path
 
 HIDEOUT, HOUSE, SAND, TUNNEL = HideoutTemplate(), HouseTemplate(), SandBathTemplate(), TunnelTemplate()
 BOWL, BOTTLE, RAMP = BowlHolderTemplate(), BottleStandTemplate(), RampTemplate()
@@ -74,12 +74,6 @@ CASES: list[tuple[str, Template, object]] = [
     ("stairs", RAMP, RampParams(height_mm=90, steps=3, slope_deg=35)),
 ]
 CASE_IDS = [c[0] for c in CASES]
-
-
-def _bumped(t: Template, p, path: str, delta: float):
-    d = p.model_dump()
-    set_path(d, path, get_path(d, path) + delta)
-    return t.Params.model_validate(d)
 
 
 # ── 역할·연결 지점 순서 ─────────────────────────────────────
@@ -125,7 +119,7 @@ def test_port_and_profile_fields_match_anchor(name, t, p):
         if ff.port is not None:
             assert get_path(d, ff.port) == pytest.approx(a.port), (name, aname)
             # 통로 크기 파라미터를 바꾸면 그 연결 지점의 통로 크기가 같이 바뀐다
-            q = _bumped(t, p, ff.port, 4.0)
+            q = bumped(t, p, ff.port, 4.0)
             assert t.anchors(q)[aname].port == pytest.approx(a.port + 4.0), (name, aname)
         if ff.profile is not None:
             assert get_path(d, ff.profile) == a.profile, (name, aname)
@@ -141,7 +135,7 @@ def test_wall_field_matches_anchor(name, t, p):
             continue
         # 벽 파라미터 ≤ 뚫는 깊이 (집 연결부 면은 플랜지가 더해진다), 벽을 두껍게 하면 그만큼 깊어진다
         assert get_path(d, ff.wall) <= a.wall_mm + 1e-9
-        q = _bumped(t, p, ff.wall, 0.5)
+        q = bumped(t, p, ff.wall, 0.5)
         assert t.anchors(q)[aname].wall_mm == pytest.approx(a.wall_mm + 0.5), (name, aname)
 
 
@@ -156,13 +150,13 @@ def test_face_fields_grow_the_mount_rectangle(name, t, p):
             continue
         left, right, h = a.mount
         if ff.width is not None:
-            m = t.anchors(_bumped(t, p, ff.width, 10.0))[aname].mount
+            m = t.anchors(bumped(t, p, ff.width, 10.0))[aname].mount
             assert m is not None
             assert m[1] - m[0] == pytest.approx(right - left + 10.0), (name, aname)
             assert m[0] + m[1] == pytest.approx(left + right), (name, aname)
             checked += 1
         if ff.height is not None:
-            m = t.anchors(_bumped(t, p, ff.height, 10.0))[aname].mount
+            m = t.anchors(bumped(t, p, ff.height, 10.0))[aname].mount
             assert m is not None
             assert m[2] == pytest.approx(h + 10.0), (name, aname)
             assert (m[0], m[1]) == pytest.approx((left, right)), (name, aname)
@@ -202,13 +196,6 @@ def test_face_fields_per_side():
 # ── Anchor.profile = port_profile 단면의 종류 ─────────────────
 
 
-def _above_floor_iou(a, b) -> float:
-    floor = Rectangle(1000, 1000, align=(Align.CENTER, Align.MIN))
-    a, b = a & floor, b & floor
-    inter = (a & b).area
-    return inter / (a.area + b.area - inter)
-
-
 DOOR_CASES = [
     ("hideout_front", HIDEOUT, HideoutParams(entrance_diameter_mm=60), "front"),
     ("hideout_back", HIDEOUT, HideoutParams(entrance_count=2, entrance_diameter_mm=45), "back"),
@@ -227,7 +214,7 @@ def test_anchor_profile_is_the_port_profile_family(name, t, p, aname):
     a = t.anchors(p)[aname]
     prof = t.port_profile(p, aname)
     scores = {
-        s: _above_floor_iou(prof, inner_profile(TunnelParams(inner_diameter_mm=a.port, shape=s, wall_thickness_mm=3)))
+        s: profile_iou(prof, inner_profile(TunnelParams(inner_diameter_mm=a.port, shape=s, wall_thickness_mm=3)))
         for s in SHAPES
     }
     assert max(scores, key=scores.get) == a.profile, scores

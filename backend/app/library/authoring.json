@@ -1,0 +1,951 @@
+{
+  "_comment": "Author-facing data for `python -m app.library` (not shown to users): draft skeletons per role for `new`, and the reason reverify --apply writes when it retires a part.",
+  "reverify_reason": {
+    "ko": "기준이 바뀌어 다시 검증이 필요합니다",
+    "en": "The rules changed; re-verify"
+  },
+  "skeletons": {
+    "room_host": {
+      "dsl": 1,
+      "family": "",
+      "name": {
+        "ko": "새 방",
+        "en": "New room"
+      },
+      "description": {
+        "ko": "앞면(과 뒷면)에 출입구가 있는 바닥 없는 작은 방. 출입구마다 터널을 이을 수 있다.",
+        "en": "A small floorless room with a door on the front (and back). Each door can take a tunnel."
+      },
+      "keywords": {
+        "ko": [
+          "방"
+        ],
+        "en": [
+          "room"
+        ]
+      },
+      "fulfills": [],
+      "part_id": "",
+      "habitats": [
+        "cage"
+      ],
+      "role": "room_host",
+      "attach_order": {
+        "passage": [
+          "front",
+          "back"
+        ]
+      },
+      "height_field": "height_mm",
+      "size_fields": [
+        "width_mm",
+        "depth_mm"
+      ],
+      "door_fields": [
+        "door_count",
+        "door_shape"
+      ],
+      "params": {
+        "wall_thickness_mm": {
+          "type": "number",
+          "default": 3,
+          "min": 2.3,
+          "max": 6,
+          "rule_default": "ctx.default_wall_mm",
+          "desc": {
+            "ko": "벽 두께 mm",
+            "en": "wall thickness mm"
+          }
+        },
+        "door_count": {
+          "type": "integer",
+          "default": 1,
+          "min": 1,
+          "max": 2,
+          "rule_default": "ctx.min_entrances",
+          "desc": {
+            "ko": "출입구 개수. 1=앞, 2=앞·뒤",
+            "en": "number of entrances. 1=front, 2=front+back"
+          }
+        },
+        "door_width_mm": {
+          "type": "number",
+          "default": 60,
+          "min": 25,
+          "max": 100,
+          "rule_default": "ceil(rule.entrance_min_diameter_mm + 5)",
+          "desc": {
+            "ko": "출입구 폭 mm. 종별 최소 출입구 폭 이상",
+            "en": "entrance width mm. At least the species minimum"
+          }
+        },
+        "door_shape": {
+          "type": "choice",
+          "choices": [
+            "round_arch",
+            "pointed_arch",
+            "box",
+            "house"
+          ],
+          "default": "round_arch",
+          "desc": {
+            "ko": "단면 모양",
+            "en": "cross-section shape"
+          },
+          "choice_labels": {
+            "round_arch": {
+              "ko": "둥근 아치",
+              "en": "round arch"
+            },
+            "pointed_arch": {
+              "ko": "뾰족 아치",
+              "en": "pointed arch"
+            },
+            "box": {
+              "ko": "네모",
+              "en": "square"
+            },
+            "house": {
+              "ko": "집 모양",
+              "en": "house shape"
+            }
+          }
+        },
+        "width_mm": {
+          "type": "number",
+          "default": 110,
+          "min": 60,
+          "max": 200,
+          "rule_default": "door_width_mm + 2 * wall_thickness_mm + 40",
+          "desc": {
+            "ko": "외형 가로(X) mm",
+            "en": "outer width (X) mm"
+          }
+        },
+        "depth_mm": {
+          "type": "number",
+          "default": 110,
+          "min": 60,
+          "max": 200,
+          "desc": {
+            "ko": "외형 세로(Y) mm",
+            "en": "outer depth (Y) mm"
+          }
+        },
+        "height_mm": {
+          "type": "number",
+          "default": 90,
+          "min": 40,
+          "max": 200,
+          "rule_default": "port_height(door_shape, door_width_mm) + 2 * wall_thickness_mm + 10",
+          "desc": {
+            "ko": "외형 높이(Z) mm",
+            "en": "outer height (Z) mm"
+          }
+        }
+      },
+      "let": [
+        {
+          "name": "W",
+          "expr": "width_mm"
+        },
+        {
+          "name": "D",
+          "expr": "depth_mm"
+        },
+        {
+          "name": "H",
+          "expr": "height_mm"
+        },
+        {
+          "name": "t",
+          "expr": "wall_thickness_mm"
+        }
+      ],
+      "constraints": [
+        {
+          "field": "door_count",
+          "min": "ctx.min_entrances",
+          "source": "species",
+          "reason": {
+            "ko": "여럿이 지낼 때 서로 피할 수 있도록 방 출입구는 {0}개 이상이어야 합니다",
+            "en": "The room needs at least {0} doors so animals living together can avoid each other"
+          }
+        },
+        {
+          "field": "door_width_mm",
+          "min": "rule.entrance_min_diameter_mm",
+          "source": "species",
+          "reason": {
+            "ko": "{1} 방 출입구는 최소 {0}mm 이상이어야 합니다",
+            "en": "{1} room doors must be at least {0} mm wide"
+          }
+        },
+        {
+          "field": "width_mm",
+          "min": "door_width_mm + 2 * wall_thickness_mm + 8",
+          "source": "geometry",
+          "reason": {
+            "ko": "출입구 양옆에 벽이 남도록 방 가로는 {0}mm 이상이어야 합니다",
+            "en": "The room must be at least {0} mm wide so wall remains beside the door"
+          }
+        },
+        {
+          "field": "height_mm",
+          "min": "port_height(door_shape, door_width_mm) + 2 * wall_thickness_mm",
+          "source": "geometry",
+          "reason": {
+            "ko": "출입구 위로 벽이 남도록 방 높이는 {0}mm 이상이어야 합니다",
+            "en": "The room must be at least {0} mm tall so wall remains above the door"
+          }
+        }
+      ],
+      "body": [
+        {
+          "op": "box",
+          "size": [
+            "W",
+            "D",
+            "H"
+          ]
+        },
+        {
+          "op": "box",
+          "mode": "cut",
+          "size": [
+            "W - 2 * t",
+            "D - 2 * t",
+            "H - t + 1"
+          ],
+          "at": [
+            0,
+            0,
+            -1
+          ],
+          "note": "open bottom, 1 mm below the floor"
+        }
+      ],
+      "print": [
+        {
+          "key": "body",
+          "name": {
+            "ko": "본체",
+            "en": "Body"
+          },
+          "rotation": "inverted"
+        }
+      ],
+      "anchors": {
+        "front": {
+          "origin": [
+            0,
+            "-D / 2",
+            0
+          ],
+          "normal": "-Y",
+          "up": "+Z",
+          "side": "front",
+          "wall": "t",
+          "door": {
+            "when": "True",
+            "width": "door_width_mm",
+            "profile": "door_shape"
+          },
+          "fields": {
+            "width": "width_mm",
+            "height": "height_mm",
+            "wall": "wall_thickness_mm",
+            "port": "door_width_mm",
+            "profile": "door_shape"
+          }
+        },
+        "back": {
+          "origin": [
+            0,
+            "D / 2",
+            0
+          ],
+          "normal": "+Y",
+          "up": "+Z",
+          "side": "back",
+          "wall": "t",
+          "door": {
+            "when": "door_count >= 2",
+            "width": "door_width_mm",
+            "profile": "door_shape"
+          },
+          "mount": [
+            "-W / 2",
+            "W / 2",
+            "H"
+          ],
+          "fields": {
+            "width": "width_mm",
+            "height": "height_mm",
+            "wall": "wall_thickness_mm",
+            "port": "door_width_mm",
+            "profile": "door_shape"
+          }
+        },
+        "left": {
+          "origin": [
+            "-W / 2",
+            0,
+            0
+          ],
+          "normal": "-X",
+          "up": "+Z",
+          "mount": [
+            "-D / 2",
+            "D / 2",
+            "H"
+          ],
+          "fields": {
+            "width": "depth_mm",
+            "height": "height_mm"
+          }
+        },
+        "right": {
+          "origin": [
+            "W / 2",
+            0,
+            0
+          ],
+          "normal": "+X",
+          "up": "+Z",
+          "mount": [
+            "-D / 2",
+            "D / 2",
+            "H"
+          ],
+          "fields": {
+            "width": "depth_mm",
+            "height": "height_mm"
+          }
+        },
+        "top": {
+          "origin": [
+            0,
+            0,
+            "H"
+          ],
+          "normal": "+Z",
+          "up": "+Y"
+        }
+      },
+      "envelope": [
+        "W",
+        "D",
+        "H"
+      ],
+      "features": {}
+    },
+    "host": {
+      "dsl": 1,
+      "family": "",
+      "name": {
+        "ko": "새 받침대",
+        "en": "New stand"
+      },
+      "description": {
+        "ko": "양옆 벽 위에 판을 얹은 받침대. 아래는 앞뒤로 트여 있고 옆면에 다른 부품을 끼울 수 있다.",
+        "en": "A deck on two side walls, open front to back underneath. Other parts slide onto its sides."
+      },
+      "keywords": {
+        "ko": [
+          "받침대"
+        ],
+        "en": [
+          "stand"
+        ]
+      },
+      "fulfills": [],
+      "part_id": "",
+      "habitats": [
+        "cage"
+      ],
+      "role": "host",
+      "attach_order": {},
+      "height_field": "height_mm",
+      "size_fields": [
+        "width_mm",
+        "depth_mm"
+      ],
+      "params": {
+        "wall_thickness_mm": {
+          "type": "number",
+          "default": 3,
+          "min": 1.2,
+          "max": 8,
+          "rule_default": "ctx.default_wall_mm",
+          "desc": {
+            "ko": "벽 두께 mm",
+            "en": "wall thickness mm"
+          }
+        },
+        "width_mm": {
+          "type": "number",
+          "default": 160,
+          "min": 60,
+          "max": 210,
+          "rule_default": "max(160, max(rule.entrance_min_diameter_mm, rule.gap_trap.passable_min_mm) + 2 * wall_thickness_mm + 60)",
+          "desc": {
+            "ko": "외형 가로(X) mm",
+            "en": "outer width (X) mm"
+          }
+        },
+        "depth_mm": {
+          "type": "number",
+          "default": 120,
+          "min": 60,
+          "max": 210,
+          "desc": {
+            "ko": "외형 세로(Y) mm",
+            "en": "outer depth (Y) mm"
+          }
+        },
+        "height_mm": {
+          "type": "number",
+          "default": 100,
+          "min": 50,
+          "max": 200,
+          "rule_default": "min(100, rule.max_climb_height_mm)",
+          "desc": {
+            "ko": "외형 높이(Z) mm",
+            "en": "outer height (Z) mm"
+          }
+        },
+        "deck_thickness_mm": {
+          "type": "number",
+          "default": 4,
+          "min": 3,
+          "max": 10,
+          "rule_default": "max(4, ctx.min_wall_mm)",
+          "desc": {
+            "ko": "윗판 두께 mm",
+            "en": "top plate thickness mm"
+          }
+        }
+      },
+      "let": [
+        {
+          "name": "W",
+          "expr": "width_mm"
+        },
+        {
+          "name": "D",
+          "expr": "depth_mm"
+        },
+        {
+          "name": "H",
+          "expr": "height_mm"
+        },
+        {
+          "name": "t",
+          "expr": "wall_thickness_mm"
+        },
+        {
+          "name": "dt",
+          "expr": "deck_thickness_mm"
+        }
+      ],
+      "constraints": [
+        {
+          "field": "deck_thickness_mm",
+          "min": "max(3, ctx.min_wall_mm)",
+          "source": "species",
+          "reason": {
+            "ko": "윗판은 {0}mm 이상 두꺼워야 합니다",
+            "en": "The top plate must be at least {0} mm thick"
+          }
+        },
+        {
+          "field": "height_mm",
+          "max": "rule.max_climb_height_mm",
+          "source": "species",
+          "reason": {
+            "ko": "떨어져도 다치지 않도록 {1} 받침대 높이는 {0}mm 이하여야 합니다",
+            "en": "Keep the stand at most {0} mm high so a {1} pet is not hurt by a fall"
+          }
+        },
+        {
+          "field": "height_mm",
+          "min": "max(rule.entrance_min_diameter_mm, rule.gap_trap.passable_min_mm) + deck_thickness_mm",
+          "source": "species",
+          "reason": {
+            "ko": "받침대 아래를 끼지 않고 지나가도록 높이는 {0}mm 이상이어야 합니다",
+            "en": "The stand must be at least {0} mm high so the passage underneath cannot trap"
+          }
+        },
+        {
+          "field": "width_mm",
+          "min": "max(rule.entrance_min_diameter_mm, rule.gap_trap.passable_min_mm) + 2 * wall_thickness_mm",
+          "source": "species",
+          "reason": {
+            "ko": "받침대 아래 통로가 넉넉하도록 가로는 {0}mm 이상이어야 합니다",
+            "en": "The width must be at least {0} mm so the passage underneath is wide enough"
+          }
+        },
+        {
+          "field": "depth_mm",
+          "min": "0.5 * height_mm",
+          "source": "geometry",
+          "reason": {
+            "ko": "넘어지지 않도록 받침대 세로는 {0}mm 이상이어야 합니다",
+            "en": "The stand must be at least {0} mm deep so it cannot tip over"
+          }
+        }
+      ],
+      "body": [
+        {
+          "op": "box",
+          "size": [
+            "W",
+            "D",
+            "dt"
+          ],
+          "at": [
+            0,
+            0,
+            "H - dt"
+          ]
+        },
+        {
+          "op": "box",
+          "size": [
+            "t",
+            "D",
+            "H"
+          ],
+          "at": [
+            "(2 * i - 1) * (W / 2 - t / 2)",
+            0,
+            0
+          ],
+          "repeat": {
+            "i": 2
+          }
+        }
+      ],
+      "print": [
+        {
+          "key": "body",
+          "name": {
+            "ko": "본체",
+            "en": "Body"
+          },
+          "rotation": "inverted"
+        }
+      ],
+      "anchors": {
+        "left": {
+          "origin": [
+            "-W / 2",
+            0,
+            0
+          ],
+          "normal": "-X",
+          "up": "+Z",
+          "mount": [
+            "-D / 2",
+            "D / 2",
+            "H"
+          ],
+          "fields": {
+            "width": "depth_mm",
+            "height": "height_mm"
+          }
+        },
+        "right": {
+          "origin": [
+            "W / 2",
+            0,
+            0
+          ],
+          "normal": "+X",
+          "up": "+Z",
+          "mount": [
+            "-D / 2",
+            "D / 2",
+            "H"
+          ],
+          "fields": {
+            "width": "depth_mm",
+            "height": "height_mm"
+          }
+        },
+        "top": {
+          "origin": [
+            0,
+            0,
+            "H"
+          ],
+          "normal": "+Z",
+          "up": "+Y"
+        }
+      },
+      "envelope": [
+        "W",
+        "D",
+        "H"
+      ],
+      "features": {
+        "min_wall": "min(wall_thickness_mm, deck_thickness_mm)",
+        "access_sides": [
+          {
+            "side": "front"
+          },
+          {
+            "side": "back"
+          }
+        ],
+        "climb_height": "height_mm",
+        "openings": [
+          {
+            "kind": "passage",
+            "size": "min(W - 2 * t, H - dt)",
+            "rule_key": "entrance_min_diameter_mm",
+            "label": {
+              "ko": "받침대 아래 통로",
+              "en": "Passage under the stand"
+            },
+            "probe": {
+              "shape": "box",
+              "axis": "y",
+              "at": [
+                0,
+                0,
+                0
+              ],
+              "length": "D + 2"
+            }
+          }
+        ]
+      }
+    },
+    "accessory": {
+      "dsl": 1,
+      "family": "",
+      "name": {
+        "ko": "새 붙임 부품",
+        "en": "New add-on"
+      },
+      "description": {
+        "ko": "다른 부품 옆면에 끼워 붙이는 낮은 턱의 네모 트레이.",
+        "en": "A low-lipped square tray that slides onto the side of another part."
+      },
+      "keywords": {
+        "ko": [
+          "트레이"
+        ],
+        "en": [
+          "tray"
+        ]
+      },
+      "fulfills": [],
+      "part_id": "",
+      "habitats": [
+        "cage"
+      ],
+      "role": "accessory",
+      "attach_order": {
+        "slide": [
+          "back"
+        ]
+      },
+      "height_field": "lip_height_mm",
+      "size_fields": [
+        "width_mm",
+        "depth_mm"
+      ],
+      "params": {
+        "wall_thickness_mm": {
+          "type": "number",
+          "default": 3,
+          "min": 1.2,
+          "max": 6,
+          "rule_default": "ctx.default_wall_mm",
+          "desc": {
+            "ko": "벽 두께 mm",
+            "en": "wall thickness mm"
+          }
+        },
+        "width_mm": {
+          "type": "number",
+          "default": 130,
+          "min": 80,
+          "max": 200,
+          "rule_default": "max(130, 2 * rule.gap_trap.passable_min_mm + 2 * wall_thickness_mm)",
+          "desc": {
+            "ko": "외형 가로(X) mm",
+            "en": "outer width (X) mm"
+          }
+        },
+        "depth_mm": {
+          "type": "number",
+          "default": 130,
+          "min": 80,
+          "max": 200,
+          "rule_default": "max(130, 2 * rule.gap_trap.passable_min_mm + 2 * wall_thickness_mm)",
+          "desc": {
+            "ko": "외형 세로(Y) mm",
+            "en": "outer depth (Y) mm"
+          }
+        },
+        "lip_height_mm": {
+          "type": "number",
+          "default": 30,
+          "min": 15,
+          "max": 60,
+          "rule_default": "min(30, rule.max_step_height_mm)",
+          "desc": {
+            "ko": "트레이 턱 높이 mm",
+            "en": "tray lip height mm"
+          }
+        }
+      },
+      "let": [
+        {
+          "name": "t",
+          "expr": "wall_thickness_mm"
+        }
+      ],
+      "constraints": [
+        {
+          "field": "lip_height_mm",
+          "max": "rule.max_step_height_mm",
+          "source": "species",
+          "reason": {
+            "ko": "{1} 개체가 넘어 들어갈 수 있도록 트레이 턱은 {0}mm 이하여야 합니다",
+            "en": "The tray lip must be at most {0} mm so a {1} pet can step in"
+          }
+        },
+        {
+          "field": "lip_height_mm",
+          "min": "wall_thickness_mm + 12",
+          "source": "geometry",
+          "reason": {
+            "ko": "트레이 턱은 {0}mm 이상이어야 합니다",
+            "en": "The tray lip must be at least {0} mm"
+          }
+        },
+        {
+          "field": "width_mm",
+          "min": "2 * rule.gap_trap.passable_min_mm + 2 * wall_thickness_mm",
+          "source": "species",
+          "reason": {
+            "ko": "안에서 돌아설 수 있도록 트레이 가로는 {0}mm 이상이어야 합니다",
+            "en": "The tray must be at least {0} mm wide so the pet can turn around inside"
+          }
+        },
+        {
+          "field": "depth_mm",
+          "min": "2 * rule.gap_trap.passable_min_mm + 2 * wall_thickness_mm",
+          "source": "species",
+          "reason": {
+            "ko": "안에서 돌아설 수 있도록 트레이 세로는 {0}mm 이상이어야 합니다",
+            "en": "The tray must be at least {0} mm deep so the pet can turn around inside"
+          }
+        }
+      ],
+      "body": [
+        {
+          "op": "box",
+          "size": [
+            "width_mm",
+            "depth_mm",
+            "lip_height_mm"
+          ]
+        },
+        {
+          "op": "box",
+          "mode": "cut",
+          "size": [
+            "width_mm - 2 * t",
+            "depth_mm - 2 * t",
+            "lip_height_mm"
+          ],
+          "at": [
+            0,
+            0,
+            "t"
+          ],
+          "note": "the cut ends t above the rim"
+        }
+      ],
+      "print": [
+        {
+          "key": "body",
+          "name": {
+            "ko": "본체",
+            "en": "Body"
+          },
+          "rotation": "upright"
+        }
+      ],
+      "anchors": {
+        "back": {
+          "origin": [
+            0,
+            "depth_mm / 2",
+            0
+          ],
+          "normal": "+Y",
+          "up": "+Z"
+        }
+      },
+      "envelope": [
+        "width_mm",
+        "depth_mm",
+        "lip_height_mm"
+      ],
+      "features": {
+        "access_sides": [
+          {
+            "side": "front"
+          }
+        ],
+        "step_height": "lip_height_mm"
+      }
+    },
+    "none": {
+      "dsl": 1,
+      "family": "",
+      "name": {
+        "ko": "새 부품",
+        "en": "New part"
+      },
+      "description": {
+        "ko": "따로 놓는 낮은 턱의 네모 그릇.",
+        "en": "A free-standing square dish with a low lip."
+      },
+      "keywords": {
+        "ko": [
+          "그릇"
+        ],
+        "en": [
+          "dish"
+        ]
+      },
+      "fulfills": [],
+      "part_id": "",
+      "habitats": [
+        "cage"
+      ],
+      "role": "none",
+      "height_field": "lip_height_mm",
+      "params": {
+        "wall_thickness_mm": {
+          "type": "number",
+          "default": 3,
+          "min": 1.2,
+          "max": 6,
+          "rule_default": "ctx.default_wall_mm",
+          "desc": {
+            "ko": "벽 두께 mm",
+            "en": "wall thickness mm"
+          }
+        },
+        "width_mm": {
+          "type": "number",
+          "default": 120,
+          "min": 80,
+          "max": 200,
+          "desc": {
+            "ko": "외형 가로(X) mm",
+            "en": "outer width (X) mm"
+          }
+        },
+        "depth_mm": {
+          "type": "number",
+          "default": 120,
+          "min": 80,
+          "max": 200,
+          "desc": {
+            "ko": "외형 세로(Y) mm",
+            "en": "outer depth (Y) mm"
+          }
+        },
+        "lip_height_mm": {
+          "type": "number",
+          "default": 25,
+          "min": 15,
+          "max": 30,
+          "rule_default": "min(25, rule.max_step_height_mm)",
+          "desc": {
+            "ko": "그릇 턱 높이 mm",
+            "en": "dish lip height mm"
+          }
+        }
+      },
+      "let": [
+        {
+          "name": "t",
+          "expr": "wall_thickness_mm"
+        }
+      ],
+      "constraints": [
+        {
+          "field": "lip_height_mm",
+          "max": "rule.max_step_height_mm",
+          "source": "species",
+          "reason": {
+            "ko": "{1} 개체가 넘어 들어갈 수 있도록 그릇 턱은 {0}mm 이하여야 합니다",
+            "en": "The dish lip must be at most {0} mm so a {1} pet can step in"
+          }
+        },
+        {
+          "field": "lip_height_mm",
+          "min": "wall_thickness_mm + 10",
+          "source": "geometry",
+          "reason": {
+            "ko": "그릇 턱은 {0}mm 이상이어야 합니다",
+            "en": "The dish lip must be at least {0} mm"
+          }
+        }
+      ],
+      "body": [
+        {
+          "op": "box",
+          "size": [
+            "width_mm",
+            "depth_mm",
+            "lip_height_mm"
+          ]
+        },
+        {
+          "op": "box",
+          "mode": "cut",
+          "size": [
+            "width_mm - 2 * t",
+            "depth_mm - 2 * t",
+            "lip_height_mm"
+          ],
+          "at": [
+            0,
+            0,
+            "t"
+          ]
+        }
+      ],
+      "print": [
+        {
+          "key": "body",
+          "name": {
+            "ko": "본체",
+            "en": "Body"
+          },
+          "rotation": "upright"
+        }
+      ],
+      "envelope": [
+        "width_mm",
+        "depth_mm",
+        "lip_height_mm"
+      ],
+      "features": {
+        "step_height": "lip_height_mm"
+      }
+    }
+  }
+}

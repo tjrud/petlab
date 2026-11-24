@@ -62,7 +62,7 @@
       "rule_default": "max(160, max(rule.entrance_min_diameter_mm, rule.gap_trap.passable_min_mm) + 2 * wall_thickness_mm + 60)",
       "desc": {
         "ko": "외형 가로(X) mm. 양옆 벽 바깥 사이 거리",
-        "en": "Outer width (X) mm. Distance across the two side walls"
+        "en": "outer width (X) mm. Distance across the two side walls"
       }
     },
     "depth_mm": {
@@ -72,7 +72,7 @@
       "max": 210,
       "desc": {
         "ko": "외형 세로(Y) mm",
-        "en": "Outer depth (Y) mm"
+        "en": "outer depth (Y) mm"
       }
     },
     "height_mm": {

@@ -1,0 +1,144 @@
+{
+  "_expect": "G06",
+  "_also": [
+    "G10"
+  ],
+  "_note": "the dish walls and floor are 1 mm thick whatever wall_thickness_mm says; G10 repeats the engine's wall_thin_measured warning",
+  "dsl": 1,
+  "family": "thin_wall",
+  "name": {
+    "ko": "시험 부품 1",
+    "en": "Test part 1"
+  },
+  "description": {
+    "ko": "따로 놓는 낮은 턱의 네모 그릇.",
+    "en": "A free-standing square dish with a low lip."
+  },
+  "keywords": {
+    "ko": [
+      "그릇"
+    ],
+    "en": [
+      "dish"
+    ]
+  },
+  "fulfills": [],
+  "part_id": "thin_wall",
+  "habitats": [
+    "cage"
+  ],
+  "role": "none",
+  "height_field": "lip_height_mm",
+  "params": {
+    "wall_thickness_mm": {
+      "type": "number",
+      "default": 3,
+      "min": 1.0,
+      "max": 6,
+      "rule_default": "ctx.default_wall_mm",
+      "desc": {
+        "ko": "벽 두께 mm",
+        "en": "wall thickness mm"
+      }
+    },
+    "width_mm": {
+      "type": "number",
+      "default": 120,
+      "min": 80,
+      "max": 200,
+      "desc": {
+        "ko": "외형 가로(X) mm",
+        "en": "outer width (X) mm"
+      }
+    },
+    "depth_mm": {
+      "type": "number",
+      "default": 120,
+      "min": 80,
+      "max": 200,
+      "desc": {
+        "ko": "외형 세로(Y) mm",
+        "en": "outer depth (Y) mm"
+      }
+    },
+    "lip_height_mm": {
+      "type": "number",
+      "default": 25,
+      "min": 15,
+      "max": 30,
+      "rule_default": "min(25, rule.max_step_height_mm)",
+      "desc": {
+        "ko": "그릇 턱 높이 mm",
+        "en": "dish lip height mm"
+      }
+    }
+  },
+  "let": [
+    {
+      "name": "t",
+      "expr": "wall_thickness_mm"
+    }
+  ],
+  "constraints": [
+    {
+      "field": "lip_height_mm",
+      "max": "rule.max_step_height_mm",
+      "source": "species",
+      "reason": {
+        "ko": "{1} 개체가 넘어 들어갈 수 있도록 그릇 턱은 {0}mm 이하여야 합니다",
+        "en": "The dish lip must be at most {0} mm so a {1} pet can step in"
+      }
+    },
+    {
+      "field": "lip_height_mm",
+      "min": "wall_thickness_mm + 10",
+      "source": "geometry",
+      "reason": {
+        "ko": "그릇 턱은 {0}mm 이상이어야 합니다",
+        "en": "The dish lip must be at least {0} mm"
+      }
+    }
+  ],
+  "body": [
+    {
+      "op": "box",
+      "size": [
+        "width_mm",
+        "depth_mm",
+        "lip_height_mm"
+      ]
+    },
+    {
+      "op": "box",
+      "mode": "cut",
+      "size": [
+        "width_mm - 2",
+        "depth_mm - 2",
+        "lip_height_mm"
+      ],
+      "at": [
+        0,
+        0,
+        1
+      ]
+    }
+  ],
+  "print": [
+    {
+      "key": "body",
+      "name": {
+        "ko": "본체",
+        "en": "Body"
+      },
+      "rotation": "upright"
+    }
+  ],
+  "envelope": [
+    "width_mm",
+    "depth_mm",
+    "lip_height_mm"
+  ],
+  "features": {
+    "step_height": "lip_height_mm"
+  }
+}

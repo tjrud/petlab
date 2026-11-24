@@ -61,7 +61,7 @@
       "rule_default": "ctx.default_wall_mm",
       "desc": {
         "ko": "벽·지붕 두께 mm",
-        "en": "Wall and roof thickness mm"
+        "en": "wall/roof thickness mm"
       }
     },
     "layout": {
@@ -104,7 +104,7 @@
       "rule_default": "ceil(rule.entrance_min_diameter_mm + 5)",
       "desc": {
         "ko": "출입구 폭 mm. 종별 최소 출입구 폭 이상이며 이은 터널 안지름과 같아진다",
-        "en": "Door width mm. At least the species minimum; joined tunnels take the same inner width"
+        "en": "entrance width mm. At least the species minimum; joined tunnels take the same inner width"
       }
     },
     "door_shape": {
@@ -123,19 +123,19 @@
       "choice_labels": {
         "round_arch": {
           "ko": "둥근 아치",
-          "en": "Round arch"
+          "en": "round arch"
         },
         "pointed_arch": {
           "ko": "뾰족 아치",
-          "en": "Pointed arch"
+          "en": "pointed arch"
         },
         "box": {
           "ko": "네모",
-          "en": "Box"
+          "en": "square"
         },
         "house": {
           "ko": "집 모양",
-          "en": "House"
+          "en": "house shape"
         }
       }
     },
