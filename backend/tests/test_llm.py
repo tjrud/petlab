@@ -582,8 +582,9 @@ def test_template_keys_drop_fixed_modules(rules):
     from app.rules.loader import CAGE_TEMPLATES
     from app.templates.registry import all_templates, primitives
 
-    # 햄스터: 케이지 코드 부품, 그다음 게시·게이팅한 라이브러리 부품 (rules/species.yaml)
-    assert template_keys(rules.allowed_templates("hamster")) == (*CAGE_TEMPLATES, "tunnel_junction@v1")
+    # 햄스터: 케이지 코드 부품, 그다음 게시·게이팅한 라이브러리 부품 (rules/species.yaml; 레지스트리 순서 = key 순)
+    assert template_keys(rules.allowed_templates("hamster")) == (*CAGE_TEMPLATES, "deck_platform@v1",
+                                                                  "tunnel_junction@v1")
     assert set(template_keys()) <= set(primitives())
     modules = [t.key for t in all_templates() if t.key not in primitives()]
     assert not set(modules) & {d.removesuffix("Item") for d in api_schema()["$defs"]}
@@ -628,7 +629,7 @@ def test_catalog_has_connection_entries_from_template_metadata():
 
 
 def test_hamster_catalog_lists_the_gated_library_parts(rules):
-    """게시해 햄스터에 허용한 라이브러리 부품(터널 갈림길)이 카탈로그·스키마에 나온다 (설계 문서 §6.1, §10)."""
+    """게시해 햄스터에 허용한 라이브러리 부품(터널 갈림길, 발판 플랫폼)이 카탈로그·스키마에 나온다 (설계 문서 §6, §10)."""
     from app.llm.prompts import template_catalog
 
     cat = {t["template"]: t for t in template_catalog(rules.offered_templates("hamster"))}
@@ -638,7 +639,14 @@ def test_hamster_catalog_lists_the_gated_library_parts(rules):
     # T 배치 기본값: 출입구 세 면은 터널만, 닫힌 뒷면은 받침면, 터널 끝에 이을 수 있는 방
     assert "front/left/right: 출입구(터널만)" in hub["연결"] and "back: 옆면(" in hub["연결"]
     assert "at=free_end" in hub["연결"]
-    assert "LibTunnelJunctionV1Params" in json.dumps(api_schema(rules.offered_templates("hamster")))
+    schema = json.dumps(api_schema(rules.offered_templates("hamster")))
+    assert "LibTunnelJunctionV1Params" in schema
+    # 발판 플랫폼 (설계 문서 §6.2): 기준 부품으로만, 양옆 받침면에 램프·그릇 받침·물병 거치대
+    deck = cat["deck_platform@v1"]
+    assert deck["이름"] == "발판 플랫폼" and deck["설명"].startswith("양옆 벽 위에 발판을 얹은 2층 플랫폼")
+    assert list(deck["파라미터"]) == ["wall_thickness_mm", "width_mm", "depth_mm", "height_mm", "deck_thickness_mm"]
+    assert "left/right: 옆면(램프/계단·그릇 받침·물병 거치대)" in deck["연결"] and "기준 부품으로만" in deck["연결"]
+    assert "LibDeckPlatformV1Params" in schema
 
 
 def test_user_message_catalog_drops_fixed_modules(req, rules):

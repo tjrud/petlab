@@ -51,7 +51,7 @@
       "rule_default": "ctx.default_wall_mm",
       "desc": {
         "ko": "옆벽 두께 mm",
-        "en": "Side wall thickness mm"
+        "en": "side wall thickness mm"
       }
     },
     "width_mm": {
@@ -83,7 +83,7 @@
       "rule_default": "min(100, rule.max_climb_height_mm)",
       "desc": {
         "ko": "발판 윗면 높이 mm. 종별 최대 오르기 높이 이하",
-        "en": "Deck top height mm. At most the species' maximum climb height"
+        "en": "deck top height mm. At most the species' maximum climb height"
       }
     },
     "deck_thickness_mm": {
@@ -94,7 +94,7 @@
       "rule_default": "max(4, ctx.min_wall_mm)",
       "desc": {
         "ko": "발판 두께 mm",
-        "en": "Deck thickness mm"
+        "en": "deck thickness mm"
       }
     }
   },
@@ -136,7 +136,7 @@
       "source": "species",
       "reason": {
         "ko": "떨어져도 다치지 않도록 {1} 발판 높이는 {0}mm 이하여야 합니다",
-        "en": "Keep the deck at most {0} mm high so a {1} hamster is not hurt by a fall"
+        "en": "Keep the deck at most {0} mm high so a {1} is not hurt by a fall"
       }
     },
     {

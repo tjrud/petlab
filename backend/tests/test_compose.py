@@ -25,7 +25,7 @@ from app.validation.report import Issue, Severity
 FIXTURES = Path(__file__).parent / "data" / "compositions"
 FIXTURE_KEYS = sorted(p.stem for p in FIXTURES.glob("*.json"))
 # 라이브러리 부품(app/library)을 쓰는 고정 데이터: 옛 고정 세트가 아니라서 손으로 만든 결합 목록(library)이 없다
-LIBRARY_PART_FIXTURES = ["junction_network"]
+LIBRARY_PART_FIXTURES = ["junction_network", "platform_with_ramps"]
 P = primitives()
 SIZES = ("dwarf", "syrian")
 # 무작위 조립이 끝날 수 있는 오류 (해석 오류, 보정할 수 없는 값, 규칙·형상 위반)
@@ -498,8 +498,8 @@ def _fixture_request(key: str) -> AssemblyRequest:
 def test_fixtures_cover_the_library() -> None:
     """옛 고정 세트 8개(library: 손으로 만든 결합 목록이 있다)와 라이브러리 부품 조립 (library 없음)."""
     assert FIXTURE_KEYS == ["dining_hideout", "hideout_with_bottle", "hideout_with_bowl", "hideout_with_ramp",
-                            "hideout_with_tunnel", "house_with_tunnel", "junction_network", "sand_bath_with_ramp",
-                            "twin_hideouts"]
+                            "hideout_with_tunnel", "house_with_tunnel", "junction_network", "platform_with_ramps",
+                            "sand_bath_with_ramp", "twin_hideouts"]
     assert [k for k in FIXTURE_KEYS if "library" not in _fixture(k)] == LIBRARY_PART_FIXTURES
     for key in FIXTURE_KEYS:
         fx = _fixture(key)

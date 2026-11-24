@@ -1,10 +1,10 @@
-"""게시된 라이브러리 부품 (설계 문서 §6, §14 "Stored rebuild e2e"; T12–T14).
+"""게시된 라이브러리 부품 (설계 문서 §6, §14 "Stored rebuild e2e"; T12–T14: 터널 갈림길, 발판 플랫폼).
 
 저장소 라이브러리(app/library)의 부품이 레지스트리에 등록되고 종에 허용되며, 조립에서 설계 문서대로 이어지고,
 그 부품을 쓴 설계를 저장한 뒤 메시 캐시를 지우고 조립 해석기를 막아도 같은 바이트로 다시 만들어지는지 본다.
 
 부품 파일·골든·게이팅 자체의 검사는 tests/test_library_published.py (audit) 가 한다. 여기는 부품마다의 동작이다.
-부품을 더 게시하면(T13, T14) 위 표들(PUBLISHED, STORED_FIXTURES)에 한 줄씩 더하고 부품별 시험을 덧붙인다.
+부품을 더 게시하면(T14) 위 표들(PUBLISHED, STORED_FIXTURES)에 한 줄씩 더하고 부품별 시험을 덧붙인다.
 """
 
 from __future__ import annotations
@@ -35,11 +35,13 @@ from app.validation.report import Issue, Severity
 from tests.api_helpers import create_habitat, make_settings
 
 JUNCTION = "tunnel_junction@v1"
+DECK = "deck_platform@v1"
 # 게시된 부품: key → (이름, 역할, 햄스터에 허용)
-PUBLISHED = {JUNCTION: ("터널 갈림길", "room_host", True)}
+PUBLISHED = {JUNCTION: ("터널 갈림길", "room_host", True), DECK: ("발판 플랫폼", "host", True)}
 FIXTURES = Path(__file__).parent / "data" / "compositions"
 # 저장·다시 만들기를 보는 고정 데이터: 고정 데이터 이름 → (크기 구분, 들어 있어야 하는 라이브러리 부품)
-STORED_FIXTURES = {"junction_network": ("dwarf", {"hub": JUNCTION})}
+STORED_FIXTURES = {"junction_network": ("dwarf", {"hub": JUNCTION}),
+                   "platform_with_ramps": ("syrian", {"deck": DECK})}
 ROOMY = {"width_mm": 1000, "depth_mm": 600, "height_mm": 400}
 SCHEMA_GATE = 29_000  # R12: 햄스터 구조화 출력 스키마 게이팅 한도 (tests/test_llm.py 의 30,000 보다 낮다)
 
@@ -207,6 +209,109 @@ def test_mock_reads_three_hideouts_off_a_junction(rules) -> None:
     res, _, _ = resolve_ok([(p.id, p.template, p.params.model_dump(mode="json")) for p in it.parts],
                            [(c.part, c.to, c.at) for c in it.connections], rctx(rules, "dwarf"))
     assert sum(1 for j in res.joins if j.parent.startswith("hub.")) == 2
+
+
+# ── deck_platform@v1 (설계 문서 §6.2) ─────────────────────────────
+
+
+@pytest.mark.parametrize(("size", "height_min", "height_max", "width_min"), [("dwarf", 54, 120, 56),
+                                                                            ("syrian", 74, 150, 76)])
+def test_deck_defaults_per_size(rules, size, height_min, height_max, width_min) -> None:
+    """기본값은 두 크기 모두 160 × 120 × 100 (발판 4, 옆벽 3). 높이 한도는 종별 통과 폭 + 발판 두께 ~ 최대 오르기 높이."""
+    t = primitives()[DECK]
+    ctx = rctx(rules, size)
+    p = t.default_params(ctx)
+    assert p.model_dump() == {"wall_thickness_mm": 3.0, "width_mm": 160.0, "depth_mm": 120.0, "height_mm": 100.0,
+                              "deck_thickness_mm": 4.0}
+    p2, issues = clamp_params(t, p, ctx)
+    assert p2 == p and issues == []  # 기본값은 보정 없이 맞는다 (P1)
+    assert t.rule_issues(p, ctx) == []
+    bounds = {(c.field, "min" if c.min is not None else "max"): c.min if c.min is not None else c.max
+              for c in t.constraints(p, ctx)}
+    assert bounds[("height_mm", "min")] == height_min and bounds[("height_mm", "max")] == height_max
+    assert bounds[("width_mm", "min")] == width_min and bounds[("depth_mm", "min")] == 50  # 넘어지지 않게 0.5·높이
+    f = t.features(p)
+    assert f.climb_height_mm == 100 and f.access_sides == ("front", "back") and f.entrance_count is None
+    (under,) = f.openings
+    assert (under.kind, under.size_mm, under.rule_key) == ("passage", 96.0, "entrance_min_diameter_mm")
+
+
+def test_deck_too_high_is_lowered_to_the_climb_limit(rules) -> None:
+    """드워프 최대 오르기 높이(120)보다 높은 발판은 120 으로 낮춘다."""
+    t = primitives()[DECK]
+    ctx = rctx(rules, "dwarf")
+    p, issues = clamp_params(t, t.Params.model_validate({**dp(DECK, ctx), "height_mm": 160}), ctx)
+    assert p.height_mm == 120 and [i.details["field"] for i in issues if i.code == "param_adjusted"] == ["height_mm"]
+
+
+def test_deck_sides_are_mounts_and_never_doors(rules) -> None:
+    """옆면 두 곳은 발판 높이까지의 받침면(벽 필드 없음, 출입구 없음), 앞뒤는 트여 있어 연결 지점이 없다."""
+    t = primitives()[DECK]
+    p = t.default_params(rctx(rules, "dwarf"))
+    anchors = t.anchors(p)
+    assert set(anchors) == {"left", "right", "top", "bottom"}
+    for side, x, n in (("left", -80.0, (-1.0, 0.0, 0.0)), ("right", 80.0, (1.0, 0.0, 0.0))):
+        a = anchors[side]
+        assert (a.origin, a.normal, a.mount) == ((x, 0.0, 0.0), n, (-60.0, 60.0, 100.0))
+        assert a.port is None and a.wall_mm is None and a.side is None and not compose.is_door(a)
+        ff = t.face_fields(p, side)
+        assert (ff.width, ff.height, ff.wall, ff.port) == ("depth_mm", "height_mm", None, None)
+        assert t.open_port(p, side) is None
+
+
+def test_ramp_on_the_deck_rises_to_the_deck_height(rules) -> None:
+    """램프는 옆면에 끼우고, 꼭대기 높이가 발판 높이를 따른다 (발판을 80 으로 낮추면 램프도 80)."""
+    ctx = rctx(rules, "dwarf")
+    res, params, issues = resolve_ok([("deck", DECK, dp(DECK, ctx, height_mm=80)),
+                                      ("ramp", "ramp", dp("ramp", ctx, height_mm=60))], [("ramp", "deck", "right")], ctx)
+    assert joins(res) == [("deck.right", "ramp.landing", "slide")] and issues == []
+    t = compose.template_for(res)
+    p, adjusted = clamp_params(t, compose.assembly_params(t, params), ctx, max_passes=compose.ASSEMBLY_MAX_PASSES)
+    assert p.ramp.height_mm == p.deck.height_mm == 80
+    assert [i.details["field"] for i in adjusted if i.code == "param_adjusted"] == ["ramp.height_mm"]
+    assert all(i.severity == Severity.info for i in adjusted)
+    assert settle_passes(res, params, ctx) == []
+
+
+def test_deck_takes_ramps_on_both_sides_and_relocates_a_front_request(rules) -> None:
+    """양옆에 램프 둘. 앞(트인 면)에 달라고 한 그릇 받침은 붙일 수 있는 옆면으로 옮긴다."""
+    ctx = rctx(rules, "syrian")
+    res, params, issues = resolve_ok([("deck", DECK, dp(DECK, ctx)), ("ramp", "ramp", dp("ramp", ctx)),
+                                      ("ramp2", "ramp", dp("ramp", ctx))],
+                                     [("ramp", "deck", "left"), ("ramp2", "deck", "right")], ctx)
+    assert joins(res) == [("deck.left", "ramp.landing", "slide"), ("deck.right", "ramp2.landing", "slide")]
+    assert settle_passes(res, params, ctx) == []
+    res, _, issues = resolve_ok([("deck", DECK, dp(DECK, ctx)), ("bowl", "bowl_holder", dp("bowl_holder", ctx))],
+                                [("bowl", "deck", "front")], ctx)
+    assert joins(res) == [("deck.right", "bowl.back", "slide")]
+    assert [i.details["part"] for i in issues if i.code == "join_relocated"] == ["bowl"]
+
+
+def test_deck_is_a_root_only_host_without_doors(rules) -> None:
+    """host: 터널을 이을 출입구가 없고, 다른 부품에 붙는 자식이 될 수 없다 (설계 §3.3)."""
+    ctx = rctx(rules, "dwarf")
+    out = resolve([("deck", DECK, dp(DECK, ctx)), ("tube", "tunnel", dp("tunnel", ctx))],
+                  [("tube", "deck", "left")], ctx)
+    assert isinstance(out, Issue) and out.code == compose.JOIN_UNSUPPORTED
+    out = resolve([("hide", "hideout", dp("hideout", ctx)), ("deck", DECK, dp(DECK, ctx))],
+                  [("deck", "hide", "right")], ctx)
+    assert isinstance(out, Issue) and out.code == compose.JOIN_UNSUPPORTED
+
+
+def test_mock_reads_a_platform_with_a_ramp_and_a_bottle_stand(rules) -> None:
+    """모의 해석기: "플랫폼 오른쪽에 램프, 왼쪽에 물병 거치대" → 발판 + 오른쪽 램프 + 왼쪽 물병 거치대."""
+    from app.llm.mock import MockInterpreter
+    from tests.test_mock_compose import _req
+
+    spec = MockInterpreter().interpret(_req(rules, "플랫폼 오른쪽에 램프, 왼쪽에 물병 거치대")).spec
+    (it,) = spec.items
+    assert [(p.id, p.template) for p in it.parts] == [("deck", DECK), ("ramp", "ramp"), ("bottle", "bottle_stand")]
+    assert [(c.part, c.to, c.at) for c in it.connections] == [("ramp", "deck", "right"), ("bottle", "deck", "left")]
+    ctx = rctx(rules, "dwarf")
+    res, params, _ = resolve_ok([(p.id, p.template, p.params.model_dump(mode="json")) for p in it.parts],
+                                [(c.part, c.to, c.at) for c in it.connections], ctx)
+    assert joins(res) == [("deck.right", "ramp.landing", "slide"), ("deck.left", "bottle.back", "slide")]
+    assert settle_passes(res, params, ctx) == []
 
 
 # ── 저장된 설계 다시 만들기 (설계 §14 "Stored rebuild e2e") ─────────────────
