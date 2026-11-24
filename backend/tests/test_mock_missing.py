@@ -86,3 +86,21 @@ def test_missing_part_next_to_an_assembly_request(base):
     assert spec.items[0].template == "assembly"
     assert _missing(spec) == [("쳇바퀴", "달리기 운동")]
 
+
+
+def test_library_part_not_offered_for_the_species_is_listed_as_missing(base):
+    """라이브러리에 있지만 이 종에 아직 열지 않은 부품(화장실 트레이)은 조용히 빠지지 않고 수요로 남는다."""
+    from app.library import index
+
+    if "litter_tray@v1" not in index.active_keys() or "litter_tray@v1" in base.allowed_templates:
+        pytest.skip("화장실 트레이가 햄스터에게 열린 경우에는 해당 없음")
+    spec = _mock(base, "은신처 오른쪽에 화장실 트레이 달아줘")
+    assert [it.template for it in spec.items] == ["hideout"]
+    assert [n for n, _ in _missing(spec)] == ["화장실 트레이"]
+    spec = _mock(base, "a hideout with a litter tray", language="en")
+    assert [n for n, _ in _missing(spec)] == ["Litter tray"]
+
+
+def test_offered_library_part_is_not_listed_as_missing(base):
+    spec = _mock(base, "플랫폼 왼쪽에 램프")
+    assert spec.missing_parts == []

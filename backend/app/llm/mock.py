@@ -110,9 +110,11 @@ MISSING_KEYWORDS: dict[str, _Missing] = {
 }
 
 
-def _find_missing(text: str, en: bool, claimed: frozenset[str] = frozenset()) -> list[dict]:
+def _find_missing(text: str, en: bool, claimed: frozenset[str] = frozenset(),
+                  allowed: list[str] | None = None) -> list[dict]:
     """글에 나온 카탈로그에 없는 부품 (나온 차례대로) → missing_parts 항목.
-    claimed: 이 요청에 내놓은 라이브러리 부품이 맡은 낱말 (소문자). 그 낱말을 가진 없는 부품은 이제 있으므로 알리지 않는다."""
+    claimed: 이 요청에 내놓은 라이브러리 부품이 맡은 낱말 (소문자). 그 낱말을 가진 없는 부품은 이제 있으므로 알리지 않는다.
+    allowed: 주면 라이브러리에 있지만 이 요청에 내놓지 않은 부품도 없는 부품으로 센다."""
     low = _en(text)
     found = []
     for m in MISSING_KEYWORDS.values():
@@ -124,8 +126,12 @@ def _find_missing(text: str, en: bool, claimed: frozenset[str] = frozenset()) ->
             positions.append(hit.start())
         if positions:
             found.append((min(positions), m))
-    return [{"name_ko": m.name_en if en else m.name_ko, "purpose_ko": m.purpose_en if en else m.purpose_ko}
-            for _, m in sorted(found, key=lambda x: x[0])]
+    # 표에 있는 없는 부품으로 이미 센 낱말은 라이브러리 부품 이름으로 두 번 세지 않는다
+    taken = claimed | {w.casefold() for _, m in found for w in (*m.words_ko, m.name_ko, m.name_en)}
+    lib_found = _unoffered_library_missing(text, low, allowed, en, frozenset(taken)) if allowed is not None else []
+    rows = [(pos, {"name_ko": m.name_en if en else m.name_ko, "purpose_ko": m.purpose_en if en else m.purpose_ko})
+            for pos, m in found] + lib_found
+    return [row for _, row in sorted(rows, key=lambda x: x[0])]
 
 
 # 영어 요청용 키워드 (소문자로 바꾼 글에 단어 경계로 찾는다). 한국어 키워드와 함께 확인한다
@@ -262,6 +268,33 @@ def _library_words(allowed: list[str]) -> _LibraryWords:
         if (rx := _en_words_rx(en_words)) is not None:
             en[key] = rx
     return _LibraryWords(ko, en, frozenset(claimed))
+
+
+def _unoffered_library_missing(text: str, low: str, allowed: list[str], en: bool,
+                               claimed: frozenset[str]) -> list[tuple[int, dict]]:
+    """라이브러리에 있지만 이 요청에 내놓지 않은(이 종에 아직 열지 않은) 부품을 말하면 없는 부품으로 알린다.
+    실제 LLM 도 카탈로그에 없는 부품은 missing_parts 로 적으므로 같은 꼴로 수요가 쌓인다. (글 위치, 항목) 목록."""
+    from app.library import index
+
+    offered = {p[0] for k in allowed if (p := index.parse_key(k)) is not None}
+    code_ko, code_en = _code_words()
+    found: dict[str, tuple[int, dict]] = {}
+    for key, kw in index.keywords().items():
+        parsed = index.parse_key(key)
+        if parsed is None or parsed[0] in offered or key in allowed:
+            continue
+        part = index.read_part(key)
+        ko_words = [w for w in dict.fromkeys([part["name"]["ko"], *kw["ko"]])
+                    if w not in code_ko and w.casefold() not in claimed]
+        en_words = [w for w in dict.fromkeys([part["name"]["en"].lower(), *kw["en"]])
+                    if not any(rx.fullmatch(w.lower()) for rx in code_en) and w.casefold() not in claimed]
+        positions = [text.find(w) for w in ko_words if w in text]
+        if (rx := _en_words_rx(en_words)) is not None and (hit := rx.search(low)):
+            positions.append(hit.start())
+        if positions and parsed[0] not in found:
+            desc = part["description"]["en" if en else "ko"].split(". ")[0].rstrip(".")
+            found[parsed[0]] = (min(positions), {"name_ko": part["name"]["en" if en else "ko"], "purpose_ko": desc})
+    return list(found.values())
 
 
 def _library_hits(text: str, low: str, lw: _LibraryWords) -> list[tuple[int, int, str]]:
@@ -1665,7 +1698,7 @@ class MockInterpreter:
         # 빼는 말은 그 절에만: '물병 빼고 터널 달아줘' 는 물병을 빼고 나머지 절(터널 달기)은 보통 수정으로 읽는다
         remove_text, keep_text = _split_remove(text) if removing else (text, "")
         # 카탈로그에 없는 부품 (빼는 절의 말은 요청이 아니다)
-        missing = _find_missing(keep_text if removing else text, en, lib.claimed)
+        missing = _find_missing(keep_text if removing else text, en, lib.claimed, None if aquarium else allowed)
         remove_keys = [k for k in _find_templates(_strip_locatives(remove_text), aquarium=aquarium, lib=lib)
                        if k in registry] if removing else []
         if remove_keys and keep_text.strip():
