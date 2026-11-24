@@ -270,6 +270,6 @@ def test_light_requests_do_not_load_the_geometry_kernel_or_llm_sdk():
 
 def test_template_key_map_matches_registry():
     from app.templates.keys import TEMPLATE_MODULES
-    from app.templates.registry import all_templates
+    from app.templates.registry import primitives
 
-    assert TEMPLATE_MODULES == {t.key: type(t).__module__ for t in all_templates()}
+    assert TEMPLATE_MODULES == {k: type(t).__module__ for k, t in primitives().items()}

@@ -2,7 +2,7 @@
 // 파라미터 이름은 한국어 원문으로 두고, 보여 줄 때 t(PARAM_LABELS[k]) 로 번역한다
 
 import type { TFunction } from "@/i18n/translate";
-import type { Decor } from "@/lib/types";
+import type { AssemblyJoin, Decor } from "@/lib/types";
 
 export const TEMPLATE_COLORS: Record<string, string> = {
   hideout: "#d9a066",
@@ -11,7 +11,24 @@ export const TEMPLATE_COLORS: Record<string, string> = {
   sand_bath: "#e6cf8f",
   house: "#c97f6b",
   cave: "#c98a6a", // 물속 동굴 (어항): 물 색(파랑)과 구별되는 테라코타
+  bowl_holder: "#d6b48a",
+  bottle_stand: "#8fb3c9",
 };
+
+/** 구조물 색: 템플릿 색. 조립 항목은 기준 부품(첫 부품)의 템플릿 색 */
+export function itemColor(it: { template: string; assembly?: { parts: { template: string }[] } | null }): string {
+  return templateColor(it.assembly?.parts[0]?.template ?? it.template);
+}
+
+/** 템플릿 색 (조립 항목의 부품 점 색) */
+export function templateColor(template: string): string {
+  return TEMPLATE_COLORS[template] ?? "#c8a27a";
+}
+
+/** 파라미터 이름: PARAM_LABELS 를 번역 (없으면 key 그대로) */
+export function paramLabel(key: string, t: TFunction): string {
+  return PARAM_LABELS[key] ? t(PARAM_LABELS[key]) : key;
+}
 
 export const PARAM_LABELS: Record<string, string> = {
   width_mm: "가로",
@@ -34,6 +51,18 @@ export const PARAM_LABELS: Record<string, string> = {
   // 집(house)의 roof.pitch_deg "지붕 경사"(Roof pitch)와 다른 낱말: 번역 사전은 한국어 원문이 열쇠라 같으면 영어도 하나뿐이다
   roof_slope_deg: "지붕 기울기",
   shape: "단면 모양",
+  // 그릇 받침·물병 거치대
+  bowl_diameter_mm: "그릇 지름",
+  bowl_height_mm: "그릇 높이",
+  clearance_mm: "끼움 여유",
+  collar_height_mm: "테두리 높이",
+  bottle_diameter_mm: "물병 지름",
+  cap_diameter_mm: "뚜껑 지름",
+  spout_height_mm: "물꼭지 높이",
+  spout_drop_mm: "꼭지 길이",
+  holder_height_mm: "컵 높이",
+  base_width_mm: "받침판 가로",
+  base_depth_mm: "받침판 세로",
   path: "휘는 모양",
   // 집(house) 템플릿: 중첩 파라미터는 점 표기 키로 보여 준다
   "walls.thickness_mm": "벽 두께",
@@ -132,6 +161,39 @@ export function formatParam(key: string, value: ParamValue, t: TFunction): strin
   if (key === "floors.count") return t("{n}층", { n: v });
   if (key.endsWith("_count") || key.endsWith(".count")) return t("{n}개", { n: v });
   return v;
+}
+
+// 조립 항목의 결합 한 줄: "그릇 받침 → 은신처 오른쪽 · 슬라이드 끼움", "은신처 2 → 터널 끝 · 끼움 턱"
+// 면은 기준 부품(첫 부품)에서 본 면이다 (free_end 는 터널의 끝)
+const JOIN_AT_LABELS: Record<AssemblyJoin["at"], string> = {
+  front: "{to} 앞",
+  back: "{to} 뒤",
+  left: "{to} 왼쪽",
+  right: "{to} 오른쪽",
+  free_end: "{to} 끝",
+};
+const MOUNT_LABELS: Record<AssemblyJoin["mount"], string> = { slide: "슬라이드 끼움", plug: "끼움 턱" };
+
+/** 결합 한 줄. names: 부품 id → 화면 이름 */
+export function describeJoin(join: AssemblyJoin, names: Record<string, string>, t: TFunction): string {
+  const to = names[join.to] ?? join.to;
+  return t("{part} → {where} · {mount}", {
+    part: names[join.part] ?? join.part,
+    where: t(JOIN_AT_LABELS[join.at] ?? "{to}", { to }),
+    mount: t(MOUNT_LABELS[join.mount] ?? join.mount),
+  });
+}
+
+/** 부품 옆에 붙이는 조립 안내의 짧은 이름 (나머지 안내는 서버 문구만 보인다) */
+const PART_NOTICE_TAGS: Record<string, string> = {
+  join_relocated: "면을 옮김",
+  port_opened: "출입구를 냄",
+  tunnel_inserted: "터널을 넣음",
+};
+
+export function partNoticeTag(code: string, t: TFunction): string | null {
+  const tag = PART_NOTICE_TAGS[code];
+  return tag ? t(tag) : null;
 }
 
 const PATTERN_LABELS: Record<string, string> = {

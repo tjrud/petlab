@@ -16,7 +16,7 @@ from app.services.engine import EngineContext, ItemSpec, build_item, revalidate,
 from app.templates.base import Features
 from app.templates.cave import CaveTemplate
 from app.templates.cave import min_height as cave_min_height
-from app.templates.registry import get_template
+from app.templates.registry import get_template, primitives
 from app.templates.tunnel import TunnelTemplate
 from app.validation import checks
 from tests.helpers import box_item
@@ -57,7 +57,9 @@ def test_engine_context_exposes_habitat_templates_and_buoyancy(rules):
     a, h = actx(rules), hctx(rules)
     assert a.habitat == "aquarium" and h.habitat == "cage"
     assert a.allowed_templates == ("cave", "tunnel")
-    assert h.allowed_templates == ("hideout", "tunnel", "ramp", "sand_bath", "house")
+    # 종별 기본 부품만 (고정 조립 세트는 없다: 조립 항목은 부품마다 이 목록으로 확인한다)
+    assert h.allowed_templates[:5] == ("hideout", "tunnel", "ramp", "sand_bath", "house")
+    assert set(h.allowed_templates) <= set(primitives()) and "hideout" not in a.allowed_templates
     assert a.buoyancy is not None and a.buoyancy.material_density_g_cm3 == pytest.approx(1.24)
     assert h.buoyancy is None
 

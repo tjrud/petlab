@@ -22,7 +22,7 @@ Count = Annotated[int, Field(ge=1)]
 
 Habitat = Literal["cage", "aquarium"]
 # 사육 환경별로 만들 수 있는 구조물. 종이 templates 를 적지 않으면 케이지 기본값을 쓴다
-CAGE_TEMPLATES: tuple[str, ...] = ("hideout", "tunnel", "ramp", "sand_bath", "house")
+CAGE_TEMPLATES: tuple[str, ...] = ("hideout", "tunnel", "ramp", "sand_bath", "house", "bowl_holder", "bottle_stand")
 # 어항: 바닥이 열린 상자형 은신처는 물속에서 지붕 아래 공기가 갇혀 뜨고, 램프·모래목욕통은 어항에 맞지 않는다.
 # 조립형 집(house)도 케이지 전용: 평 지붕·뚜껑·2층 바닥판 아래에 공기가 갇히고 따로 끼우는 파트가 물속에서 뜨거나 빠진다
 AQUARIUM_TEMPLATES: tuple[str, ...] = ("cave", "tunnel")
@@ -349,7 +349,9 @@ class RuleBook(BaseModel):
         return self.species_entry(species).habitat
 
     def allowed_templates(self, species: str) -> tuple[str, ...]:
-        """이 종에 만들 수 있는 템플릿 키 (templates 를 적지 않은 케이지 종은 케이지 기본값)."""
+        """이 종에 만들 수 있는 템플릿 키 (templates 를 적지 않은 케이지 종은 케이지 기본값).
+
+        자유 조립 항목("assembly")은 여기 넣지 않는다: 엔진이 조립 항목의 부품마다 이 목록으로 확인한다."""
         return self.species_entry(species).allowed_templates
 
     def buoyancy(self, species: str) -> BuoyancyRules | None:

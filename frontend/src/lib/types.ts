@@ -180,12 +180,37 @@ export type TextDecor = {
 };
 export type Decor = PatternDecor | TextDecor;
 
-export type Item = {
+/** 조립 항목의 부품 (backend/app/modules/structure.py DisplayPart) */
+export type AssemblyPart = {
+  /** 부품 id (항목 안에서 하나뿐, 예: "hide", "bowl") */
+  id: string;
+  template: string;
+  /** 화면 이름. 같은 템플릿이 여러 번 나오면 둘째부터 번호가 붙는다 ("은신처 2") */
+  name_ko: string;
+};
+
+/** 조립 항목의 면: 기준 부품(첫 부품)에서 본 옆면, 또는 터널의 끝 */
+export type AssemblySide = "front" | "back" | "left" | "right" | "free_end";
+
+/** 조립 항목의 결합 한 줄: part 를 to 의 at 면에 붙였다 (backend DisplayJoin) */
+export type AssemblyJoin = {
+  part: string;
+  to: string;
+  at: AssemblySide;
+  /** slide: 도브테일로 밀어 끼운다. plug: 통로 쪽 부품을 끼움 턱으로 끼운다 */
+  mount: "slide" | "plug";
+  /** 통로 결합이면 어느 쪽 벽을 뚫는지 (통로가 아니면 false) */
+  passage: false | "into_parent" | "into_child";
+};
+
+/** 조립 항목 구조 (backend AssemblyDisplay, ItemOut.assembly) */
+export type AssemblyDisplay = { parts: AssemblyPart[]; joins: AssemblyJoin[] };
+
+type ItemBase = {
   index: number;
+  /** 조립 항목은 "assembly" */
   template: string;
   label_ko: string;
-  /** 집(house) 템플릿은 부품별로 중첩된 값, 면 목록(string[]), 참/거짓도 들어 있다 */
-  params: Record<string, ParamValue>;
   reason_ko: string;
   placement: Placement | null;
   size_mm: number[];
@@ -197,6 +222,17 @@ export type Item = {
   /** 장식 (무늬·글귀 각인). 없으면 null. 줄이거나 뺀 경우는 검증 이슈(decor_reduced·decor_skipped)로 온다 */
   decor?: Decor | null;
 };
+
+/** 템플릿 하나로 된 구조물. 집(house) 템플릿은 부품별로 중첩된 값, 면 목록(string[]), 참/거짓도 들어 있다 */
+export type SingleItem = ItemBase & { assembly?: null; params: Record<string, ParamValue> };
+
+/** 부품 여러 개를 이은 조립 항목. params 는 부품 id → 그 부품의 파라미터 */
+export type AssemblyItem = ItemBase & {
+  assembly: AssemblyDisplay;
+  params: Record<string, Record<string, ParamValue>>;
+};
+
+export type Item = SingleItem | AssemblyItem;
 
 export type Severity = "error" | "warning" | "info";
 

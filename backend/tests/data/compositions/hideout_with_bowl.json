@@ -1,0 +1,84 @@
+{
+  "key": "hideout_with_bowl",
+  "library": {
+    "key": "hideout_with_bowl",
+    "ids": {},
+    "joins": [
+      {
+        "parent": "hide.right",
+        "child": "bowl.back",
+        "mount": "slide",
+        "passage": false
+      }
+    ]
+  },
+  "prompt_ko": "밥그릇 받침 달린 은신처",
+  "spec": {
+    "summary_ko": "은신처 오른쪽 옆면에 밥그릇 받침을 끼웠습니다.",
+    "items": [
+      {
+        "template": "assembly",
+        "name_ko": "밥그릇 받침이 달린 은신처",
+        "parts": [
+          {
+            "id": "hide",
+            "template": "hideout",
+            "params": {
+              "width_mm": 140.0,
+              "depth_mm": 120.0,
+              "height_mm": 95.0,
+              "entrance_diameter_mm": 60.0,
+              "entrance_count": 1,
+              "vent_count": 6,
+              "vent_diameter_mm": 4.0,
+              "wall_thickness_mm": 3.0
+            }
+          },
+          {
+            "id": "bowl",
+            "template": "bowl_holder",
+            "params": {
+              "bowl_diameter_mm": 90.0,
+              "bowl_height_mm": 40.0,
+              "clearance_mm": 1.0,
+              "wall_thickness_mm": 3.0,
+              "collar_height_mm": 35.0
+            }
+          }
+        ],
+        "connections": [
+          {
+            "part": "bowl",
+            "to": "hide",
+            "at": "auto"
+          }
+        ],
+        "placement": {
+          "zone": "auto",
+          "group": null,
+          "rotation": null,
+          "attach_to": null
+        },
+        "reason_ko": "받침은 출입구가 없는 옆면에 끼웠습니다."
+      }
+    ],
+    "notes_ko": [],
+    "missing_parts": []
+  },
+  "expected": {
+    "joins": [
+      {
+        "parent": "hide.right",
+        "child": "bowl.back",
+        "mount": "slide",
+        "passage": false,
+        "shift": 0.0
+      }
+    ],
+    "ties": [],
+    "fixed": {},
+    "faces": {
+      "bowl": "right"
+    }
+  }
+}

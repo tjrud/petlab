@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import shapely
@@ -15,6 +15,9 @@ from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
 from app.templates.base import Features, Side, Template, TemplateParams
+
+if TYPE_CHECKING:
+    from app.modules.structure import ResolvedAssembly
 
 Zone = Literal[
     "auto", "left", "right", "front", "back", "center",
@@ -142,6 +145,8 @@ class BuiltPart:
     name_ko: str
     mesh: trimesh.Trimesh  # 파트 형상 (검사용. 자세는 상관없다)
     print_mesh: trimesh.Trimesh  # 출력 자세 (베드 Z=0)
+    # 일부러 얇게 만든 결합 모양(끼움 턱·도브테일 혀)의 메시, mesh 와 같은 좌표. 두께 실측에서 이 근처 샘플을 뺀다
+    thin_ok_mesh: trimesh.Trimesh | None = None
 
 
 @dataclass
@@ -163,6 +168,11 @@ class BuiltItem:
     # 장식 명세(JSON)와 장식을 얹으며 난 경고 (줄임·뺌). 형상에는 이미 반영되어 있다
     decor: dict | None = None
     decor_issues: list = field(default_factory=list)
+
+    @property
+    def assembly(self) -> ResolvedAssembly | None:
+        """자유 조립 항목이면 그 저장 구조(ResolvedAssembly: 부품·결합), 아니면 None (조립 항목 템플릿이 가진 구조)."""
+        return getattr(self.template, "resolved", None)
 
     @property
     def print_parts(self) -> list[BuiltPart]:

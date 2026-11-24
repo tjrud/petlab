@@ -1,0 +1,95 @@
+{
+  "key": "hideout_with_tunnel",
+  "library": {
+    "key": "hideout_with_tunnel",
+    "ids": {
+      "house": "hide"
+    },
+    "joins": [
+      {
+        "parent": "house.front",
+        "child": "tube.end_b",
+        "mount": "fused",
+        "passage": true
+      }
+    ]
+  },
+  "prompt_ko": "은신처 앞에 터널을 이어줘",
+  "spec": {
+    "summary_ko": "은신처 앞 출입구에 터널을 끼워 이었습니다.",
+    "items": [
+      {
+        "template": "assembly",
+        "name_ko": "터널이 이어진 은신처",
+        "parts": [
+          {
+            "id": "hide",
+            "template": "hideout",
+            "params": {
+              "width_mm": 140.0,
+              "depth_mm": 110.0,
+              "height_mm": 95.0,
+              "entrance_diameter_mm": 60.0,
+              "entrance_count": 2,
+              "vent_count": 6,
+              "vent_diameter_mm": 4.0,
+              "wall_thickness_mm": 3.0
+            }
+          },
+          {
+            "id": "tube",
+            "template": "tunnel",
+            "params": {
+              "length_mm": 120.0,
+              "inner_diameter_mm": 60.0,
+              "bend_angle_deg": 0.0,
+              "wall_thickness_mm": 3.0,
+              "shape": "pointed_arch",
+              "path": "arc"
+            }
+          }
+        ],
+        "connections": [
+          {
+            "part": "tube",
+            "to": "hide",
+            "at": "front"
+          }
+        ],
+        "placement": {
+          "zone": "auto",
+          "group": null,
+          "rotation": null,
+          "attach_to": null
+        },
+        "reason_ko": "터널은 은신처 앞 출입구에 끼우고, 뒤에도 출입구를 두었습니다."
+      }
+    ],
+    "notes_ko": [],
+    "missing_parts": []
+  },
+  "expected": {
+    "joins": [
+      {
+        "parent": "hide.front",
+        "child": "tube.end_b",
+        "mount": "plug",
+        "passage": "into_parent",
+        "shift": 0.0
+      }
+    ],
+    "ties": [
+      {
+        "follower": "tube.inner_diameter_mm",
+        "owner": "hide.entrance_diameter_mm"
+      }
+    ],
+    "fixed": {
+      "tube.shape": "round_arch",
+      "hide.entrance_count": 2
+    },
+    "faces": {
+      "tube": "front"
+    }
+  }
+}

@@ -12,6 +12,8 @@ from build123d import Align, Box, Part, Pos
 from pydantic import Field
 
 from app.templates.base import (
+    Anchor,
+    FaceFields,
     Features,
     Opening,
     ParamConstraint,
@@ -49,6 +51,8 @@ class SandBathTemplate(Template):
     Params = SandBathParams
     height_field = None
     size_fields = ("width_mm", "depth_mm")
+    # 연결 표준: 옆면에 받침·램프를 다는 기준 구조물 (통로가 없어 터널로 잇지 않고, 다른 부품에 붙지도 않는다)
+    role = "host"
 
     def default_params(self, ctx: RuleContext | None = None) -> SandBathParams:
         if ctx is None:
@@ -109,6 +113,48 @@ class SandBathTemplate(Template):
                 entry_width(p), t + 2 * _CUT, notch_h + _CUT, align=_BOTTOM
             )
         return part
+
+    def anchors(self, p: SandBathParams) -> dict[str, Anchor]:
+        """옆면 네 개(바닥 높이, 면 가운데)와 밑면. 위는 열려 있어 얹는 자리(top)가 없다.
+
+        앞면(front)의 출입 홈은 위가 트인 턱이라 통로(port)로 두지 않는다: 통로 연결(passage)은 벽을 바닥부터 뚫는데,
+        그러면 모래가 쏟아지고 턱의 의미가 없어진다. 같은 이유로 어느 벽도 뚫을 수 없다(wall_mm 없음).
+        앞면은 출입 면이라 side="front": 여기에 램프·계단을 붙이면(턱까지 오르는 발판) 출입 면이 그 부품으로 넘어간다.
+        앞면을 출입구 없는 벽으로 막으면 들어갈 수 없게 되므로 모듈에서 그렇게 잇지 않는다.
+
+        슬라이드 결합 연결판 자리(mount): 뒤·왼쪽·오른쪽은 면 전체 (가로 전체 × 벽 높이 = 안쪽 깊이 + 바닥 두께).
+        앞면은 가로 전체 × 턱 높이까지: 출입 홈은 턱 높이부터 위가 파여 있어, 연결판(경사 끝 포함)이 턱 높이 아래에서
+        끝나면 홈을 덮지 않는다. 앞면에 턱 높이 램프를 슬라이드로 붙이면 연결판 경사 끝이 턱 윗면 높이에서 벽에 닿는다.
+        """
+        W, D = p.width_mm, p.depth_mm
+        H = p.basin_depth_mm + p.wall_thickness_mm
+        z, up = (0.0, 0.0, 1.0), (0.0, 1.0, 0.0)
+        return {
+            "front": Anchor((0.0, -D / 2, 0.0), (0.0, -1.0, 0.0), z, side="front",
+                            mount=(-W / 2, W / 2, p.lip_height_mm)),
+            "back": Anchor((0.0, D / 2, 0.0), (0.0, 1.0, 0.0), z, mount=(-W / 2, W / 2, H)),
+            "left": Anchor((-W / 2, 0.0, 0.0), (-1.0, 0.0, 0.0), z, mount=(-D / 2, D / 2, H)),
+            "right": Anchor((W / 2, 0.0, 0.0), (1.0, 0.0, 0.0), z, mount=(-D / 2, D / 2, H)),
+            "bottom": Anchor((0.0, 0.0, 0.0), (0.0, 0.0, -1.0), up),
+        }
+
+    # ── 연결 표준 (자유 조립) ──
+
+    def face_fields(self, p: SandBathParams, anchor: str) -> FaceFields:
+        """옆면 가로는 왼쪽·오른쪽 = 세로(depth), 앞·뒤 = 가로(width). 앞면 연결판 높이 = 턱 높이 (램프 꼭대기가
+        여기에 맞춰진다). 나머지 면의 높이(안쪽 깊이 + 바닥)는 모래가 흩어지지 않는 깊이라 면 높이로 바꾸지 않는다.
+        어느 벽도 뚫지 않으므로 벽·통로는 없다."""
+        if anchor in ("left", "right"):
+            return FaceFields(width="depth_mm")
+        if anchor == "back":
+            return FaceFields(width="width_mm")
+        if anchor == "front":
+            return FaceFields(width="width_mm", height="lip_height_mm")
+        return FaceFields()
+
+    def envelope(self, p: SandBathParams) -> tuple[float, float, float]:
+        # 출입 홈은 앞면 가운데를 위에서 파내므로 바깥 상자의 모서리는 그대로다
+        return (p.width_mm, p.depth_mm, p.basin_depth_mm + p.wall_thickness_mm)
 
     def features(self, p: SandBathParams) -> Features:
         return Features(

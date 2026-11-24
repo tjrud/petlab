@@ -25,6 +25,7 @@ HANGUL = re.compile(r"[가-힣]")
 # 사용자에게 보이지 않는 문구가 있는 파일
 SKIP_FILES = {"app/llm/prompts.py", "app/i18n/extract.py", "app/i18n/__init__.py"}
 LOG_FUNCS = {"debug", "info", "warning", "error", "exception", "critical"}
+LOGGER_NAMES = {"log", "logger", "logging", "_log"}
 # 홀로는 번역할 수 없는 조각 (조사 등). 문장 틀 쪽에서 번역한다
 IGNORE = {"이", "가"}
 
@@ -44,6 +45,11 @@ def _template(node: ast.AST) -> str | None:
     return None
 
 
+def _is_logger(node: ast.AST) -> bool:
+    """log.info(…) 처럼 로거에 부른 것인지 (조립 해석기의 st.info(…) 같은 안내 문구는 사용자에게 보인다)."""
+    return isinstance(node, ast.Name) and node.id in LOGGER_NAMES
+
+
 def _skip_parents(tree: ast.AST) -> set[int]:
     """문서 문자열·로그 호출·detail= 인자 안의 노드 id."""
     skip: set[int] = set()
@@ -54,7 +60,7 @@ def _skip_parents(tree: ast.AST) -> set[int]:
                 skip.add(id(body[0].value))
         if isinstance(node, ast.Call):
             f = node.func
-            if isinstance(f, ast.Attribute) and f.attr in LOG_FUNCS:
+            if isinstance(f, ast.Attribute) and f.attr in LOG_FUNCS and _is_logger(f.value):
                 for sub in ast.walk(node):
                     skip.add(id(sub))
             for kw in node.keywords:
@@ -105,9 +111,37 @@ def rule_strings() -> dict[str, list[str]]:
     return found
 
 
+def desc_strings() -> dict[str, list[str]]:
+    """자동 보정 문구가 쓰는 파라미터 이름 (autofix._desc: 필드 설명의 첫 문장, 단위 뺌). 템플릿의 모든 필드."""
+    from pydantic import BaseModel
+
+    from app.templates.registry import all_templates
+    from app.validation.autofix import _desc
+
+    def fields(cls: type[BaseModel], prefix: str = "") -> list[str]:
+        out: list[str] = []
+        for name, f in cls.model_fields.items():
+            a = f.annotation
+            if isinstance(a, type) and issubclass(a, BaseModel):
+                out += fields(a, f"{prefix}{name}.")
+            else:
+                out.append(prefix + name)
+        return out
+
+    found: dict[str, list[str]] = {}
+    for t in all_templates():
+        if t.key == "assembly":
+            continue
+        for name in fields(t.Params):
+            d = _desc(t.Params, name)
+            if HANGUL.search(d):
+                found.setdefault(d, []).append(f"{t.key}.{name}")
+    return found
+
+
 def all_strings() -> dict[str, list[str]]:
     out = code_strings()
-    for k, v in rule_strings().items():
+    for k, v in [*rule_strings().items(), *desc_strings().items()]:
         out.setdefault(k, []).extend(v)
     return out
 

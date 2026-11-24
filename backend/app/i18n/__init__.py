@@ -51,6 +51,9 @@ def parse_lang(header: str | None, cookie: str | None) -> Lang:
     return DEFAULT_LANG
 
 
+# 이름 뒤에 붙는 조사 (받침에 따라 고른 것과 받침을 모를 때 둘 다 적은 것). 긴 것부터 뗀다
+_PARTICLES = ("이(가)", "을(를)", "은(는)", "와(과)", "과(와)", "으로", "이", "가", "을", "를", "은", "는", "과", "와", "로")
+
 # 이보다 긴 문구는 틀에 맞춰 보지 않는다 (LLM 이 쓴 설명 같은 자유 글: 틀에 맞을 일이 없고, 길면 정규식이 느리다)
 MAX_TEMPLATE_INPUT = 600
 
@@ -68,12 +71,15 @@ class _Template:
         self.ends_with_literal = bool(self.parts[-1])
 
     def anchor(self, s: str) -> int | None:
-        """글 조각이 차례대로 다 들어 있으면 첫 글 조각의 위치 (없으면 None). 정규식보다 훨씬 싸게 걸러낸다."""
+        """글 조각이 차례대로 다 들어 있으면 첫 글 조각의 위치 (없으면 None). 정규식보다 훨씬 싸게 걸러낸다.
+
+        빈칸뿐인 글 조각("{0} {1} 대신 …" 의 첫 빈칸)은 위치로 치지 않는다: 바깥 문장("{0}: {1}")의 자리표시에 든
+        빈칸에서도 맞아 바깥 틀보다 앞서기 때문이다 (빈칸뿐인 틀은 첫 빈칸 위치)."""
         if self.starts_with_literal and not s.startswith(self.parts[0]):
             return None
         if self.ends_with_literal and not s.endswith(self.parts[-1]):
             return None
-        pos, first = 0, None
+        pos, first, solid = 0, None, None
         for lit in self.literals:
             if not lit:
                 continue
@@ -82,7 +88,11 @@ class _Template:
                 return None
             if first is None:
                 first = i
+            if solid is None and lit.strip():
+                solid = i
             pos = i + len(lit)
+        if solid is not None:
+            return solid
         return first if first is not None else 0
 
 
@@ -96,6 +106,21 @@ def _compile(parts: list[str], greedy: tuple[int, ...]) -> re.Pattern[str]:
             n += 1
             pattern += f"(?P<p{part}_{n}>.+{'' if n in greedy else '?'})"
     return re.compile(pattern, re.DOTALL)
+
+
+# 자리표시가 품으면 그 틀을 뒤로 미루는 구분 말 (틀의 글 조각에 없을 때). " · " 는 조립 항목 보정 문구의 "부품 · 파라미터"
+_SEPARATORS = (": ", ", ", " · ")
+
+
+def _spans_separator(t: _Template, m: re.Match[str]) -> bool:
+    """틀의 글 조각에 없는 구분 말(': '·', ')을 자리표시가 품는지. "{0}이(가) 달린 {1}" 의 {1} 이 "은신처 #1: 안내 …" 를
+    잡거나, "{0} → {1} 왼쪽" 의 {1} 이 "A 오른쪽, B → C" 처럼 목록을 넘어 잡은 경우다. 이런 맞춤은 다른 틀과 목록 나누기보다
+    뒤로 미룬다 (조립 항목 이름 틀이 안내 문구를 삼키지 않게, 연결 목록을 하나씩 바꾸게)."""
+    lits = "".join(t.literals)
+    seps = [sep for sep in _SEPARATORS if sep not in lits and sep.strip() not in lits]
+    if not seps:
+        return False
+    return any(v is not None and any(sep in v for sep in seps) for v in m.groupdict().values())
 
 
 class Catalog:
@@ -139,6 +164,9 @@ class Catalog:
         stripped = s.strip()
         if stripped != s and stripped in self.exact:
             return s.replace(stripped, self.exact[stripped])
+        bare = self._without_particle(s, depth)
+        if bare is not None:
+            return bare
         if len(s) <= MAX_TEMPLATE_INPUT:
             cands = []
             for t in self.templates:
@@ -146,19 +174,50 @@ class Catalog:
                 if a is not None:
                     cands.append((a, -t.literal_len, t))
             cands.sort(key=lambda c: (c[0], c[1]))
+            fallback: tuple[_Template, re.Match[str]] | None = None
             for _, _, t in cands:
                 m = t.rx.fullmatch(s)
                 if m is None:
                     continue
+                if _spans_separator(t, m):
+                    fallback = fallback or (t, m)
+                    continue
                 return self._best_split(t, s, self._fill(m, t.en, depth), depth)
-        # "A, B" 처럼 이어 붙인 목록
-        for sep in (", ", " · ", "\n"):
+            if fallback is not None:
+                listed = self._split_list(s, depth)
+                if listed is not None and not HANGUL.search(listed):
+                    return listed
+                t, m = fallback
+                return self._best_split(t, s, self._fill(m, t.en, depth), depth)
+        listed = self._split_list(s, depth)
+        return listed if listed is not None else s
+
+    def _split_list(self, s: str, depth: int) -> str | None:
+        """"A, B" 처럼 이어 붙인 목록. 붙여 쓴 가운뎃점("그릇 받침·물병 거치대")은 영어에서 쉼표로. 바뀐 게 없으면 None."""
+        first: str | None = None
+        for sep, joiner in ((", ", ", "), (" · ", " · "), ("\n", "\n"), ("·", ", ")):
             if sep in s:
                 parts = s.split(sep)
+                if sep == "·" and any(not p or p != p.strip() for p in parts):
+                    continue  # 낱말끼리 붙여 쓴 가운뎃점만 (" · " 를 잘못 끊은 조각이 아니게)
                 out = [self._translate(p, depth + 1) for p in parts]
                 if out != parts:
-                    return sep.join(out)
-        return s
+                    joined = joiner.join(out)
+                    if not HANGUL.search(joined):
+                        return joined  # 다 바뀐 나누기를 먼저 ("집 · 외형 높이(Z), 지붕 포함" 은 " · " 로)
+                    first = first or joined
+        return first
+
+    def _without_particle(self, s: str, depth: int) -> str | None:
+        """조사를 붙여 문장에 넣은 이름("그릇 받침을", "터널과", "은신처 2이(가)"): 조사를 뗀 이름이 영어로 다 바뀌면
+        그 영어 (영어 문장 틀에는 조사 자리가 없다). 다 바뀌지 않으면 None (한국어 문구를 자르지 않는다)."""
+        for suffix in _PARTICLES:
+            if len(s) > len(suffix) and s.endswith(suffix):
+                stem = s[: -len(suffix)]
+                out = self._translate(stem, depth + 1)
+                if out != stem and not HANGUL.search(out):
+                    return out
+        return None
 
     def _best_split(self, t: _Template, s: str, best: str, depth: int) -> str:
         """자리표시 둘이 빈칸 하나로만 나뉘면("{1} {2}") 어디서 끊을지 모호하다: 한국어가 남으면 다른 끊기도 해 본다."""
@@ -212,6 +271,9 @@ def _should(key: str | None) -> bool:
 def translate_json(data: object, cat: Catalog | None = None, key: str | None = None) -> object:
     cat = cat or catalog()
     if isinstance(data, dict):
+        if _should(key):
+            # "…_ko" 열쇠 아래의 사전(파라미터 이름 등)은 값을 바꾼다 (안쪽 열쇠는 이름이라 그대로)
+            return {k: cat.translate(v) if isinstance(v, str) else translate_json(v, cat, k) for k, v in data.items()}
         return {k: translate_json(v, cat, k) for k, v in data.items()}
     if isinstance(data, list):
         return [translate_json(v, cat, key) for v in data]

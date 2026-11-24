@@ -17,9 +17,63 @@ from pydantic_core import PydanticUndefined
 
 from app.i18n import catalog
 from app.llm.base import InterpretRequest
-from app.templates.base import RuleContext
+from app.llm.spec import ASSEMBLY_KEY, assembly_enabled, composable_keys
+from app.modules.structure import MAX_PARTS
+from app.templates.base import RuleContext, Template
 from app.templates.cave import PRINT_MIN_ROOF_SLOPE_DEG, CaveTemplate
-from app.templates.registry import all_templates
+from app.templates.registry import all_templates, primitives
+
+# 조립 항목 예시 두 개 (시스템 프롬프트에 그대로 넣는다: 고정 문자열이라 캐시된다). 값은 작은 햄스터(드워프) 기준이지만
+# 시스템 프롬프트는 종과 상관없어야 하므로 종 이름은 적지 않는다.
+# tests/test_llm.py 가 두 예시가 지금 계약(parse_spec)을 통과하는지 확인한다
+_PLACEMENT = {"zone": "auto", "group": None, "rotation": None, "attach_to": None}
+_HIDE = {"width_mm": 140, "depth_mm": 120, "height_mm": 95, "entrance_diameter_mm": 60, "entrance_count": 1,
+         "vent_count": 6, "vent_diameter_mm": 4, "wall_thickness_mm": 3}
+FEW_SHOTS: tuple[tuple[str, dict], ...] = (
+    ("은신처 오른쪽에 밥그릇 받침, 왼쪽에 물병 거치대를 달아 주세요", {
+        "template": ASSEMBLY_KEY,
+        "name_ko": "밥그릇과 물병이 달린 은신처",
+        "parts": [
+            {"id": "hide", "template": "hideout", "params": _HIDE},
+            {"id": "bowl", "template": "bowl_holder",
+             "params": {"bowl_diameter_mm": 90, "bowl_height_mm": 40, "clearance_mm": 1.0, "wall_thickness_mm": 3,
+                        "collar_height_mm": 35}},
+            {"id": "bottle", "template": "bottle_stand",
+             "params": {"bottle_diameter_mm": 60, "cap_diameter_mm": 40, "spout_height_mm": 55, "spout_drop_mm": 60,
+                        "holder_height_mm": 70, "base_width_mm": 110, "base_depth_mm": 110, "wall_thickness_mm": 3,
+                        "clearance_mm": 1.0}},
+        ],
+        "connections": [
+            {"part": "bowl", "to": "hide", "at": "right"},
+            {"part": "bottle", "to": "hide", "at": "left"},
+        ],
+        "placement": _PLACEMENT,
+        "reason_ko": "그릇 받침과 물병 거치대를 출입구가 없는 양옆에 붙였습니다.",
+    }),
+    ("은신처 두 개를 터널로 이어 주세요", {
+        "template": ASSEMBLY_KEY,
+        "name_ko": "터널로 이은 쌍둥이 은신처",
+        "parts": [
+            {"id": "hide", "template": "hideout", "params": {**_HIDE, "depth_mm": 110, "entrance_count": 2}},
+            {"id": "tube", "template": "tunnel",
+             "params": {"length_mm": 100, "inner_diameter_mm": 60, "bend_angle_deg": 0, "wall_thickness_mm": 3,
+                        "shape": "round_arch", "path": "arc"}},
+            {"id": "hide2", "template": "hideout", "params": {**_HIDE, "depth_mm": 110, "entrance_count": 2}},
+        ],
+        "connections": [
+            {"part": "tube", "to": "hide", "at": "front"},
+            {"part": "hide2", "to": "tube", "at": "free_end"},
+        ],
+        "placement": _PLACEMENT,
+        "reason_ko": "같은 크기의 은신처 두 개를 앞 출입구끼리 곧은 터널로 이었습니다.",
+    }),
+)
+
+
+def _few_shot_text() -> str:
+    return "\n".join(f"예시 {i}. \"{prompt}\" → items 의 항목 하나:\n{json.dumps(item, ensure_ascii=False)}"
+                     for i, (prompt, item) in enumerate(FEW_SHOTS, 1))
+
 
 SYSTEM_PROMPT = """\
 당신은 'NestForge'의 반려동물 사육장 구조물 설계 도우미입니다. 사육장은 소형 반려동물 케이지이거나 관상어·새우를 키우는 어항(수조)입니다.
@@ -35,15 +89,17 @@ SYSTEM_PROMPT = """\
 - 단위는 모두 mm 입니다. 각 파라미터의 허용 범위를 벗어나지 마세요.
 - 종별 기준을 지키세요. 출입구·통로는 최소 크기 이상, 환기구 같은 작은 구멍은 끼임 안전 크기 이하, 벽 두께는 최소값 이상이어야 합니다.
 - 사육장(케이지·어항) 내부 치수 안에 모든 구조물이 들어가야 합니다. 바닥 면적의 절반 이상은 비워 두는 것이 좋습니다. 높이는 케이지 높이(어항은 물 깊이)보다 충분히 낮아야 합니다.
-- 보호자가 "한쪽에 몰아서", "붙여서"처럼 말하면 해당 항목들에 같은 group 과 같은 zone 을 주세요.
+- 보호자가 "한쪽에 몰아서", "모아서"처럼 따로 놓을 구조물을 가까이 두라고 말하면 해당 항목들에 같은 group 과 같은 zone 을
+  주세요 (서로 끼워 붙이거나 터널로 잇는 요청은 아래 '조립'을 따릅니다).
 - 위치 요청이 없으면 zone 은 "auto", rotation 은 null 로 두세요.
 - 요구사항에 없는 구조물을 임의로 추가하지 마세요. 요청이 모호하면 숨을 곳 1개(케이지는 은신처, 어항은 물속 동굴)처럼 무난한 구성을 고르세요.
 - 지원하지 않거나 이 종에 만들 수 없는 구조물을 요청받으면 notes_ko 에 그 사실을 적고 사용 가능한 템플릿으로만 설계하세요.
 - 터널 단면 모양(shape)·휘는 모양(path)은 보호자가 말한 대로 고르고(둥근, 원통·관, 네모, 집 모양, S자 등), 말이 없으면 기본값을
   두세요. 휜 터널에 round_arch·tube·box 를 고르면 출력할 때 서포트가 필요하므로 notes_ko 에 알려 주세요.
-- 2층·경사 지붕·둥근 지붕·터널 연결·창 요청은 house 템플릿의 부품(floors, roof, ports, windows, doors, floor)으로 표현하세요
+- 2층·경사 지붕·둥근 지붕·창 요청은 house 템플릿의 부품(floors, roof, ports, windows, doors, floor)으로 표현하세요
   (house 가 사용 가능한 템플릿에 있을 때만. 없으면 위의 '만들 수 없는 구조물'처럼 다룹니다).
   단순한 은신처 요청은 hideout 을 그대로 씁니다. house 의 부품 값은 중첩 객체로 모두 채웁니다.
+  집에 터널을 잇는 요청은 아래 '조립'으로 표현합니다 (터널 연결부 ports 는 서버가 냅니다).
 - 2층 집에 바깥 램프를 두려면(floors.climb=external_ramp) ramp 항목을 하나 추가하고, 그 placement.attach_to 에
   {item_index: 집 항목의 인덱스, side: 집의 floors.exit_side} 를 적어 램프 꼭대기가 착지판에 닿게 하세요.
   램프 높이는 집의 2층 바닥 높이(floors.level_height_mm)와 같게 적습니다. 그 밖의 항목은 attach_to 를 null 로 둡니다.
@@ -52,8 +108,24 @@ SYSTEM_PROMPT = """\
   요청이 없으면 decor 는 null 입니다. 항목에 decor 필드가 없으면(장식을 넣을 수 없는 사육 환경) notes_ko 에 그 사실을 적습니다.
 - 설계 수정 요청이면 직전 설계를 바탕으로, 요청된 부분만 바꾼 전체 설계를 다시 출력하세요.
 - summary_ko, reason_ko, notes_ko 는 보호자가 읽기 쉬운 한국어로 씁니다. 단, 사용자 메시지에 "응답 언어" 지시가 있으면
-  그 언어로 씁니다 (필드 이름은 언어와 상관없이 그대로 둡니다).
-"""
+  그 언어로 씁니다 (필드 이름은 언어와 상관없이 그대로 둡니다). 조립 항목의 name_ko 도 같습니다.
+- 사용 가능한 템플릿에 없는 부품(쳇바퀴 등)을 요청받으면 missing_parts 에 {name_ko, purpose_ko} 로 적고 notes_ko 에도
+  한 줄로 알립니다. 없으면 missing_parts 는 빈 배열입니다.
+
+조립 (사용 가능한 템플릿에 '연결' 설명이 있을 때만):
+- 붙이기·달기·잇기 요청은 template "assembly" 항목 하나로 냅니다. parts 에 부품(id 는 짧은 영문 소문자: hide, bowl,
+  tube, hide2 등)을, connections 에 {part, to, at} 를 기준 부품을 뺀 부품마다 한 번씩 적습니다.
+- parts 의 첫 부품이 기준 부품(은신처·집·모래목욕통)입니다. at 의 front·back·left·right 는 기준 부품에서 본 면이고,
+  터널에 잇는 방은 at=free_end, 어느 면이든 괜찮으면 auto 입니다.
+- 결합 방식·통로 뚫기·맞물리는 치수(터널 내경과 단면 = 출입구, 붙이는 면 크기, 램프 높이, 출입구 개수)는 서버가 정하므로
+  연결 관계만 적습니다. 부품마다 params 는 그 템플릿 범위 안에서 평소처럼 모두 채웁니다.
+- 출입구 면에는 터널만 잇고, 그릇 받침·물병 거치대·램프는 옆면에 붙입니다. 받침·거치대·램프에는 다른 부품을 붙이지 않습니다.
+- "하나 더"는 같은 값으로 같은 부품을 하나 더 넣는 것입니다.
+- 따로 놓을 구조물은 지금처럼 개별 항목으로 냅니다 (붙이거나 잇는다는 말이 없으면 개별 항목).
+- 위에 얹기(쌓기)는 아직 안 됩니다. 옆에 붙이거나 터널로 잇고 notes_ko 에 알려 주세요.
+- 한 조립 항목의 부품은 최대 """ + str(MAX_PARTS) + """개입니다.
+조립 예시 (형식을 보이는 예시 값입니다. 실제 값은 사용자 메시지의 종별 기준과 사육 환경 치수에 맞춥니다):
+""" + _few_shot_text() + "\n"
 
 
 def is_aquarium(req: InterpretRequest) -> bool:
@@ -85,11 +157,113 @@ def _field_catalog(model: type[BaseModel]) -> dict:
     return fields
 
 
+_SIDES = ("front", "back", "left", "right")
+
+
+def _join_names(templates: Iterable[Template]) -> str:
+    return "·".join(t.display_name_ko for t in templates)
+
+
+def _obj(word: str) -> str:
+    """목적격 조사를 붙인다 (받침이 있으면 을, 없으면 를)."""
+    last = word[-1:] if word else ""
+    batchim = "가" <= last <= "힣" and (ord(last) - ord("가")) % 28 != 0
+    return f"{word}{'을' if batchim else '를'}"
+
+
+def _face_texts(t: Template, keys: tuple[str, ...]) -> dict[str, str]:
+    """부모로서 면마다 받는 부품 (연결 지점 종류로 만든다: 기본 파라미터의 port·mount·side, open_port)."""
+    prim = primitives()
+    pool = [prim[k] for k in composable_keys(keys)]
+    slide = [c for c in pool if "slide" in c.attach_order]
+    access = [c for c in slide if c.passes_access]
+    tunnels = [c for c in pool if c.role == "connector"]
+    p = t.default_params()
+    anchors = t.anchors(p)
+    access_sides = set(t.features(p).access_sides)
+    out: dict[str, str] = {}
+    for side in _SIDES:
+        a = anchors.get(side)
+        if a is None:
+            continue
+        opened = None
+        if a.port is None and tunnels:
+            q = t.open_port(p, side)
+            b = t.anchors(q).get(side) if q is not None else None
+            opened = b is not None and b.port is not None
+        if a.port is not None:
+            text = f"출입구({_join_names(tunnels)}만)" if tunnels else "출입구"
+        elif a.mount is not None:
+            names = access if side in access_sides else slide
+            text = f"{'출입 면' if side in access_sides else '옆면'}({_join_names(names)})" if names else ""
+            if opened:
+                text = f"{text} 또는 " if text else ""
+                text += f"{_obj(_join_names(tunnels))} 이으면 출입구를 낸다"
+        elif opened:
+            text = f"벽({_obj(_join_names(tunnels))} 이으면 출입구를 낸다)"
+        else:
+            text = ""
+        if text:
+            out[side] = text
+    return out
+
+
+def connection_text(t: Template, keys: tuple[str, ...]) -> str | None:
+    """카탈로그의 "연결" 설명 (template_metadata: role·attach_order·연결 지점 종류에서 만든다). 조립 부품이 아니면 None.
+
+    예 (은신처): "기준 부품(parts 의 첫 부품)이 될 수 있다. front: 출입구(터널만), back/left/right: 옆면(램프/계단·그릇 받침·
+    물병 거치대)…, 터널 끝에 이을 수 있다 (to=터널, at=free_end)". 면 이름은 그 부품 자신의 면이다."""
+    if not t.composable:
+        return None
+    prim = primitives()
+    pool = [prim[k] for k in composable_keys(keys)]
+    tunnels = [c for c in pool if c.role == "connector"]
+    rooms = [c for c in pool if c.role == "room_host" and "passage" in c.attach_order]
+    parts: list[str] = []
+    if t.role in ("host", "room_host"):
+        faces = _face_texts(t, keys)
+        grouped: dict[str, list[str]] = {}
+        for side, text in faces.items():
+            grouped.setdefault(text, []).append(side)
+        listed = ", ".join(f"{'/'.join(sides)}: {text}" for text, sides in grouped.items())
+        parts.append("기준 부품(parts 의 첫 부품)이 될 수 있다" + (f". {listed}" if listed else ""))
+        if "passage" in t.attach_order and tunnels:
+            parts.append(f"{_join_names(tunnels)} 끝에 이을 수 있다 (to={_join_names(tunnels)}, at=free_end)")
+        elif not t.attach_order:
+            parts.append("다른 부품에 붙이지 않는다 (기준 부품으로만)")
+    elif t.role == "connector":
+        ends = len(t.attach_order.get("passage", ()))
+        parts.append(f"방의 출입구 면에 붙인다 (to=방, at=그 면). 끝은 {ends}개라 남은 끝(at=free_end)에 "
+                     f"{_obj(_join_names(rooms) or '방')} 하나 이을 수 있다. 끝에 {_obj(t.display_name_ko)} 바로 잇지는 "
+                     "않는다. 한 터널의 두 끝에는 같은 종류의 방(은신처끼리, 집끼리)만 잇는다")
+    elif t.role == "accessory":
+        text = "기준 구조물 옆면에 붙인다 (to=기준 구조물, at=right·left·back·front·auto). 다른 부품을 붙이지 않는다"
+        if t.passes_access:
+            text += ". 출입 면에도 붙일 수 있다"
+        if t.level_field:
+            text += f". {t.level_field} 는 서버가 붙는 면 높이에 맞춘다"
+        parts.append(text)
+    return ". ".join(parts)
+
+
 def template_catalog(allowed: Iterable[str] | None = None) -> list[dict]:
-    """LLM 에게 보일 템플릿 목록. allowed 를 주면 그 템플릿만 (None: 등록된 모든 템플릿)."""
+    """LLM 에게 보일 템플릿 목록 (기본 부품만). allowed 를 주면 그 템플릿만 (None: 등록된 모든 기본 부품).
+
+    조립 항목을 쓸 수 있는 묶음(기준 부품이 될 템플릿이 있는 케이지)이면 조립 부품마다 "연결" 설명을 더한다."""
+    prim = primitives()
     wanted = None if allowed is None else set(allowed)
-    return [{"template": t.key, "이름": t.display_name_ko, "설명": t.description_ko, "파라미터": _field_catalog(t.Params)}
-            for t in all_templates() if wanted is None or t.key in wanted]
+    shown = [t for t in all_templates() if t.key in prim and (wanted is None or t.key in wanted)]
+    keys = tuple(t.key for t in shown)
+    compose = assembly_enabled(keys)
+    out = []
+    for t in shown:
+        entry: dict = {"template": t.key, "이름": t.display_name_ko, "설명": t.description_ko}
+        link = connection_text(t, keys) if compose else None
+        if link:
+            entry["연결"] = link
+        entry["파라미터"] = _field_catalog(t.Params)
+        out.append(entry)
+    return out
 
 
 def _size_rules(req: InterpretRequest, aquarium: bool) -> dict[str, object]:

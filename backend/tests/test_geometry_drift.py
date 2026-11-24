@@ -491,3 +491,139 @@ def test_decor_is_stored_and_reapplied_on_regeneration(tmp_path, revalidations):
         wipe_cache(tmp_path)
         assert export(c, d).status_code == 200
         assert cached_files(tmp_path, d) == before and revalidations == []
+
+
+# ── 자유 조립 항목 (template "assembly") ─────────────────────
+
+EXAMPLE_PROMPT = "은신처 오른쪽에 밥그릇 받침, 왼쪽에 물병 거치대, 앞에는 터널로 은신처 하나 더 이어줘"
+EXAMPLE_PARTS = ["body", "bowl", "bottle_base", "tube", "hide2", "bottle_holder"]
+
+
+def test_assembly_design_is_stored_rebuilt_and_exported(tmp_path, monkeypatch, revalidations):
+    """설계 예시 요청(모의 해석기): 부품 5개·결합 4개로 통과하고, 해석한 구조와 부품별 파라미터를 저장하며, 캐시를 비워도
+    조립 해석기를 다시 돌리지 않고 같은 바이트로 다시 만들고, 출력 파트마다 파일 하나씩 내보낸다."""
+    from app.modules import compose
+    from app.services import engine
+
+    with TestClient(create_app(settings(tmp_path))) as c:
+        hid = create_habitat(c, CAGE, size="dwarf")
+        r = c.post("/designs", json={"habitat_id": hid, "prompt": EXAMPLE_PROMPT})
+        assert r.status_code == 201, r.text
+        d = r.json()
+        cur = d["current"]
+        assert cur["validation"]["passed"], cur["validation"]
+        [it] = cur["items"]
+        assert it["template"] == "assembly"
+        asm = it["assembly"]
+        assert [(p["id"], p["template"], p["name_ko"]) for p in asm["parts"]] == [
+            ("hide", "hideout", "은신처"), ("bowl", "bowl_holder", "그릇 받침"), ("bottle", "bottle_stand", "물병 거치대"),
+            ("tube", "tunnel", "터널"), ("hide2", "hideout", "은신처 2")]
+        assert [(j["part"], j["to"], j["at"], j["mount"], j["passage"]) for j in asm["joins"]] == [
+            ("bowl", "hide", "right", "slide", False), ("bottle", "hide", "left", "slide", False),
+            ("tube", "hide", "front", "plug", "into_parent"), ("hide2", "tube", "free_end", "plug", "into_child")]
+        assert set(it["params"]) == {"hide", "bowl", "bottle", "tube", "hide2"}
+        assert it["params"]["tube"]["inner_diameter_mm"] == it["params"]["hide"]["entrance_diameter_mm"]
+        assert [p["key"] for p in it["parts"]] == EXAMPLE_PARTS
+        assert "param_labels_ko" not in it and "color" not in it
+        # 해석기 안내는 어느 부품인지 알린다
+        infos = [i for i in cur["validation"]["issues"] if i["code"] in compose.INFO_CODES]
+        assert infos and all(i["details"].get("part") for i in infos)
+
+        row = version_row(c)
+        [stored] = row.items
+        assert stored["assembly"]["root"] == "hide" and len(stored["assembly"]["joins"]) == 4
+        assert stored["params"] == it["params"] and stored["name_ko"] == row.llm_spec["items"][0]["name_ko"]
+        # 고친 명세: 해석기 출력 형태 + 보정한 파라미터 + 실제로 붙은 면 (다음 수정 요청의 맥락)
+        [eff] = row.effective_spec["items"]
+        assert "params" not in eff
+        assert [p["id"] for p in eff["parts"]] == ["hide", "bowl", "bottle", "tube", "hide2"]
+        assert all(p["params"] == it["params"][p["id"]] for p in eff["parts"])
+        assert [x["at"] for x in eff["connections"]] == ["right", "left", "front", "free_end"]
+        prev = c.app.state.design_service._previous_spec(row)
+        assert prev is not None and prev.items[0].template == "assembly" and len(prev.items[0].parts) == 5
+
+        # 지문: 조립 구조 + 부품 템플릿
+        assert row.geometry["fingerprint"] == geometry_fingerprint(row.items, c.app.state.rules.printing)
+        assert it["mesh_url"].endswith(f"?g={row.geometry['fingerprint'][:16]}")
+        files = cached_files(tmp_path, d)
+        expected = {"print_0.stl", "world_0.stl"} | {f"print_0_{k}.stl" for k in EXAMPLE_PARTS[1:]}
+        assert set(files) == expected == set(row.geometry["files"])
+
+        exported = exported_parts(export(c, d))
+        assert sorted(exported) == sorted(f"part1_assembly_{k}.stl" for k in EXAMPLE_PARTS)
+
+        # 새 인스턴스처럼: 메시 캐시·조립 템플릿 캐시를 비우고, 조립 해석기를 부르면 실패하게 한다
+        def no_resolve(*a, **k):
+            raise AssertionError("다시 만들 때 조립 해석기를 부르면 안 됩니다")
+
+        monkeypatch.setattr(compose, "resolve", no_resolve)
+        monkeypatch.setattr(engine, "resolve", no_resolve)
+        compose.composed_template.cache_clear()
+        wipe_cache(tmp_path)
+        assert exported_parts(export(c, d)) == exported
+        assert cached_files(tmp_path, d) == files
+        assert revalidations == []  # 바이트가 같으면 다시 검증하지 않는다
+        assert c.get(it["mesh_url"]).status_code == 200
+        assert c.get(f"/designs/{d['id']}").json()["current"]["items"][0]["assembly"] == asm
+
+
+def test_main_templates_rebuild_identically_after_registry_change(tmp_path, revalidations):
+    """기존에 저장되던 네 템플릿(은신처·터널·램프·모래목욕통): 버전 기록 형식이 그대로이고 캐시를 비워도 같은 바이트로
+    다시 만든다 (다시 검증 없이). 지문도 템플릿 키로 계산하던 예전 값과 같다."""
+    with TestClient(create_app(settings(tmp_path))) as c:
+        d = make_design(c, "은신처, 터널, 램프, 모래목욕통을 넣어 주세요")
+        row = version_row(c)
+        assert sorted(it["template"] for it in row.items) == ["hideout", "ramp", "sand_bath", "tunnel"]
+        assert all("assembly" not in it and "name_ko" not in it for it in row.items)
+        assert all(list(it) == ["index", "template", "label_ko", "params", "reason_ko", "hint", "placement", "size_mm",
+                                "print_size_mm", "parts", "decor"] for it in row.items)
+        assert all("assembly" not in eff and "params" in eff for eff in row.effective_spec["items"])
+        keys = [it["template"] for it in row.items]
+        assert row.geometry["fingerprint"] == geometry_fingerprint(keys, c.app.state.rules.printing)
+        assert all(it["assembly"] is None for it in d["current"]["items"])
+        before = cached_files(tmp_path, d)
+        wipe_cache(tmp_path)
+        assert export(c, d).status_code == 200
+        assert cached_files(tmp_path, d) == before and revalidations == []
+
+
+def _stored_assembly(shift: float = 0.0) -> dict:
+    return {
+        "root": "hide",
+        "parts": [{"id": "hide", "template": "hideout"}, {"id": "bowl", "template": "bowl_holder"}],
+        "joins": [{"parent": "hide.right", "child": "bowl.back", "mount": "slide", "passage": False, "shift": shift}],
+        "ties": [], "fixed": {}, "faces": {"bowl": "right"},
+    }
+
+
+def test_assembly_fingerprint_covers_structure_and_part_templates_not_the_resolver(rules, monkeypatch):
+    from app.geometry import fingerprint as fp
+
+    p = rules.printing
+    item = {"template": "assembly", "assembly": _stored_assembly()}
+    base = fp.geometry_fingerprint([item], p)
+    assert base == fp.geometry_fingerprint([dict(item, label_ko="다른 이름", params={"hide": {}})], p)
+    assert base != fp.geometry_fingerprint([{"template": "assembly", "assembly": _stored_assembly(5.0)}], p)
+    assert base != fp.geometry_fingerprint(["hideout", "bowl_holder"], p)
+    # 부품 하나짜리 항목: 저장된 항목 dict 로 주어도 템플릿 키로 계산하던 예전 값과 같다
+    assert fp.geometry_fingerprint([{"template": "hideout"}, {"template": "tunnel"}], p) == \
+        fp.geometry_fingerprint(["hideout", "tunnel"], p)
+    # 형상을 만든 BuiltItem (조립 항목 템플릿이 구조를 가진다)도 저장된 기록과 같은 지문
+    from types import SimpleNamespace
+
+    from app.modules.structure import ResolvedAssembly
+    built = SimpleNamespace(key="assembly", template=SimpleNamespace(resolved=ResolvedAssembly.model_validate(_stored_assembly())))
+    assert fp.geometry_fingerprint([built], p) == base
+    assert fp.geometry_fingerprint([{"template": "assembly", "assembly": {"parts": "broken"}}], p)  # 예외 없이
+
+    original = fp._module_digest
+
+    def changed(target):
+        return lambda name: "changed" if name == target else original(name)
+
+    for module, moves in [("app.templates.bowl_holder", True), ("app.modules.composed", True),
+                          ("app.modules.structure", True), ("app.templates.tunnel", False),
+                          ("app.modules.compose", False)]:
+        monkeypatch.setattr(fp, "_module_digest", changed(module))
+        assert (fp.geometry_fingerprint([item], p) != base) is moves, module
+    monkeypatch.setattr(fp, "_module_digest", original)

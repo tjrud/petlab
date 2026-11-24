@@ -27,6 +27,8 @@ from app.validation.report import Issue, Severity
 
 OVERLAP_AREA_TOL_MM2 = 1.0  # 수치 오차 허용 (규칙이 아닌 계산 허용오차)
 ON_BED_Z_TOL_MM = 0.01
+# 일부러 얇게 만든 결합 모양(끼움 턱·도브테일 혀) 표면에서 이 거리 안의 두께 샘플은 뺀다 (BuiltPart.thin_ok_mesh)
+THIN_OK_MARGIN_MM = 0.3
 
 
 def _err(code: str, msg: str, **kw) -> Issue:
@@ -219,6 +221,14 @@ def check_openings(items: list[BuiltItem], size: SizeRules, count: int = 1) -> l
                         f"{it.label_ko}: {op.label_ko} {op.size_mm:g}mm 가 {size.display_name} 기준 최소 {req:g}mm 보다 작습니다.",
                         item_index=it.index, details={"size_mm": op.size_mm, "required_mm": req},
                     ))
+            elif op.kind == "window":
+                if gt.is_trap(op.size_mm):
+                    out.append(_err(
+                        "window_trap",
+                        f"{it.label_ko}: {op.label_ko} {op.size_mm:g}mm 가 끼임 위험 구간"
+                        f"({gt.safe_max_mm:g}~{gt.passable_min_mm:g}mm)에 있습니다. 더 작게(환기구) 하거나 몸이 지나갈 만큼 크게 하세요.",
+                        item_index=it.index, details={"size_mm": op.size_mm},
+                    ))
             elif op.size_mm > gt.safe_max_mm + 1e-6:
                 out.append(_err(
                     "vent_too_large",
@@ -254,9 +264,21 @@ def check_climb(items: list[BuiltItem], size: SizeRules) -> list[Issue]:
 # ── 출력성: 벽 두께 / 오버행 / 출력 공간 ──────────────────────
 
 
-def measure_thickness(mesh: trimesh.Trimesh, samples: int = 1500, seed: int = 0) -> np.ndarray:
-    """표면 샘플점에서 안쪽 법선 방향으로 광선을 쏘아 반대편 면까지 거리(국소 두께)를 잰다."""
+def measure_thickness(mesh: trimesh.Trimesh, samples: int = 1500, seed: int = 0,
+                      exclude: trimesh.Trimesh | None = None) -> np.ndarray:
+    """표면 샘플점에서 안쪽 법선 방향으로 광선을 쏘아 반대편 면까지 거리(국소 두께)를 잰다.
+
+    exclude: 일부러 얇게 만든 결합 모양(끼움 턱·도브테일 혀)의 메시. 그 표면에서 THIN_OK_MARGIN_MM 안의 샘플은 뺀다
+    (벽 구멍·홈 속에 들어가 바깥에서 받쳐지는 모양이라 갉음 기준 두께와 비교하지 않는다)."""
     pts, fidx = trimesh.sample.sample_surface(mesh, samples, seed=seed)
+    if exclude is not None and len(exclude.faces):
+        lo, hi = exclude.bounds[0] - THIN_OK_MARGIN_MM, exclude.bounds[1] + THIN_OK_MARGIN_MM
+        near = np.all((pts >= lo) & (pts <= hi), axis=1)
+        if near.any():
+            _, dist, _ = trimesh.proximity.closest_point(exclude, pts[near])
+            drop = np.zeros(len(pts), dtype=bool)
+            drop[np.flatnonzero(near)[dist < THIN_OK_MARGIN_MM]] = True
+            pts, fidx = pts[~drop], fidx[~drop]
     n = mesh.face_normals[fidx]
     origins = pts - n * 1e-3
     loc, iray, _ = mesh.ray.intersects_location(origins, -n, multiple_hits=False)
@@ -284,7 +306,7 @@ def check_wall_thickness(items: list[BuiltItem], min_wall_mm: float, measure: bo
         for part in it.print_parts:
             if not part.mesh.is_watertight:
                 continue
-            t = measure_thickness(part.mesh)
+            t = measure_thickness(part.mesh, exclude=part.thin_ok_mesh)
             if len(t):
                 p1 = float(np.percentile(t, 1))
                 if p1 < 0.9 * min_wall_mm:

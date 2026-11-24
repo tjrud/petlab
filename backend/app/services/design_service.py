@@ -40,6 +40,7 @@ from app.models import (
 from app.rules.loader import RuleBook
 from app.schemas import (
     ID_RE,
+    AssemblyDisplay,
     CageIn,
     DesignListItem,
     DesignListOut,
@@ -82,6 +83,11 @@ def revalidate(*a, **k):
 
 def get_template(*a, **k):
     from app.templates.registry import get_template as f
+    return f(*a, **k)
+
+
+def template_for(*a, **k):
+    from app.templates.registry import template_for as f
     return f(*a, **k)
 
 
@@ -216,13 +222,23 @@ def _version_records(llm_spec: dict, engine: EngineResult) -> tuple[list[dict], 
     effective_items = []
     for it in engine.items:
         src = llm_spec["items"][it.index]
-        params = it.params.model_dump(mode="json") if it.params is not None else src["params"]
-        effective_items.append({**copy.deepcopy(src), "params": params})
+        resolved = it.assembly
+        params = it.params.model_dump(mode="json") if it.params is not None else src.get("params")
+        assembly: dict = {}
+        if resolved is not None:
+            # 자유 조립 항목: 저장 구조(다시 만들 때 해석기를 다시 돌리지 않는다)와 부품 id → 부품 파라미터.
+            # 고친 명세는 해석기 출력 형태로, 보정한 파라미터와 실제로 붙은 면(at), 해석기가 끼운 터널까지 적는다
+            req = resolved.to_request(params or {}).model_dump(mode="json")
+            effective_items.append({**copy.deepcopy(src), "parts": req["parts"], "connections": req["connections"]})
+            assembly = {"name_ko": src.get("name_ko"), "assembly": resolved.stored()}
+        else:
+            effective_items.append({**copy.deepcopy(src), "params": params})
         lo, hi = it.mesh.bounds
         built_items.append({
             "index": it.index,
             "template": it.key,
             "label_ko": it.label_ko,
+            **assembly,
             "params": params,
             "reason_ko": src.get("reason_ko", ""),
             "hint": src["placement"],
@@ -303,6 +319,22 @@ def _unresolved_errors(issues: list[dict]) -> list[dict]:
 def _exportable(v: DesignVersion) -> bool:
     """내려받을 수 있는 버전인지: 검증을 통과했고 구조물이 하나 이상 있다."""
     return v.passed and bool(v.items)
+
+
+def _assembly_display(it: dict) -> AssemblyDisplay | None:
+    """저장된 자유 조립 항목의 화면 구조 (부품 이름과 결합 줄). 다른 항목이거나 읽을 수 없으면 None."""
+    raw = it.get("assembly")
+    if not isinstance(raw, dict):
+        return None
+    from app.modules.structure import ResolvedAssembly, assembly_display
+    from app.templates.registry import primitives
+
+    try:
+        resolved = ResolvedAssembly.from_stored(raw)
+    except ValueError:
+        log.warning("stored assembly unreadable: item=%s", it.get("index"), exc_info=True)
+        return None
+    return assembly_display(resolved, {k: t.display_name_ko for k, t in primitives().items()})
 
 
 class DesignService:
@@ -466,17 +498,24 @@ class DesignService:
     @staticmethod
     def _with_legacy_defaults(spec: dict) -> dict:
         """저장 당시 없던 파라미터를 legacy_defaults 로 채운다 (메시 재생성과 같은 형상을 LLM 에게 보여 주도록)."""
+        def with_legacy(template: object, params: object) -> object:
+            try:
+                legacy = get_template(template).legacy_defaults
+            except Exception:  # 알 수 없는 템플릿도 parse_spec 이 걸러낸다
+                legacy = {}
+            return {**legacy, **params} if legacy and isinstance(params, dict) else params
+
         items = []
         for it in spec.get("items") or []:
             if not isinstance(it, dict):  # 형식 오류는 parse_spec 이 걸러낸다
                 items.append(it)
                 continue
-            try:
-                legacy = get_template(it.get("template")).legacy_defaults
-            except Exception:  # 알 수 없는 템플릿도 parse_spec 이 걸러낸다
-                legacy = {}
-            if legacy and isinstance(it.get("params"), dict):
-                it = {**it, "params": {**legacy, **it["params"]}}
+            if isinstance(it.get("parts"), list):  # 자유 조립 항목: 부품마다
+                it = {**it, "parts": [
+                    {**p, "params": with_legacy(p.get("template"), p.get("params"))} if isinstance(p, dict) else p
+                    for p in it["parts"]]}
+            elif isinstance(it.get("params"), dict):
+                it = {**it, "params": with_legacy(it.get("template"), it["params"])}
             items.append(it)
         return {**spec, "items": items}
 
@@ -503,7 +542,7 @@ class DesignService:
             min_wall_mm=ctx.min_wall_mm,
             previous=previous,
             language=get_lang(),  # 영어 페이지에서 만들면 설명(summary_ko 등)도 영어로
-            allowed_templates=entry.allowed_templates,  # 이 종에 만들 수 있는 구조물만 LLM 에게 보인다
+            allowed_templates=ctx.allowed_templates,  # 이 종에 만들 수 있는 부품만 LLM 에게 보인다 (조립 항목도 이 부품으로)
         )
         result = self._interpreter().interpret(req)
         engine_result = run_engine(to_item_specs(result.spec), ctx)
@@ -519,7 +558,7 @@ class DesignService:
         # 검증한 형상 그대로의 메시 파일. 해시를 함께 저장해 두고, 캐시를 다시 만들 때 같은 형상인지 확인한다
         files = _cache_files(engine.items)
         geometry = {
-            "fingerprint": geometry_fingerprint((it.key for it in engine.items), self.rules.printing),
+            "fingerprint": geometry_fingerprint(engine.items, self.rules.printing),
             "files": {name: file_digest(data) for name, data in files.items()},
         }
         row = DesignVersion(
@@ -672,7 +711,7 @@ class DesignService:
     def design_out(self, db: Session, design: Design, v: DesignVersion, user: User | None) -> DesignOut:
         # 뷰어 메시 URL 에 지금 형상 코드의 지문을 붙인다: 배포로 형상이 바뀌면 URL 도 바뀌어 브라우저 캐시
         # (max-age 하루)가 옛 형상을 보여주지 않는다
-        g = geometry_fingerprint((it["template"] for it in v.items), self.rules.printing)[:16]
+        g = geometry_fingerprint(v.items, self.rules.printing)[:16]
         items = [
             ItemOut(
                 index=it["index"], template=it["template"], label_ko=it["label_ko"], params=it["params"],
@@ -684,6 +723,7 @@ class DesignService:
                 parts=[PartOut(**part) for part in _stored_parts(it)] or [PartOut(key="body", name_ko="본체",
                                                                                    size_mm=it["print_size_mm"])],
                 decor=it.get("decor"),
+                assembly=_assembly_display(it),
             )
             for it in v.items
         ]
@@ -738,7 +778,7 @@ class DesignService:
         out: list[dict] = []
         for it in v.items:  # 구조물 하나를 검사하지 못해도 나머지는 알린다
             try:
-                t = get_template(it["template"])
+                t = template_for(it)
                 notices = rule_change_notices(t, t.load_stored_params(it["params"]), rctx, it["index"], it["label_ko"])
             except Exception:
                 log.warning("rule-change check skipped: design=%s v=%s item=%s", design.id, v.version,
@@ -757,7 +797,7 @@ class DesignService:
         """저장된 최종 파라미터·배치로 구조물 하나를 다시 만든다."""
         from app.domain import Placement
         try:
-            t = get_template(it["template"])
+            t = template_for(it)  # 조립 항목은 저장된 구조로 (해석기를 다시 돌리지 않는다)
             built = build_item(it["index"], t, t.load_stored_params(it["params"]), _stored_hint(it),
                                self.rules.printing, it.get("decor"), self._engine_ctx(design.habitat).rule_ctx)
         except Exception as e:  # 템플릿 삭제·파라미터 스키마 변경·형상 커널 오류
@@ -772,7 +812,7 @@ class DesignService:
     def _log_drift(self, design: Design, v: DesignVersion, changed: list[str]) -> None:
         """다시 검증하게 된 까닭을 경고로 남긴다: 저장된 해시와 다른 파일(과 형상 지문 변화), 또는 해시가 없는 옛 버전."""
         stored = v.geometry or {}
-        current = geometry_fingerprint((it["template"] for it in v.items), self.rules.printing)
+        current = geometry_fingerprint(v.items, self.rules.printing)
         if stored.get("files"):
             log.warning(
                 "rebuilt geometry differs from the validated geometry: design=%s v=%s files=%s "

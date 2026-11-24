@@ -1,0 +1,83 @@
+{
+  "key": "hideout_with_ramp",
+  "library": {
+    "key": "hideout_with_ramp",
+    "ids": {},
+    "joins": [
+      {
+        "parent": "hide.right",
+        "child": "ramp.landing",
+        "mount": "slide",
+        "passage": false
+      }
+    ]
+  },
+  "prompt_ko": "은신처 오른쪽에 지붕으로 올라가는 경사로를 붙여줘",
+  "spec": {
+    "summary_ko": "은신처 오른쪽 옆면에 지붕 높이까지 오르는 경사로를 끼웠습니다.",
+    "items": [
+      {
+        "template": "assembly",
+        "name_ko": "경사로 달린 은신처",
+        "parts": [
+          {
+            "id": "hide",
+            "template": "hideout",
+            "params": {
+              "width_mm": 130.0,
+              "depth_mm": 110.0,
+              "height_mm": 85.0,
+              "entrance_diameter_mm": 70.0,
+              "entrance_count": 1,
+              "vent_count": 6,
+              "vent_diameter_mm": 3.0,
+              "wall_thickness_mm": 3.0
+            }
+          },
+          {
+            "id": "ramp",
+            "template": "ramp",
+            "params": {
+              "height_mm": 85.0,
+              "width_mm": 80.0,
+              "slope_deg": 26.0,
+              "steps": 0
+            }
+          }
+        ],
+        "connections": [
+          {
+            "part": "ramp",
+            "to": "hide",
+            "at": "right"
+          }
+        ],
+        "placement": {
+          "zone": "auto",
+          "group": null,
+          "rotation": null,
+          "attach_to": null
+        },
+        "reason_ko": "경사로 꼭대기 발판이 지붕과 같은 높이가 되도록 옆면에 끼웠습니다."
+      }
+    ],
+    "notes_ko": [],
+    "missing_parts": []
+  },
+  "expected": {
+    "joins": [
+      {
+        "parent": "hide.right",
+        "child": "ramp.landing",
+        "mount": "slide",
+        "passage": false,
+        "shift": 0.0
+      }
+    ],
+    "ties": [],
+    "fixed": {},
+    "faces": {
+      "ramp": "right"
+    }
+  }
+}

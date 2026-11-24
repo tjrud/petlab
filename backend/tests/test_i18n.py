@@ -312,3 +312,88 @@ def test_long_free_text_is_fast():
         t0 = time.perf_counter()
         c.translate(s)
         assert time.perf_counter() - t0 < 0.5
+
+
+def test_part_names_with_particles_and_middle_dots():
+    """조립 안내는 부품 이름에 조사를 붙이고("그릇 받침을"), 여러 부품을 가운뎃점으로 잇는다("그릇 받침·물병 거치대").
+    조사를 뗀 이름이 영어로 다 바뀔 때만 떼고, 바뀌지 않는 한국어는 자르지 않는다."""
+    from app.i18n import Catalog
+
+    c = Catalog({"그릇 받침": "Bowl holder", "물병 거치대": "Water bottle stand", "은신처": "Hideout",
+                 "{0} 붙인 면이 {1}mm 이상 높도록 높였습니다": "Raised the face {0} is mounted on to at least {1} mm",
+                 "{0}가 달린 {1}": "{1} with {0}"})
+    assert c.translate("그릇 받침을 붙인 면이 75mm 이상 높도록 높였습니다") == \
+        "Raised the face Bowl holder is mounted on to at least 75 mm"
+    assert c.translate("그릇 받침이(가)") == "Bowl holder"
+    assert c.translate("그릇 받침·물병 거치대가 달린 은신처") == "Hideout with Bowl holder, Water bottle stand"
+    assert c.translate("길이") == "길이"  # 떼어도 영어가 없으면 그대로
+    assert c.translate("은신처 · 세로") == "Hideout · 세로"  # 띄어 쓴 가운뎃점은 쉼표로 바꾸지 않는다
+
+
+def test_label_prefixed_notice_uses_the_outer_template():
+    """조립 해석기 안내는 "조립 구조물 이름: 안내" 꼴이다. 안내 틀이 빈칸으로 시작해도("{0} {1} 터널로 …")
+    구조물 이름 속 빈칸에 붙지 않고 바깥 틀("{0}: {1}")이 먼저 나눈다."""
+    from app.i18n import Catalog
+
+    c = Catalog({"{0}: {1}": "{0}: {1}", "조립 구조물": "Assembled structure", "은신처": "Hideout", "은신처 2": "Hideout 2",
+                 "{0} {1} 터널로 이었습니다": "Connected {0} and {1} with a tunnel"})
+    assert c.translate("조립 구조물: 은신처와 은신처 2를 터널로 이었습니다") == \
+        "Assembled structure: Connected Hideout and Hideout 2 with a tunnel"
+
+
+def test_composed_label_does_not_swallow_the_notice():
+    """조립 항목 이름 틀("{0}이(가) 달린 {1}")이 "라벨: 안내" 의 안내까지 잡지 않는다 (리뷰 회귀)."""
+    from app.i18n import catalog
+
+    c = catalog()
+    s = ("그릇 받침·물병 거치대·터널·은신처가 달린 은신처 #1: 터널 단면을 은신처 출입구와 같은 둥근 아치로 바꿨습니다 "
+         "(출입구 둘레에 틈이 남지 않게)")
+    out = c.translate(s)
+    assert not HANGUL.search(out), out
+    assert "round arch" in out and out.index(":") < out.index("Changed"), out
+
+
+def test_mock_reason_join_list_is_translated():
+    from app.i18n import catalog
+
+    s = ("요구사항에서 부품 연결(그릇 받침 → 은신처 오른쪽, 물병 거치대 → 은신처 왼쪽, 터널 → 은신처 앞, 은신처 → 터널 끝)을 찾아 "
+         "햄스터 드워프 (정글리안·캠벨·로보로브스키) 기준값으로 구성했습니다. 결합 방식과 맞물리는 치수는 서버가 정합니다.")
+    out = catalog().translate(s)
+    assert not HANGUL.search(out), out
+    assert "Bowl holder → right side of Hideout" in out, out
+
+
+def test_autofix_part_descriptions_are_translated():
+    """조립 항목 보정 문구의 "{부품} · {파라미터}" 가 모든 기본 부품의 모든 필드에서 영어로 바뀐다."""
+    from pydantic import BaseModel
+
+    from app.i18n import catalog
+    from app.templates.registry import primitives
+    from app.validation.autofix import _desc
+
+    def fields(cls, prefix=""):
+        for n, f in cls.model_fields.items():
+            a = f.annotation
+            if isinstance(a, type) and issubclass(a, BaseModel):
+                yield from fields(a, f"{prefix}{n}.")
+            else:
+                yield prefix + n
+
+    c = catalog()
+    bad = []
+    for t in primitives().values():
+        for name in fields(t.Params):
+            msg = (f"은신처 #1: {t.display_name_ko} · {_desc(t.Params, name)} 10 → 20 로 보정했습니다. "
+                   "이어 붙인 터널이 따를 수 있는 범위로 맞췄습니다")
+            out = c.translate(msg)
+            if HANGUL.search(out):
+                bad.append((t.key, name, out))
+    assert not bad, bad
+
+
+def test_part_names_are_capitalised_like_other_template_names():
+    from app.i18n import catalog
+
+    c = catalog()
+    assert c.translate("그릇 받침") == "Bowl holder"
+    assert c.translate("물병 거치대") == "Water bottle stand"

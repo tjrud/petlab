@@ -5,6 +5,8 @@
 보정할 수 없는 충돌은 error 이슈로 남긴다.
 
 제약의 field 는 점 표기 경로("roof.pitch_deg")로 중첩 Params(조립형 템플릿의 부품 모델) 안의 값을 가리킬 수 있다.
+자유 조립 항목(app/modules/composed)의 Params 는 부품 id → 그 부품의 Params 이고("hide.depth_mm"), 모델의
+part_labels(부품 id → 부품 이름)로 보정 문구 앞에 부품 이름을 붙인다 ("은신처 · 세로").
 """
 
 from __future__ import annotations
@@ -21,6 +23,8 @@ from app.templates.base import ParamConstraint, RuleContext, Template, TemplateP
 from app.validation.report import Issue, Severity
 
 MAX_PASSES = 8
+# 보정 문구에서 부품 이름과 파라미터 이름 사이 (자유 조립 항목)
+PART_LABEL_SEP = " · "
 
 
 def _field_info(params_cls: type[BaseModel], path: str):
@@ -109,15 +113,19 @@ def clamp_params(
     extra: list[ParamConstraint] | None = None,
     item_index: int | None = None,
     label_ko: str | None = None,
+    max_passes: int = MAX_PASSES,
 ) -> tuple[TemplateParams, list[Issue]]:
-    """제약 위반 값을 경계로 옮긴다. 반환: (보정된 파라미터, 이슈 목록)."""
+    """제약 위반 값을 경계로 옮긴다. 반환: (보정된 파라미터, 이슈 목록).
+
+    패스마다 그 패스 시작 값으로 제약을 다시 계산해 한 값이 다른 값의 범위를 정하는 사슬을 따라간다 (max_passes 번까지).
+    자유 조립 항목은 사슬이 길어(부품 제약 → 따르는 치수 → 부모 면 크기) 엔진이 더 많이 준다."""
     cls = template.Params
     label = label_ko or template.display_name_ko
     values = params.model_dump()
     original = copy.deepcopy(values)
     reasons: dict[str, str] = {}
 
-    for _ in range(MAX_PASSES):
+    for _ in range(max_passes):
         current = cls.model_validate(values)
         cons = _all_constraints(template, current, ctx, extra)
         changed = False
@@ -234,16 +242,24 @@ def _leaves(values: dict, prefix: str = "") -> Iterator[tuple[str, Any]]:
             yield path, v
 
 
-def _desc(cls: type[TemplateParams], name: str) -> str:
+def _desc(cls: type[BaseModel], name: str) -> str:
+    """보정 문구의 파라미터 이름: 필드 설명의 첫 문장에서 단위를 뺀 것. 자유 조립 항목의 부품 파라미터("hide.depth_mm")는
+    앞에 부품 이름을 붙인다 ("은신처 · 세로")."""
+    head, _, rest = name.partition(".")
+    labels = getattr(cls, "part_labels", None)
+    if rest and isinstance(labels, dict) and head in labels:
+        sub = cls.model_fields[head].annotation
+        assert isinstance(sub, type) and issubclass(sub, BaseModel)
+        return f"{labels[head]}{PART_LABEL_SEP}{_desc(sub, rest)}"
     d = _field_info(cls, name).description or name
     return d.split(".")[0].replace(" mm", "")
 
 
 def shrink_params(template: Template, params: TemplateParams, factor: float) -> TemplateParams:
-    """크기 파라미터(size_fields)를 factor 배로 줄인다 (템플릿 허용 범위 하한까지)."""
+    """크기 파라미터(size_fields, 점 표기 경로 가능)를 factor 배로 줄인다 (템플릿 허용 범위 하한까지)."""
     values = params.model_dump()
     for f in template.size_fields:
         lo, _ = field_bounds(template.Params, f)
-        v = values[f] * factor
-        values[f] = max(v, lo) if lo is not None else v
+        v = get_path(values, f) * factor
+        set_path(values, f, max(v, lo) if lo is not None else v)
     return template.Params.model_validate(values)

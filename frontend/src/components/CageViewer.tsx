@@ -8,7 +8,7 @@ import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 
 import { useT } from "@/i18n/client";
 import { api } from "@/lib/api";
-import { TEMPLATE_COLORS } from "@/lib/templates";
+import { itemColor } from "@/lib/templates";
 import type { Cage, HabitatKind, Item } from "@/lib/types";
 
 type Props = {
@@ -38,7 +38,7 @@ function Part({
   // 관리자 세션 쿠키를 함께 보낸다 (같은 출처면 기본 전송, 로컬 개발처럼 출처가 다를 때를 위해 명시)
   const geometry = useLoader(STLLoader, api.meshUrl(item.mesh_url!), (loader) => loader.setWithCredentials(true));
   useMemo(() => geometry.computeVertexNormals(), [geometry]);
-  const base = hasError ? "#e05252" : (TEMPLATE_COLORS[item.template] ?? "#c8a27a");
+  const base = hasError ? "#e05252" : itemColor(item);
   const p = item.placement!;
   return (
     <group>

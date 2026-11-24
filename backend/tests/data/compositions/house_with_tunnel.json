@@ -1,0 +1,131 @@
+{
+  "key": "house_with_tunnel",
+  "library": {
+    "key": "house_with_tunnel",
+    "ids": {},
+    "joins": [
+      {
+        "parent": "house.right",
+        "child": "tube.end_b",
+        "mount": "plug",
+        "passage": true
+      }
+    ]
+  },
+  "prompt_ko": "집 오른쪽 연결부에 터널을 이어줘",
+  "spec": {
+    "summary_ko": "집 오른쪽 터널 연결부에 뾰족 아치 터널을 끼웠습니다.",
+    "items": [
+      {
+        "template": "assembly",
+        "name_ko": "터널이 이어진 집",
+        "parts": [
+          {
+            "id": "house",
+            "template": "house",
+            "params": {
+              "width_mm": 170.0,
+              "depth_mm": 140.0,
+              "height_mm": 120.0,
+              "walls": {
+                "thickness_mm": 3.0
+              },
+              "floor": {
+                "enabled": false,
+                "thickness_mm": 3.0
+              },
+              "roof": {
+                "kind": "flat",
+                "pitch_deg": 50.0,
+                "tip_deg": 50.0
+              },
+              "floors": {
+                "count": 1,
+                "level_height_mm": 100.0,
+                "plate_thickness_mm": 3.0,
+                "climb": "internal_ramp",
+                "ramp_width_mm": 60.0,
+                "slope_deg": 25.0,
+                "exit_side": "back"
+              },
+              "doors": {
+                "sides": [
+                  "front"
+                ],
+                "width_mm": 70.0
+              },
+              "windows": {
+                "count": 2,
+                "diameter_mm": 4.0
+              },
+              "ports": {
+                "sides": [
+                  "right"
+                ],
+                "diameter_mm": 70.0,
+                "flange_mm": 3.0
+              }
+            }
+          },
+          {
+            "id": "tube",
+            "template": "tunnel",
+            "params": {
+              "length_mm": 100.0,
+              "inner_diameter_mm": 70.0,
+              "bend_angle_deg": 0.0,
+              "wall_thickness_mm": 3.0,
+              "shape": "pointed_arch",
+              "path": "arc"
+            }
+          }
+        ],
+        "connections": [
+          {
+            "part": "tube",
+            "to": "house",
+            "at": "right"
+          }
+        ],
+        "placement": {
+          "zone": "auto",
+          "group": null,
+          "rotation": null,
+          "attach_to": null
+        },
+        "reason_ko": "터널은 집 오른쪽 연결부에 끼우고, 앞 출입구로도 드나듭니다."
+      }
+    ],
+    "notes_ko": [],
+    "missing_parts": []
+  },
+  "expected": {
+    "joins": [
+      {
+        "parent": "house.right",
+        "child": "tube.end_b",
+        "mount": "plug",
+        "passage": "into_parent",
+        "shift": 0.0
+      }
+    ],
+    "ties": [
+      {
+        "follower": "tube.inner_diameter_mm",
+        "owner": "house.ports.diameter_mm"
+      }
+    ],
+    "fixed": {
+      "tube.shape": "pointed_arch",
+      "house.doors.sides": [
+        "front"
+      ],
+      "house.ports.sides": [
+        "right"
+      ]
+    },
+    "faces": {
+      "tube": "right"
+    }
+  }
+}

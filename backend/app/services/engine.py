@@ -9,16 +9,19 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field, replace
 
+import trimesh
 from pydantic import ValidationError
 
 from app.domain import BuiltItem, BuiltPart, Cage, PlacementHint, mesh_footprint
 from app.geometry.mesh import part_to_mesh, to_print_orientation
 from app.layout.placer import attach_satisfied, place_all
+from app.modules.compose import ASSEMBLY_MAX_PASSES, assembly_params, resolve, template_for
+from app.modules.structure import AssemblyRequest
 from app.rules.loader import BuoyancyRules, Habitat, PrintingRules, RuleBook, SizeRules
 from app.templates.base import ParamConstraint, RuleContext, Template, TemplateParams
 from app.templates.decor import PatternDecor, apply_decor, parse_decor
-from app.templates.registry import get_template
-from app.validation.autofix import clamp_params, constraint_violations, shrink_params
+from app.templates.registry import ASSEMBLY_KEY, get_template, primitives
+from app.validation.autofix import MAX_PASSES, clamp_params, constraint_violations, shrink_params
 from app.validation.checks import validate_all
 from app.validation.report import Issue, Severity, ValidationReport
 
@@ -33,6 +36,8 @@ class ItemSpec:
     params: dict
     hint: PlacementHint = field(default_factory=PlacementHint)
     decor: dict | None = None  # 장식 명세 (templates/decor.py 의 PatternDecor | TextDecor). 없으면 None
+    # 조립 항목(template "assembly")의 부품·연결 요청. 이때 params 는 부품 id → 그 부품 파라미터다. 다른 항목은 None
+    assembly: AssemblyRequest | None = None
 
 
 @dataclass(frozen=True)
@@ -55,7 +60,8 @@ class EngineContext:
     def rule_ctx(self) -> RuleContext:
         return RuleContext(self.size_rules, self.min_wall_mm, self.count,
                            printing_max_overhang_deg=self.rules.printing.max_overhang_deg,
-                           min_feature_mm=self.rules.printing.min_feature_mm)
+                           min_feature_mm=self.rules.printing.min_feature_mm,
+                           build_volume_mm=_bed(self.rules.printing.build_volume_mm))
 
     @property
     def height_limit_mm(self) -> float | None:
@@ -124,7 +130,9 @@ def build_item(
     if len(print_parts) > 1:
         for pp in print_parts:
             pmesh = part_to_mesh(pp.part, tol, ang)
-            parts.append(BuiltPart(pp.key, pp.name_ko, pmesh, to_print_orientation(pmesh, pp.rotation)))
+            thin = (trimesh.util.concatenate([part_to_mesh(s, tol, ang) for s in pp.thin_ok]) if pp.thin_ok
+                    else None)
+            parts.append(BuiltPart(pp.key, pp.name_ko, pmesh, to_print_orientation(pmesh, pp.rotation), thin))
         print_mesh = parts[0].print_mesh
     return BuiltItem(
         index=index,
@@ -156,14 +164,13 @@ def _height_constraint(template: Template, ctx: EngineContext, params: TemplateP
             f"생물이 구조물 위로 지나가고 수면 가까이에서 숨 쉴 수 있도록 높이를 {limit:g}mm(물 깊이 − {c:g}mm) "
             "이하로 맞췄습니다.",
         )
-    if not template.height_field:
-        return []
+    # 케이지: 천장과의 틈. 기본은 높이 파라미터(height_field) 상한이고, 조립 항목은 부품마다의 높이 제약을 모은다
     P = ctx.size_rules.gap_trap.passable_min_mm
     limit = ctx.cage.height_mm - P
-    return [ParamConstraint(
-        template.height_field, max=limit, source="geometry",
-        reason_ko=f"케이지 천장과의 틈에 끼이지 않도록 높이를 {limit:g}mm(천장 높이 − {P:g}mm) 이하로 맞췄습니다.",
-    )]
+    return template.cage_height_constraints(
+        params, ctx.rule_ctx, limit,
+        f"케이지 천장과의 틈에 끼이지 않도록 높이를 {limit:g}mm(천장 높이 − {P:g}mm) 이하로 맞췄습니다.",
+    )
 
 
 def _min_water_depth(template: Template, ctx: EngineContext, params: TemplateParams | None = None
@@ -200,6 +207,10 @@ def _too_shallow(template: Template, ctx: EngineContext, index: int, label: str,
     )
 
 
+def _bed(v: tuple[float, float, float]) -> tuple[float, float, float]:
+    return (float(v[0]), float(v[1]), float(v[2]))
+
+
 def _label(template: Template, index: int) -> str:
     return f"{template.display_name_ko} #{index + 1}"
 
@@ -209,6 +220,31 @@ def _not_allowed(label: str, index: int, key: str, ctx: EngineContext) -> Issue:
     return Issue(code="template_not_allowed", severity=Severity.error, item_index=index,
                  message_ko=f"{label}: {ctx.species_name}에는 만들 수 없는 구조물입니다.",
                  details={"template": key, "allowed": list(ctx.allowed_templates)})
+
+
+def _part_not_allowed(label: str, index: int, pid: str, key: str, ctx: EngineContext) -> Issue:
+    """조립 항목의 부품 하나가 이 종에 만들 수 없는 구조물."""
+    t = primitives().get(key)
+    name = t.display_name_ko if t is not None else key
+    return Issue(code="template_not_allowed", severity=Severity.error, item_index=index,
+                 message_ko=f"{label}: 부품 {name}({pid})은(는) {ctx.species_name}에는 만들 수 없는 구조물입니다.",
+                 details={"template": key, "part": pid, "allowed": list(ctx.allowed_templates)})
+
+
+def max_passes(template: Template) -> int:
+    """자동 보정 패스 수: 조립 항목은 사슬(부품 제약 → 따르는 치수 → 부모 면 크기)이 길어 더 준다."""
+    return ASSEMBLY_MAX_PASSES if template.key == ASSEMBLY_KEY else MAX_PASSES
+
+
+def _with_part(issues: list[Issue]) -> list[Issue]:
+    """조립 항목의 보정 이슈(details.field = "부품id.경로")에 details.part 를 붙인다 (화면이 그 부품 옆에 보이게)."""
+    out = []
+    for i in issues:
+        f = i.details.get("field") if isinstance(i.details, dict) else None
+        if isinstance(f, str) and "." in f and "part" not in i.details:
+            i = i.model_copy(update={"details": {**i.details, "part": f.split(".", 1)[0]}})
+        out.append(i)
+    return out
 
 
 def attach_constraints(template: Template, hint: PlacementHint, targets: dict[int, BuiltItem | tuple[Template, TemplateParams]]
@@ -253,6 +289,8 @@ def decor_constraints(template: Template, params: TemplateParams, decor: dict | 
 
 def _prepare(spec: ItemSpec, index: int, ctx: EngineContext,
              extra: list[ParamConstraint] | None = None) -> tuple[Template, TemplateParams, list[Issue]] | Issue:
+    if spec.template == ASSEMBLY_KEY:
+        return _prepare_assembly(spec, index, ctx, extra)
     try:
         template = get_template(spec.template)
     except KeyError:
@@ -271,7 +309,68 @@ def _prepare(spec: ItemSpec, index: int, ctx: EngineContext,
             + list(extra or []))
     shallow = _too_shallow(template, ctx, index, label, params)
     params, issues = clamp_params(template, params, ctx.fit_ctx, cons, index, label)
-    return template, params, issues + ([shallow] if shallow is not None else [])
+    return template, params, issues + ([shallow] if shallow is not None else []) + _rule_issues(template, params, ctx, index)
+
+
+def _prepare_assembly(spec: ItemSpec, index: int, ctx: EngineContext,
+                      extra: list[ParamConstraint] | None = None
+                      ) -> tuple[Template, TemplateParams, list[Issue]] | Issue:
+    """자유 조립 항목: 부품 파라미터 검증 → 부품마다 이 종에 허용되는지 → 조립 해석(부품마다 보정 포함) →
+    조립 항목 템플릿 → 조립 제약으로 보정(ASSEMBLY_MAX_PASSES 패스) → 규칙 검사."""
+    req = spec.assembly
+    label = f"{(req.name_ko if req is not None else None) or '조립 구조물'} #{index + 1}"
+    if req is None:
+        return Issue(code="invalid_params", severity=Severity.error, item_index=index,
+                     message_ko=f"{label}: 조립 구조물의 부품·연결 정보가 없습니다.")
+    prim = primitives()
+    allowed = ctx.allowed_templates
+    raw_params = spec.params if isinstance(spec.params, dict) else {}
+    values: dict[str, TemplateParams] = {}
+    for pr in req.parts:
+        t = prim.get(pr.template)
+        if t is None:
+            return Issue(code="unknown_template", severity=Severity.error, item_index=index,
+                         message_ko=f"{label}: 지원하지 않는 부품입니다 ({pr.id}: {pr.template}).",
+                         details={"part": pr.id, "template": pr.template})
+        try:
+            values[pr.id] = t.Params.model_validate(raw_params.get(pr.id, pr.params))
+        except ValidationError as e:
+            return Issue(code="invalid_params", severity=Severity.error, item_index=index,
+                         message_ko=f"{label}: {t.display_name_ko}({pr.id})의 파라미터가 허용 범위를 벗어났습니다.",
+                         details={"path": pr.id, "part": pr.id,
+                                  "errors": e.errors(include_url=False, include_context=False)})
+        if t.key not in allowed:
+            return _part_not_allowed(label, index, pr.id, t.key, ctx)
+    out = resolve(req, values, ctx.fit_ctx, templates=prim, item_index=index, label_ko=label)
+    if isinstance(out, Issue):
+        return out
+    resolved, part_params, issues = out
+    for rp in resolved.parts:  # 해석기가 끼워 넣은 터널도 이 종에 허용되어야 한다
+        if rp.template not in allowed:
+            return _part_not_allowed(label, index, rp.id, rp.template, ctx)
+    template = template_for(resolved, req.name_ko)
+    params = assembly_params(template, part_params)
+    # 해석기 안내는 템플릿이 생기기 전 라벨로 썼다: 같은 항목의 모든 이슈가 같은 라벨이 되도록 바꾼다
+    final = _label(template, index)
+    issues = [_relabel(i, label, final) for i in issues]
+    label = final
+    cons = _height_constraint(template, ctx, params) + list(extra or [])
+    params, fixed = clamp_params(template, params, ctx.fit_ctx, cons, index, label, max_passes=ASSEMBLY_MAX_PASSES)
+    return template, params, _with_part(issues + fixed) + _rule_issues(template, params, ctx, index)
+
+
+def _relabel(issue: Issue, old: str, new: str) -> Issue:
+    prefix = f"{old}: "
+    if old == new or not issue.message_ko.startswith(prefix):
+        return issue
+    return issue.model_copy(update={"message_ko": f"{new}: {issue.message_ko[len(prefix):]}"})
+
+
+def _rule_issues(template: Template, params: TemplateParams, ctx: EngineContext, index: int) -> list[Issue]:
+    """보정으로 고칠 수 없는 템플릿 규칙 위반 (조립 모듈의 고정 부품이 이 종의 기준에 맞지 않는 경우 등)."""
+    return [Issue(code="rule_violation", severity=Severity.error, item_index=index,
+                  message_ko=f"{_label(template, index)}: {msg}")
+            for msg in template.rule_issues(params, ctx.rule_ctx)]
 
 
 def _attach_issues(items: list[BuiltItem]) -> list[Issue]:
@@ -314,8 +413,12 @@ def _shrink_to_fit(items: list[BuiltItem], ctx: EngineContext, report: Validatio
         for factor in SHRINK_STEPS:
             shrunk = shrink_params(t, base, factor)
             p2, issues = clamp_params(t, shrunk, ctx.fit_ctx, _height_constraint(t, ctx, shrunk),
-                                      item.index, item.label_ko)
+                                      item.index, item.label_ko, max_passes=max_passes(t))
             if p2 == item.params or any(i.severity == Severity.error for i in issues):
+                continue
+            # 줄인 값이 보정으로 고칠 수 없는 규칙을 어기면 쓰지 않는다 (run_engine 은 규칙 검사를 줄이기 전에만 하므로
+            # 그대로 두면 저장은 되고 다시 검증(revalidate)하면 오류가 난다. 예: 조립 모듈의 슬라이드 자식이 면 밖으로 나감)
+            if t.rule_issues(p2, ctx.rule_ctx):
                 continue
             candidate = build_item(item.index, t, p2, item.hint, ctx.rules.printing, item.decor, ctx.rule_ctx)
             trial = [candidate if it.index == item.index else it for it in items]
@@ -388,7 +491,13 @@ def revalidate(items: list[BuiltItem], ctx: EngineContext) -> ValidationReport:
     allowed = ctx.allowed_templates
     by_index = {it.index: it for it in items}
     for it in items:
-        if it.key not in allowed:
+        resolved = it.assembly
+        if resolved is not None:
+            bad = [p for p in resolved.parts if p.template not in allowed]
+            if bad:  # 조립 항목은 부품마다 본다
+                report.extend([_part_not_allowed(it.label_ko, it.index, p.id, p.template, ctx) for p in bad])
+                continue
+        elif it.key not in allowed:
             # 이 종에 없는 구조물은 제약을 계산하지 않는다 (예: 어항 크기 구분에는 램프·모래목욕통 기준 값이 없다)
             report.extend([_not_allowed(it.label_ko, it.index, it.key, ctx)])
             continue
@@ -399,6 +508,7 @@ def revalidate(items: list[BuiltItem], ctx: EngineContext) -> ValidationReport:
             extra = (_height_constraint(it.template, ctx, it.params)
                      + attach_constraints(it.template, it.hint, by_index))
             report.extend(constraint_violations(it.template, it.params, ctx.rule_ctx, extra, it.index, it.label_ko))
+            report.extend(_rule_issues(it.template, it.params, ctx, it.index))
     report.extend(validate_all(
         items, ctx.cage, ctx.size_rules, ctx.rules.printing, ctx.min_wall_mm, count=ctx.count,
         buoyancy=ctx.buoyancy,

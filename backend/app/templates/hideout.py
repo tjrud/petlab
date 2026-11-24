@@ -11,19 +11,25 @@
 from __future__ import annotations
 
 import math
+from typing import ClassVar
 
 import numpy as np
 from build123d import Align, Box, Cylinder, Part, Pos, Rot
 from pydantic import Field
 
 from app.templates.base import (
+    Anchor,
+    AttachKind,
     DecorZone,
+    FaceFields,
     Features,
     Opening,
     ParamConstraint,
+    PortProfile,
     RuleContext,
     Template,
     TemplateParams,
+    cutter_at,
 )
 
 DECOR_KEEPOUT_MM = 4.0   # 장식이 출입구·모서리·지붕판에서 떨어지는 거리
@@ -31,6 +37,8 @@ DECOR_MAX_DEPTH_MM = 1.0  # 장식 홈 깊이·돌기 높이 상한
 
 _BOTTOM = (Align.CENTER, Align.CENTER, Align.MIN)
 _CUT = 1.0  # 불리언 연산이 면과 정확히 겹치지 않도록 잘라내는 형상을 이만큼 연장
+# 출입구 단면 종류 (port_profile: 직사각형 + 반원 = 터널 round_arch 안쪽 단면과 같은 모양)
+DOOR_PROFILE: PortProfile = "round_arch"
 
 
 class HideoutParams(TemplateParams):
@@ -106,6 +114,9 @@ class HideoutTemplate(Template):
     size_fields = ("width_mm", "depth_mm", "height_mm")
     # entrance_count 가 생기기 전에 저장된 은신처는 출입구가 앞면 하나였다
     legacy_defaults = {"entrance_count": 1}
+    # 연결 표준: 드나드는 방. 터널 끝에 붙을 때는 출입구(앞, 출입구 2개면 뒤)로 잇는다
+    role = "room_host"
+    attach_order: ClassVar[dict[AttachKind, tuple[str, ...]]] = {"passage": ("front", "back")}
 
     def default_params(self, ctx: RuleContext | None = None) -> HideoutParams:
         if ctx is None:
@@ -196,6 +207,69 @@ class HideoutTemplate(Template):
         for x, y in vent_positions(p):
             part = part - Pos(x, y, H - t / 2) * Cylinder(p.vent_diameter_mm / 2, t + 2 * _CUT)
         return part
+
+    def anchors(self, p: HideoutParams) -> dict[str, Anchor]:
+        W, D, H, t = p.width_mm, p.depth_mm, p.height_mm, p.wall_thickness_mm
+        d = p.entrance_diameter_mm
+        z, up = (0.0, 0.0, 1.0), (0.0, 1.0, 0.0)
+        back_door = p.entrance_count >= 2
+        return {
+            # 옆면: 바닥 높이의 면 가운데. 앞면(과 출입구 2개면 뒷면)은 출입구 자리.
+            # 출입구 없는 옆면은 면 전체(가로 전체 × 높이 전체)에 슬라이드 결합 연결판을 붙일 수 있다 (mount)
+            "front": Anchor((0, -D / 2, 0), (0, -1, 0), z, side="front", port=d, wall_mm=t, profile=DOOR_PROFILE),
+            "back": Anchor((0, D / 2, 0), (0, 1, 0), z, side="back",
+                           port=d if back_door else None, wall_mm=t,
+                           mount=None if back_door else (-W / 2, W / 2, H),
+                           profile=DOOR_PROFILE if back_door else None),
+            "left": Anchor((-W / 2, 0, 0), (-1, 0, 0), z, wall_mm=t, mount=(-D / 2, D / 2, H)),
+            "right": Anchor((W / 2, 0, 0), (1, 0, 0), z, wall_mm=t, mount=(-D / 2, D / 2, H)),
+            # 지붕 위·바닥 아래 (위에 얹기·밑에 받치기)
+            "top": Anchor((0, 0, H), (0, 0, 1), up),
+            "bottom": Anchor((0, 0, 0), (0, 0, -1), up),
+        }
+
+    # ── 연결 표준 (자유 조립) ──
+
+    def face_fields(self, p: HideoutParams, anchor: str) -> FaceFields:
+        """옆면 가로는 왼쪽·오른쪽 = 세로(depth), 앞·뒤 = 가로(width). 높이 = 외형 높이, 벽 = 벽 두께.
+        출입구가 있는 면(앞, 출입구 2개면 뒤)은 통로 크기 = 출입구 폭 (단면 종류는 늘 둥근 아치라 파라미터가 없다)."""
+        if anchor in ("left", "right"):
+            return FaceFields(width="depth_mm", height="height_mm", wall="wall_thickness_mm")
+        if anchor in ("front", "back"):
+            door = anchor == "front" or p.entrance_count >= 2
+            return FaceFields(width="width_mm", height="height_mm", wall="wall_thickness_mm",
+                              port="entrance_diameter_mm" if door else None)
+        return FaceFields()
+
+    def open_port(self, p: HideoutParams, anchor: str) -> HideoutParams | None:
+        """뒷면은 출입구를 2개로 늘려 앞 출입구와 마주 보는 출입구를 낸다. 앞면(과 이미 열린 뒷면)은 그대로.
+        옆면·지붕·바닥에는 출입구를 낼 수 없다."""
+        if anchor == "front" or (anchor == "back" and p.entrance_count >= 2):
+            return p
+        if anchor == "back":
+            return p.model_copy(update={"entrance_count": 2})
+        return None
+
+    def envelope(self, p: HideoutParams) -> tuple[float, float, float]:
+        # 바깥 상자의 모서리는 출입구·환기구가 깎지 않는다
+        return (p.width_mm, p.depth_mm, p.height_mm)
+
+    def port_cutter(self, p: HideoutParams, anchor: str, depth_mm: float) -> Part | None:
+        a = self.anchors(p).get(anchor)
+        door = self.port_profile(p, anchor)
+        if a is None or door is None:
+            return None
+        return cutter_at(a, door, depth_mm)
+
+    def port_profile(self, p: HideoutParams, anchor: str):  # noqa: ANN201
+        """출입구 단면: 바닥 아래 _CUT 부터 반지름 높이까지 직사각형 + 반원 (둥근 아치)."""
+        a = self.anchors(p).get(anchor)
+        if a is None or a.port is None:
+            return None
+        from build123d import Circle, Rectangle
+
+        r = p.entrance_diameter_mm / 2
+        return Pos(0, -_CUT) * Rectangle(2 * r, r + _CUT, align=(Align.CENTER, Align.MIN)) + Pos(0, r) * Circle(r)
 
     def print_rotation(self, p: HideoutParams) -> np.ndarray:
         # X 축 기준 180° 회전: 지붕이 베드에 닿도록 뒤집는다.
