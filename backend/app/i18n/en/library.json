@@ -1,11 +1,14 @@
 {
   "T자": "T-piece",
   "{1} 갈림길 출입구는 최소 {0}mm 이상이어야 합니다": "{1} junction doors must be at least {0} mm wide",
+  "{1} 햄스터가 넘어 들어갈 수 있도록 턱 높이는 {0}mm 이하여야 합니다": "The lip must be at most {0} mm so a {1} can step in",
   "기역자": "corner",
   "넘어지지 않도록 세로는 {0}mm 이상이어야 합니다": "The depth must be at least {0} mm so the platform cannot tip over",
   "네모": "square",
   "둥근 아치": "round arch",
   "떨어져도 다치지 않도록 {1} 발판 높이는 {0}mm 이하여야 합니다": "Keep the deck at most {0} mm high so a {1} is not hurt by a fall",
+  "모래가 넘치지 않도록 턱 높이는 {0}mm 이상이어야 합니다": "The lip must be at least {0} mm to keep the sand in",
+  "모래를 담아 화장실로 쓰는 낮은 턱의 네모 트레이. 은신처·집·모래목욕통·플랫폼 옆면에 끼워 붙일 수 있다.": "A low-lipped square tray filled with sand as a toilet. Slides onto the side of a hideout, house, sand bath or platform.",
   "모서리에 벽이 남도록 갈림길 가로·세로는 {0}mm 이상이어야 합니다": "The junction must be at least {0} mm wide so wall remains at the corners",
   "발판 두께": "deck thickness",
   "발판 아래 통로": "Passage under the deck",
@@ -14,10 +17,13 @@
   "발판 윗면 높이": "deck top height",
   "발판 플랫폼": "Deck platform",
   "발판은 {0}mm 이상 두꺼워야 합니다": "The deck must be at least {0} mm thick",
+  "벽·바닥 두께": "wall/floor thickness",
   "벽·지붕 두께": "wall/roof thickness",
   "본체": "Body",
   "뾰족 아치": "pointed arch",
   "십자": "cross",
+  "안에서 돌아설 수 있도록 트레이 가로는 {0}mm 이상이어야 합니다": "The tray must be at least {0} mm wide so the animal can turn around inside",
+  "안에서 돌아설 수 있도록 트레이 세로는 {0}mm 이상이어야 합니다": "The tray must be at least {0} mm deep so the animal can turn around inside",
   "양옆 벽 위에 발판을 얹은 2층 플랫폼. 아래는 앞뒤로 트인 통로. 옆면에 램프·그릇 받침·물병 거치대를 끼울 수 있고 램프는 발판 높이에 맞춰진다.": "A raised deck on two side walls with an open passage underneath. Ramps, bowl holders and bottle stands slide onto its sides; a ramp rises to the deck height.",
   "옆벽 두께": "side wall thickness",
   "외형 가로(X)": "outer width (X)",
@@ -31,5 +37,7 @@
   "출입구 위로 벽이 남도록 갈림길 높이는 {0}mm 이상이어야 합니다": "The junction must be at least {0} mm tall so wall remains above the doors",
   "출입구 폭": "entrance width",
   "터널 갈림길": "Tunnel junction",
-  "터널 여러 개가 만나는 작은 방. 출입구 배치 I(앞·뒤), L(앞·왼쪽), T(앞·왼쪽·오른쪽), X(네 면). 출입구마다 터널을 잇고, 출입구 단면은 이은 터널에 맞춘다.": "A small chamber where tunnels meet. Door layout I (front, back), L (front, left), T (front, left, right) or X (all four). Each door takes a tunnel; the door shape follows the tunnel."
+  "터널 여러 개가 만나는 작은 방. 출입구 배치 I(앞·뒤), L(앞·왼쪽), T(앞·왼쪽·오른쪽), X(네 면). 출입구마다 터널을 잇고, 출입구 단면은 이은 터널에 맞춘다.": "A small chamber where tunnels meet. Door layout I (front, back), L (front, left), T (front, left, right) or X (all four). Each door takes a tunnel; the door shape follows the tunnel.",
+  "턱 높이": "lip height",
+  "화장실 트레이": "Litter tray"
 }

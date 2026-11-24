@@ -58,6 +58,60 @@
       "reason": null,
       "request_ids": []
     },
+    "litter_tray@v1": {
+      "sha256": "2932c1f2f4bd334a62155da5a61ba5650f0090fb46bfa6dbece176f6a70d894e",
+      "status": "active",
+      "published_at": "2026-11-24",
+      "family": "litter_tray",
+      "version": 1,
+      "role": "accessory",
+      "habitats": [
+        "cage"
+      ],
+      "verified_for": {
+        "hamster": [
+          "dwarf",
+          "syrian"
+        ]
+      },
+      "rule_fields_used": [
+        "gap_trap.passable_min_mm",
+        "max_step_height_mm"
+      ],
+      "rules_digest": {
+        "hamster/dwarf": "0bd6d17e1ae365cfbb6060b96644a0cae25139ad4b777fe6363c3fce50ce7016",
+        "hamster/syrian": "32f13b8cbb9084aee4d06d5ee6da5f80277bded9ddfa2fdbedb9e47ab7b9d068"
+      },
+      "golden": {
+        "hamster/dwarf/default": {
+          "params": {
+            "wall_thickness_mm": 3.0,
+            "width_mm": 130.0,
+            "depth_mm": 130.0,
+            "lip_height_mm": 30.0
+          },
+          "files": {
+            "print_0.stl": "063824b4a639ed20f49b662df55f29cd5cfc878d05026e06ecdcbc426c16a7ac",
+            "world_0.stl": "063824b4a639ed20f49b662df55f29cd5cfc878d05026e06ecdcbc426c16a7ac"
+          }
+        },
+        "hamster/syrian/default": {
+          "params": {
+            "wall_thickness_mm": 3.0,
+            "width_mm": 146.0,
+            "depth_mm": 146.0,
+            "lip_height_mm": 30.0
+          },
+          "files": {
+            "print_0.stl": "1b7d5278b247aaf256742cf66caeb60cbc1d6fcbe016464fa57b95e7094d7692",
+            "world_0.stl": "1b7d5278b247aaf256742cf66caeb60cbc1d6fcbe016464fa57b95e7094d7692"
+          }
+        }
+      },
+      "superseded_by": null,
+      "reason": null,
+      "request_ids": []
+    },
     "tunnel_junction@v1": {
       "sha256": "467dd610d95a7f575b24ee6467489d851f3db62e890549da718894f379641b26",
       "status": "active",

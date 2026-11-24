@@ -87,7 +87,7 @@
       "rule_default": "min(30, rule.max_step_height_mm)",
       "desc": {
         "ko": "턱 높이 mm. 종별 최대 턱 높이 이하",
-        "en": "Lip height mm. At most the species' maximum step height"
+        "en": "lip height mm. At most the species' maximum step height"
       }
     }
   },
@@ -104,7 +104,7 @@
       "source": "species",
       "reason": {
         "ko": "{1} 햄스터가 넘어 들어갈 수 있도록 턱 높이는 {0}mm 이하여야 합니다",
-        "en": "The lip must be at most {0} mm so a {1} hamster can step in"
+        "en": "The lip must be at most {0} mm so a {1} can step in"
       }
     },
     {
@@ -122,7 +122,7 @@
       "source": "species",
       "reason": {
         "ko": "안에서 돌아설 수 있도록 트레이 가로는 {0}mm 이상이어야 합니다",
-        "en": "The tray must be at least {0} mm wide so the hamster can turn around inside"
+        "en": "The tray must be at least {0} mm wide so the animal can turn around inside"
       }
     },
     {
@@ -131,7 +131,7 @@
       "source": "species",
       "reason": {
         "ko": "안에서 돌아설 수 있도록 트레이 세로는 {0}mm 이상이어야 합니다",
-        "en": "The tray must be at least {0} mm deep so the hamster can turn around inside"
+        "en": "The tray must be at least {0} mm deep so the animal can turn around inside"
       }
     }
   ],
