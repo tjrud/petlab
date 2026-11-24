@@ -3,7 +3,7 @@
   "parts": {
     "deck_platform@v1": {
       "sha256": "7632af8e207fd1a00745c5236b95f10c8db8cf7fc8c9c7a2016a0b8512084716",
-      "status": "active",
+      "status": "retired",
       "published_at": "2026-11-24",
       "family": "deck_platform",
       "version": 1,
@@ -25,6 +25,67 @@
       "rules_digest": {
         "hamster/dwarf": "197d509c4963bca23863df214e72cbe6a689deb84ad8bb6416b47037f9438039",
         "hamster/syrian": "b3157865e3ec1f0a29eadc36d59c175224510f04dbf2c7c1248d0041c6335de7"
+      },
+      "golden": {
+        "hamster/dwarf/default": {
+          "params": {
+            "wall_thickness_mm": 3.0,
+            "width_mm": 160.0,
+            "depth_mm": 120.0,
+            "height_mm": 100.0,
+            "deck_thickness_mm": 4.0
+          },
+          "files": {
+            "print_0.stl": "0ea470b83e54af1e8d32dc8be81571c561fbbee4abb8c9f7f6e98b92b990a600",
+            "world_0.stl": "f7aeed2af67485eddd31d1a98a7246574857649cd2d96c2374f3bceef63b6f31"
+          }
+        },
+        "hamster/syrian/default": {
+          "params": {
+            "wall_thickness_mm": 3.0,
+            "width_mm": 160.0,
+            "depth_mm": 120.0,
+            "height_mm": 100.0,
+            "deck_thickness_mm": 4.0
+          },
+          "files": {
+            "print_0.stl": "0ea470b83e54af1e8d32dc8be81571c561fbbee4abb8c9f7f6e98b92b990a600",
+            "world_0.stl": "f7aeed2af67485eddd31d1a98a7246574857649cd2d96c2374f3bceef63b6f31"
+          }
+        }
+      },
+      "superseded_by": "deck_platform@v2",
+      "reason": {
+        "ko": "좁은 발판 아래 통로가 터널 최대 길이보다 길어질 수 있어 새 판으로 바꿨습니다",
+        "en": "A narrow deck could make the passage underneath longer than the maximum tunnel length, so it was replaced by a new version"
+      },
+      "request_ids": []
+    },
+    "deck_platform@v2": {
+      "sha256": "0cab875e51b825b60c2406a114f6b7aa4a791b4077cb91f4e3b1c2b144fd9e9f",
+      "status": "active",
+      "published_at": "2026-11-24",
+      "family": "deck_platform",
+      "version": 2,
+      "role": "host",
+      "habitats": [
+        "cage"
+      ],
+      "verified_for": {
+        "hamster": [
+          "dwarf",
+          "syrian"
+        ]
+      },
+      "rule_fields_used": [
+        "entrance_min_diameter_mm",
+        "gap_trap.passable_min_mm",
+        "max_climb_height_mm",
+        "tunnel_max_length_mm"
+      ],
+      "rules_digest": {
+        "hamster/dwarf": "cb1a7a2d694bc350882e5cde9985310d2547adb4bf93ee2cf7948d53b631f4fb",
+        "hamster/syrian": "0d7f127d93e51a40fbccf55fd1962cb7f2adb00a68148c4af314019d62744c24"
       },
       "golden": {
         "hamster/dwarf/default": {

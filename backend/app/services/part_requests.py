@@ -39,9 +39,12 @@ EXCERPT_LEN = 200
 # 이름 앞의 종 이름은 떼고 센다 ("햄스터용 쳇바퀴" = "쳇바퀴"). 긴 것부터
 _NAME_PREFIXES = ("햄스터용", "햄스터", "hamster")
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
-_URL = re.compile(r"(?:https?://|www\.)\S+", re.IGNORECASE)
-# 전화번호·계좌 같은 7자리 이상 숫자 (사이에 한 글자 -, ., 빈칸이 끼어 있어도)
-_LONG_DIGITS = re.compile(r"\d(?:[ .\-]?\d){6,}")
+# 주소: 스킴(https://)·www. 로 시작하는 것, 경로가 붙은 도메인(instagram.com/…, bit.ly/…), 흔한 끝 이름의 도메인
+_URL = re.compile(r"(?:https?://|www\.)\S+"
+                  r"|\b[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}/\S*"
+                  r"|\b[\w-]+(?:\.[\w-]+)*\.(?:com|net|org|kr|me|ly|io|co|gg|app|link|xyz)\b\S*", re.IGNORECASE)
+# 전화번호·계좌 같은 7자리 이상 숫자 (숫자 사이에 -, ., 빈칸이 앞뒤 빈칸과 함께 끼어 있어도: "010 - 1234 - 5678")
+_LONG_DIGITS = re.compile(r"\d(?:(?:\s*[-.]\s*|\s)?\d){6,}")
 _SPACES = re.compile(r"\s+")
 
 
@@ -135,9 +138,11 @@ def record_missing(db: Session, *, design_id: str, version_no: int, missing: Ite
                    user_id: str | None, species: str, size: str, lang: str, now: datetime | None = None) -> list[str]:
     """설계 버전 하나의 missing_parts 를 센다. 새로 센 요청의 id 목록을 돌려준다.
 
-    부르는 쪽이 저장점(db.begin_nested) 안에서 부른다. 이름마다 문장 3~4개:
-    요청 행 넣기(이미 있으면 그대로) → 잠그고 읽기 → 설계별 기록 넣기(이미 있으면 그만) → 횟수 갱신."""
-    names = _names(missing)
+    부르는 쪽이 짧은 트랜잭션(또는 저장점)으로 감싸 커밋한다. 이름마다 문장 3~4개:
+    요청 행 넣기(이미 있으면 그대로) → 잠그고 읽기 → 설계별 기록 넣기(이미 있으면 그만) → 횟수 갱신.
+    행 잠금은 열쇠(name_key) 순서로 잡는다: 두 설계가 같은 두 이름을 반대 순서로 적어도 서로 기다리지 않는다
+    (Postgres 교착 상태가 나면 한쪽 수요가 사라진다)."""
+    names = sorted(_names(missing))
     if not names:
         return []
     now = now or _now()

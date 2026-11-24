@@ -553,6 +553,7 @@ class DesignService:
         db.flush()
         row = self._save_version(db, design, generated, 1, user)
         db.commit()
+        self._record_demand(db, design.id, generated, 1, user.id)
         return design, row
 
     def revise_design(
@@ -573,6 +574,7 @@ class DesignService:
         next_no = (db.scalar(select(func.max(DesignVersion.version)).where(DesignVersion.design_id == design.id)) or 0) + 1
         row = self._save_version(db, design, generated, next_no, user)
         db.commit()
+        self._record_demand(db, design.id, generated, next_no, user.id)
         db.refresh(design)
         return design, row
 
@@ -670,26 +672,28 @@ class DesignService:
         # 버전을 붙이지 않는다 (요청이 끝나면 세션이 되돌린다). 캐시도 쓰지 않는다
         if db.scalar(select(Design.id).where(Design.id == design.id)) is None:
             raise NotFoundError("설계가 삭제되었어요.")
-        self._record_demand(db, design, g, version_no, user)
+        # 수요(missing_parts)는 버전을 커밋한 뒤 따로 센다 (_record_demand)
         # 메시 캐시 저장 (뷰어용 배치 메시 + 출력 자세 메시)
         _write_cache(self._version_dir(design.id, version_no), files)
         return row
 
     @staticmethod
-    def _record_demand(db: Session, design: Design, g: _Generated, version_no: int, user: User) -> None:
+    def _record_demand(db: Session, design_id: str, g: _Generated, version_no: int, user_id: str) -> None:
         """카탈로그에 없다고 한 부품(missing_parts)을 수요로 센다. 엔진 통과 여부와 상관없이 센다.
-        저장점 안에서 하고 어떤 오류든 기록만 한다: 수요 기록 때문에 설계 저장이 실패하지 않는다."""
+        설계 버전을 커밋한 뒤 짧은 트랜잭션 하나로 한다: 요청 행 잠금(Postgres)을 설계 저장 내내 잡지 않는다.
+        어떤 오류든 되돌리고 기록만 한다: 수요 기록 때문에 설계 저장이 실패하지 않는다 (R10)."""
         missing = getattr(g.interpret.spec, "missing_parts", None)
         if not missing:
             return
         try:
-            with db.begin_nested():
-                part_requests.record_missing(
-                    db, design_id=design.id, version_no=version_no, missing=missing, prompt=g.prompt,
-                    user_id=user.id, species=g.habitat.species, size=g.habitat.size, lang=get_lang(),
-                )
+            part_requests.record_missing(
+                db, design_id=design_id, version_no=version_no, missing=missing, prompt=g.prompt,
+                user_id=user_id, species=g.habitat.species, size=g.habitat.size, lang=get_lang(),
+            )
+            db.commit()
         except Exception:
-            log.warning("part request recording failed: design=%s v=%s", design.id, version_no, exc_info=True)
+            db.rollback()
+            log.warning("part request recording failed: design=%s v=%s", design_id, version_no, exc_info=True)
 
     # ── 조회 ────────────────────────────────────────────────
 

@@ -41,9 +41,11 @@ from app.validation.report import Issue, Severity
 from tests.api_helpers import create_habitat, make_settings
 
 JUNCTION = "tunnel_junction@v1"
-DECK = "deck_platform@v1"
+# v1 은 좁은 발판 아래 통로가 종별 터널 최대 길이보다 길어질 수 있어 폐기하고 v2 로 바꿨다 (형상은 같고 제약 하나 더)
+DECK_V1 = "deck_platform@v1"
+DECK = "deck_platform@v2"
 TRAY = "litter_tray@v1"
-# 게시된 부품: key → (이름, 역할, 햄스터에 허용)
+# 게시된 활성 부품: key → (이름, 역할, 햄스터에 허용)
 PUBLISHED = {JUNCTION: ("터널 갈림길", "room_host", True), DECK: ("발판 플랫폼", "host", True),
              TRAY: ("화장실 트레이", "accessory", False)}
 FIXTURES = Path(__file__).parent / "data" / "compositions"
@@ -104,6 +106,17 @@ def test_published_part_is_registered_and_offered(rules, key) -> None:
     assert all(order.index(k) < order.index(key) for k in order if "@" not in k)
     assert (key in rules.allowed_templates("hamster")) is gated
     assert (key in rules.offered_templates("hamster")) is gated
+
+
+def test_retired_deck_v1_stays_for_stored_designs_but_is_not_offered(rules) -> None:
+    """폐기한 deck_platform@v1: 저장된 설계를 다시 만들고 검증하도록 레지스트리·allowed 에는 남고 새 설계에는 내놓지
+    않는다 (R7). 새 판을 가리킨다."""
+    e = index.entry(DECK_V1)
+    assert e is not None and e.status == "retired" and e.superseded_by == DECK and e.reason is not None
+    assert DECK_V1 in primitives() and primitives()[DECK_V1].retired
+    assert DECK_V1 in rules.allowed_templates("hamster") and DECK_V1 not in rules.offered_templates("hamster")
+    # 같은 파라미터의 형상은 그대로다 (v2 는 제약만 더했다)
+    assert index.entry(DECK).golden == e.golden
 
 
 def test_hamster_schema_stays_under_the_gating_budget(rules) -> None:
@@ -194,6 +207,42 @@ def test_junction_adopts_the_house_tunnel_shape(rules) -> None:
     assert settle_passes(res, params, ctx) == []
 
 
+@pytest.mark.parametrize("via_tube", [False, True])
+def test_junction_as_root_adopts_a_downstream_house(rules, via_tube) -> None:
+    """갈림길이 뿌리(위쪽)이고 집이 아래쪽: 갈림길이 아직 단면을 정하지 않았으므로 집 출입구(뾰족 아치)를 따른다.
+    방끼리 바로 이으면(터널을 끼움) 끼운 터널로, 터널을 거치면 그 끝으로. 집 → 갈림길 순서와 같은 결과."""
+    ctx = rctx(rules, "dwarf")
+    if via_tube:
+        parts = [("hub", JUNCTION, dp(JUNCTION, ctx)), ("tube", "tunnel", dp("tunnel", ctx)),
+                 ("house", "house", dp("house", ctx))]
+        conns, link = [("tube", "hub", "left"), ("house", "tube", "free_end")], "tube"
+    else:
+        parts = [("hub", JUNCTION, dp(JUNCTION, ctx)), ("house", "house", dp("house", ctx))]
+        conns, link = [("house", "hub", "right")], "house_link"
+    res, params, issues = resolve_ok(parts, conns, ctx)
+    assert params["hub"].door_shape == "pointed_arch" and params[link].shape == "pointed_arch"
+    assert res.stored()["fixed"]["hub.door_shape"] == "pointed_arch"
+    matched = [i for i in issues if i.code == "passage_shape_matched"]
+    assert [i.details["part"] for i in matched] == ["hub"] and "집에 맞춰 뾰족 아치로" in matched[0].message_ko
+    assert settle_passes(res, params, ctx) == []
+
+
+def test_mock_junction_with_a_house_on_its_right_builds(rules) -> None:
+    """모의 해석기 "갈림길 오른쪽에 2층 집" (갈림길이 뿌리, 집이 오른쪽): 엔진까지 오류 없이 통과한다."""
+    from app.domain import Cage
+    from app.llm.mock import MockInterpreter
+    from app.llm.spec import to_item_specs
+    from app.services.engine import EngineContext, run_engine
+    from tests.test_mock_compose import _req
+
+    spec = MockInterpreter().interpret(_req(rules, "갈림길 오른쪽에 2층 집")).spec
+    (it,) = spec.items
+    assert [(p.id, p.template) for p in it.parts] == [("hub", JUNCTION), ("house", "house")]
+    ctx = EngineContext(cage=Cage(1000, 600, 400), species="hamster", size="dwarf", count=1, rules=rules)
+    rep = run_engine(to_item_specs(spec), ctx).report
+    assert rep.passed, [(i.code, i.message_ko) for i in rep.errors]
+
+
 def test_junction_room_at_a_closed_face_is_relocated_and_accessories_slide_on(rules) -> None:
     """T 배치의 뒷면(닫힌 면)에 잇는 터널은 빈 출입구로 옮기고, 그릇 받침은 닫힌 면에 끼운다."""
     ctx = rctx(rules, "dwarf")
@@ -232,7 +281,7 @@ def test_mock_reads_three_hideouts_off_a_junction(rules) -> None:
     assert sum(1 for j in res.joins if j.parent.startswith("hub.")) == 2
 
 
-# ── deck_platform@v1 (설계 문서 §6.2) ─────────────────────────────
+# ── deck_platform@v2 (설계 문서 §6.2; v1 + 좁은 통로 길이 제약) ─────────────────────────────
 
 
 @pytest.mark.parametrize(("size", "height_min", "height_max", "width_min"), [("dwarf", 54, 120, 56),
@@ -255,6 +304,46 @@ def test_deck_defaults_per_size(rules, size, height_min, height_max, width_min) 
     assert f.climb_height_mm == 100 and f.access_sides == ("front", "back") and f.entrance_count is None
     (under,) = f.openings
     assert (under.kind, under.size_mm, under.rule_key) == ("passage", 96.0, "entrance_min_diameter_mm")
+
+
+@pytest.mark.parametrize(("size", "depth"), [("dwarf", 100.0), ("syrian", 210.0)])
+def test_narrow_deck_passage_is_no_longer_than_the_tunnel_limit(rules, size, depth) -> None:
+    """좁은 발판(통로 폭 < 통과 폭 2배: 안에서 돌아설 수 없다)의 아래 통로는 양옆·위가 막힌 터널이라 세로를 종별 터널
+    최대 길이로 줄인다 (드워프 100). 시리안은 최대 길이(250)가 세로 상한(210)보다 길어 그대로. 넓은 발판은 그대로."""
+    from app.domain import Cage
+    from app.services.engine import EngineContext, ItemSpec, run_engine
+
+    ctx = EngineContext(cage=Cage(1000, 600, 400), species="hamster", size=size, count=1, rules=rules)
+    narrow = dp(DECK, ctx.rule_ctx, wall_thickness_mm=3, width_mm=60, depth_mm=210, height_mm=54 if size == "dwarf"
+                else 74, deck_thickness_mm=4)
+    res = run_engine([ItemSpec(DECK, narrow)], ctx)
+    (it,) = res.items
+    assert it.params.depth_mm == depth
+    adjusted = [i for i in res.report.issues if i.code == "param_adjusted" and i.details.get("field") == "depth_mm"]
+    if size == "dwarf":
+        assert len(adjusted) == 1 and "막힌 터널과 같으므로 세로는 100mm 이하" in adjusted[0].message_ko
+    else:
+        assert adjusted == []
+    assert res.report.passed
+    wide = run_engine([ItemSpec(DECK, dp(DECK, ctx.rule_ctx, depth_mm=210))], ctx)
+    assert wide.items[0].params.depth_mm == 210 and wide.report.passed
+
+
+def test_ramp_and_bowl_on_one_deck_face_move_apart_instead_of_failing(rules) -> None:
+    """깊은 발판 한 옆면에 램프와 그릇 받침: 나란히 놓으면 세로 상한(210)을 넘으니 param_conflict 가 아니라 그릇 받침을
+    반대 옆면으로 옮긴다 (드워프·시리안 같게)."""
+    for size in ("dwarf", "syrian"):
+        ctx = rctx(rules, size)
+        res, params, issues = resolve_ok([("deck", DECK, dp(DECK, ctx, depth_mm=210)), ("ramp", "ramp", dp("ramp", ctx)),
+                                          ("bowl", "bowl_holder", dp("bowl_holder", ctx))],
+                                         [("ramp", "deck", "left"), ("bowl", "deck", "left")], ctx)
+        assert joins(res) == [("deck.left", "ramp.landing", "slide"), ("deck.right", "bowl.back", "slide")], size
+        moved = [i for i in issues if i.code == "join_relocated"]
+        assert [i.details["part"] for i in moved] == ["bowl"]
+        # 드워프는 세로 상한(210)에 걸리고 (예전에는 param_conflict), 시리안은 그 전에 출력 공간에 걸린다
+        why = "면이 만들 수 있는 크기보다 넓어야 합니다" if size == "dwarf" else "프린터 출력 공간보다 커집니다"
+        assert why in moved[0].message_ko, size
+        assert settle_passes(res, params, ctx) == []
 
 
 def test_deck_too_high_is_lowered_to_the_climb_limit(rules) -> None:

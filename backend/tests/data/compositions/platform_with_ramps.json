@@ -10,7 +10,7 @@
         "parts": [
           {
             "id": "deck",
-            "template": "deck_platform@v1",
+            "template": "deck_platform@v2",
             "params": {
               "wall_thickness_mm": 3.0,
               "width_mm": 160.0,

@@ -175,12 +175,13 @@
  "부품을 잇는 데 필요한 값이 부품의 허용 범위를 벗어났습니다": "A value needed to join the parts is outside a part's allowed range",
  "{0}: {1} 짧거나 많이 휘어 {2} {3} 겹칩니다. 터널을 덜 휘게 하거나 더 길게 하세요": "{0}: {1} is too short or bent too far, so {2} and {3} overlap. Bend the tunnel less or make it longer",
  "{0}: {1} {2}에 {3} 있어 나갈 출입구를 낼 수 없습니다. 그 부품을 다른 옆면에 붙이세요": "{0}: {3} is on the {2} of {1}, so no exit can be made there. Attach that part to another side",
- "{0} {1} {2} 대신 {3}에 붙였습니다. 한 면에 모두 붙이면 {4} 프린터 출력 공간보다 커집니다.": "Attached {0} to the {3} of {1} instead of the {2}. With everything on one face, {4} would be larger than the printer's build area.",
  "부품을 끼운 {0} 프린터 출력 공간({1}mm)에 들어가야 합니다": "{0}, with parts mounted on it, has to fit the printer's build area ({1} mm)",
  "다른 부품": "another part",
  "따로 출력하는 경사로가 프린터 출력 공간에 들어가면서 {0}° 이하로 완만하려면 높이가 {1}mm 이하여야 합니다": "For a separately printed ramp to fit the printer and stay at {0}° or gentler, its height must be {1} mm or less",
  "왼쪽 면": "left face",
  "오른쪽 면": "right face",
  "{0}: {1} 출입구는 {2} 단면을 만들 수 없어 {3}에 이을 수 없습니다": "{0}: the entrances of {1} can't take the {2} cross-section, so it can't connect to {3}",
- "{0} 출입구 단면을 {1}에 맞춰 {2} 바꿨습니다": "Changed the entrance cross-section of {0} to {2} to match {1}"
+ "{0} 출입구 단면을 {1}에 맞춰 {2} 바꿨습니다": "Changed the entrance cross-section of {0} to {2} to match {1}",
+ "한 면에 모두 붙이면 {0} 프린터 출력 공간보다 커집니다.": "With everything on one face, {0} would be larger than the printer's build area.",
+ "한 면에 모두 붙이면 {0} 면이 만들 수 있는 크기보다 넓어야 합니다.": "With everything on one face, that face of {0} would have to be wider than it can be made."
 }

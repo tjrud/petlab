@@ -48,6 +48,7 @@ CHECKS: dict[str, str] = {
     "G10": "engine run without errors or safety warnings",
     "G11": "static stability (tipping angle)",
     "G12": "deterministic bytes in process and in a fresh process",
+    "G13": "through-openings: declared holes only, none in the trap band",
     "C01": "anchor frames",
     "C02": "anchors on the surface, normals outward",
     "C03": "mounts are backed by a flat face",

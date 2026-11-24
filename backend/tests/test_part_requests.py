@@ -87,6 +87,13 @@ def test_normalize_name_is_idempotent():
     ("01012345678", "***"),
     ("가로 300 세로 200 높이 15 로", "가로 300 세로 200 높이 15 로"),  # 짧은 숫자는 그대로
     ("줄\n바꿈\t탭", "줄 바꿈 탭"),
+    # 스킴 없는 주소, 띄어 쓴 전화번호
+    ("연락 주세요 instagram.com/hamlover 쳇바퀴", "연락 주세요 *** 쳇바퀴"),
+    ("bit.ly/abc 쳇바퀴", "*** 쳇바퀴"),
+    ("naver.com 에서 봤어요", "*** 에서 봤어요"),
+    ("010 - 1234 - 5678", "***"),
+    ("010 1234 5678 로", "*** 로"),
+    ("높이 10.5cm, v1.2 처럼", "높이 10.5cm, v1.2 처럼"),
 ])
 def test_scrub(prompt, want):
     assert pr.scrub(prompt) == want
@@ -336,4 +343,53 @@ def test_postgres_concurrent_same_name_gives_one_row(tmp_path):
         rows = db.scalars(select(PartRequest)).all()
         assert len(rows) == 1 and (rows[0].request_count, rows[0].user_count) == (8, 8)
         assert rows[0].species_counts == {"hamster/dwarf": 8}
+    engine.dispose()
+
+
+@pytest.mark.skipif(not PG_URL, reason="TEST_PG_URL 이 없으면 Postgres 동시성 확인을 건너뛴다")
+def test_postgres_two_names_in_opposite_order_do_not_deadlock(tmp_path, monkeypatch):
+    """두 설계가 같은 두 이름을 반대 순서로 적어도 행 잠금을 열쇠 순서로 잡아 교착 상태가 없다 (한쪽 수요가 사라지지
+    않는다). 첫 잠금 뒤 잠깐 쉬어 두 스레드가 겹치게 한다 (순서를 맞추지 않으면 이때 교착 상태가 난다)."""
+    from tests.api_helpers import db_url
+
+    engine = make_engine(db_url(tmp_path))
+    init_db(engine)
+    factory = make_session_factory(engine)
+    real = pr.lock_request
+    local = threading.local()
+
+    def slow_first_lock(db, *where):
+        r = real(db, *where)
+        if not getattr(local, "slept", False):
+            local.slept = True
+            time.sleep(0.3)
+        return r
+
+    monkeypatch.setattr(pr, "lock_request", slow_first_lock)
+    barrier = threading.Barrier(2)
+    errors: list[BaseException] = []
+
+    def work(design: str, names: list[str]) -> None:
+        db = factory()
+        try:
+            barrier.wait()
+            pr.record_missing(db, design_id=design, version_no=1, missing=[{"name_ko": n, "purpose_ko": ""} for n in names],
+                              prompt="p", user_id=design, species="hamster", size="dwarf", lang="ko")
+            db.commit()  # DesignService._record_demand: 설계 버전을 커밋한 뒤 짧은 트랜잭션 하나
+        except Exception as e:  # noqa: BLE001
+            errors.append(e)
+            db.rollback()
+        finally:
+            db.close()
+
+    threads = [threading.Thread(target=work, args=("d" * 32, ["쳇바퀴", "해먹"])),
+               threading.Thread(target=work, args=("e" * 32, ["해먹", "쳇바퀴"]))]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not errors, errors
+    with factory() as db:
+        rows = {r.name_key: r.request_count for r in db.scalars(select(PartRequest))}
+        assert rows == {"쳇바퀴": 2, "해먹": 2}
     engine.dispose()

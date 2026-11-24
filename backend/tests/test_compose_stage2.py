@@ -237,14 +237,14 @@ def test_fill_exits_still_prefers_the_opposite_wall(dwarf):
     assert "exit_added" not in codes(issues) and params["hide"].side_doors == "left"
 
 
-def test_through_room_gets_a_side_exit_only_from_a_free_wall(dwarf):
-    """통로가 둘인 은신처(지나가는 방): 빈 옆면이 있으면 옆면 출입구를 내고, 옆면이 모두 받침이면 옮기지 않고 그대로 둔다
-    (옆면 출입구가 생기기 전과 같이 해석된다). 통로가 하나인 막다른 방은 나갈 곳이 없으면 face_unavailable."""
+def test_through_room_gets_no_extra_exit(dwarf):
+    """통로가 둘인 은신처(지나가는 방)는 막다른 방이 아니다: 빈 옆면이 있어도 출입구를 더 내지 않고, 옆면 받침도 옮기지
+    않는다 (옆면 출입구가 생기기 전과 같이 해석된다). 통로가 하나인 막다른 방은 나갈 곳이 없으면 face_unavailable."""
     parts = [("hide", "hideout", HIDE), ("t1", "tunnel", TUBE), ("t2", "tunnel", TUBE)]
     conns = [("t1", "hide", "front"), ("t2", "hide", "back")]
     _, params, issues = resolve_ok(request(parts, conns), dwarf)
-    assert params["hide"].side_doors == "left" and params["hide"].entrance_count == 2
-    assert [i.details for i in issues if i.code == "exit_added"] == [{"part": "hide", "anchor": "left"}]
+    assert params["hide"].side_doors == "none" and params["hide"].entrance_count == 2
+    assert "exit_added" not in codes(issues)
     full = request([*parts, ("bowl", "bowl_holder", BOWL), ("bowl2", "bowl_holder", BOWL)],
                    [("bowl", "hide", "left"), ("bowl2", "hide", "right"), *conns])
     res, params, issues = resolve_ok(full, dwarf)
@@ -257,6 +257,22 @@ def test_through_room_gets_a_side_exit_only_from_a_free_wall(dwarf):
                         ("t1", "hide", "front")])
     out = resolve_err(dead_end, dwarf)
     assert out.code == "face_unavailable" and out.details["part"] == "hide"
+
+
+def test_hideout_chain_middle_room_keeps_its_doors(dwarf):
+    """은신처 → 은신처 2(앞) → 은신처 3: 가운데 은신처는 앞·뒤 출입구를 통로로 쓰는 지나가는 방이라 옆면 출입구를 더
+    내지 않는다. 1단계(main)에서 저장한 같은 사슬을 고침 없이 다시 해석해도 파라미터가 바뀌지 않는다."""
+    req = request([("hide", "hideout", HIDE), ("hide2", "hideout", HIDE), ("hide3", "hideout", HIDE)],
+                  [("hide2", "hide", "front"), ("hide3", "hide2", "auto")])
+    res, params, issues = resolve_ok(req, dwarf)
+    assert params["hide2"].entrance_count == 2 and params["hide2"].side_doors == "none"
+    assert not [i for i in issues if i.code == "exit_added" and i.details["part"] == "hide2"]
+    again = request([(pid, "hideout", params[pid].model_dump()) for pid in ("hide", "hide2", "hide3")],
+                    [("hide2", "hide", "front"), ("hide3", "hide2", "auto")])
+    res2, params2, issues2 = resolve_ok(again, dwarf)
+    assert res2.canonical() == res.canonical()
+    assert {k: v.model_dump() for k, v in params2.items()} == {k: v.model_dump() for k, v in params.items()}
+    assert "exit_added" not in codes(issues2)
 
 
 def test_side_doors_pinned_for_passage_rooms(dwarf):
@@ -413,6 +429,68 @@ def test_network_of_one_room_type_through_an_adaptable_room(dwarf):
     for f in ("tube.inner_diameter_mm", "hub.door_width_mm", "tube2.inner_diameter_mm", "hide2.entrance_diameter_mm"):
         assert ties[f] == "hide.entrance_diameter_mm", f
     assert res.fixed["hub.door_shape"] == "round_arch"
+
+
+@pytest.mark.parametrize("via_tube", [False, True])
+@pytest.mark.parametrize(("room", "shape"), [("house", "pointed_arch"), ("hideout", "round_arch")])
+def test_adaptable_root_follows_a_downstream_room(dwarf, via_tube, room, shape):
+    """단면을 고르는 방이 뿌리(위쪽)이고 단면이 정해진 방이 아래쪽에 있어도 그 방 단면을 따른다 (잇는 순서와 상관없이):
+    방끼리 바로 이으면 끼운 터널로, 터널을 거치면 그 터널 끝으로. 역순(방 → 갈림길)과 같은 결과."""
+    rp = dp(room, dwarf) if room == "house" else HIDE
+    if via_tube:
+        req = request([("hub", "fake_hub", HubParams().model_dump()), ("tube", "tunnel", TUBE), ("room", room, rp)],
+                      [("tube", "hub", "front"), ("room", "tube", "free_end")])
+        link = "tube"
+    else:
+        req = request([("hub", "fake_hub", HubParams().model_dump()), ("room", room, rp)], [("room", "hub", "front")])
+        link = "room_link"
+    res, params, issues = resolve_ok(req, dwarf, WITH_HUBS)
+    assert params["hub"].door_shape == shape and params[link].shape == shape
+    assert res.fixed["hub.door_shape"] == shape and res.fixed[f"{link}.shape"] == shape
+    hub_notes = [i for i in issues if i.code == "passage_shape_matched" and i.details["part"] == "hub"]
+    assert [i.details for i in hub_notes] == [{"part": "hub", "from": "box", "to": shape}]
+    assert hub_notes[0].message_ko.endswith(f"갈림길 출입구 단면을 {'집' if room == 'house' else '은신처'}에 맞춰 "
+                                            f"{compose.PROFILE_KO[shape]}로 바꿨습니다")
+    # 임시 단면(box)으로 낸 터널 안내는 남지 않는다: 처음 모양에서 마지막 모양으로 한 번만
+    tube_notes = [i.details for i in issues if i.code == "passage_shape_matched" and i.details["part"] == link]
+    assert tube_notes == ([{"part": "tube", "from": "tube", "to": shape}] if via_tube else [])
+    # 고친 명세(해석 결과 파라미터)를 다시 해석해도 같은 저장 형태
+    ids = [("hub", "fake_hub"), *([("tube", "tunnel")] if via_tube else []), ("room", room)]
+    again = request([(pid, t, params[pid].model_dump()) for pid, t in ids],
+                    [(c.part, c.to, c.at) for c in req.connections])
+    res2, _, _ = resolve_ok(again, dwarf, WITH_HUBS)
+    assert res2.canonical() == res.canonical()
+
+
+def test_adaptable_root_with_several_tunnels_follows_one_room_type(dwarf):
+    """뿌리 갈림길의 다른 출입구에 먼저 이은 터널도 함께 바뀐다 (단면이 정해진 방을 만나기 전까지는 임시 단면)."""
+    req = request([("hub", "fake_hub", HubParams().model_dump()), ("t1", "tunnel", TUBE),
+                   ("house", "house", dp("house", dwarf))],
+                  [("t1", "hub", "back"), ("house", "hub", "front")])
+    res, params, _ = resolve_ok(req, dwarf, WITH_HUBS)
+    assert params["hub"].door_shape == "pointed_arch"
+    assert params["t1"].shape == "pointed_arch" and params["house_link"].shape == "pointed_arch"
+    assert res.fixed["t1.shape"] == "pointed_arch"
+
+
+@pytest.mark.parametrize("order", ["house_first", "hideout_first"])
+def test_adaptable_root_with_two_room_types_still_fails(dwarf, order):
+    """뿌리 갈림길에 집과 은신처: 첫 방의 단면으로 확정되고 둘째 방에서 F4 오류 (섞인 망은 이음 부품이 생길 때까지)."""
+    rooms = [("house", "house", dp("house", dwarf)), ("hide", "hideout", HIDE)]
+    if order == "hideout_first":
+        rooms.reverse()
+    req = request([("hub", "fake_hub", HubParams().model_dump()), *rooms],
+                  [(rooms[0][0], "hub", "front"), (rooms[1][0], "hub", "back")])
+    out = resolve_err(req, dwarf, WITH_HUBS)
+    assert out.code == "join_unsupported" and "양 끝의 출입구 단면 모양이 달라" in out.message_ko
+
+
+def test_adaptable_root_keeps_its_shape_when_the_other_room_cannot_follow(dwarf):
+    """뿌리 방이 만들 수 없는 단면(둥근 아치)의 방이 아래에 이어지면 예전처럼 F4 오류."""
+    req = request([("hub", "narrow_hub", NarrowHubParams().model_dump()), ("hide", "hideout", HIDE)],
+                  [("hide", "hub", "front")])
+    out = resolve_err(req, dwarf, WITH_HUBS)
+    assert out.code == "join_unsupported" and "양 끝의 출입구 단면 모양이 달라" in out.message_ko
 
 
 # ── 해석기 출력 검증: 단면 사전 검사 ──

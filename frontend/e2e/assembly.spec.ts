@@ -68,3 +68,24 @@ test("조립 구조물: 부품·연결·파트 파일이 보이고 STL zip 의 �
   expect(names.length).toBe(listed.length);
   expect(new Set(names).size).toBe(names.length);
 });
+
+test("라이브러리 부품이 든 설계: 화면의 파트 파일 이름이 STL zip 의 이름과 같다 (@ 는 -)", async ({ page }) => {
+  await signup(page, { username: `lib_${RUN}`, nickname: `라이브${RUN}`, password: "assembly-pass-321" }, { next: "/" });
+  const h = await page.request.post(`${API}/habitats`, {
+    data: { species: "hamster", size: "dwarf", count: 1, cage: { width_mm: 1000, depth_mm: 600, height_mm: 400 } },
+  });
+  const d = await page.request.post(`${API}/designs`, {
+    data: { habitat_id: (await h.json()).id, prompt: "2층 집이랑 터널 갈림길 따로" },
+  });
+  expect(d.status()).toBe(201);
+  const design = (await d.json()) as { id: string };
+  await page.goto(`/designs/${design.id}`);
+  const files = page.getByTestId("part-files").locator("li span.font-mono");
+  await expect(files.first()).toBeVisible();
+  const listed = await files.allTextContents();
+  expect(listed).toContain("part2_tunnel_junction-v1.stl");
+  const href = await page.getByRole("link", { name: "STL (zip) 받기" }).getAttribute("href");
+  const res = await page.request.get(href!);
+  expect(res.status()).toBe(200);
+  expect(zipEntryNames(await res.body()).sort()).toEqual([...listed].sort());
+});

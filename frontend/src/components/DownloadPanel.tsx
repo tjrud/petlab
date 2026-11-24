@@ -29,7 +29,8 @@ export function partFiles(items: Item[]): { name: string; label: string }[] {
   const out: { name: string; label: string }[] = [];
   for (const it of items) {
     const parts = it.parts?.length ? it.parts : [{ key: "body", name_ko: "본체", size_mm: it.print_size_mm }];
-    const base = `part${it.index + 1}_${it.template}`;
+    // 서버 내보내기 이름과 같은 규칙 (backend design_service.export_base_name): 라이브러리 키의 @ 등은 - 로
+    const base = `part${it.index + 1}_${it.template.replace(/[^A-Za-z0-9_-]/g, "-")}`;
     for (const part of parts) {
       out.push({ name: parts.length > 1 ? `${base}_${part.key}.stl` : `${base}.stl`, label: part.name_ko });
     }

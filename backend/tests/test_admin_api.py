@@ -80,6 +80,23 @@ def test_admin_gets_200_and_english_forbidden_message(client):
     assert r.status_code == 200 and r.json() == {"items": [], "total": 0, "page": 1, "page_size": 20}
 
 
+def test_english_ui_gets_the_stored_names_unchanged(admin):
+    """부품 요청은 사용자가 적은 그대로다: 영어 화면(X-Lang en)에서도 name_ko·쓰임새를 번역하지 않는다 (번역하면 두 행이
+    같은 이름으로 보이고, 내보내기가 저장된 이름과 달라지고, 보이는 이름으로 검색해도 찾지 못한다). 오류 문구는 번역한다."""
+    en = {"X-Lang": "en"}
+    rid = seed(admin, "쳇바퀴", purpose="달리기 운동")
+    seed(admin, "exercise wheel", purpose="running exercise", lang="en")
+    assert sorted(names(admin.get("/admin/part-requests", headers=en))) == ["exercise wheel", "쳇바퀴"]
+    row = next(x for x in admin.get("/admin/part-requests", headers=en).json()["items"] if x["id"] == rid)
+    assert row["name_ko"] == "쳇바퀴" and row["purposes"] == ["달리기 운동"]
+    assert admin.get(f"/admin/part-requests/{rid}", headers=en).json()["name_ko"] == "쳇바퀴"
+    exported = admin.get("/admin/part-requests/export", headers=en).json()["requests"]
+    assert sorted(x["name_ko"] for x in exported) == ["exercise wheel", "쳇바퀴"]
+    assert names(admin.get("/admin/part-requests", params={"q": "쳇바퀴"}, headers=en)) == ["쳇바퀴"]
+    r = admin.get("/admin/part-requests/" + "a" * 32, headers=en)
+    assert r.status_code == 404 and not any("가" <= ch <= "힣" for ch in r.json()["detail"]["message_ko"])
+
+
 # ── 목록 ────────────────────────────────────────────────
 
 

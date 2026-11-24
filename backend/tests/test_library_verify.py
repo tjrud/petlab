@@ -1,7 +1,8 @@
 """부품 검증기의 DSL 연결 (설계 §7.2 S/L 검사, §7.8 변이 묶음).
 
 - tests/data/library_bad/*.json: 일부러 망가뜨린 초안. 파일마다 "_expect"(걸려야 하는 검사 id)가 있고, 검증기는 정확히 그
-  검사로 실패해야 한다. "_also" 는 같은 문제를 엔진이 런타임 경고로 다시 알리는 검사(G10)만 적는다. "_profile" 이 full 이면
+  검사로 실패해야 한다. "_also" 는 같은 문제를 다시 알리는 검사만 적는다: 엔진의 런타임 경고(G10), 바닥과의 틈이 뚫린
+  구멍으로도 보이는 경우(G13). "_profile" 이 full 이면
   최솟값·최댓값 변형이 있어야 드러나는 문제다.
 - tests/data/library/*.json (§6 초안 세 개)은 정적 검사가 깨끗하고 `verify --quick` 을 통과한다.
 - 정적 검사(check)는 형상 커널 없이 1초 안에 끝난다.
@@ -36,7 +37,7 @@ MUTATIONS = {
     "rule_in_geometry": "L02", "anchor_off_surface": "C02", "mount_over_air": "C03", "door_into_block": "C04",
     "bed_overflow": "G04", "infeasible_defaults": "P1", "div_zero_extreme": "P4", "tippy": "G11",
     "tube_door": "S04", "hangul_en": "S06", "schema_bloat": "R01", "unreachable_step": "L05",
-    "bad_choice_literal": "S02",
+    "bad_choice_literal": "S02", "small_hole": "G13",
 }
 
 
@@ -49,7 +50,7 @@ def test_mutation_files_match_the_design_table():
     assert set(files) == set(MUTATIONS)
     for name, data in files.items():
         assert data["_expect"] == MUTATIONS[name], name
-        assert set(data.get("_also", [])) <= {"G10"}, name  # 같은 문제의 런타임 경고만
+        assert set(data.get("_also", [])) <= {"G10", "G13"}, name  # 같은 문제를 다시 알리는 검사만
 
 
 @pytest.mark.parametrize("name", sorted(MUTATIONS))
@@ -188,3 +189,39 @@ def test_check_is_kernel_free_and_fast():
     res = json.loads(out.stdout.strip().splitlines()[-1])
     assert res["heavy"] == []
     assert res["seconds"] < 3.0  # 세 파일 (파일 하나 < 1 s)
+
+
+# ── S07: 고체 수 한도는 필드 범위 전체에서, 만들 때도 ──
+
+
+def _ribbed_deck(peak: str) -> dict:
+    """반복 횟수가 정수 필드의 가운데 값에서 가장 큰 발판 (끝값에서는 둘)."""
+    d = _load(GOOD / "deck_platform.json")
+    d["params"]["rib_count"] = {"type": "integer", "default": 0, "min": 0, "max": 63,
+                                "desc": {"ko": "갈빗대 수", "en": "rib count"}}
+    for k in range(8):
+        d["body"].append({"op": "box", "size": [1.5, "D - 2", 2], "repeat": {"i": peak},
+                          "at": ["-W / 2 + t + 1 + i * (W - 2 * t - 2) / 64", 0, f"H - dt - 1.5 - {k} * 0.01"]})
+    return d
+
+
+def test_s07_bounds_a_non_monotone_repeat_over_the_whole_integer_range():
+    from app.library.verify.dsl_checks import SOLIDS_MAX
+
+    bad = [r for r in static_checks(_ribbed_deck("64 - 2 * abs(rib_count - 32)"), stem="deck_platform")
+           if r.id == "S07" and not r.ok]
+    assert len(bad) == 1 and bad[0].value > SOLIDS_MAX and "rib_count=32" in bad[0].message
+    ok = [r for r in static_checks(_ribbed_deck("min(rib_count, 8)"), stem="deck_platform") if r.id == "S07"]
+    assert ok and all(r.ok for r in ok)
+
+
+def test_runtime_solid_cap_refuses_any_params_over_the_limit():
+    from app.library.errors import DslError
+    from app.library.template import SOLIDS_MAX, make_template
+    from app.library.verify import dsl_checks
+
+    assert dsl_checks.SOLIDS_MAX == SOLIDS_MAX
+    t = make_template(_ribbed_deck("64 - 2 * abs(rib_count - 32)"), key="deck_platform@v9")
+    with pytest.raises(DslError) as e:
+        t.build(t.Params.model_validate({**t.Params().model_dump(), "rib_count": 32}))
+    assert e.value.code == "DSL006" and str(SOLIDS_MAX) in e.value.message

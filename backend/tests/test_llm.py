@@ -584,6 +584,9 @@ def test_template_keys_drop_fixed_modules(rules):
 
     # 햄스터: 케이지 코드 부품, 그다음 게시·게이팅한 라이브러리 부품 (rules/species.yaml; 레지스트리 순서 = key 순)
     assert template_keys(rules.allowed_templates("hamster")) == (*CAGE_TEMPLATES, "deck_platform@v1",
+                                                                  "deck_platform@v2", "tunnel_junction@v1")
+    # 폐기한 deck_platform@v1 은 저장된 설계를 위해 허용 목록에만 남고 해석기에는 내놓지 않는다
+    assert template_keys(rules.offered_templates("hamster")) == (*CAGE_TEMPLATES, "deck_platform@v2",
                                                                   "tunnel_junction@v1")
     assert set(template_keys()) <= set(primitives())
     modules = [t.key for t in all_templates() if t.key not in primitives()]
@@ -642,11 +645,12 @@ def test_hamster_catalog_lists_the_gated_library_parts(rules):
     schema = json.dumps(api_schema(rules.offered_templates("hamster")))
     assert "LibTunnelJunctionV1Params" in schema
     # 발판 플랫폼 (설계 문서 §6.2): 기준 부품으로만, 양옆 받침면에 램프·그릇 받침·물병 거치대
-    deck = cat["deck_platform@v1"]
+    deck = cat["deck_platform@v2"]
+    assert "deck_platform@v1" not in cat  # 폐기
     assert deck["이름"] == "발판 플랫폼" and deck["설명"].startswith("양옆 벽 위에 발판을 얹은 2층 플랫폼")
     assert list(deck["파라미터"]) == ["wall_thickness_mm", "width_mm", "depth_mm", "height_mm", "deck_thickness_mm"]
     assert "left/right: 옆면(램프/계단·그릇 받침·물병 거치대)" in deck["연결"] and "기준 부품으로만" in deck["연결"]
-    assert "LibDeckPlatformV1Params" in schema
+    assert "LibDeckPlatformV2Params" in schema and "LibDeckPlatformV1Params" not in schema
 
 
 def test_user_message_catalog_drops_fixed_modules(req, rules):

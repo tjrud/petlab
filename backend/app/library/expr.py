@@ -484,6 +484,9 @@ class _Compiler:
             if not isinstance(right, ast.Tuple):
                 raise self.err("DSL001", right, "the right side of 'in' must be a tuple of strings",
                                "write x in ('a', 'b') (a single item needs a trailing comma: ('a',))")
+            if not right.elts:
+                raise self.err("DSL001", right, "the tuple after 'in' is empty; it needs at least one string",
+                               "write x in ('a',) or compare with ==")
             values: list[str] = []
             for e in right.elts:
                 if not (isinstance(e, ast.Constant) and isinstance(e.value, str)):
@@ -556,9 +559,10 @@ class _Compiler:
                     raise self.err("DSL003", node.args[0], f"port_height() shape must be a choice, got "
                                                            f"{ts.describe()}")
                 bad = sorted(ts.values - set(DOOR_PROFILES))
+                src = ast.unparse(node.args[0])
                 if bad:
-                    raise self.err("DSL003", node.args[0], f"port_height() shape can be {bad[0]!r}; shapes: "
-                                                           f"{', '.join(DOOR_PROFILES)}")
+                    raise self.err("DSL003", node.args[0], f"port_height() shape `{src}` can be {bad[0]!r}, which is "
+                                                           f"not a door shape; shapes: {', '.join(DOOR_PROFILES)}")
             self.need(tw, NUM, node.args[1], "port_height() width")
             return NUM, (lambda env: _finite(port_height(fs(env), fw(env))))  # type: ignore[arg-type]
         args = [self.compile(a) for a in node.args]

@@ -62,6 +62,8 @@ ROTATIONS = ops.ROTATIONS
 BUILD_CACHE_SIZE = 8
 # repeat 의 반복 횟수 한도 (변수 하나, 두 변수의 곱)
 REPEAT_MAX = 64
+# 반복을 펼친 고체 수 한도 (부품 하나, 모든 단계). 정적 검사 S07 이 필드 범위 전체에서 막고, 만들 때도 다시 막는다
+SOLIDS_MAX = 512
 _AUTO_BOTTOM = Anchor((0.0, 0.0, 0.0), (0.0, 0.0, -1.0), (0.0, 1.0, 0.0))
 _NUMERIC = ("number", "integer")
 
@@ -413,9 +415,14 @@ class DslTemplate(Template):
     def _make_solids(self, p: TemplateParams) -> _Solids:
         env = self._geo(p)
         solids: dict[str, Part | None] = {pp.key: None for pp in self.part_file.print}
-        for idx, step in enumerate(self.part_file.body):
+        plan = [(idx, step, list(self._bindings(idx, env))) for idx, step in enumerate(self.part_file.body)]
+        count = sum(len(b) for _, _, b in plan)
+        if count > SOLIDS_MAX:
+            raise DslError("DSL006", "/body", f"these params make {count} solids after repeat expansion; "
+                                              f"the limit is {SOLIDS_MAX}", "use fewer repeats")
+        for idx, step, bindings in plan:
             base = pointer("body", idx)
-            for e in self._bindings(idx, env):
+            for e in bindings:
                 s = ops.make(step.op, self._step_args(idx, e), base)
                 cur = solids[step.part]
                 if step.mode == "add":

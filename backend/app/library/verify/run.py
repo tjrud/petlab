@@ -5,7 +5,7 @@
 등록된 인스턴스를 그대로 쓴다 (tests/test_part_contract.py 의 계약 검사).
 
 검사 묶음:
-- 변형마다: G01–G09, G11 (모든 도달 가능한 변형), C01–C08 (기본값·min/max·선택 변형), G10 (기본값·min/max),
+- 변형마다: G01–G09, G11, G13 (모든 도달 가능한 변형), C01–C08 (기본값·min/max·선택 변형), G10 (기본값·min/max),
   G12 (크기 구분마다 마릿수 1 기본값; 결과가 골든)
 - 부품 하나: P1–P4, T01–T02, R01–R04, C08 의 통로 자리 모음 (각 attach_order.passage 자리가 적어도 한 변형에서 통로이거나
   열 수 있는지)
@@ -44,7 +44,7 @@ from app.templates.base import Template
 
 ALL_CHECKS: tuple[str, ...] = (
     "P1", "P2", "P3", "P4",
-    "G01", "G02", "G03", "G04", "G05", "G06", "G07", "G08", "G09", "G10", "G11", "G12",
+    "G01", "G02", "G03", "G04", "G05", "G06", "G07", "G08", "G09", "G10", "G11", "G12", "G13",
     "C01", "C02", "C03", "C04", "C05", "C06", "C07", "C08",
     "T01", "T02", "R01", "R02", "R03", "R04",
 )
@@ -120,6 +120,8 @@ def variant_checks(t: Template, v: V.Variant, rules: Any, want: frozenset[str], 
         out += H.feature_honesty(t, p, it.mesh, ctx.size, v.id)
     if "G11" in want:
         out.append(H.check_stability(it.mesh, v.id))
+    if "G13" in want:
+        out += H.check_through_openings(t, p, it, ctx.size, v.id)
     if "G10" in want and v.kind in ENGINE_KINDS:
         out.append(G.check_engine(t, p, rules, v.species, v.size, v.count, v.id, extra_keys=(t.key,)))
     if any(c.startswith("C") for c in want) and v.kind in CONNECTION_KINDS:
@@ -390,6 +392,11 @@ def _performance(t: Template, rules: Any, cases: list[V.SizeCase], seconds: Mapp
 # ── R01: LLM 계약 ──
 
 
+def _family(key: str) -> str:
+    """라이브러리 key 의 계열 (family@vN → family). 코드 부품 key 는 그대로."""
+    return key.split("@", 1)[0]
+
+
 def _schema_len(keys: Iterable[str]) -> int:
     from app.llm.spec import api_schema
 
@@ -412,8 +419,11 @@ def schema_contract(t: Template, rules: Any, cases: list[V.SizeCase]) -> tuple[l
     except Exception as e:  # noqa: BLE001
         return [failed("R01", None, f"LLM models or catalog failed: {type(e).__name__}: {e}")], schema
     added: list[int] = []
+    family = _family(t.key)
     for sp in dict.fromkeys(c.species for c in cases):
-        base = tuple(k for k in rules.allowed_templates(sp) if k != t.key)
+        # 해석기가 실제로 받는 목록 (폐기·차단 부품은 빠진다). 같은 계열의 다른 판은 새 판이 대신하므로 뺀다
+        # (새 판을 게시하면 옛 판은 retire --superseded-by 로 내린다)
+        base = tuple(k for k in rules.offered_templates(sp) if k != t.key and _family(k) != family)
         with_part = base + (t.key,)
         total = _schema_len(with_part)
         add = total - _schema_len(base) if base else total

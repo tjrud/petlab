@@ -253,10 +253,15 @@ def publish(draft_path: Path | str, *, lib: Library | None = None, requests: Seq
         }
         idx["parts"][key] = entry
         write_index(lib, idx)
+        older = sorted(k for k, e in idx["parts"].items() if e["family"] == family and k != key
+                       and e["status"] == "active")
     # 7. 영어 문구
     write_i18n(lib)
     # 8. 다음에 할 일
     msgs = publish_messages(key, run, requests, rules if rules is not None else _rules())
+    # 스키마 예산(R01)은 같은 계열의 옛 판을 뺀 목록으로 셌다: 옛 판은 새 설계에서 내린다
+    msgs[1:1] = [f"retire the older version: uv run python -m app.library retire {k} --superseded-by {key} "
+                 "--reason-ko … --reason-en …" for k in older]
     for m in msgs:
         out(m)
     return PublishResult(key, run, report, entry, msgs)
@@ -510,6 +515,11 @@ def audit_integrity(lib: Library) -> list[str]:
             problems.append(f"{key}: the latest report is for {last.get('key')!r}")
         if not any(r.get("result") == "pass" and r.get("profile") == VERIFY_PROFILE for r in read_reports(lib, key)):
             problems.append(f"{key}: no passing {VERIFY_PROFILE} verification in the report")
+        # 검증한 크기마다 기본값 골든 (R4: 골든을 색인에서 지우면 다시 만들기 비교가 조용히 빠진다)
+        for sp, sizes in e.verified_for.items():
+            for size in sizes:
+                if f"{sp}/{size}/default" not in e.golden:
+                    problems.append(f"{key}: no golden {sp}/{size}/default for a verified size")
     if reports_dir.is_dir():
         for f in sorted(reports_dir.glob("*.json")):
             if f.stem not in entries:
@@ -542,6 +552,11 @@ def audit_mirror(lib: Library) -> list[str]:
         for name, g in e.golden.items():
             if rep_golden.get(name) != g.model_dump(mode="json"):
                 problems.append(f"{key}: golden {name} differs from the latest report")
+        # 보고서의 골든은 (색인이 아직 검증한 크기라면) 모두 색인에 있어야 한다: 색인에서만 빼면 R4 비교가 빠진다
+        verified = {f"{sp}/{size}" for sp, sizes in e.verified_for.items() for size in sizes}
+        for name in rep_golden:
+            if "/".join(name.split("/")[:2]) in verified and name not in e.golden:
+                problems.append(f"{key}: golden {name} of the latest report is missing from the index")
         rep_vf = last.get("verified_for", {})
         for sp, sizes in e.verified_for.items():
             extra = sorted(set(sizes) - set(rep_vf.get(sp, [])))

@@ -172,6 +172,10 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
         response.headers.add_vary_header("X-Lang")
         if lang == "ko" or not response.headers.get("content-type", "").startswith("application/json"):
             return response
+        if request.url.path.startswith(f"{prefix}/admin/part-requests") and response.status_code < 400:
+            # 부품 요청은 사용자가 적은 이름·쓰임새 그대로다 (name_ko 는 서버 문구가 아니다). 바꾸면 목록·검색·내보내기가
+            # 저장된 이름과 달라진다. 오류 응답(message_ko)만 번역한다
+            return response
         body = b"".join([chunk async for chunk in response.body_iterator])
         try:
             data = json.loads(body)

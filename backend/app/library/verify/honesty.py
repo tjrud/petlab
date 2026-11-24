@@ -12,6 +12,11 @@
   통로 확인체(DSL passage 개구부의 probe): 폭 size − 0.5 의 통로 단면 기둥이 부품과 1mm³ 미만으로 겹친다.
   환기구·창 크기: DSL 이 자른 단계에서 구한 크기가 features 에 그대로 있는지.
 - G11: 바닥(z < 0.5) 꼭짓점의 볼록 껍질 변마다 atan(부피 중심 XY 에서 변까지 거리 / 부피 중심 높이) 의 최솟값.
+- G13 뚫린 구멍 (표본 없이 정해진 계산; G08 의 표본점이 작은 구멍 벽을 비켜 가도 잡는다):
+  1. 위상: 출력 파트마다 메시 종수(genus, 오일러 수에서)가 구멍 개수다. 선언한 환기구·창(그 단계가 만든 개수)과 통로
+     개구부 수보다 많으면 선언하지 않은 구멍 (거치대 벽 창처럼 반대쪽이 막혀 들여다보이지 않는 구멍도).
+  2. 투영: X·Y·Z 축으로 본 실루엣(옆에서 볼 때는 케이지 바닥도 막힌 것으로)의 안쪽 구멍마다 최대 내접원 지름을 재고,
+     끼임 구간 (safe_max, passable_min) 에 들면 실패 (선언했든 안 했든).
 """
 
 from __future__ import annotations
@@ -256,3 +261,104 @@ def check_stability(mesh: trimesh.Trimesh, variant: str | None = None) -> CheckR
         return failed("G11", variant, f"tipping angle {ang:.1f}° is below {TIP_MIN_DEG:g}°", value=ang,
                       limit=TIP_MIN_DEG, hint="widen the base or lower the centre of mass")
     return passed("G11", variant, value=ang, limit=TIP_MIN_DEG)
+
+
+# ── G13 ──
+
+THROUGH_EPS_MM = 0.05     # 투영 구멍 지름 허용오차 (GapTrapRule.is_trap 와 같은 크기)
+THROUGH_MIN_AREA_MM2 = 0.5  # 삼각형 합치기에서 생긴 틈 (구멍이 아니다)
+FLOOR_PAD_MM = 50.0
+
+
+def mesh_genus(mesh: trimesh.Trimesh) -> int:
+    """닫힌 메시의 종수 합 (덩어리마다 χ = 2 − 2g)."""
+    m = mesh.copy()
+    m.merge_vertices()
+    chi = int(m.euler_number)
+    return max(0, (2 * int(m.body_count) - chi) // 2)
+
+
+def projected_holes(mesh: trimesh.Trimesh, floor: bool = True) -> list[tuple[str, float, tuple[float, float, float]]]:
+    """축(x, y, z)마다 메시 실루엣 안쪽의 구멍: (축, 최대 내접원 지름 mm, 구멍 중심). 옆(x, y)에서 볼 때는 바닥 z ≤ 0
+    을 막힌 것으로 본다 (발판 아래처럼 바닥과 부품 사이로 뚫린 틈도 구멍이다). 메시는 사용 자세 (바닥 z=0)."""
+    import shapely
+
+    out: list[tuple[str, float, tuple[float, float, float]]] = []
+    lo, hi = mesh.bounds
+    for axis in (0, 1, 2):
+        u, v = [k for k in (0, 1, 2) if k != axis]
+        tris = mesh.triangles[:, :, [u, v]]
+        d1, d2 = tris[:, 1] - tris[:, 0], tris[:, 2] - tris[:, 0]
+        keep = np.abs(d1[:, 0] * d2[:, 1] - d1[:, 1] * d2[:, 0]) > 1e-9
+        if not keep.any():
+            continue
+        polys = shapely.polygons(tris[keep])
+        geom = shapely.unary_union(shapely.buffer(polys, 1e-3))
+        if floor and axis != 2:
+            geom = shapely.union(geom, shapely.box(lo[u] - 1.0, lo[2] - FLOOR_PAD_MM, hi[u] + 1.0, lo[2] + 1e-3))
+        parts = list(geom.geoms) if geom.geom_type == "MultiPolygon" else [geom]
+        for poly in parts:
+            if poly.geom_type != "Polygon":
+                continue
+            for ring in poly.interiors:
+                hole = shapely.Polygon(ring)
+                if hole.area < THROUGH_MIN_AREA_MM2:
+                    continue
+                d = 2 * shapely.maximum_inscribed_circle(hole, 0.02).length
+                c = hole.representative_point()
+                at = [0.0, 0.0, 0.0]
+                at[u], at[v] = float(c.x), float(c.y)
+                at[axis] = float((lo[axis] + hi[axis]) / 2)
+                out.append(("xyz"[axis], float(d), (at[0], at[1], at[2])))
+    return out
+
+
+def declared_holes(t: Template, p: TemplateParams) -> int | None:
+    """DSL 부품이 선언한 뚫린 구멍 수 (환기구·창: 그 단계가 만든 개수, 통로 개구부: 바닥에서 띄운 것만 하나씩; 바닥에서
+    트인 통로(발판 아래)는 위상으로 구멍이 아니다). 코드 부품은 None."""
+    pf = getattr(t, "part_file", None)
+    if pf is None:
+        return None
+    from app.library.schema import VentOpening
+
+    env = t._geo(p)  # type: ignore[attr-defined]
+    ids = {s.id: i for i, s in enumerate(pf.body) if s.id is not None}
+    n = 0
+    for k, o in enumerate(pf.features.openings or []):
+        if not t._when(f"/features/openings/{k}/when", env):  # type: ignore[attr-defined]
+            continue
+        if isinstance(o, VentOpening):
+            n += sum(1 for _ in t._bindings(ids[o.step], env))  # type: ignore[attr-defined]
+        elif t._vec(f"/features/openings/{k}/probe/at", env)[2] > GAP_FLOOR_SKIP_MM:  # type: ignore[attr-defined]
+            n += 1
+    return n
+
+
+def check_through_openings(t: Template, p: TemplateParams, it: Any, size: Any, variant: str | None = None
+                           ) -> list[CheckResult]:
+    """G13. it: engine.build_item 결과 (출력 파트 메시와 사용 자세 메시)."""
+    out: list[CheckResult] = []
+    safe, passable = size.gap_trap.safe_max_mm, size.gap_trap.passable_min_mm
+    holes = projected_holes(it.mesh)
+    trap = [h for h in holes if safe + THROUGH_EPS_MM < h[1] < passable - THROUGH_EPS_MM]
+    if trap:
+        axis, d, at = min(trap, key=lambda h: h[1])
+        out.append(failed("G13", variant, f"a {d:.1f} mm opening goes through the part along {axis} "
+                                          f"(between {safe:g} and {passable:g}) at {np.round(at, 1).tolist()}",
+                          value=d, limit=safe,
+                          hint="close the hole below the safe size or open it to the passable size"))
+    declared = declared_holes(t, p)
+    if declared is not None:
+        genus = sum(mesh_genus(part.mesh) for part in it.print_parts)
+        if genus > declared:
+            small = sorted((h for h in holes if h[1] < passable - THROUGH_EPS_MM), key=lambda h: h[1])
+            where = f" (seen along {small[0][0]} at {np.round(small[0][2], 1).tolist()}, {small[0][1]:.1f} mm)" \
+                if small else ""
+            out.append(failed("G13", variant, f"the mesh has {genus} through-hole(s) but the file declares {declared} "
+                                              f"vent/window/passage opening(s){where}",
+                              path="/features/openings", value=float(genus), limit=float(declared),
+                              hint="declare every hole as a vent or window opening (its size is derived and checked) "
+                                   "or remove the cut"))
+    if not out:
+        out.append(passed("G13", variant, value=float(len(holes))))
+    return out

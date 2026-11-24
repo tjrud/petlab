@@ -55,7 +55,8 @@ export default function AuthMenu() {
   }
   return (
     <div className="relative flex min-w-0 items-center gap-2 text-sm">
-      {/* 관리자만: 부품 요청 화면 (헤더 줄이 넘치지 않도록 자리가 넉넉한 너비에서만 보인다) */}
+      {/* 관리자만: 부품 요청 화면 (헤더 줄이 넘치지 않도록 자리가 넉넉한 너비에서만 보인다. 다른 너비에서는 닉네임 →
+          내 정보의 "부품 요청" 링크로 들어간다) */}
       {user.role === "admin" && (
         <Link
           href="/admin/part-requests"

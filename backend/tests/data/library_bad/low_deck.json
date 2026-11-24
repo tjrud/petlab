@@ -1,5 +1,8 @@
 {
   "_expect": "G08",
+  "_also": [
+    "G13"
+  ],
   "_note": "the gap under the deck is 15 mm: the floor plane closes the trap",
   "dsl": 1,
   "family": "low_deck",

@@ -553,6 +553,40 @@ def test_trials_respect_profiles_and_ids(rules):
     assert not T._compatible(prim["hideout"], prim["hideout"].default_params(ctx), prim["house"], ctx)
 
 
+@pytest.mark.parametrize("size", ["dwarf", "syrian"])
+def test_host_trials_put_a_ramp_and_a_bowl_on_one_face(rules, size):
+    """host 시험에 한 면에 램프·그릇 받침 둘 다: 면 가로 필드 상한(발판 세로 ≤ 210)을 넘으면 param_conflict 가 아니라
+    다른 면으로 옮겨야 통과한다 (깊은 발판에서 드워프가 실패하던 경우)."""
+    from app.templates.registry import primitives
+
+    prim = primitives()
+    key = "deck_platform@v1"
+    ctx = V.fit_ctx(rules, "hamster", size)
+    trials = T.generate(key, prim[key], prim, ctx)
+    same = [t for t in trials if t.name == "ramp+bowl@deck.left"]
+    assert len(same) == 1 and same[0].connections == [("ramp", "deck", "left"), ("bowl", "deck", "left")]
+    deep = T.Trial("deep", same[0].parts, same[0].connections, kind="slide")
+    for tr in (same[0], deep):
+        r = T.run_trial(tr, prim, rules, "hamster", size) if tr is same[0] else _run_deep(tr, prim, rules, size)
+        assert r.ok, r.message
+
+
+def _run_deep(trial, prim, rules, size):
+    """발판 세로를 필드 상한(210)으로 둔 시험 (기본값 시험과 같은 경로)."""
+    from unittest import mock
+
+    t = prim["deck_platform@v1"]
+    real = t.default_params
+
+    def deep_defaults(ctx=None):
+        return real(ctx).model_copy(update={"depth_mm": 210.0})
+
+    with mock.patch.object(t, "default_params", deep_defaults):
+        r = T.run_trial(trial, prim, rules, "hamster", size)
+    assert any("bowl.back" in j and "deck.right" in j for j in r.joins), r.joins
+    return r
+
+
 def test_accessory_trials_pass_for_bowl_holder(rules):
     from app.templates.registry import primitives
 

@@ -23,6 +23,7 @@ from __future__ import annotations
 import ast
 import importlib.util
 import json
+import math
 import re
 from collections.abc import Iterable, Mapping
 from typing import Any
@@ -376,29 +377,83 @@ def _s07(part: Any, compiled: Any, raw_size: int | None) -> list[CheckResult]:
             out.append(_fail("S07", ptr, f"{n} {what}; the limit is {limit}", value=float(n), limit=float(limit)))
     if compiled is None:
         return out
-    # 반복을 펼친 고체 수: 정수 필드는 최댓값, 나머지는 기본값에서
-    values: dict[str, object] = {}
-    for name, spec in part.params.items():
-        values[name] = spec.max if spec.type == "integer" else spec.default
-    try:
-        env = compiled.geometry_env(values)
-    except DslError:
-        return out  # 계산 오류는 검증기 P4 가 다룬다
-    total = 0
+    # 반복을 펼친 고체 수의 상한: 필드 범위 전체에서 (정수 필드는 모든 값, 수 필드는 최솟값·최댓값·기본값, 선택·참거짓은
+    # 모든 값). 반복 횟수 식이 단조가 아니어도 (가운데 값에서 가장 큰 식) 놓치지 않는다
+    total, at = _max_solids(part, compiled)
+    if total > SOLIDS_MAX:
+        out.append(_fail("S07", "/body", f"up to {total} solids after repeat expansion (at {at})",
+                         "use fewer repeats or narrower integer field bounds", value=float(total),
+                         limit=float(SOLIDS_MAX)))
+    return out
+
+
+# 반복 횟수 상한을 찾을 때 값 조합 수 한도 (넘으면 필드마다 따로 가장 큰 값을 더한다: 더 큰 상한)
+SOLIDS_COMBOS_MAX = 20_000
+
+
+def _param_values(spec: Any) -> list[object]:
+    if spec.type == "integer":
+        return list(range(int(spec.min), int(spec.max) + 1))
+    if spec.type == "number":
+        return list(dict.fromkeys([spec.min, spec.max, spec.default]))
+    if spec.type == "choice":
+        return list(spec.choices)
+    return [False, True]
+
+
+def _step_counts(part: Any, compiled: Any, env: dict[str, object]) -> list[int]:
+    counts = []
     for i, step in enumerate(part.body):
         n = 1
         for var in (step.repeat or {}):
             e = compiled.get(f"/body/{i}/repeat/{var}")
             try:
                 n *= max(0, round(float(e.evaluate(env)))) if e is not None else 1  # type: ignore[arg-type]
-            except (DslError, TypeError, ValueError):
-                n *= 1
-        total += n
-    if total > SOLIDS_MAX:
-        out.append(_fail("S07", "/body", f"{total} solids after repeat expansion at the integer maxima",
-                         "use fewer repeats or lower integer field maxima", value=float(total),
-                         limit=float(SOLIDS_MAX)))
-    return out
+            except (DslError, TypeError, ValueError, OverflowError):
+                n *= 1  # 계산 오류는 검증기 P4 가 다룬다
+        counts.append(n)  # REPEAT_MAX 를 넘는 단계는 만들 때 DSL006 이지만 여기서는 펼친 수 그대로 센다
+    return counts
+
+
+def _repeat_params(part: Any, compiled: Any) -> list[str]:
+    """반복 횟수 식이 (let 을 거쳐) 읽는 파라미터."""
+    lets = dict(compiled.lets)
+    seen: set[str] = set()
+    todo = [n for i, step in enumerate(part.body) for var in (step.repeat or {})
+            if (e := compiled.get(f"/body/{i}/repeat/{var}")) is not None for n in e.names]
+    while todo:
+        n = todo.pop()
+        if n in seen:
+            continue
+        seen.add(n)
+        if n in lets:
+            todo += list(lets[n].names)
+    return [n for n in part.params if n in seen]
+
+
+def _max_solids(part: Any, compiled: Any) -> tuple[int, str]:
+    """(고체 수 상한, 그 값 조합 설명). 반복 횟수가 읽는 필드만 범위 전체로 바꾸고 나머지는 기본값으로 둔다."""
+    import itertools
+
+    if not any(step.repeat for step in part.body):
+        return len(part.body), "any params"
+    defaults = {n: spec.default for n, spec in part.params.items()}
+    names = _repeat_params(part, compiled)
+    domains = [_param_values(part.params[n]) for n in names]
+    if math.prod(len(d) for d in domains) > SOLIDS_COMBOS_MAX:
+        # 조합이 너무 많으면 정수 필드도 최솟값·최댓값·기본값과 그 사이 64 점만 (그래도 단조가 아닌 식의 봉우리를 찾는다)
+        domains = [d if len(d) <= 66 else sorted({d[0], d[-1], *d[:: max(1, len(d) // 64)]}) for d in domains]
+    best, where = -1, "defaults"
+    for values in itertools.product(*domains):
+        try:
+            env = compiled.geometry_env({**defaults, **dict(zip(names, values, strict=True))})
+        except DslError:
+            continue
+        n = sum(_step_counts(part, compiled, env))
+        if n > best:
+            best, where = n, ", ".join(f"{k}={v}" for k, v in zip(names, values, strict=True)
+                                       if v != defaults[k]) or "defaults"
+    return max(best, 0), where
 
 
 # ── S08 벽 두께 ──

@@ -15,6 +15,7 @@ from __future__ import annotations
 import copy
 import difflib
 import json
+import math
 from functools import lru_cache
 from typing import Annotated, Any, Literal
 
@@ -65,6 +66,8 @@ def _num(v: object) -> object:
     """수 자리: JSON 숫자 또는 식 문자열 (최대 400자). bool 은 숫자가 아니다."""
     if isinstance(v, bool) or not isinstance(v, (int, float, str)):
         raise PydanticCustomError("num_type", "expected a number or an expression string")
+    if isinstance(v, float) and not math.isfinite(v):
+        raise PydanticCustomError("finite_number", "the number must be finite (not Infinity or NaN)")
     if isinstance(v, str):
         if not v:
             raise PydanticCustomError("string_too_short", "an expression string cannot be empty")
@@ -137,11 +140,14 @@ class _Bounded(_Strict):
         return self
 
 
+Finite = Annotated[float, Field(allow_inf_nan=False)]
+
+
 class NumberParam(_Bounded):
     type: Literal["number"]
-    default: float
-    min: float
-    max: float
+    default: Finite
+    min: Finite
+    max: Finite
     rule_default: Expr | None = None
     desc: Text
 
@@ -358,6 +364,14 @@ class PartFile(_Strict):
 
     dsl: Literal[1]
     family: Annotated[str, Field(pattern=FAMILY_PATTERN)]
+
+    @field_validator("dsl", mode="before")
+    @classmethod
+    def _dsl_is_an_integer(cls, v: object) -> object:
+        # Literal[1] 은 True·1.0 도 1 과 같다고 받는다 (JSON Schema 의 const 1 은 받지 않는다)
+        if type(v) is not int:
+            raise PydanticCustomError("literal_error", "unsupported dsl version")
+        return v
     version: Annotated[int, Field(ge=1, le=999)] | None = None
     key: Annotated[str, Field(pattern=KEY_PATTERN)] | None = None
     name: NameText

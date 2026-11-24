@@ -45,6 +45,30 @@ def test_latest_reports_mirror_the_index(lib):
     assert pub.audit_mirror(lib) == []
 
 
+@pytest.mark.parametrize("drop", ["all", "one"])
+def test_removing_goldens_from_the_index_is_caught(lib, tmp_path, drop):
+    """색인(유일하게 바뀌는 파일)에서 골든을 지우면 R4 다시 만들기 비교가 조용히 빠진다: 검증한 크기마다 기본값 골든이
+    있어야 하고, 마지막 보고서의 골든이 색인에 모두 있어야 한다."""
+    import shutil
+
+    if not index.entries():
+        pytest.skip("no published parts")
+    copy = pub.copy_library(lib, tmp_path / "lib")
+    shutil.copy(lib.i18n_path, copy.i18n_path)
+    data = json.loads(copy.index_path.read_text(encoding="utf-8"))
+    for e in data["parts"].values():
+        if drop == "all":
+            e["golden"] = {}
+        else:
+            e["golden"].pop(min(e["golden"]))
+    copy.index_path.write_text(index.dump_index(data), encoding="utf-8")
+    problems = pub.audit_integrity(copy)
+    assert len(problems) == (2 if drop == "all" else 1) * len(data["parts"]), problems
+    assert all("no golden" in m for m in problems)
+    mirror = pub.audit_mirror(copy)
+    assert len(mirror) == len(problems) and all("missing from the index" in m for m in mirror)
+
+
 def test_goldens_rebuild_identically(lib, rules):
     t0 = time.perf_counter()
     assert pub.audit_goldens(lib, rules) == []

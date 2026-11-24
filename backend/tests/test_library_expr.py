@@ -703,3 +703,19 @@ def test_compile_part_accepts_a_parsed_part_file() -> None:
     for name in FIXTURES:
         d = load(name)
         assert set(compile_part(parse_part(d)).exprs) == set(compile_part(d).exprs)
+
+
+def test_empty_in_tuple_is_a_syntax_error() -> None:
+    assert code_of("layout in ()") == "DSL001"
+    assert code_of("layout not in ()") == "DSL001"
+    with pytest.raises(DslError) as e:
+        compile_expr("layout in ()", RULE, None, "/x")
+    assert "at least one string" in e.value.message
+
+
+def test_port_height_names_the_param_and_says_the_value_is_not_a_door_shape() -> None:
+    with pytest.raises(DslError) as e:
+        compile_expr("port_height(layout, 10)", RULE, None, "/x")
+    assert e.value.code == "DSL003"
+    assert e.value.message == ("port_height() shape `layout` can be 'I', which is not a door shape; "
+                               "shapes: round_arch, pointed_arch, box, house")

@@ -120,3 +120,19 @@ test("부품 요청: 없는 부품을 적으면 안내가 보이고, 관리자 �
   const after = await wheelRow(request);
   expect(after?.status).toBe("planned");
 });
+
+test("부품 요청: 관리자는 헤더 링크가 안 보이는 너비에서도 내 정보에서 들어간다", async ({ page }) => {
+  for (const width of [1024, 375]) {
+    await page.setViewportSize({ width, height: 900 });
+    await adminLogin(page, "/");
+    // 이 너비에서는 헤더 줄이 넘치지 않도록 링크를 숨긴다
+    await expect(page.getByRole("banner").getByRole("link", { name: "부품 요청" })).toBeHidden();
+    await page.getByRole("banner").getByRole("link", { name: /NestForge 운영팀/ }).click();
+    await page.waitForURL((u) => u.pathname === "/me");
+    await page.getByRole("main").getByRole("link", { name: "부품 요청" }).click();
+    await page.waitForURL((u) => u.pathname === "/admin/part-requests");
+    await expect(page.getByRole("heading", { level: 1, name: "부품 요청" })).toBeVisible();
+    await page.goto("/");
+    await logout(page);
+  }
+});

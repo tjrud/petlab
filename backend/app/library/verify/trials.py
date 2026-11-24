@@ -11,7 +11,7 @@ spec.connection_problems, 엔진도 overlay 가 덮는다.
 | 역할 | 시험 |
 |---|---|
 | accessory | hideout 의 right·left·back·auto, 1층 house 의 right, sand_bath 의 back, 활성 라이브러리 host 의 연결판 면마다, hideout right 에 bowl_holder 와 나란히 |
-| host | bowl_holder·bottle_stand·ramp 를 연결판 면마다 하나씩, 그다음 한 면에 ramp·다른 면에 bowl_holder |
+| host | bowl_holder·bottle_stand·ramp 를 연결판 면마다 하나씩, 그다음 한 면에 ramp·다른 면에 bowl_holder, 한 면에 ramp·bowl_holder 둘 다 |
 | room_host | 출입구 면마다 tunnel 을 잇고 그 끝에 hideout, hideout·house 에서 나온 터널 끝에 부품(단면 맞추기), hideout → 부품 (터널을 끼워 넣음), 닫힌 연결판 면마다 bowl_holder, 출입구가 3개 이상이면 그물 (≤ 8 부품), 마릿수 2 시험 하나 |
 
 역할 종류마다 통과한 시험 중 가장 큰 것 하나를 run_engine (넉넉한 케이지)으로 돌려 오류가 없어야 한다.
@@ -204,6 +204,11 @@ def generate(key: str, t: Template, templates: dict[str, Template], ctx: Any, qu
                 out.append(Trial(f"ramp@{me}.{pair[0]}+bowl@{me}.{pair[1]}", [(me, key), ("ramp", "ramp"),
                                                                              ("bowl", "bowl_holder")],
                                  [("ramp", me, pair[0]), ("bowl", me, pair[1])], kind="slide"))
+            # 같은 면에 둘: 나란히 놓거나 (면 가로 필드 상한·출력 공간을 넘으면) 다른 면으로 옮겨야 한다
+            same = next((s for s in rs if s in bs), None)
+            if same:
+                out.append(Trial(f"ramp+bowl@{me}.{same}", [(me, key), ("ramp", "ramp"), ("bowl", "bowl_holder")],
+                                 [("ramp", me, same), ("bowl", me, same)], kind="slide"))
     elif t.role == "room_host":
         doors = _door_sides(t, p)
         # 터널 반대쪽 방: 단면이 맞는 방만 (모양이 고정된 방끼리 단면이 다르면 해석기가 F4 로 막는다: port_adapter 몫)

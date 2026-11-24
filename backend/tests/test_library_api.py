@@ -28,6 +28,7 @@ HANGUL = re.compile(r"[가-힣]")
 
 JUNCTION = "tunnel_junction@v1"
 DECK = "deck_platform@v1"
+DECK2 = "deck_platform@v2"  # rules/species.yaml 이 허용하는 부품은 시험 라이브러리에도 있어야 규칙 파일이 읽힌다
 
 
 def part_bytes(family: str, version: int = 1) -> bytes:
@@ -63,8 +64,9 @@ def make_library(root: Path, parts: dict[str, dict[str, Any]], reports: dict[str
 
 STANDARD = {
     JUNCTION: {},
-    DECK: {"role": "host", "status": "retired",
+    DECK: {"role": "host", "status": "retired", "superseded_by": DECK2,
            "reason": {"ko": "새 판으로 바꿨습니다", "en": "Replaced by a new version"}},
+    DECK2: {"role": "host"},
 }
 
 
@@ -104,7 +106,7 @@ def test_display_lists_every_part_with_labels(library, client):
     assert r.status_code == 200, r.text
     assert r.headers["cache-control"] == "max-age=300"
     parts = r.json()["parts"]
-    assert sorted(parts) == [DECK, JUNCTION]  # 폐기한 부품도 (저장된 설계를 보여 준다)
+    assert sorted(parts) == [DECK, DECK2, JUNCTION]  # 폐기한 부품도 (저장된 설계를 보여 준다)
 
     draft = _draft("tunnel_junction")
     hub = parts[JUNCTION]
@@ -152,7 +154,7 @@ def test_display_is_public_when_auth_is_on(library, tmp_path):
         use(c, None)
         assert c.get("/library/display").status_code == 200
         signup(c, "member1")
-        assert sorted(c.get("/library/display").json()["parts"]) == [DECK, JUNCTION]
+        assert sorted(c.get("/library/display").json()["parts"]) == [DECK, DECK2, JUNCTION]
 
 
 _LIGHT_SCRIPT = """
@@ -166,10 +168,10 @@ from app.main import create_app
 HEAVY = ("build123d", "OCP", "anthropic", "trimesh", "sklearn")
 with TestClient(create_app(member_settings(Path(tempfile.mkdtemp())))) as c:
     r = c.get("/library/display", headers={"X-Lang": "en"})
-    assert r.status_code == 200 and len(r.json()["parts"]) == 2, r.text
+    assert r.status_code == 200 and len(r.json()["parts"]) == 3, r.text
     admin_login(c)
     r = c.get("/admin/library")
-    assert r.status_code == 200 and len(r.json()["parts"]) == 2, r.text
+    assert r.status_code == 200 and len(r.json()["parts"]) == 3, r.text
     assert c.get("/admin/part-requests/counts").status_code == 200
 print("heavy=" + ",".join(h for h in HEAVY if h in sys.modules))
 """

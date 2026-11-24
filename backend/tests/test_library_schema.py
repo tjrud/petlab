@@ -378,3 +378,29 @@ def test_draft_and_published_round_trip_through_json() -> None:
     assert part.model_dump(mode="json", exclude_unset=True) == d
     # 깊은 사본이 원본을 바꾸지 않는다
     assert copy.deepcopy(d) == d
+
+
+@pytest.mark.parametrize("value", [True, 1.0, False, "1"])
+def test_dsl_version_must_be_the_integer_1(value) -> None:
+    """pydantic 의 Literal[1] 은 True·1.0 도 받는다: JSON Schema 의 const 1 과 같게 정수 1 만."""
+    d = load("deck_platform")
+    d["dsl"] = value
+    with pytest.raises(DslErrors) as e:
+        parse_part(d)
+    assert [(x.code, x.path) for x in e.value.errors] == [("DSL014", "/dsl")]
+
+
+@pytest.mark.parametrize(("field", "value"), [("max", float("inf")), ("min", float("-inf")), ("default", float("nan"))])
+def test_number_param_bounds_must_be_finite(field, value) -> None:
+    """json.loads 는 Infinity·NaN 을 읽는다: 범위가 무한이면 그 자리(S01)를 가리키고, 게시 파일에 비표준 토큰이 쓰이지
+    않는다."""
+    d = load("deck_platform")
+    d["params"]["width_mm"][field] = value
+    with pytest.raises(DslErrors) as e:
+        parse_part(d)
+    assert ("/params/width_mm/" + field) in {x.path for x in e.value.errors}
+    d = load("deck_platform")
+    d["envelope"][0] = float("inf")
+    with pytest.raises(DslErrors) as e:
+        parse_part(d)
+    assert "/envelope/0" in {x.path for x in e.value.errors}
