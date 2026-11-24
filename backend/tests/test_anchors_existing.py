@@ -88,7 +88,8 @@ def check_anchors(t, p):
         s = q + up * lift
         assert not m.contains([s + n * 1.0])[0], (name, "normal points inward")
         assert m.contains([s - n * 0.4])[0], (name, "origin not on the outer face")
-        if a.side is not None:
+        # 출입구 면의 side 는 출입 면이다 (은신처 뒷면은 출입구가 아니어도 side="back" 을 단다: 슬라이드 결합용)
+        if a.side is not None and a.port is not None:
             assert a.side in t.features(p).access_sides, name
     return m
 
@@ -345,3 +346,45 @@ def test_port_flange_stays_below_roof_band(rules, size, roof, wall):
     assert ring_top <= limit + 1e-6
     m = part_to_mesh(HOUSE.build(p))
     assert m.bounds[1][2] == pytest.approx(p.height_mm, abs=1e-6)  # 아무것도 지붕 위로 솟지 않는다
+
+
+# ── 은신처 옆면 출입구 ─────────────────────────────────────────
+
+HIDEOUT_SIDE_DOORS = {
+    "left": HideoutParams(side_doors="left", depth_mm=130),
+    "right_2": HideoutParams(side_doors="right", entrance_count=2, depth_mm=130),
+    "both": HideoutParams(side_doors="both", depth_mm=136),
+    "four_doors": HideoutParams(side_doors="both", entrance_count=2, depth_mm=136),
+}
+
+
+@pytest.mark.parametrize("name", list(HIDEOUT_SIDE_DOORS))
+def test_hideout_side_door_anchors_lie_on_outer_faces(name):
+    p = HIDEOUT_SIDE_DOORS[name]
+    m = check_anchors(HIDEOUT, p)
+    assert mesh_health(m).ok and m.body_count == 1
+    a = HIDEOUT.anchors(p)
+    f = HIDEOUT.features(p)
+    assert sum(1 for x in a.values() if x.port is not None) == f.entrance_count
+    assert {x.side for x in a.values() if x.port is not None} == set(f.access_sides)
+
+
+@pytest.mark.parametrize("side", ["left", "right"])
+def test_tunnel_into_hideout_side_door_is_open_passage(side):
+    """은신처 옆면 출입구에 같은 폭·둥근 아치 터널을 끼우면 한 덩어리가 되고, 옆벽·터널 속 통로가 비어 있다."""
+    p = HideoutParams(side_doors=side, depth_mm=130)
+    d = p.entrance_diameter_mm
+    tp = TunnelParams(length_mm=100, inner_diameter_mm=d, wall_thickness_mm=3, shape="round_arch")
+    parts = [PartSpec("hide", HIDEOUT, p), PartSpec("tube", TUNNEL, tp)]
+    joins = [JoinSpec("hide", side, "tube", "end_b", passage=True, mount="plug")]
+    assert join_problems(parts, joins) == []
+    m = part_to_mesh(build_assembly(parts, joins))
+    assert mesh_health(m).ok
+    a = HIDEOUT.anchors(p)[side]
+    o, n = np.asarray(a.origin), np.asarray(a.normal)
+    # 벽 두께 가운데·안쪽·터널 입구: 출입구 높이 가운데는 비어 있다
+    for depth in (p.wall_thickness_mm / 2, p.wall_thickness_mm + 5, -5.0):
+        q = o - n * depth + np.array([0, 0, d / 2])
+        assert not m.contains([q])[0], depth
+    f = merge_features(parts, joins, enclosure=True)
+    assert f.entrance_count == 2  # 앞 출입구 + 터널 바깥 끝

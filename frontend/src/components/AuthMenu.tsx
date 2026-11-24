@@ -55,6 +55,15 @@ export default function AuthMenu() {
   }
   return (
     <div className="relative flex min-w-0 items-center gap-2 text-sm">
+      {/* 관리자만: 부품 요청 화면 (헤더 줄이 넘치지 않도록 자리가 넉넉한 너비에서만 보인다) */}
+      {user.role === "admin" && (
+        <Link
+          href="/admin/part-requests"
+          className={`${pill} hidden border border-stone-300 hover:bg-stone-50 sm:inline-flex md:hidden xl:inline-flex`}
+        >
+          {t("부품 요청")}
+        </Link>
+      )}
       <Link
         href="/me"
         className="min-w-0 max-w-[7.5rem] truncate text-stone-600 hover:text-stone-900 sm:max-w-[9rem]"

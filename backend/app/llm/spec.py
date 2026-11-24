@@ -234,12 +234,18 @@ def connection_problems(parts: list[tuple[str, str]], connections: list[Connecti
 
 
 def _door_profiles(t: Template) -> frozenset[str]:
-    """방 템플릿의 출입구 단면 모양들 (은신처: 둥근 아치, 집: 뾰족 아치). 모르면 빈 집합."""
+    """방 템플릿의 출입구 단면 모양들 (은신처: 둥근 아치, 집: 뾰족 아치). 모르면 빈 집합.
+    출입구 단면 모양을 파라미터로 고르는 방(face_fields.profile 이 있는 출입구)은 이은 터널을 따르므로 빈 집합 (검사하지 않는다:
+    섞인 연결은 조립 해석기가 구체적인 메시지로 막는다)."""
     try:
-        anchors = t.anchors(t.default_params())
+        p = t.default_params()
+        anchors = t.anchors(p)
+        doors = {n: a for n, a in anchors.items() if a.port is not None and a.wall_mm is not None}
+        if any(t.face_fields(p, n).profile for n in doors):
+            return frozenset()
     except Exception:  # noqa: BLE001 (기본값으로 연결 지점을 못 만드는 템플릿은 검사하지 않는다)
         return frozenset()
-    return frozenset(a.profile for a in anchors.values() if a.port is not None and a.wall_mm is not None and a.profile)
+    return frozenset(a.profile for a in doors.values() if a.profile)
 
 
 def _profile_problems(tmpl: dict[str, Template], connections: list[Connection]) -> list[str]:

@@ -196,5 +196,20 @@
   "잘못된 저장 키": "Invalid storage key",
   "Blob 저장 실패 (HTTP {0})": "Blob upload failed (HTTP {0})",
   "Blob 응답에 공개 주소가 없습니다": "Blob response has no public URL",
-  "Blob 저장 요청 실패: {0}": "Blob upload request failed: {0}"
+  "Blob 저장 요청 실패: {0}": "Blob upload request failed: {0}",
+  "관리": "Admin",
+  "부품 요청 목록 (관리자)": "Part requests (admin)",
+  "부품 요청 내보내기 (관리자, 부품 만들기용 JSON)": "Export part requests (admin, JSON for part authoring)",
+  "부품 요청 자세히 (관리자, 최근 20개 설계)": "Part request details (admin, latest 20 designs)",
+  "부품 요청 정리 (관리자: 상태·메모·부품 키·합치기·예시 지우기)": "Update a part request (admin: status, note, part key, merge, clear examples)",
+  "부품 요청을 찾을 수 없어요.": "Part request not found.",
+  "다른 요청에 합친 요청은 상태를 바꿀 수 없어요.": "A request merged into another one can't change its status.",
+  "부품 라이브러리에 없는 부품 키예요.": "That part key isn't in the part library.",
+  "published 상태로 바꾸려면 부품 라이브러리의 부품 키를 함께 적어 주세요.": "To set the status to published, also give a part key from the part library.",
+  "다른 요청에 합칠 때는 상태를 따로 정할 수 없어요.": "You can't set a status while merging into another request.",
+  "요청을 자기 자신에 합칠 수 없어요.": "A request can't be merged into itself.",
+  "합칠 부품 요청을 찾을 수 없어요.": "The part request to merge into wasn't found.",
+  "이미 다른 요청에 합친 요청에는 합칠 수 없어요.": "You can't merge into a request that is already merged into another one.",
+  "merged 상태로 바꾸려면 합칠 요청을 함께 골라 주세요.": "To set the status to merged, also choose the request to merge into.",
+  "햄스터용": "for hamsters"
 }

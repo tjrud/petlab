@@ -2,20 +2,21 @@
 
 형상: 바닥이 열린 상자. 앞면(-Y)에 바닥에서 시작하는 아치형 출입구, 지붕에 수직 환기구.
   출입구가 2개면 뒷면(+Y)에 같은 아치를 마주 보게 낸다 (여러 마리가 함께 지낼 때 막다른 곳이 없도록).
+  옆면 출입구(side_doors)를 고르면 왼쪽(-X)·오른쪽(+X) 벽 가운데에 같은 아치를 낸다 (옆면에 터널을 잇는 자리).
 출력: 지붕을 베드에 대고 뒤집어 출력한다.
   - 지붕 아랫면은 뒤집으면 바닥이 되므로 넓은 천장 브리지가 없다.
-  - 아치 꼭대기는 뒤집으면 아래쪽 반원이 되므로 오버행이 없다.
+  - 아치 꼭대기는 뒤집으면 아래쪽 반원이 되므로 오버행이 없다 (옆면 출입구도 같다).
   - 환기구는 수직 관통 구멍이라 오버행이 없다.
 """
 
 from __future__ import annotations
 
 import math
-from typing import ClassVar
+from typing import Any, ClassVar, Literal
 
 import numpy as np
 from build123d import Align, Box, Cylinder, Part, Pos, Rot
-from pydantic import Field
+from pydantic import Field, SerializerFunctionWrapHandler, model_serializer
 
 from app.templates.base import (
     Anchor,
@@ -40,6 +41,11 @@ _CUT = 1.0  # 불리언 연산이 면과 정확히 겹치지 않도록 잘라내
 # 출입구 단면 종류 (port_profile: 직사각형 + 반원 = 터널 round_arch 안쪽 단면과 같은 모양)
 DOOR_PROFILE: PortProfile = "round_arch"
 
+SideDoors = Literal["none", "left", "right", "both"]
+_SIDE_DOOR_SIDES: dict[str, tuple[str, ...]] = {
+    "none": (), "left": ("left",), "right": ("right",), "both": ("left", "right"),
+}
+
 
 class HideoutParams(TemplateParams):
     width_mm: float = Field(140, ge=60, le=350, description="외형 가로(X) mm")
@@ -52,11 +58,29 @@ class HideoutParams(TemplateParams):
         1, ge=1, le=2,
         description="출입구 개수. 1=앞면만, 2=앞·뒷면 마주 보기. 여러 마리를 함께 키우면 2 (종별 최소 개수 이상)",
     )
+    side_doors: SideDoors = Field(
+        "none",
+        description="옆면 출입구. none=없음, left=왼쪽, right=오른쪽, both=양쪽. 옆면에 터널을 잇거나 출입구를 더 낼 때",
+    )
     vent_count: int = Field(6, ge=0, le=30, description="지붕 환기구 개수")
     vent_diameter_mm: float = Field(
         4, ge=2, le=10, description="환기구 지름 mm. 발이 끼지 않도록 종별 안전 틈새 이하"
     )
     wall_thickness_mm: float = Field(3, ge=1.0, le=8, description="벽·지붕 두께 mm")
+
+    @model_serializer(mode="wrap")
+    def _omit_no_side_doors(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        """옆면 출입구가 없으면(none) 저장 형태에서 뺀다: 옆면 출입구가 생기기 전의 파라미터와 같은 dict 가 되어
+        파라미터로 정하는 값(장식 무늬 씨앗 decor_seed 등)이 저장된 설계와 같게 남는다. 읽을 때는 기본값 none."""
+        data = handler(self)
+        if self.side_doors == "none" and isinstance(data, dict):
+            data.pop("side_doors", None)
+        return data
+
+
+def side_door_sides(p: HideoutParams) -> tuple[str, ...]:
+    """옆면 출입구가 있는 면 (왼쪽, 오른쪽 순)."""
+    return _SIDE_DOOR_SIDES[p.side_doors]
 
 
 def _vent_spacing(p: HideoutParams) -> float:
@@ -106,17 +130,17 @@ class HideoutTemplate(Template):
     key = "hideout"
     display_name_ko = "은신처"
     description_ko = (
-        "바닥이 열린 상자형 은신처. 앞면(과 뒷면)에 아치형 출입구, 지붕에 작은 환기구. "
-        "가로·세로·높이, 출입구 폭·개수, 환기구 개수·지름, 벽 두께를 정한다."
+        "바닥이 열린 상자형 은신처. 앞면(과 뒷면·옆면)에 아치형 출입구, 지붕에 작은 환기구. "
+        "가로·세로·높이, 출입구 폭·개수·옆면 출입구, 환기구 개수·지름, 벽 두께를 정한다."
     )
     Params = HideoutParams
     height_field = "height_mm"
     size_fields = ("width_mm", "depth_mm", "height_mm")
-    # entrance_count 가 생기기 전에 저장된 은신처는 출입구가 앞면 하나였다
-    legacy_defaults = {"entrance_count": 1}
-    # 연결 표준: 드나드는 방. 터널 끝에 붙을 때는 출입구(앞, 출입구 2개면 뒤)로 잇는다
+    # entrance_count 가 생기기 전에 저장된 은신처는 출입구가 앞면 하나였고, side_doors 가 생기기 전에는 옆면 출입구가 없었다
+    legacy_defaults = {"entrance_count": 1, "side_doors": "none"}
+    # 연결 표준: 드나드는 방. 터널 끝에 붙을 때는 출입구(앞, 뒤, 왼쪽, 오른쪽 순)로 잇는다
     role = "room_host"
-    attach_order: ClassVar[dict[AttachKind, tuple[str, ...]]] = {"passage": ("front", "back")}
+    attach_order: ClassVar[dict[AttachKind, tuple[str, ...]]] = {"passage": ("front", "back", "left", "right")}
 
     def default_params(self, ctx: RuleContext | None = None) -> HideoutParams:
         if ctx is None:
@@ -141,15 +165,30 @@ class HideoutTemplate(Template):
         d = max(p.entrance_diameter_mm, s.entrance_min_diameter_mm)
         cols, rows = _vent_grid_capacity(p)
         n_min = ctx.hideout_min_entrances
+        n_side = len(side_door_sides(p))
+        # 옆면 출입구도 드나드는 출입구로 센다: 앞·뒤 출입구는 (최소 개수 − 옆면 출입구 수) 개면 된다
         group_rule = (
             [ParamConstraint(
                 "entrance_count",
-                min=n_min,
+                min=n_min - n_side,
                 source="species",
                 reason_ko=f"{ctx.count}마리가 함께 지내면 서로 피할 수 있도록(막다른 곳 없이) "
                           f"은신처 출입구는 {n_min}개 이상이어야 합니다",
             )]
-            if n_min > 1 else []
+            if n_min - n_side > 1 else []
+        )
+        depth_rule = (
+            ParamConstraint(
+                "depth_mm",
+                min=d + 4 * t,
+                reason_ko="옆 출입구 양옆에 벽이 남도록 세로가 출입구 폭보다 충분히 커야 합니다",
+            )
+            if n_side else
+            ParamConstraint(
+                "depth_mm",
+                min=d + 2 * t,
+                reason_ko="내부 공간 확보를 위해 세로가 출입구 폭보다 커야 합니다",
+            )
         )
         return group_rule + [
             ctx.wall_thickness_constraint(),
@@ -170,11 +209,7 @@ class HideoutTemplate(Template):
                 min=d + 4 * t,
                 reason_ko="출입구 양옆에 벽이 남도록 가로가 출입구 폭보다 충분히 커야 합니다",
             ),
-            ParamConstraint(
-                "depth_mm",
-                min=d + 2 * t,
-                reason_ko="내부 공간 확보를 위해 세로가 출입구 폭보다 커야 합니다",
-            ),
+            depth_rule,
             ParamConstraint(
                 "height_mm",
                 min=d + 2 * t,
@@ -203,6 +238,13 @@ class HideoutTemplate(Template):
             door_arch = Pos(0, wall_y, r) * Rot(90, 0, 0) * Cylinder(r, through)
             part = part - door_rect - door_arch
 
+        # 옆면 출입구: 같은 아치를 X 방향으로 (옆면 출입구가 없으면 이 블록을 건너뛰어 형상이 그대로다)
+        for s in side_door_sides(p):
+            wall_x = (-1 if s == "left" else 1) * (W / 2 - t / 2)
+            door_rect = Pos(wall_x, 0, -_CUT) * Box(through, 2 * r, r + _CUT, align=_BOTTOM)
+            door_arch = Pos(wall_x, 0, r) * Rot(0, 90, 0) * Cylinder(r, through)
+            part = part - door_rect - door_arch
+
         # 지붕 환기구
         for x, y in vent_positions(p):
             part = part - Pos(x, y, H - t / 2) * Cylinder(p.vent_diameter_mm / 2, t + 2 * _CUT)
@@ -213,16 +255,23 @@ class HideoutTemplate(Template):
         d = p.entrance_diameter_mm
         z, up = (0.0, 0.0, 1.0), (0.0, 1.0, 0.0)
         back_door = p.entrance_count >= 2
+        sides = side_door_sides(p)
+
+        def side(name: str, x: float, nx: float) -> Anchor:
+            if name in sides:
+                return Anchor((x, 0, 0), (nx, 0, 0), z, side=name, port=d, wall_mm=t, profile=DOOR_PROFILE)
+            return Anchor((x, 0, 0), (nx, 0, 0), z, wall_mm=t, mount=(-D / 2, D / 2, H))
+
         return {
-            # 옆면: 바닥 높이의 면 가운데. 앞면(과 출입구 2개면 뒷면)은 출입구 자리.
+            # 옆면: 바닥 높이의 면 가운데. 앞면(과 출입구 2개면 뒷면, 옆면 출입구를 고른 옆면)은 출입구 자리.
             # 출입구 없는 옆면은 면 전체(가로 전체 × 높이 전체)에 슬라이드 결합 연결판을 붙일 수 있다 (mount)
             "front": Anchor((0, -D / 2, 0), (0, -1, 0), z, side="front", port=d, wall_mm=t, profile=DOOR_PROFILE),
             "back": Anchor((0, D / 2, 0), (0, 1, 0), z, side="back",
                            port=d if back_door else None, wall_mm=t,
                            mount=None if back_door else (-W / 2, W / 2, H),
                            profile=DOOR_PROFILE if back_door else None),
-            "left": Anchor((-W / 2, 0, 0), (-1, 0, 0), z, wall_mm=t, mount=(-D / 2, D / 2, H)),
-            "right": Anchor((W / 2, 0, 0), (1, 0, 0), z, wall_mm=t, mount=(-D / 2, D / 2, H)),
+            "left": side("left", -W / 2, -1),
+            "right": side("right", W / 2, 1),
             # 지붕 위·바닥 아래 (위에 얹기·밑에 받치기)
             "top": Anchor((0, 0, H), (0, 0, 1), up),
             "bottom": Anchor((0, 0, 0), (0, 0, -1), up),
@@ -232,9 +281,11 @@ class HideoutTemplate(Template):
 
     def face_fields(self, p: HideoutParams, anchor: str) -> FaceFields:
         """옆면 가로는 왼쪽·오른쪽 = 세로(depth), 앞·뒤 = 가로(width). 높이 = 외형 높이, 벽 = 벽 두께.
-        출입구가 있는 면(앞, 출입구 2개면 뒤)은 통로 크기 = 출입구 폭 (단면 종류는 늘 둥근 아치라 파라미터가 없다)."""
+        출입구가 있는 면(앞, 출입구 2개면 뒤, 옆면 출입구를 고른 옆면)은 통로 크기 = 출입구 폭
+        (단면 종류는 늘 둥근 아치라 파라미터가 없다)."""
         if anchor in ("left", "right"):
-            return FaceFields(width="depth_mm", height="height_mm", wall="wall_thickness_mm")
+            return FaceFields(width="depth_mm", height="height_mm", wall="wall_thickness_mm",
+                              port="entrance_diameter_mm" if anchor in side_door_sides(p) else None)
         if anchor in ("front", "back"):
             door = anchor == "front" or p.entrance_count >= 2
             return FaceFields(width="width_mm", height="height_mm", wall="wall_thickness_mm",
@@ -242,12 +293,17 @@ class HideoutTemplate(Template):
         return FaceFields()
 
     def open_port(self, p: HideoutParams, anchor: str) -> HideoutParams | None:
-        """뒷면은 출입구를 2개로 늘려 앞 출입구와 마주 보는 출입구를 낸다. 앞면(과 이미 열린 뒷면)은 그대로.
-        옆면·지붕·바닥에는 출입구를 낼 수 없다."""
+        """뒷면은 출입구를 2개로 늘려 앞 출입구와 마주 보는 출입구를 낸다. 옆면은 옆면 출입구를 더한다
+        (없음 → 그 면, 다른 쪽 하나 → 양쪽). 앞면과 이미 열린 면은 그대로. 지붕·바닥에는 출입구를 낼 수 없다."""
         if anchor == "front" or (anchor == "back" and p.entrance_count >= 2):
             return p
         if anchor == "back":
             return p.model_copy(update={"entrance_count": 2})
+        if anchor in ("left", "right"):
+            sides = side_door_sides(p)
+            if anchor in sides:
+                return p
+            return p.model_copy(update={"side_doors": anchor if not sides else "both"})
         return None
 
     def envelope(self, p: HideoutParams) -> tuple[float, float, float]:
@@ -284,8 +340,8 @@ class HideoutTemplate(Template):
         for face, length, surface, has_door in (
             ("front", W, (0.0, -D / 2, 0.0), True),
             ("back", W, (0.0, D / 2, 0.0), p.entrance_count >= 2),
-            ("left", D, (-W / 2, 0.0, 0.0), False),
-            ("right", D, (W / 2, 0.0, 0.0), False),
+            ("left", D, (-W / 2, 0.0, 0.0), "left" in side_door_sides(p)),
+            ("right", D, (W / 2, 0.0, 0.0), "right" in side_door_sides(p)),
         ):
             zones.append(DecorZone(
                 face=face, mode="relief", max_depth_mm=DECOR_MAX_DEPTH_MM, keepout_mm=DECOR_KEEPOUT_MM,
@@ -296,20 +352,24 @@ class HideoutTemplate(Template):
 
     def features(self, p: HideoutParams) -> Features:
         two = p.entrance_count >= 2
+        sides = side_door_sides(p)
         openings = [
-            Opening("passage", p.entrance_diameter_mm, "앞 출입구" if two else "출입구",
+            Opening("passage", p.entrance_diameter_mm, "앞 출입구" if two or sides else "출입구",
                     rule_key="entrance_min_diameter_mm"),
         ]
         if two:
             openings.append(
                 Opening("passage", p.entrance_diameter_mm, "뒤 출입구", rule_key="entrance_min_diameter_mm")
             )
+        for s in sides:
+            label = "왼쪽 출입구" if s == "left" else "오른쪽 출입구"
+            openings.append(Opening("passage", p.entrance_diameter_mm, label, rule_key="entrance_min_diameter_mm"))
         if p.vent_count > 0:
             openings.append(Opening("vent", p.vent_diameter_mm, "환기구"))
         return Features(
             min_wall_thickness_mm=p.wall_thickness_mm,
             openings=tuple(openings),
             # 출입구마다 앞이 비어 있어야 한다 (벽에 붙은 뒷문은 막다른 곳이 된다)
-            access_sides=("front", "back") if two else ("front",),
-            entrance_count=p.entrance_count,
+            access_sides=("front", "back") + sides if two else ("front",) + sides,
+            entrance_count=p.entrance_count + len(sides),
         )

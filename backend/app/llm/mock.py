@@ -84,6 +84,51 @@ SMALLER = ("작게", "아담", "좁게", "작은")
 REMOVE = ("빼", "삭제", "없애", "제거")
 ADD = ("추가", "더 넣", "하나 더")
 
+
+
+@dataclass(frozen=True)
+class _Missing:
+    """카탈로그에 없는 부품 하나 (모의 해석 전용)."""
+
+    words_ko: tuple[str, ...]
+    rx_en: re.Pattern[str]
+    name_ko: str
+    name_en: str
+    purpose_ko: str
+    purpose_en: str
+
+
+# 카탈로그에 없는 부품: 찾으면 missing_parts 에 적고(부품 수요로 기록된다) 안내를 더한다. 나머지 글은 그대로 설계하고,
+# 다른 구조물 말이 없으면 기본 구조물을 만든다. 이름·쓰임새는 응답 언어로 쓴다 (실제 LLM 과 같다)
+MISSING_KEYWORDS: dict[str, _Missing] = {
+    "wheel": _Missing(("쳇바퀴", "챗바퀴"), re.compile(r"\b(?:(?:exercise|running|hamster) )?wheels?\b"),
+                      "쳇바퀴", "exercise wheel", "달리기 운동", "running exercise"),
+    "hammock": _Missing(("해먹",), re.compile(r"\bhammocks?\b"), "해먹", "hammock", "매달려 쉬기", "hanging rest"),
+    "swing": _Missing(("그네",), re.compile(r"\bswings?\b"), "그네", "swing", "놀이", "play"),
+    "seesaw": _Missing(("시소",), re.compile(r"\bsee-?saws?\b"), "시소", "seesaw", "놀이", "play"),
+}
+
+
+def _find_missing(text: str, en: bool) -> list[dict]:
+    """글에 나온 카탈로그에 없는 부품 (나온 차례대로) → missing_parts 항목."""
+    low = _en(text)
+    found = []
+    for m in MISSING_KEYWORDS.values():
+        positions = [text.find(w) for w in m.words_ko if w in text]
+        if hit := m.rx_en.search(low):
+            positions.append(hit.start())
+        if positions:
+            found.append((min(positions), m))
+    return [{"name_ko": m.name_en if en else m.name_ko, "purpose_ko": m.purpose_en if en else m.purpose_ko}
+            for _, m in sorted(found, key=lambda x: x[0])]
+
+
+def _missing_note(name: str, en: bool) -> str:
+    if en:
+        return f"The {name} you asked for isn't available as a part yet, so it was built from other parts."
+    return f"요청하신 {name}은(는) 아직 부품이 없어 다른 부품으로 만들었어요."
+
+
 # 영어 요청용 키워드 (소문자로 바꾼 글에 단어 경계로 찾는다). 한국어 키워드와 함께 확인한다
 TEMPLATE_KEYWORDS_EN: dict[str, re.Pattern[str]] = {
     "hideout": re.compile(r"\b(?:hide ?outs?|hides?|hidey(?: ?holes?)?|hiding (?:places?|spots?)|houses?|shelters?|huts?"
@@ -1422,6 +1467,8 @@ class MockInterpreter:
         removing = req.previous is not None and (any(w in text for w in REMOVE) or bool(REMOVE_EN.search(low)))
         # 빼는 말은 그 절에만: '물병 빼고 터널 달아줘' 는 물병을 빼고 나머지 절(터널 달기)은 보통 수정으로 읽는다
         remove_text, keep_text = _split_remove(text) if removing else (text, "")
+        # 카탈로그에 없는 부품 (빼는 절의 말은 요청이 아니다)
+        missing = _find_missing(keep_text if removing else text, en)
         remove_keys = [k for k in _find_templates(_strip_locatives(remove_text), aquarium=aquarium) if k in registry] \
             if removing else []
         if remove_keys and keep_text.strip():
@@ -1497,7 +1544,9 @@ class MockInterpreter:
                 requested = [k for k in requested if k not in existing]
         elif req.previous is None and not requested and not items:
             requested = [default_key]
-            if default_key == "hideout":
+            if missing:
+                pass  # 없는 부품을 알리는 안내가 아래에 붙는다
+            elif default_key == "hideout":
                 notes.append("No specific structure was mentioned, so I designed one standard hideout." if en
                              else "구체적인 구조물 언급이 없어 기본 은신처 1개로 설계했습니다.")
             else:
@@ -1569,11 +1618,12 @@ class MockInterpreter:
                           for it in items)
         summary = (f"[Dev mock interpreter] Read your request by keywords and designed: {names}." if en
                    else f"[개발용 모의 해석기] 요구사항을 키워드로 해석해 {names}을(를) 설계했습니다.")
+        notes += [_missing_note(m["name_ko"], en) for m in missing]
         spec_json = json.dumps({
             "summary_ko": summary,
             "items": items,
             "notes_ko": notes,
-            "missing_parts": [],
+            "missing_parts": missing,
         }, ensure_ascii=False)
         # 실제 LLM 과 같은 계약: 이 종에 만들 수 있는 템플릿만 받는다
         return InterpretResult(spec=parse_spec(spec_json, allowed or None), provider=self.name, attempts=1)

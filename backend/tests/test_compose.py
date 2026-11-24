@@ -143,7 +143,8 @@ def test_row3_room_on_tunnel_end_is_into_child(dwarf) -> None:
         "tube.inner_diameter_mm": "hide.entrance_diameter_mm",
         "hide2.entrance_diameter_mm": "hide.entrance_diameter_mm",
     }
-    assert res.fixed == {"tube.shape": "round_arch", "hide.entrance_count": 2, "hide2.entrance_count": 2}
+    assert res.fixed == {"tube.shape": "round_arch", "hide.entrance_count": 2, "hide.side_doors": "none",
+                         "hide2.entrance_count": 2, "hide2.side_doors": "none"}
     assert res.faces == {"bowl": "right", "bottle": "left", "tube": "front", "hide2": "free_end"}
 
 
@@ -152,12 +153,15 @@ def test_row4_room_on_room_inserts_tunnel(dwarf, at) -> None:
     res, params, issues = resolve_ok(request([("hide", "hideout", HIDE), ("hide2", "hideout", HIDE)],
                                              [("hide2", "hide", at)]), dwarf)
     assert res.part_ids == ["hide", "hide2_link", "hide2"]
-    assert joins(res) == [("hide.front", "hide2_link.end_b", "plug", "into_parent"),
+    assert joins(res) == [(f"hide.{at}", "hide2_link.end_b", "plug", "into_parent"),
                           ("hide2_link.end_a", "hide2.front", "plug", "into_child")]
-    assert res.faces == {"hide2_link": "front", "hide2": "free_end"}
+    assert res.faces == {"hide2_link": at, "hide2": "free_end"}
     inserted = next(i for i in issues if i.code == "tunnel_inserted")
     assert inserted.details == {"part": "hide2_link", "parent": "hide", "child": "hide2"}
-    assert ("join_relocated" in codes(issues)) == (at == "right")  # 옆면에는 출입구를 낼 수 없어 앞으로
+    # 옆면에는 옆면 출입구를 내고 그 자리에 잇는다 (옮기지 않는다)
+    assert "join_relocated" not in codes(issues)
+    assert ("port_opened" in codes(issues)) == (at == "right")
+    assert params["hide"].side_doors == ("right" if at == "right" else "none")
     link = params["hide2_link"]
     assert link.shape == "round_arch" and link.inner_diameter_mm == HIDE["entrance_diameter_mm"]
     _, p, adj = settle(res, params, dwarf)
@@ -181,17 +185,19 @@ def test_row6_plain_wall_opens_port_or_relocates(dwarf) -> None:
     opened = next(i for i in issues if i.code == "port_opened")
     assert opened.details["part"] == "hide" and opened.details["anchor"] == "back"
     assert "exit_added" not in codes(issues)  # 앞 출입구가 비어 있다
-    # 옆면에는 출입구를 낼 수 없다: 앞 출입구로 옮긴다
-    res, _, issues = resolve_ok(request([("hide", "hideout", HIDE), ("tube", "tunnel", TUBE)],
-                                        [("tube", "hide", "left")]), dwarf)
-    assert joins(res)[0][0] == "hide.front" and res.faces["tube"] == "front"
-    moved = next(i for i in issues if i.code == "join_relocated")
-    assert moved.details == {"part": "tube", "parent": "hide", "from": "left", "to": "front"}
-    # 앞·뒤 출입구를 다 쓰면 더 이을 곳이 없다
-    out = resolve_err(request([("hide", "hideout", HIDE), ("t1", "tunnel", TUBE), ("t2", "tunnel", TUBE),
-                               ("t3", "tunnel", TUBE)],
-                              [("t1", "hide", "front"), ("t2", "hide", "back"), ("t3", "hide", "left")]), dwarf)
-    assert out.code == "face_unavailable" and out.details["part"] == "t3"
+    # 옆면: 옆면 출입구를 내고 그 자리에 잇는다 (옮기지 않는다)
+    res, params, issues = resolve_ok(request([("hide", "hideout", HIDE), ("tube", "tunnel", TUBE)],
+                                             [("tube", "hide", "left")]), dwarf)
+    assert joins(res) == [("hide.left", "tube.end_b", "plug", "into_parent")] and res.faces["tube"] == "left"
+    assert params["hide"].side_doors == "left" and res.fixed["hide.side_doors"] == "left"
+    assert "join_relocated" not in codes(issues)
+    opened = next(i for i in issues if i.code == "port_opened")
+    assert opened.details["part"] == "hide" and opened.details["anchor"] == "left"
+    # 네 면을 다 쓰면 더 이을 곳이 없다
+    out = resolve_err(request([("hide", "hideout", HIDE), *[(f"t{i}", "tunnel", TUBE) for i in range(1, 6)]],
+                              [("t1", "hide", "front"), ("t2", "hide", "back"), ("t3", "hide", "left"),
+                               ("t4", "hide", "right"), ("t5", "hide", "left")]), dwarf)
+    assert out.code == "face_unavailable" and out.details["part"] == "t5"
 
 
 def test_row6_house_side_gets_a_port(dwarf) -> None:

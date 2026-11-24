@@ -49,13 +49,14 @@ from app.schemas import (
     HabitatKind,
     HabitatOut,
     ItemOut,
+    MissingPartOut,
     PartOut,
     PlacementOut,
     SharedDesignOut,
     VersionOut,
     VersionSummary,
 )
-from app.services import usage
+from app.services import part_requests, usage
 from app.services.market_view import item_models, stored_blobs
 from app.storage import Stored
 
@@ -275,6 +276,7 @@ class _Generated:
     prompt: str
     interpret: InterpretResult
     engine: EngineResult
+    habitat: Habitat  # 부품 수요 기록(종·크기)에 쓴다
 
 
 @dataclass(frozen=True)
@@ -319,6 +321,17 @@ def _unresolved_errors(issues: list[dict]) -> list[dict]:
 def _exportable(v: DesignVersion) -> bool:
     """내려받을 수 있는 버전인지: 검증을 통과했고 구조물이 하나 이상 있다."""
     return v.passed and bool(v.items)
+
+
+def _missing_parts(llm_spec: dict | None) -> list[MissingPartOut]:
+    """해석기가 카탈로그에 없다고 한 부품 (저장된 llm_spec). 옛 명세에는 없고, 형식이 다른 항목은 건너뛴다."""
+    raw = llm_spec.get("missing_parts") if isinstance(llm_spec, dict) else None
+    out = []
+    for m in raw if isinstance(raw, list) else []:
+        if isinstance(m, dict) and isinstance(m.get("name_ko"), str) and m["name_ko"].strip():
+            purpose = m.get("purpose_ko")
+            out.append(MissingPartOut(name_ko=m["name_ko"], purpose_ko=purpose if isinstance(purpose, str) else ""))
+    return out
 
 
 def _assembly_display(it: dict) -> AssemblyDisplay | None:
@@ -546,7 +559,7 @@ class DesignService:
         )
         result = self._interpreter().interpret(req)
         engine_result = run_engine(to_item_specs(result.spec), ctx)
-        return _Generated(prompt=prompt, interpret=result, engine=engine_result)
+        return _Generated(prompt=prompt, interpret=result, engine=engine_result, habitat=h)
 
     def _save_version(self, db: Session, design: Design, g: _Generated, version_no: int, user: User) -> DesignVersion:
         """생성 결과를 새 버전 행으로 저장하고 메시 캐시를 쓴다. g 는 바꾸지 않는다.
@@ -574,9 +587,26 @@ class DesignService:
         # 버전을 붙이지 않는다 (요청이 끝나면 세션이 되돌린다). 캐시도 쓰지 않는다
         if db.scalar(select(Design.id).where(Design.id == design.id)) is None:
             raise NotFoundError("설계가 삭제되었어요.")
+        self._record_demand(db, design, g, version_no, user)
         # 메시 캐시 저장 (뷰어용 배치 메시 + 출력 자세 메시)
         _write_cache(self._version_dir(design.id, version_no), files)
         return row
+
+    @staticmethod
+    def _record_demand(db: Session, design: Design, g: _Generated, version_no: int, user: User) -> None:
+        """카탈로그에 없다고 한 부품(missing_parts)을 수요로 센다. 엔진 통과 여부와 상관없이 센다.
+        저장점 안에서 하고 어떤 오류든 기록만 한다: 수요 기록 때문에 설계 저장이 실패하지 않는다."""
+        missing = getattr(g.interpret.spec, "missing_parts", None)
+        if not missing:
+            return
+        try:
+            with db.begin_nested():
+                part_requests.record_missing(
+                    db, design_id=design.id, version_no=version_no, missing=missing, prompt=g.prompt,
+                    user_id=user.id, species=g.habitat.species, size=g.habitat.size, lang=get_lang(),
+                )
+        except Exception:
+            log.warning("part request recording failed: design=%s v=%s", design.id, version_no, exc_info=True)
 
     # ── 조회 ────────────────────────────────────────────────
 
@@ -760,7 +790,7 @@ class DesignService:
                 version=v.version, prompt=v.prompt, provider=v.provider,
                 summary_ko=v.llm_spec.get("summary_ko", ""), notes_ko=v.llm_spec.get("notes_ko", []),
                 items=items, validation=validation, export_allowed=_exportable(v),
-                created_at=v.created_at,
+                created_at=v.created_at, missing_parts=_missing_parts(v.llm_spec),
             ),
         )
 

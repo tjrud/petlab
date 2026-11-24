@@ -270,7 +270,12 @@ export type Version = {
   validation: Validation;
   export_allowed: boolean;
   created_at: string;
+  /** 해석기가 카탈로그에 없어 만들지 못했다고 한 부품 (부품 요청으로 기록된다). 옛 서버 응답에는 없을 수 있어요 */
+  missing_parts?: MissingPart[];
 };
+
+/** 카탈로그에 없는 부품 하나 (backend MissingPartOut). 이름·쓰임새는 화면 언어로 온다 */
+export type MissingPart = { name_ko: string; purpose_ko: string };
 
 export type Design = {
   id: string;
@@ -506,4 +511,97 @@ export type MarketItemInput = {
   image_file_id: string | null;
   layout_id: string | null;
   post_to_community: boolean;
+};
+
+// ── 관리자: 부품 요청 (backend app/api/admin.py, app/schemas.py) ──
+
+export type PartRequestStatus = "open" | "planned" | "published" | "rejected" | "merged";
+
+/** 부품 요청이 나온 설계의 요청 앞부분 (연락처를 지운 글) */
+export type PartRequestExample = { excerpt: string; lang: string; at: string };
+
+/** 해석기가 카탈로그에 없다고 한 부품의 수요 하나 (회원 id 는 오지 않는다) */
+export type PartRequest = {
+  id: string;
+  /** 정규화한 이름 (같은 부품을 한 줄로 모으는 열쇠) */
+  name_key: string;
+  /** 처음 본 이름 */
+  name_ko: string;
+  status: PartRequestStatus;
+  /** 서로 다른 설계 수 */
+  request_count: number;
+  /** 서로 다른 회원 수 */
+  user_count: number;
+  /** 종/크기별 설계 수 ({"hamster/dwarf": 3}) */
+  species_counts: Record<string, number>;
+  /** 쓰임새 (최근 것 먼저, 최대 5개) */
+  purposes: string[];
+  /** 최근 예시 최대 3개 */
+  examples: PartRequestExample[];
+  published_key: string | null;
+  /** 이 수요를 채우는, 쓰는 중인 라이브러리 부품 키 */
+  fulfilled_by: string[];
+  merged_into: string | null;
+  note: string | null;
+  first_seen_at: string;
+  last_seen_at: string;
+  updated_at: string;
+};
+
+/** 요청이 나온 설계 하나 (자세히 보기의 최근 20개) */
+export type PartRequestHit = {
+  excerpt: string;
+  purpose_ko: string;
+  species: string;
+  size: string;
+  lang: string;
+  at: string;
+};
+
+export type PartRequestDetail = PartRequest & { hits: PartRequestHit[] };
+
+/** PATCH /admin/part-requests/{id}: 보내지 않은 필드는 그대로, note·published_key 는 null 로 지운다 */
+export type PartRequestPatch = {
+  status?: Exclude<PartRequestStatus, "merged">;
+  note?: string | null;
+  published_key?: string | null;
+  merged_into?: string;
+  clear_examples?: boolean;
+};
+
+export type PartRequestSort = "users" | "count" | "recent";
+
+/** GET /admin/part-requests/export: 부품을 만들 때 쓰는 JSON */
+export type PartRequestExport = {
+  exported_at: string;
+  requests: {
+    id: string;
+    name_key: string;
+    name_ko: string;
+    status: PartRequestStatus;
+    users: number;
+    count: number;
+    species_counts: Record<string, number>;
+    purposes: string[];
+    examples: PartRequestExample[];
+    note: string | null;
+  }[];
+};
+
+/** 부품 라이브러리 항목 (GET /admin/library, app/library/index.json) */
+export type LibraryEntry = {
+  /** "family@vN" */
+  key: string;
+  family: string;
+  version: number;
+  name_ko: string;
+  role: "host" | "room_host" | "accessory" | "none";
+  status: "active" | "retired" | "blocked";
+  /** 종 → 검증한 크기 */
+  verified_for: Record<string, string[]>;
+  published_at: string;
+  /** 이 부품이 채우는 부품 요청 이름 (name_key) */
+  fulfills: string[];
+  /** 마지막 검증 요약 (없으면 null) */
+  report?: Record<string, unknown> | null;
 };

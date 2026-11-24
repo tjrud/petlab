@@ -12,10 +12,12 @@ attach_order·연결 지점·face_fields·open_port)으로 다음을 정한다.
   1. 위·아래 면: at 에 위·아래가 없어 고를 수 없다 (위에 얹기는 2단계). 해석기 출력 검증이 막는다
   2. 출입구(port + 벽) ← 터널: 끼움 결합, 통로가 부모 벽을 뚫는다 (into_parent). 터널 끝은 attach_order 순서(end_b 부터).
      터널 내경은 출입구 폭을 따르고, 터널 단면은 출입구 단면 모양으로 정한다
-  3. 터널 끝(port, 벽 없음) ← 방(은신처·집): 끼움 결합, 통로가 자식 벽을 뚫는다 (into_child). 방은 attach_order 의 첫 출입구로
-  4. 출입구 ← 방: 사이에 터널(f"{방}_link", 가장 짧은 길이)을 넣고 2·3 으로 잇는다
+  3. 터널 끝(port, 벽 없음) ← 방(은신처·집): 끼움 결합, 통로가 자식 벽을 뚫는다 (into_child). 방은 attach_order 의 첫 출입구로.
+     출입구 단면 모양을 파라미터로 고르는 방(face_fields.profile 이 있는 방)은 터널에 이미 정해진 단면을 따른다
+  4. 출입구 ← 방: 사이에 터널(카탈로그의 "tunnel", f"{방}_link", 가장 짧은 길이)을 넣고 2·3 으로 잇는다
   5. 터널 끝 ← 터널: 지원하지 않는다 (join_unsupported, 2단계 이음 부품)
-  6. 벽뿐인 면 ← 터널: open_port 로 출입구를 낼 수 있으면 내고 2 로, 없으면 빈 출입구 면으로 옮기고, 그것도 없으면 face_unavailable
+  6. 벽뿐인 면 ← 터널: open_port 로 출입구를 낼 수 있으면 내고 2 로 (은신처 뒷면·옆면, 집 옆면), 없으면 빈 출입구 면으로
+     옮기고, 그것도 없으면 face_unavailable
   7. 연결판 자리(mount, 출입구 아님) ← 받침·거치대·램프: 슬라이드 결합 (통로 아님)
   8. 출입구, 또는 출입 면(side)인데 자식이 출입을 막는 부품 ← 받침·거치대: 오른쪽·왼쪽·뒤·앞 중 첫 빈 연결판 면으로 옮긴다
   9. 그 밖 (모래목욕통·집을 다른 부품에, 받침에 다른 부품을): join_unsupported
@@ -35,7 +37,7 @@ import dataclasses
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, get_args, get_origin
 
 import numpy as np
 from pydantic import ValidationError
@@ -221,6 +223,8 @@ class _State:
     order: list[str]
     label: str
     item_index: int | None
+    # 이 해석에 쓸 수 있는 템플릿 전체 (키 → 템플릿). 방끼리 이을 때 끼울 터널을 키로 찾는다
+    catalog: Mapping[str, Template] = field(default_factory=dict)
     names: dict[str, str] = field(default_factory=dict)
     joins: list[_Join] = field(default_factory=list)
     ties: dict[str, str] = field(default_factory=dict)  # follower → owner (모두 "부품id.경로")
@@ -325,6 +329,40 @@ def _set(values: dict, path: str, value: Any) -> None:
     values[last] = value
 
 
+_MISSING = object()
+
+
+def _value_or_missing(obj: Any, path: str) -> Any:
+    """파라미터 경로의 값. 그 템플릿에 없는 필드면 _MISSING (모델 dump 가 빼는 기본값도 실제 값으로 읽는다)."""
+    for name in path.split("."):
+        if isinstance(obj, dict):
+            if name not in obj:
+                return _MISSING
+            obj = obj[name]
+        elif hasattr(type(obj), "model_fields"):  # 파라미터 모델 (중첩 모델 포함)
+            if name not in type(obj).model_fields:
+                return _MISSING
+            obj = getattr(obj, name)
+        else:
+            return _MISSING
+    return obj
+
+
+def literal_choices(params_cls: type[TemplateParams], path: str) -> tuple[Any, ...]:
+    """Params 필드(점 표기 경로)가 Literal 이면 그 선택지, 아니면 ()."""
+    cls: Any = params_cls
+    *heads, last = path.split(".")
+    for name in heads:
+        f = getattr(cls, "model_fields", {}).get(name)
+        if f is None:
+            return ()
+        cls = f.annotation
+    f = getattr(cls, "model_fields", {}).get(last)
+    if f is None:
+        return ()
+    return get_args(f.annotation) if get_origin(f.annotation) is Literal else ()
+
+
 def _num(v: Any) -> float | None:
     return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
 
@@ -379,7 +417,7 @@ def resolve(
         parts[pr.id] = t
 
     st = _State(ctx=ctx, templates=parts, params=values, order=[p.id for p in req.parts], label=label,
-                item_index=item_index)
+                item_index=item_index, catalog=tmpl)
     st.names = _names(st)
     # 1. 부품마다 보정 (구조 값을 먼저 정한다)
     for pid in list(st.order):
@@ -413,22 +451,24 @@ def resolve(
     return resolved, {pid: st.params[pid] for pid in st.order}, st.issues
 
 
-# 방의 출입구 구조를 정하는 파라미터 (통로로 이은 방은 이 값에 기대므로 바뀌었든 아니든 fixed 에 적는다)
-DOOR_STRUCTURE_FIELDS = ("entrance_count", "doors.sides", "ports.sides")
+# 방의 출입구 구조를 정하는 파라미터 (통로로 이은 방은 이 값에 기대므로 바뀌었든 아니든 fixed 에 적는다).
+# 템플릿이 door_fields 를 가지면 (라이브러리 부품: 출입구 배치·단면 모양) 그 필드도 함께 적는다
+DOOR_STRUCTURE_FIELDS = ("entrance_count", "side_doors", "doors.sides", "ports.sides")
 
 
 def _pin_doors(st: _State) -> None:
     """통로로 이은 방의 출입구 구조 값을 fixed 에 적는다. 해석기가 바꾼 값만 적으면 고친 명세(이미 바뀐 값)를 다시
-    해석할 때 빠져 저장 형태(canonical)가 달라지므로, 통로가 있는 방이면 늘 적는다."""
+    해석할 때 빠져 저장 형태(canonical)가 달라지므로, 통로가 있는 방이면 늘 적는다. 값은 파라미터에서 바로 읽는다
+    (은신처 side_doors 처럼 기본값이면 저장 dict 에서 빠지는 필드도 적는다)."""
     for pid in st.order:
-        if st.templates[pid].role != "room_host":
+        t = st.templates[pid]
+        if t.role != "room_host":
             continue
         if not any(j.passage is not False and pid in (j.parent, j.child) for j in st.joins):
             continue
-        values = _leaves(st.params[pid].model_dump())
-        for f in DOOR_STRUCTURE_FIELDS:
-            if f in values:
-                v = values[f]
+        for f in dict.fromkeys(DOOR_STRUCTURE_FIELDS + tuple(getattr(t, "door_fields", ()))):
+            v = _value_or_missing(st.params[pid], f)
+            if v is not _MISSING:
                 st.fixed[f"{pid}.{f}"] = list(v) if isinstance(v, (list, tuple)) else v
 
 
@@ -739,6 +779,7 @@ def _attach_room_to_end(st: _State, tunnel: str, room: str, at: str) -> None:
     door = _room_door(st, room, tunnel)
     _add_join(st, _Join(tunnel, chosen, room, door, "plug", "into_child"), face)  # type: ignore[arg-type]
     _tie_port(st, (tunnel, chosen), (room, door))
+    _adopt_room_profile(st, tunnel=(tunnel, chosen), room=(room, door))
     _match_profile(st, tunnel=(tunnel, chosen), door=(room, door))
     _check_room_overlap(st, room, tunnel)
 
@@ -814,8 +855,9 @@ def _insert_tunnel(st: _State, parent: str, room: str, at: str) -> None:
     if len(st.order) >= MAX_PARTS:
         raise ResolveError(TOO_MANY_PARTS, f"{st.label}: {_w(st.names[parent], '과/와')} {st.names[room]} 사이에 터널을 넣으면 "
                                            f"부품이 {MAX_PARTS}개를 넘습니다", room, parent=parent)
-    tunnel_t = next((t for t in default_templates().values() if t.role == "connector"), None)
-    if tunnel_t is None:  # pragma: no cover - 터널 템플릿은 늘 있다
+    # 끼울 터널은 키로 찾는다 (등록 순서와 상관없이: 라이브러리에 다른 connector 가 생겨도 같은 터널)
+    tunnel_t = st.catalog.get("tunnel")
+    if tunnel_t is None:
         raise ResolveError(JOIN_UNSUPPORTED, f"{st.label}: 방끼리 이을 터널이 없습니다", room)
     door = _pick_door(st, parent, room, at)
     link = link_id(room, set(st.order))
@@ -880,6 +922,37 @@ def _apply_tie(st: _State, follower: str, owner: str) -> None:
     _clamp_part(st, fid)
 
 
+def _adopt_room_profile(st: _State, tunnel: tuple[str, str], room: tuple[str, str]) -> None:
+    """터널 끝에 붙인 방이 출입구 단면 모양을 파라미터로 고르면 (face_fields.profile 이 있으면) 터널에 정해진 단면을 따른다.
+    단면이 정해진 방(은신처·집)은 그대로. 터널 단면이 아직 정해지지 않았고 방이 만들 수 없는 모양(둥근 관 등)이면
+    방은 그대로 두고 _match_profile 이 터널을 방 출입구에 맞춘다. 터널이 이미 그 모양으로 정해졌으면 오류."""
+    (tid, ta), (rid, ra) = tunnel, room
+    rf = st.templates[rid].face_fields(st.params[rid], ra).profile
+    if rf is None:
+        return  # 단면이 정해진 방
+    rkey = f"{rid}.{rf}"
+    if rkey in st.fixed:
+        return  # 이미 다른 터널에 맞췄다: _match_profile 이 판단한다
+    tf = st.templates[tid].face_fields(st.params[tid], ta).profile
+    if tf is None:
+        return
+    tkey = f"{tid}.{tf}"
+    want = st.fixed.get(tkey, _get(st.params[tid], tf))
+    if want not in literal_choices(type(st.params[rid]), rf):
+        if tkey in st.fixed:
+            raise ResolveError(JOIN_UNSUPPORTED, f"{st.label}: {st.names[rid]} 출입구는 {PROFILE_KO.get(str(want), want)} "
+                                                 f"단면을 만들 수 없어 {st.names[tid]}에 이을 수 없습니다", rid, parent=tid)
+        return  # 터널 단면이 아직 자유롭다: 터널이 방을 따른다
+    old = _get(st.params[rid], rf)
+    if old != want:
+        st.set_value(rid, rf, want)
+        _clamp_part(st, rid)
+        st.info("passage_shape_matched", rid, f"{st.names[rid]} 출입구 단면을 {st.names[tid]}에 맞춰 "
+                                              f"{_w(PROFILE_KO.get(str(want), str(want)), '으로/로')} 바꿨습니다",
+                **{"from": old, "to": want})
+    st.fixed[rkey] = want
+
+
 def _match_profile(st: _State, tunnel: tuple[str, str], door: tuple[str, str]) -> None:
     """통로 쪽 단면 모양을 출입구 단면 모양으로 정한다. 터널의 다른 끝이 이미 다른 모양에 맞춰졌으면 오류."""
     (tid, ta), (did, da) = tunnel, door
@@ -914,7 +987,11 @@ def _match_profile(st: _State, tunnel: tuple[str, str], door: tuple[str, str]) -
 
 def _fill_exits(st: _State) -> None:
     """통로로 출입구를 쓴 방에 비어 있는 출입구가 하나도 없으면, 쓴 출입구의 반대쪽(그다음 attach_order 순서) 빈 벽에
-    출입구를 낸다 (은신처: 출입구 2개, 집: 연결부 더하기)."""
+    출입구를 낸다 (은신처: 출입구 2개·옆면 출입구, 집: 연결부 더하기).
+
+    통로가 하나뿐인 방(막다른 방)은 꼭 나갈 출입구가 있어야 해서, 빈 벽이 없으면 받침·거치대를 옮기고 그래도 안 되면
+    face_unavailable. 통로가 둘 이상인 방(지나가는 방)은 통로로 드나들 수 있어 빈 벽이 있을 때만 낸다
+    (요청한 받침 자리를 옮기거나 실패하지 않는다)."""
     for pid in st.order:
         t = st.templates[pid]
         if t.role != "room_host":
@@ -935,7 +1012,7 @@ def _fill_exits(st: _State) -> None:
                 _exit_added(st, pid, n)
                 done = True
                 break
-        if done:
+        if done or len(through) > 1:
             continue
         # 출입구를 낼 수 있는 벽을 받침·거치대가 차지했으면 그 부품을 다른 옆면으로 옮기고 출입구를 낸다
         for n in order:

@@ -248,14 +248,16 @@ from app.main import create_app
 HEAVY = ("build123d", "OCP", "anthropic", "trimesh", "sklearn")
 with TestClient(create_app(make_settings(Path(tempfile.mkdtemp())))) as c:
     for p in ("/health", "/species", "/market/config", "/market/items", "/market/recommended",
-              "/community/posts", "/auth/me", "/me", "/layouts", "/designs"):
-        c.get(p)
+              "/community/posts", "/auth/me", "/me", "/layouts", "/designs",
+              "/admin/part-requests", "/admin/part-requests/export", "/admin/part-requests/" + "0" * 32):
+        r = c.get(p)
+        assert r.status_code < 500, (p, r.status_code)
 print("heavy=" + ",".join(h for h in HEAVY if h in sys.modules))
 """
 
 
 def test_light_requests_do_not_load_the_geometry_kernel_or_llm_sdk():
-    """서버 기동과 탐색·커뮤니티·로그인 같은 가벼운 요청(목록)은 형상 커널(build123d/OCP)·trimesh·Anthropic SDK 를
+    """서버 기동과 탐색·커뮤니티·로그인·관리자 부품 수요 같은 가벼운 요청(목록)은 형상 커널(build123d/OCP)·trimesh·Anthropic SDK 를
     불러오지 않는다 (콜드 스타트 수 초). 설계 생성·설계 상세(규칙 변경 안내·메시)·내려받기 요청에서는 불러온다"""
     import subprocess
     import sys

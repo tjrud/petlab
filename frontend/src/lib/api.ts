@@ -9,6 +9,7 @@ import type {
   Design,
   DesignListItem,
   Habitat,
+  LibraryEntry,
   MarketConfig,
   MarketFile,
   MarketItem,
@@ -16,6 +17,12 @@ import type {
   MarketItemSummary,
   Me,
   Paged,
+  PartRequest,
+  PartRequestDetail,
+  PartRequestExport,
+  PartRequestPatch,
+  PartRequestSort,
+  PartRequestStatus,
   Pet,
   PetInput,
   Post,
@@ -212,6 +219,27 @@ export const api = {
   createComment: (postId: string, body: string) =>
     request<Comment>(`/community/posts/${encodeURIComponent(postId)}/comments`, json("POST", { body })),
   deleteComment: (id: string) => request<void>(`/community/comments/${encodeURIComponent(id)}`, json("DELETE")),
+
+  // 관리자: 부품 요청 (해석기가 카탈로그에 없다고 한 부품의 수요)과 부품 라이브러리
+  adminPartRequests: (
+    q: { status?: PartRequestStatus | "all"; sort?: PartRequestSort; q?: string; page?: number; pageSize?: number } = {},
+  ) => {
+    const sp = new URLSearchParams();
+    if (q.status) sp.set("status", q.status);
+    if (q.sort) sp.set("sort", q.sort);
+    if (q.q) sp.set("q", q.q);
+    if (q.page && q.page > 1) sp.set("page", String(q.page));
+    if (q.pageSize) sp.set("page_size", String(q.pageSize));
+    const qs = sp.toString();
+    return request<Paged<PartRequest>>(`/admin/part-requests${qs ? `?${qs}` : ""}`);
+  },
+  adminPartRequest: (id: string) => request<PartRequestDetail>(`/admin/part-requests/${encodeURIComponent(id)}`),
+  updatePartRequest: (id: string, body: PartRequestPatch) =>
+    request<PartRequest>(`/admin/part-requests/${encodeURIComponent(id)}`, json("PATCH", body)),
+  /** status 를 주지 않으면 open·planned */
+  exportPartRequests: (status?: PartRequestStatus | "all", limit = 200) =>
+    request<PartRequestExport>(`/admin/part-requests/export?limit=${limit}${status ? `&status=${status}` : ""}`),
+  adminLibrary: () => request<LibraryEntry[]>("/admin/library"),
 
   exportUrl: (id: string, format: "stl" | "3mf", version: number) =>
     `${API_BASE}/designs/${encodeURIComponent(id)}/export?format=${format}&version=${version}`,

@@ -285,5 +285,14 @@
  "{0} → {1} 앞": "{0} → front of {1}",
  "{0} → {1} 뒤": "{0} → back of {1}",
  "{0} → {1} 끝": "{0} → end of {1}",
- "{0} → {1} 빈 면": "{0} → a free side of {1}"
+ "{0} → {1} 빈 면": "{0} → a free side of {1}",
+ "요청하신 {0}은(는) 아직 부품이 없어 다른 부품으로 만들었어요.": "The {0} you asked for isn't available as a part yet, so it was built from other parts.",
+ "쳇바퀴": "exercise wheel",
+ "챗바퀴": "exercise wheel",
+ "달리기 운동": "running exercise",
+ "해먹": "hammock",
+ "매달려 쉬기": "hanging rest",
+ "그네": "swing",
+ "놀이": "play",
+ "시소": "seesaw"
 }

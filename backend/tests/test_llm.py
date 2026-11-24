@@ -607,7 +607,8 @@ def test_catalog_has_connection_entries_from_template_metadata():
     hide = cat["hideout"]["연결"]
     assert "front: 출입구(터널만)" in hide
     assert "left/right: 옆면(" in hide and "그릇 받침" in hide and "물병 거치대" in hide
-    assert "back: 옆면(" in hide and "출입구를 낸다" in hide  # 뒷면은 터널을 이으면 출입구 2개로 연다
+    # 뒷면·옆면은 터널을 이으면 출입구를 연다 (뒷면: 출입구 2개, 옆면: 옆면 출입구)
+    assert "back/left/right: 옆면(" in hide and "출입구를 낸다" in hide
     assert "free_end" in hide
     assert "front: 출입 면(램프/계단)" in cat["sand_bath"]["연결"]  # 출입 면에는 출입을 막지 않는 램프만
     assert "기준 부품으로만" in cat["sand_bath"]["연결"]
@@ -651,6 +652,17 @@ def test_system_prompt_has_composition_block_and_valid_few_shots():
     assert [p["template"] for p in twin["parts"]] == ["hideout", "tunnel", "hideout"]
     assert [(c["part"], c["to"], c["at"]) for c in twin["connections"]] == [
         ("tube", "hide", "front"), ("hide2", "tube", "free_end")]
+
+
+def test_system_prompt_states_missing_parts_rules():
+    """없는 부품은 응답 언어의 짧은 일반 명사로, 쓰임새는 한 문장으로. 대신 만들어도 적고, 색·장식·크기·목록 부품은 적지 않는다
+    (부품 수요로 모아 세므로 이름이 고르게 나와야 한다)."""
+    from app.llm.prompts import SYSTEM_PROMPT
+
+    rules = SYSTEM_PROMPT.split("missing_parts 에 {name_ko, purpose_ko}", 1)[1].split("\n조립", 1)[0]
+    for word in ("짧은 일반 명사", "종·크기 말", "넣지 않습니다", "한 문장", "대신할 수 있으면", "그대로 적습니다",
+                 "색·장식·크기", "적지 않습니다"):
+        assert word in rules, word
 
 
 def test_retry_after_assembly_tree_error(req):

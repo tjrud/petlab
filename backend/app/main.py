@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse, Response
 from sqlalchemy.exc import DataError
 
 from app.api import auth as auth_api
-from app.api import community, designs, habitats, layouts, market, me, meta, waitlist
+from app.api import admin, community, designs, habitats, layouts, market, me, meta, waitlist
 from app.auth import (
     AuthRequiredError,
     AuthUnavailableError,
@@ -242,8 +242,9 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
     # 권한은 엔드포인트마다 의존성으로 정한다:
     #  - 누구나: 상태 확인, 종 목록, 회원가입·로그인, 커뮤니티 읽기, 공유된 설계 보기
     #  - 회원: 설계 만들기·수정·내역, 내 정보·반려동물, 가상 케이지 배치안, 글·댓글 쓰기, 제작 신청
+    #  - 관리자: 부품 수요 (/admin)
     for router in (meta.router, auth_api.router, me.router, habitats.router, designs.router, layouts.router,
-                   community.router, market.router, waitlist.router):
+                   community.router, market.router, waitlist.router, admin.router):
         app.include_router(router, prefix=prefix)
     return app
 

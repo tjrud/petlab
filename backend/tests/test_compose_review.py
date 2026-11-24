@@ -180,8 +180,9 @@ def test_ramp_on_a_face_that_cannot_come_down_is_refused(rules) -> None:
     assert "오를 수 있는 높이" in out.message_ko
 
 
-def test_accessory_on_the_only_exit_wall_is_moved(rules) -> None:
-    """방의 하나 남은 출구 벽(은신처 뒤)을 받침이 차지했으면 받침을 다른 옆면으로 옮기고 출입구를 낸다."""
+def test_accessory_on_the_exit_wall_stays_and_a_side_door_opens(rules) -> None:
+    """방의 출구 벽(은신처 뒤)을 받침이 차지했으면: 은신처는 받침을 옮기지 않고 빈 옆면에 옆면 출입구를 낸다
+    (2단계, 설계 문서 §3.2: 요청한 자리를 지킨다)."""
     ctx = rctx(rules, "dwarf")
     req = request([("hide", "hideout", dp("hideout", ctx)), ("bowl", "bowl_holder", dp("bowl_holder", ctx)),
                    ("tube", "tunnel", dp("tunnel", ctx)), ("hide2", "hideout", dp("hideout", ctx)),
@@ -189,11 +190,13 @@ def test_accessory_on_the_only_exit_wall_is_moved(rules) -> None:
                   [("bowl", "hide", "back"), ("tube", "hide", "front"), ("hide2", "tube", "free_end"),
                    ("bowl2", "hide2", "front")])
     res, params, issues = compose.resolve(req, None, ctx)
-    assert params["hide"].entrance_count == 2 and params["hide2"].entrance_count == 2
-    moved = {i.details["part"] for i in issues if i.code == "join_relocated"}
-    assert {"bowl", "bowl2"} <= moved
+    assert params["hide"].entrance_count == 1 and params["hide"].side_doors == "left"
+    assert params["hide2"].entrance_count == 1 and params["hide2"].side_doors == "left"
+    assert "join_relocated" not in {i.code for i in issues}
     used = {(j.parent, j.child) for j in res.joins}
-    assert ("hide.back", "bowl.back") not in used
+    assert ("hide.back", "bowl.back") in used and ("hide2.back", "bowl2.back") in used
+    assert [i.details for i in issues if i.code == "exit_added"] == [{"part": "hide", "anchor": "left"},
+                                                                     {"part": "hide2", "anchor": "left"}]
     t = compose.template_for(res)
     p = compose.assembly_params(t, params)
     assert t.features(p).entrance_count >= 2

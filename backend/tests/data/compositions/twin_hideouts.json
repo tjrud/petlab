@@ -124,7 +124,9 @@
     "fixed": {
       "tube.shape": "round_arch",
       "hide.entrance_count": 2,
-      "hide2.entrance_count": 2
+      "hide.side_doors": "none",
+      "hide2.entrance_count": 2,
+      "hide2.side_doors": "none"
     },
     "faces": {
       "tube": "front",

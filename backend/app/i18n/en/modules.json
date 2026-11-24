@@ -180,5 +180,7 @@
  "다른 부품": "another part",
  "따로 출력하는 경사로가 프린터 출력 공간에 들어가면서 {0}° 이하로 완만하려면 높이가 {1}mm 이하여야 합니다": "For a separately printed ramp to fit the printer and stay at {0}° or gentler, its height must be {1} mm or less",
  "왼쪽 면": "left face",
- "오른쪽 면": "right face"
+ "오른쪽 면": "right face",
+ "{0}: {1} 출입구는 {2} 단면을 만들 수 없어 {3}에 이을 수 없습니다": "{0}: the entrances of {1} can't take the {2} cross-section, so it can't connect to {3}",
+ "{0} 출입구 단면을 {1}에 맞춰 {2} 바꿨습니다": "Changed the entrance cross-section of {0} to {2} to match {1}"
 }

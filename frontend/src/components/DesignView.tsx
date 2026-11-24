@@ -12,16 +12,37 @@ import LoginRequired from "@/components/LoginRequired";
 import RevisePanel from "@/components/RevisePanel";
 import ValidationPanel from "@/components/ValidationPanel";
 import VersionList from "@/components/VersionList";
-import { useRouter, useT } from "@/i18n/client";
+import { useLang, useRouter, useT } from "@/i18n/client";
 import { api, ApiError, errorText, isAuthError, isEmailUnverified } from "@/lib/api";
 import { kindOf } from "@/lib/habitatKind";
-import type { Design } from "@/lib/types";
+import { josa } from "@/lib/josa";
+import type { Design, MissingPart } from "@/lib/types";
 import { ui } from "@/lib/ui";
 
 const CageViewer = dynamic(() => import("@/components/CageViewer"), {
   ssr: false,
   loading: () => <ViewerLoading />,
 });
+
+/** 해석기가 카탈로그에 없다고 한 부품마다 한 줄: 요청을 기록했고 이번 설계는 있는 부품으로 만들었다 */
+function MissingPartsNotice({ parts }: { parts: MissingPart[] }) {
+  const t = useT();
+  const lang = useLang();
+  // 같은 이름이 두 번 오면 한 줄만
+  const names = [...new Set(parts.map((p) => p.name_ko.trim()).filter(Boolean))];
+  if (names.length === 0) return null;
+  return (
+    <ul data-testid="missing-parts" className="mt-3 space-y-1 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
+      {names.map((name) => (
+        <li key={name}>
+          {t("요청하신 {name} 아직 부품 라이브러리에 없어요. 요청을 기록해 두었고, 이번 설계는 있는 부품으로 만들었어요.", {
+            name: lang === "ko" ? josa(name, "은는") : name,
+          })}
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 function ViewerLoading() {
   const t = useT();
@@ -195,6 +216,7 @@ export default function DesignView({ id, initialVersion }: { id: string; initial
               ))}
             </ul>
           )}
+          <MissingPartsNotice parts={cur.missing_parts ?? []} />
         </div>
       </div>
 
