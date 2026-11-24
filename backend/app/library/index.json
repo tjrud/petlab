@@ -1,4 +1,62 @@
 {
   "v": 1,
-  "parts": {}
+  "parts": {
+    "tunnel_junction@v1": {
+      "sha256": "467dd610d95a7f575b24ee6467489d851f3db62e890549da718894f379641b26",
+      "status": "active",
+      "published_at": "2026-11-24",
+      "family": "tunnel_junction",
+      "version": 1,
+      "role": "room_host",
+      "habitats": [
+        "cage"
+      ],
+      "verified_for": {
+        "hamster": [
+          "dwarf",
+          "syrian"
+        ]
+      },
+      "rule_fields_used": [
+        "entrance_min_diameter_mm"
+      ],
+      "rules_digest": {
+        "hamster/dwarf": "adb38b94587b250d6b11ece1135d5489bfde6e3ef523d8b0dff8cda9b4bffa18",
+        "hamster/syrian": "7d8ee2962d236c066656d2e7ffd26bef70122334614190212e2c64321ef46911"
+      },
+      "golden": {
+        "hamster/dwarf/default": {
+          "params": {
+            "wall_thickness_mm": 3.0,
+            "layout": "T",
+            "door_width_mm": 55.0,
+            "door_shape": "round_arch",
+            "size_mm": 81.0,
+            "height_mm": 69.0
+          },
+          "files": {
+            "print_0.stl": "d509645e03780d58466a6f2b14acbea259d1888e66757941a92498f0691f32b6",
+            "world_0.stl": "b0e3157746e082e479526f47ce68c90ba66391bdfaa80244860d433104c75b5f"
+          }
+        },
+        "hamster/syrian/default": {
+          "params": {
+            "wall_thickness_mm": 3.0,
+            "layout": "T",
+            "door_width_mm": 75.0,
+            "door_shape": "round_arch",
+            "size_mm": 101.0,
+            "height_mm": 89.0
+          },
+          "files": {
+            "print_0.stl": "d57f2c1919ca2bcb5adcd8083890a0a1b074092868e626cb7aa525975afdac73",
+            "world_0.stl": "d8758c6480f0d299e66de46c0cacd0fc024073ed62bd6f4b94559063f39ff7e0"
+          }
+        }
+      },
+      "superseded_by": null,
+      "reason": null,
+      "request_ids": []
+    }
+  }
 }

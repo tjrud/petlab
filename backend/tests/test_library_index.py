@@ -70,10 +70,11 @@ def lib(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     index.clear_cache()
 
 
-def test_repository_index_is_empty_and_valid() -> None:
+def test_repository_index_is_valid() -> None:
+    """저장소 색인: 형식이 맞고 부품 파일과 맞는다 (게시된 부품이 늘어도 그대로; 파일 내용은 test_library_published)."""
     raw = json.loads((BACKEND / "app" / "library" / "index.json").read_text(encoding="utf-8"))
-    assert raw == {"v": 1, "parts": {}}
-    assert index.keys() == ()
+    assert raw["v"] == 1 and list(raw["parts"]) == sorted(raw["parts"])
+    assert index.keys() == tuple(raw["parts"])
     assert index.integrity_problems() == []
     assert (BACKEND / "app" / "library" / "parts" / ".gitkeep").exists()
     assert (BACKEND / "app" / "library" / "reports" / ".gitkeep").exists()
@@ -219,9 +220,9 @@ def test_i18n_pairs(lib: Path) -> None:
         "발판 플랫폼": "Deck platform",
         "화장실 트레이": "Litter tray",
         "벽·지붕 두께": "wall/roof thickness",
-        "출입구 배치": "Door layout",
+        "출입구 배치": "door layout",
         "출입구 폭": "entrance width",
-        "일자": "Straight",
+        "일자": "straight",
         "뾰족 아치": "pointed arch",
         "{1} 갈림길 출입구는 최소 {0}mm 이상이어야 합니다": "{1} junction doors must be at least {0} mm wide",
         "본체": "Body",
@@ -239,7 +240,7 @@ def test_i18n_pairs(lib: Path) -> None:
 def test_part_pairs_on_a_draft() -> None:
     pairs = index.part_pairs(draft("tunnel_junction"))
     assert pairs[0] == ("터널 갈림길", "Tunnel junction")
-    assert ("외형 높이", "Outer height") in pairs
+    assert ("외형 높이", "outer height") in pairs
     assert ("T자", "T-piece") in pairs
 
 
@@ -271,7 +272,8 @@ def test_parse_key_and_dump_index() -> None:
     assert list(json.loads(text)["parts"]) == ["a_part@v1", "b_part@v1"] and text.endswith("}\n")
     model = IndexFile.model_validate({"v": 1, "parts": {}})
     assert dump_index(model) == '{\n  "v": 1,\n  "parts": {}\n}\n'
-    assert (BACKEND / "app" / "library" / "index.json").read_text(encoding="utf-8") == dump_index(model)
+    repo = (BACKEND / "app" / "library" / "index.json").read_text(encoding="utf-8")
+    assert repo == dump_index(json.loads(repo))  # 저장소 색인도 정규 형식이다
 
 
 def test_light_modules_import_no_kernel() -> None:

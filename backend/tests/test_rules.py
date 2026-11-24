@@ -536,12 +536,15 @@ def test_volume_note_pair_rules(rules_copy, edit, match):
         load_rules(rules_copy)
 
 
-def test_offered_templates_equal_allowed_without_library_parts(rules):
-    """코드 부품만 적은 종은 새 설계에 내놓는 목록(offered)이 allowed 와 같다. 라이브러리 부품의 게이팅·폐기는
-    tests/test_library_wiring.py 가 확인한다."""
+def test_offered_templates_equal_allowed_without_hidden_library_parts(rules):
+    """폐기·차단한 라이브러리 부품이 없으면 새 설계에 내놓는 목록(offered)이 allowed 와 같다. 종에 적은 라이브러리
+    부품은 키에 @ 가 있는 것뿐이다. 라이브러리 부품의 게이팅·폐기는 tests/test_library_wiring.py 가 확인한다."""
+    from app.library import index
+
     for species in rules.species_file.species:
-        assert rules.offered_templates(species) == rules.allowed_templates(species)
-        assert rules.species_entry(species).library_templates == ()
+        allowed = rules.allowed_templates(species)
+        assert rules.species_entry(species).library_templates == tuple(k for k in allowed if "@" in k)
+        assert rules.offered_templates(species) == tuple(k for k in allowed if k not in index.hidden_keys())
 
 
 def test_unknown_key_message_lists_known_keys(rules_copy):

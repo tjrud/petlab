@@ -95,10 +95,29 @@ def library_installed(monkeypatch, root: Path, parts: dict[str, dict] | None = N
     monkeypatch.setattr(index, "LIBRARY_DIR", root)
     lib = build_library(root, parts)
     try:
-        with registry.overlay(lib.templates):
+        with without_repository_parts(), registry.overlay(lib.templates):
             yield lib
     finally:
         index.clear_cache()
+
+
+@contextlib.contextmanager
+def without_repository_parts() -> Iterator[None]:
+    """저장소 라이브러리에서 게시해 등록된 부품을 레지스트리에서 잠시 뺀다: 임시 라이브러리가 같은 key 를 다시
+    등록하고(overlay 는 겹치는 key 를 거절한다), 레지스트리가 임시 색인과 맞게 한다. 나올 때 그대로 되돌린다."""
+    saved_p, saved_t = dict(registry._PRIMITIVES), dict(registry._TEMPLATES)
+    for key in set(registry._PRIMITIVES) - set(registry.code_keys()):
+        registry._PRIMITIVES.pop(key)
+        registry._TEMPLATES.pop(key, None)
+    registry._clear_caches()
+    try:
+        yield
+    finally:
+        registry._PRIMITIVES.clear()
+        registry._PRIMITIVES.update(saved_p)
+        registry._TEMPLATES.clear()
+        registry._TEMPLATES.update(saved_t)
+        registry._clear_caches()
 
 
 @pytest.fixture
@@ -112,7 +131,7 @@ def gated_rules(rules_dir: Path, *keys: str) -> RuleBook:
     """햄스터 templates 에 라이브러리 키를 더한 규칙 (색인을 먼저 바꿔 둔 뒤에 읽는다: 게이팅 검사가 색인을 본다)."""
     p = rules_dir / "species.yaml"
     data = yaml.safe_load(p.read_text(encoding="utf-8"))
-    data["species"]["hamster"]["templates"] = list(data["species"]["hamster"]["templates"]) + list(keys)
+    data["species"]["hamster"]["templates"] = list(dict.fromkeys([*data["species"]["hamster"]["templates"], *keys]))
     p.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
     return load_rules(rules_dir)
 
@@ -161,7 +180,8 @@ def resolve_all(rules: RuleBook, spec, size: str = "syrian") -> list:
 
 @pytest.fixture
 def code_allowed(rules) -> tuple[str, ...]:
-    return tuple(rules.allowed_templates("hamster"))
+    """햄스터에 허용한 코드 부품 (저장소에서 게이팅한 라이브러리 부품은 뺀다: 시험마다 임시 라이브러리를 쓴다)."""
+    return tuple(k for k in rules.allowed_templates("hamster") if "@" not in k)
 
 
 # ── 내놓는 부품과 카탈로그·스키마 ─────────────────────────────────

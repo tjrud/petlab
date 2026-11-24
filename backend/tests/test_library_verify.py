@@ -88,7 +88,8 @@ def test_section6_drafts_are_statically_clean(name):
 def test_section6_drafts_pass_quick_verify(name):
     data = _load(GOOD / f"{name}.json")
     t0 = time.perf_counter()
-    run = verify_draft(data, key=f"{name}@v1", stem=name, profile="quick")
+    # key 는 라이브러리의 다음 버전 (게시된 tunnel_junction@v1 이 있으면 @v2: 등록된 부품과 겹치지 않는다)
+    run = verify_draft(data, stem=name, profile="quick")
     assert run.ok, [f"{r.id} {r.variant}: {r.message}" for r in run.failures][:10]
     assert time.perf_counter() - t0 < 90  # §15 verify --quick 예산
     assert run.verified_for == {"hamster": ["dwarf", "syrian"]}

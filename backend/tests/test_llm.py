@@ -582,7 +582,8 @@ def test_template_keys_drop_fixed_modules(rules):
     from app.rules.loader import CAGE_TEMPLATES
     from app.templates.registry import all_templates, primitives
 
-    assert template_keys(rules.allowed_templates("hamster")) == CAGE_TEMPLATES
+    # 햄스터: 케이지 코드 부품, 그다음 게시·게이팅한 라이브러리 부품 (rules/species.yaml)
+    assert template_keys(rules.allowed_templates("hamster")) == (*CAGE_TEMPLATES, "tunnel_junction@v1")
     assert set(template_keys()) <= set(primitives())
     modules = [t.key for t in all_templates() if t.key not in primitives()]
     assert not set(modules) & {d.removesuffix("Item") for d in api_schema()["$defs"]}
@@ -624,6 +625,20 @@ def test_catalog_has_connection_entries_from_template_metadata():
     assert "front: 출입구" in only["hideout"]["연결"]
     # 고정 조립 모듈은 카탈로그에 없다
     assert set(cat) == set(CAGE_TEMPLATES)
+
+
+def test_hamster_catalog_lists_the_gated_library_parts(rules):
+    """게시해 햄스터에 허용한 라이브러리 부품(터널 갈림길)이 카탈로그·스키마에 나온다 (설계 문서 §6.1, §10)."""
+    from app.llm.prompts import template_catalog
+
+    cat = {t["template"]: t for t in template_catalog(rules.offered_templates("hamster"))}
+    hub = cat["tunnel_junction@v1"]
+    assert hub["이름"] == "터널 갈림길" and hub["설명"].startswith("터널 여러 개가 만나는 작은 방")
+    assert set(hub["파라미터"]) == {"wall_thickness_mm", "layout", "door_width_mm", "door_shape", "size_mm", "height_mm"}
+    # T 배치 기본값: 출입구 세 면은 터널만, 닫힌 뒷면은 받침면, 터널 끝에 이을 수 있는 방
+    assert "front/left/right: 출입구(터널만)" in hub["연결"] and "back: 옆면(" in hub["연결"]
+    assert "at=free_end" in hub["연결"]
+    assert "LibTunnelJunctionV1Params" in json.dumps(api_schema(rules.offered_templates("hamster")))
 
 
 def test_user_message_catalog_drops_fixed_modules(req, rules):

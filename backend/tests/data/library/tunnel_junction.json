@@ -75,16 +75,16 @@
       "default": "T",
       "desc": {
         "ko": "출입구 배치. I=앞·뒤, L=앞·왼쪽, T=앞·왼쪽·오른쪽, X=네 면",
-        "en": "Door layout. I=front+back, L=front+left, T=front+left+right, X=all four"
+        "en": "door layout. I=front+back, L=front+left, T=front+left+right, X=all four"
       },
       "choice_labels": {
         "I": {
           "ko": "일자",
-          "en": "Straight"
+          "en": "straight"
         },
         "L": {
           "ko": "기역자",
-          "en": "Corner"
+          "en": "corner"
         },
         "T": {
           "ko": "T자",
@@ -92,7 +92,7 @@
         },
         "X": {
           "ko": "십자",
-          "en": "Cross"
+          "en": "cross"
         }
       }
     },
@@ -118,7 +118,7 @@
       "default": "round_arch",
       "desc": {
         "ko": "출입구 단면 모양",
-        "en": "Door shape"
+        "en": "door shape"
       },
       "choice_labels": {
         "round_arch": {
@@ -147,7 +147,7 @@
       "rule_default": "door_width_mm + 2 * wall_thickness_mm + 20",
       "desc": {
         "ko": "외형 가로·세로(정사각형) mm",
-        "en": "Outer width and depth (square) mm"
+        "en": "outer width and depth (square) mm"
       }
     },
     "height_mm": {
@@ -158,7 +158,7 @@
       "rule_default": "port_height(door_shape, door_width_mm) + 2 * wall_thickness_mm + 8",
       "desc": {
         "ko": "외형 높이 mm",
-        "en": "Outer height mm"
+        "en": "outer height mm"
       }
     }
   },

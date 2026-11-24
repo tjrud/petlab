@@ -1,0 +1,369 @@
+[
+  {
+    "verifier": "verify/1",
+    "profile": "full",
+    "key": "tunnel_junction@v1",
+    "dsl": 1,
+    "file_sha256": "467dd610d95a7f575b24ee6467489d851f3db62e890549da718894f379641b26",
+    "code": {
+      "app.library.template": "e48e97100e24f6075cb0850bbabaaa899a6914a0957cab715d16fc945fe21795",
+      "app.library.ops": "7b8d90a4d0eca9a5d29c2bb6dd6dfafd6595b4ab4c1ef77ba22690b4c390be0d",
+      "app.library.expr": "584aa1992fef493ace5bfeea4a08bfdff66261b917a3c5a531063bfbe957c796",
+      "app.library.schema": "5a2bf37e6b7bfa118a3d27bffb991fb5c0cf7341e1d1799f041f6cf9a29cca53",
+      "app.templates.tunnel": "c224f279b4ab2009c277278e990954e2e15ecae251acec77c1d98435e250e01e"
+    },
+    "libraries": {
+      "build123d": "0.13.0",
+      "cadquery-ocp": "8.0.1.1.0",
+      "trimesh": "5.2.0",
+      "numpy": "2.5.4"
+    },
+    "rules_digest": {
+      "hamster/dwarf": "adb38b94587b250d6b11ece1135d5489bfde6e3ef523d8b0dff8cda9b4bffa18",
+      "hamster/syrian": "7d8ee2962d236c066656d2e7ffd26bef70122334614190212e2c64321ef46911"
+    },
+    "started_at": "2026-11-24T09:34:37Z",
+    "seconds": 53.0,
+    "result": "pass",
+    "habitats": [
+      "cage"
+    ],
+    "verified_for": {
+      "hamster": [
+        "dwarf",
+        "syrian"
+      ]
+    },
+    "rule_fields_used": [
+      "entrance_min_diameter_mm"
+    ],
+    "schema": {
+      "chars_added": 2109,
+      "totals": {
+        "hamster": 26022
+      },
+      "gate_ok": {
+        "hamster": true
+      }
+    },
+    "counts": {
+      "variants": 39,
+      "unreachable": 0,
+      "checks": 1715,
+      "failed": 0
+    },
+    "worst": {
+      "C03": {
+        "variant": "hamster/dwarf/c1/default",
+        "value": 0.0,
+        "limit": 0.2
+      },
+      "C05": {
+        "variant": "hamster/dwarf/c1/default",
+        "value": 1.0,
+        "limit": 0.97
+      },
+      "C08": {
+        "variant": "hamster/syrian/c1/max:wall_thickness_mm",
+        "value": 0.010591000318527222,
+        "limit": 1.0
+      },
+      "G01": {
+        "variant": "hamster/syrian/c1/min:size_mm",
+        "value": 0.1932827050004562,
+        "limit": 5.0
+      },
+      "G03": {
+        "variant": "hamster/dwarf/c1/default",
+        "value": 0.0,
+        "limit": 0.005
+      },
+      "G04": {
+        "variant": "hamster/dwarf/c1/max:size_mm",
+        "value": -20.0,
+        "limit": 0.0
+      },
+      "G05": {
+        "variant": "hamster/dwarf/c1/default",
+        "value": 0.0,
+        "limit": 100.0
+      },
+      "G06": {
+        "variant": "hamster/dwarf/c1/min:wall_thickness_mm",
+        "value": 2.400000000000001,
+        "limit": 2.16
+      },
+      "G07": {
+        "variant": "hamster/dwarf/c1/seed2",
+        "value": 1.4210854715202004e-14,
+        "limit": 0.5
+      },
+      "G08": {
+        "variant": "hamster/dwarf/c1/default",
+        "value": 0.0,
+        "limit": 3.0
+      },
+      "G11": {
+        "variant": "hamster/dwarf/c1/max:height_mm",
+        "value": 17.97810386269643,
+        "limit": 15.0
+      },
+      "R01": {
+        "variant": null,
+        "value": 2109.0,
+        "limit": 2300.0
+      },
+      "R04": {
+        "variant": "hamster/syrian/c1/default",
+        "value": 0.02027400114457123,
+        "limit": 2.0
+      },
+      "T02": {
+        "variant": "hamster/dwarf/trial:network hideout→hub→2 rooms",
+        "value": 3.9302626739990956,
+        "limit": 30.0
+      }
+    },
+    "failures": [],
+    "waived": [],
+    "unreachable": [],
+    "trials": [
+      {
+        "name": "tunnel@hub.front→hideout",
+        "size": "dwarf",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "hub.front>tube.end_b plug",
+          "tube.end_a>hide.front plug"
+        ],
+        "seconds": 1.4
+      },
+      {
+        "name": "tunnel@hub.left→hideout",
+        "size": "dwarf",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "hub.left>tube.end_b plug",
+          "tube.end_a>hide.front plug"
+        ],
+        "seconds": 1.3
+      },
+      {
+        "name": "tunnel@hub.right→hideout",
+        "size": "dwarf",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "hub.right>tube.end_b plug",
+          "tube.end_a>hide.front plug"
+        ],
+        "seconds": 1.3
+      },
+      {
+        "name": "hideout→tunnel→hub",
+        "size": "dwarf",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "hide.front>tube.end_b plug",
+          "tube.end_a>hub.front plug"
+        ],
+        "seconds": 1.2
+      },
+      {
+        "name": "house→tunnel→hub",
+        "size": "dwarf",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "house.front>tube.end_b plug",
+          "tube.end_a>hub.front plug"
+        ],
+        "seconds": 1.7
+      },
+      {
+        "name": "hideout→hub (tunnel inserted)",
+        "size": "dwarf",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "hide.front>hub_link.end_b plug",
+          "hub_link.end_a>hub.front plug"
+        ],
+        "seconds": 1.4
+      },
+      {
+        "name": "bowl@hub.back",
+        "size": "dwarf",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "hub.back>bowl.back slide"
+        ],
+        "seconds": 1.2
+      },
+      {
+        "name": "network hideout→hub→2 rooms",
+        "size": "dwarf",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "hide.front>tube.end_b plug",
+          "tube.end_a>hub.front plug",
+          "hub.right>tube2.end_b plug",
+          "hub.left>tube3.end_b plug",
+          "tube2.end_a>hide2.front plug",
+          "tube3.end_a>hide3.front plug"
+        ],
+        "seconds": 3.9
+      },
+      {
+        "name": "tunnel@hub.front→hideout (count 2)",
+        "size": "dwarf",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "hub.front>tube.end_b plug",
+          "tube.end_a>hide.front plug"
+        ],
+        "seconds": 1.3,
+        "count": 2
+      },
+      {
+        "name": "tunnel@hub.front→hideout",
+        "size": "syrian",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "hub.front>tube.end_b plug",
+          "tube.end_a>hide.front plug"
+        ],
+        "seconds": 1.4
+      },
+      {
+        "name": "tunnel@hub.left→hideout",
+        "size": "syrian",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "hub.left>tube.end_b plug",
+          "tube.end_a>hide.front plug"
+        ],
+        "seconds": 1.3
+      },
+      {
+        "name": "tunnel@hub.right→hideout",
+        "size": "syrian",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "hub.right>tube.end_b plug",
+          "tube.end_a>hide.front plug"
+        ],
+        "seconds": 1.2
+      },
+      {
+        "name": "hideout→tunnel→hub",
+        "size": "syrian",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "hide.front>tube.end_b plug",
+          "tube.end_a>hub.front plug"
+        ],
+        "seconds": 1.1
+      },
+      {
+        "name": "house→tunnel→hub",
+        "size": "syrian",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "house.front>tube.end_b plug",
+          "tube.end_a>hub.front plug"
+        ],
+        "seconds": 1.6
+      },
+      {
+        "name": "hideout→hub (tunnel inserted)",
+        "size": "syrian",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "hide.front>hub_link.end_b plug",
+          "hub_link.end_a>hub.front plug"
+        ],
+        "seconds": 1.1
+      },
+      {
+        "name": "bowl@hub.back",
+        "size": "syrian",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "hub.back>bowl.back slide"
+        ],
+        "seconds": 1.3
+      },
+      {
+        "name": "network hideout→hub→2 rooms",
+        "size": "syrian",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "hide.front>tube.end_b plug",
+          "tube.end_a>hub.front plug",
+          "hub.right>tube2.end_b plug",
+          "hub.left>tube3.end_b plug",
+          "tube2.end_a>hide2.front plug",
+          "tube3.end_a>hide3.front plug"
+        ],
+        "seconds": 3.6
+      },
+      {
+        "name": "tunnel@hub.front→hideout (count 2)",
+        "size": "syrian",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "hub.front>tube.end_b plug",
+          "tube.end_a>hide.front plug"
+        ],
+        "seconds": 1.4,
+        "count": 2
+      }
+    ],
+    "golden": {
+      "hamster/dwarf/default": {
+        "params": {
+          "wall_thickness_mm": 3.0,
+          "layout": "T",
+          "door_width_mm": 55.0,
+          "door_shape": "round_arch",
+          "size_mm": 81.0,
+          "height_mm": 69.0
+        },
+        "files": {
+          "print_0.stl": "d509645e03780d58466a6f2b14acbea259d1888e66757941a92498f0691f32b6",
+          "world_0.stl": "b0e3157746e082e479526f47ce68c90ba66391bdfaa80244860d433104c75b5f"
+        }
+      },
+      "hamster/syrian/default": {
+        "params": {
+          "wall_thickness_mm": 3.0,
+          "layout": "T",
+          "door_width_mm": 75.0,
+          "door_shape": "round_arch",
+          "size_mm": 101.0,
+          "height_mm": 89.0
+        },
+        "files": {
+          "print_0.stl": "d57f2c1919ca2bcb5adcd8083890a0a1b074092868e626cb7aa525975afdac73",
+          "world_0.stl": "d8758c6480f0d299e66de46c0cacd0fc024073ed62bd6f4b94559063f39ff7e0"
+        }
+      }
+    }
+  }
+]

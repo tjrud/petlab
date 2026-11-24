@@ -21,6 +21,20 @@ BACKEND = Path(__file__).resolve().parents[1]
 GOOD = BACKEND / "tests" / "data" / "library"
 
 
+@pytest.fixture(autouse=True)
+def code_only_rules(monkeypatch, rules_copy):
+    """규칙은 라이브러리 키를 뺀 사본(rules_copy)으로 읽는다: 이 시험들은 임시 라이브러리(--library)를 쓰고, 저장소
+    규칙이 게이팅한 부품(예: tunnel_junction@v1)은 그 라이브러리에 없다. 새 프로세스(G12)는 저장소 규칙·라이브러리를
+    함께 읽으므로 그대로 맞다."""
+    from app.config import get_settings
+    from app.library.verify import run as verify_run
+    from app.rules.loader import load_rules
+
+    monkeypatch.setattr(get_settings(), "rules_dir", rules_copy)
+    real = verify_run._rules
+    monkeypatch.setattr(verify_run, "_rules", lambda rules: real(rules) if rules is not None else load_rules(rules_copy))
+
+
 @pytest.fixture
 def quick(monkeypatch):
     monkeypatch.setattr(pub, "VERIFY_PROFILE", "quick")
