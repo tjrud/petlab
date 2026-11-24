@@ -341,6 +341,26 @@ def test_label_prefixed_notice_uses_the_outer_template():
         "Assembled structure: Connected Hideout and Hideout 2 with a tunnel"
 
 
+def test_space_separated_placeholders_split_at_any_word_boundary():
+    """"{0} {1} {2} 대신 …" 에 두 낱말 이름이 둘 이어지면 자리표시마다 가장 짧게·길게 잡아서는 못 끊는다
+    ("그릇 받침을 | 발판 플랫폼 | 앞" 은 낱말 2·2·1). 낱말 경계마다 끊어 보고 한국어가 남지 않는 끊기를 고른다."""
+    from app.i18n import Catalog
+
+    c = Catalog({"그릇 받침": "Bowl holder", "발판 플랫폼": "Deck platform", "터널 갈림길": "Tunnel junction",
+                 "은신처 2": "Hideout 2", "앞": "front", "뒤": "back", "오른쪽": "right", "왼쪽": "left",
+                 "그 면은 이미 다른 부품을 이었습니다.": "Another part is already connected to that face.",
+                 "{0} {1} {2} 대신 {3}에 붙였습니다. {4}": "Mounted {0} on the {3} of {1} instead of the {2}. {4}",
+                 "{0} {1} {2} 대신 {3} 출입구에 이었습니다. {4}":
+                     "Connected {0} to the {3} entrance of {1} instead of the {2}. {4}"})
+    assert c.translate("그릇 받침을 발판 플랫폼 앞 대신 오른쪽에 붙였습니다. 그 면은 이미 다른 부품을 이었습니다.") == \
+        "Mounted Bowl holder on the right of Deck platform instead of the front. Another part is already connected to that face."
+    assert c.translate("은신처 2를 터널 갈림길 뒤 대신 왼쪽 출입구에 이었습니다. 그 면은 이미 다른 부품을 이었습니다.") == \
+        "Connected Hideout 2 to the left entrance of Tunnel junction instead of the back. " \
+        "Another part is already connected to that face."
+    # 어떤 끊기로도 다 바뀌지 않으면 처음 맞춘 결과를 그대로 둔다
+    assert c.translate("쳇바퀴 판을 발판 플랫폼 앞 대신 오른쪽에 붙였습니다. 그 면은 이미 다른 부품을 이었습니다.").startswith("Mounted ")
+
+
 def test_composed_label_does_not_swallow_the_notice():
     """조립 항목 이름 틀("{0}이(가) 달린 {1}")이 "라벨: 안내" 의 안내까지 잡지 않는다 (리뷰 회귀)."""
     from app.i18n import catalog

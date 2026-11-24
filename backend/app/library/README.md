@@ -62,6 +62,11 @@ Claude Code)가 오프라인으로 초안을 쓰고, 검증기를 통과시킨 �
 
 덮어쓰기·지우기 명령은 없다. git 작업도 하지 않는다.
 
+모든 명령은 `--library DIR`(다른 라이브러리 폴더, 시험용)과 `--rules DIR`(다른 규칙 폴더)을 받는다. 저장소의
+`rules/species.yaml` 은 게시된 부품 key(예: `tunnel_junction@v1`)를 종의 `templates` 에 적어 두므로, 그 부품이 없는
+폴더를 `--library` 로 주면 규칙을 읽지 못해 `check` 부터 "알 수 없는 템플릿 키" 로 멈춘다. 그럴 때는 규칙 폴더를
+복사해 `templates` 에서 그 폴더에 없는 key 를 빼고 `--rules` 로 함께 준다 (`tests/conftest.py` 의 `rules_copy` 와 같다).
+
 ## 부품 파일 요약
 
 전체 규칙은 `part.schema.json` 과 설계 §5 에 있다.

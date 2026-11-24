@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import contextvars
+import itertools
 import json
 import re
 from functools import lru_cache
@@ -149,10 +150,13 @@ class Catalog:
         return hit
 
     def _fill(self, m: re.Match[str], en: str, depth: int) -> str:
+        return self._fill_values(m.groupdict(), en, depth)
+
+    def _fill_values(self, groups: dict[str, str | None], en: str, depth: int) -> str:
         values: dict[str, str] = {}
-        for name, val in m.groupdict().items():
+        for name, val in groups.items():
             idx = name[1:].split("_")[0]
-            values.setdefault(idx, self._translate(val, depth + 1))
+            values.setdefault(idx, self._translate(val or "", depth + 1))
         return _PLACEHOLDER.sub(lambda mm: values.get(mm.group(1), mm.group(0)), en)
 
     def _translate(self, s: str, depth: int) -> str:
@@ -234,6 +238,38 @@ class Catalog:
                 best = cand
                 if not HANGUL.search(best):
                     break
+        if HANGUL.search(best):
+            best = self._split_words(t, s, best, depth)
+        return best
+
+    def _split_words(self, t: _Template, s: str, best: str, depth: int) -> str:
+        """빈칸 하나로만 이어진 자리표시 줄("{0} {1} {2}")을 낱말 경계마다 끊어 본다. 자리표시마다 가장 짧게·길게만
+        잡아서는 "그릇 받침을 발판 플랫폼 앞" 을 "그릇 받침을 | 발판 플랫폼 | 앞" (낱말 2·2·1)으로 끊지 못한다.
+        한국어가 가장 적게 남는 끊기를 고른다 (같으면 앞 자리표시가 짧은 것)."""
+        m = t.rx.fullmatch(s)
+        if m is None:
+            return best
+        names = list(m.groupdict())
+        idxs = [n[1:].split("_")[0] for n in names]
+        k = 0
+        while k < len(names):
+            j = k
+            while j + 1 < len(names) and t.parts[2 * j + 2] == " ":
+                j += 1
+            run = names[k:j + 1]
+            if len(run) > 1 and len(set(idxs[k:j + 1])) == len(run):
+                words = s[m.start(run[0]):m.end(run[-1])].split(" ")
+                if len(words) <= 12:
+                    groups = dict(m.groupdict())
+                    for cuts in itertools.combinations(range(1, len(words)), len(run) - 1):
+                        bounds = (0, *cuts, len(words))
+                        groups.update({n: " ".join(words[a:b]) for n, a, b in zip(run, bounds, bounds[1:])})
+                        cand = self._fill_values(groups, t.en, depth)
+                        if len(HANGUL.findall(cand)) < len(HANGUL.findall(best)):
+                            best = cand
+                            if not HANGUL.search(best):
+                                return best
+            k = j + 1
         return best
 
 
