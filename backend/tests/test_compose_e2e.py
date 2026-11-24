@@ -57,9 +57,10 @@ CASES: dict[str, tuple[list[str], list[tuple], list[str], set[str]]] = {
     "은신처 양옆에 밥그릇이랑 물병": (["hide", "bowl", "bottle"],
                           [("hide.right", "bowl.back", "slide", False), ("hide.left", "bottle.back", "slide", False)],
                           ["body", "bowl", "bottle_base", "bottle_holder"], set()),
-    # '집' 만 말하면 은신처다. 은신처 옆면은 출입구를 낼 수 없는 벽이라 터널은 앞 출입구로 옮겨 단다 (join_relocated)
-    "집 오른쪽에 터널 달고 그 끝에 은신처": (["hide", "tube", "hide2"], TWIN_JOINS, ["body", "tube", "hide2"],
-                               {"join_relocated", "exit_added", "passage_shape_matched"}),
+    # '집' 만 말하면 은신처다. 은신처 오른쪽 벽에 옆면 출입구를 내고 터널을 단다 (port_opened, 2단계 §3.2)
+    "집 오른쪽에 터널 달고 그 끝에 은신처": (["hide", "tube", "hide2"],
+                               [("hide.right", "tube.end_b", "plug", "into_parent"), TWIN_JOINS[1]],
+                               ["body", "tube", "hide2"], {"port_opened", "exit_added", "passage_shape_matched"}),
 }
 
 

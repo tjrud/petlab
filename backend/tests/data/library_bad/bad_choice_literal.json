@@ -1,0 +1,337 @@
+{
+  "_expect": "S02",
+  "_note": "'arch' is not a choice of door_shape (DSL003)",
+  "dsl": 1,
+  "family": "bad_choice_literal",
+  "name": {
+    "ko": "시험 부품 22",
+    "en": "Test part 22"
+  },
+  "description": {
+    "ko": "앞면(과 뒷면)에 출입구가 있는 바닥 없는 작은 방. 출입구마다 터널을 이을 수 있다.",
+    "en": "A small floorless room with a door on the front (and back). Each door can take a tunnel."
+  },
+  "keywords": {
+    "ko": [
+      "방"
+    ],
+    "en": [
+      "room"
+    ]
+  },
+  "fulfills": [],
+  "part_id": "bad_choice_literal",
+  "habitats": [
+    "cage"
+  ],
+  "role": "room_host",
+  "attach_order": {
+    "passage": [
+      "front",
+      "back"
+    ]
+  },
+  "height_field": "height_mm",
+  "size_fields": [
+    "width_mm",
+    "depth_mm"
+  ],
+  "door_fields": [
+    "door_count",
+    "door_shape"
+  ],
+  "params": {
+    "wall_thickness_mm": {
+      "type": "number",
+      "default": 3,
+      "min": 2.3,
+      "max": 6,
+      "rule_default": "ctx.default_wall_mm",
+      "desc": {
+        "ko": "벽 두께 mm",
+        "en": "wall thickness mm"
+      }
+    },
+    "door_count": {
+      "type": "integer",
+      "default": 1,
+      "min": 1,
+      "max": 2,
+      "rule_default": "ctx.min_entrances",
+      "desc": {
+        "ko": "출입구 개수. 1=앞, 2=앞·뒤",
+        "en": "number of entrances. 1=front, 2=front+back"
+      }
+    },
+    "door_width_mm": {
+      "type": "number",
+      "default": 60,
+      "min": 25,
+      "max": 100,
+      "rule_default": "ceil(rule.entrance_min_diameter_mm + 5)",
+      "desc": {
+        "ko": "출입구 폭 mm. 종별 최소 출입구 폭 이상",
+        "en": "entrance width mm. At least the species minimum"
+      }
+    },
+    "door_shape": {
+      "type": "choice",
+      "choices": [
+        "round_arch",
+        "pointed_arch",
+        "box",
+        "house"
+      ],
+      "default": "round_arch",
+      "desc": {
+        "ko": "단면 모양",
+        "en": "cross-section shape"
+      },
+      "choice_labels": {
+        "round_arch": {
+          "ko": "둥근 아치",
+          "en": "round arch"
+        },
+        "pointed_arch": {
+          "ko": "뾰족 아치",
+          "en": "pointed arch"
+        },
+        "box": {
+          "ko": "네모",
+          "en": "square"
+        },
+        "house": {
+          "ko": "집 모양",
+          "en": "house shape"
+        }
+      }
+    },
+    "width_mm": {
+      "type": "number",
+      "default": 110,
+      "min": 60,
+      "max": 200,
+      "rule_default": "door_width_mm + 2 * wall_thickness_mm + 40",
+      "desc": {
+        "ko": "외형 가로(X) mm",
+        "en": "outer width (X) mm"
+      }
+    },
+    "depth_mm": {
+      "type": "number",
+      "default": 110,
+      "min": 60,
+      "max": 200,
+      "desc": {
+        "ko": "외형 세로(Y) mm",
+        "en": "outer depth (Y) mm"
+      }
+    },
+    "height_mm": {
+      "type": "number",
+      "default": 90,
+      "min": 40,
+      "max": 200,
+      "rule_default": "port_height(door_shape, door_width_mm) + 2 * wall_thickness_mm + 10",
+      "desc": {
+        "ko": "외형 높이(Z) mm",
+        "en": "outer height (Z) mm"
+      }
+    }
+  },
+  "let": [
+    {
+      "name": "W",
+      "expr": "width_mm"
+    },
+    {
+      "name": "D",
+      "expr": "depth_mm"
+    },
+    {
+      "name": "H",
+      "expr": "height_mm"
+    },
+    {
+      "name": "t",
+      "expr": "wall_thickness_mm"
+    }
+  ],
+  "constraints": [
+    {
+      "field": "door_count",
+      "min": "ctx.min_entrances",
+      "source": "species",
+      "reason": {
+        "ko": "여럿이 지낼 때 서로 피할 수 있도록 방 출입구는 {0}개 이상이어야 합니다",
+        "en": "The room needs at least {0} doors so animals living together can avoid each other"
+      }
+    },
+    {
+      "field": "door_width_mm",
+      "min": "rule.entrance_min_diameter_mm",
+      "source": "species",
+      "reason": {
+        "ko": "{1} 방 출입구는 최소 {0}mm 이상이어야 합니다",
+        "en": "{1} room doors must be at least {0} mm wide"
+      }
+    },
+    {
+      "field": "width_mm",
+      "min": "door_width_mm + 2 * wall_thickness_mm + 8",
+      "source": "geometry",
+      "reason": {
+        "ko": "출입구 양옆에 벽이 남도록 방 가로는 {0}mm 이상이어야 합니다",
+        "en": "The room must be at least {0} mm wide so wall remains beside the door"
+      }
+    },
+    {
+      "field": "height_mm",
+      "min": "port_height(door_shape, door_width_mm) + 2 * wall_thickness_mm",
+      "source": "geometry",
+      "reason": {
+        "ko": "출입구 위로 벽이 남도록 방 높이는 {0}mm 이상이어야 합니다",
+        "en": "The room must be at least {0} mm tall so wall remains above the door"
+      }
+    }
+  ],
+  "body": [
+    {
+      "op": "box",
+      "size": [
+        "W",
+        "D",
+        "H"
+      ]
+    },
+    {
+      "op": "box",
+      "mode": "cut",
+      "size": [
+        "W - 2 * t",
+        "D - 2 * t",
+        "H - t + 1"
+      ],
+      "at": [
+        0,
+        0,
+        -1
+      ],
+      "note": "open bottom, 1 mm below the floor"
+    }
+  ],
+  "print": [
+    {
+      "key": "body",
+      "name": {
+        "ko": "본체",
+        "en": "Body"
+      },
+      "rotation": "inverted"
+    }
+  ],
+  "anchors": {
+    "front": {
+      "origin": [
+        0,
+        "-D / 2",
+        0
+      ],
+      "normal": "-Y",
+      "up": "+Z",
+      "side": "front",
+      "wall": "t",
+      "door": {
+        "when": "True",
+        "width": "door_width_mm",
+        "profile": "door_shape"
+      },
+      "fields": {
+        "width": "width_mm",
+        "height": "height_mm",
+        "wall": "wall_thickness_mm",
+        "port": "door_width_mm",
+        "profile": "door_shape"
+      }
+    },
+    "back": {
+      "origin": [
+        0,
+        "D / 2",
+        0
+      ],
+      "normal": "+Y",
+      "up": "+Z",
+      "side": "back",
+      "wall": "t",
+      "door": {
+        "when": "door_count >= 2 and door_shape != 'arch'",
+        "width": "door_width_mm",
+        "profile": "door_shape"
+      },
+      "mount": [
+        "-W / 2",
+        "W / 2",
+        "H"
+      ],
+      "fields": {
+        "width": "width_mm",
+        "height": "height_mm",
+        "wall": "wall_thickness_mm",
+        "port": "door_width_mm",
+        "profile": "door_shape"
+      }
+    },
+    "left": {
+      "origin": [
+        "-W / 2",
+        0,
+        0
+      ],
+      "normal": "-X",
+      "up": "+Z",
+      "mount": [
+        "-D / 2",
+        "D / 2",
+        "H"
+      ],
+      "fields": {
+        "width": "depth_mm",
+        "height": "height_mm"
+      }
+    },
+    "right": {
+      "origin": [
+        "W / 2",
+        0,
+        0
+      ],
+      "normal": "+X",
+      "up": "+Z",
+      "mount": [
+        "-D / 2",
+        "D / 2",
+        "H"
+      ],
+      "fields": {
+        "width": "depth_mm",
+        "height": "height_mm"
+      }
+    },
+    "top": {
+      "origin": [
+        0,
+        0,
+        "H"
+      ],
+      "normal": "+Z",
+      "up": "+Y"
+    }
+  },
+  "envelope": [
+    "W",
+    "D",
+    "H"
+  ],
+  "features": {}
+}

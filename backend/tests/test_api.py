@@ -249,8 +249,9 @@ def test_previous_spec_fills_legacy_defaults():
         "junk",
     ]}
     out = DesignService._with_legacy_defaults(spec)["items"]
-    assert out[0]["params"] == {"entrance_count": 1, "width_mm": 150}  # 저장 당시 없던 값만 채운다
-    assert out[1]["params"] == {"entrance_count": 2}
+    # 저장 당시 없던 값만 채운다 (side_doors: 옆면 출입구가 생기기 전 은신처는 none)
+    assert out[0]["params"] == {"entrance_count": 1, "side_doors": "none", "width_mm": 150}
+    assert out[1]["params"] == {"entrance_count": 2, "side_doors": "none"}
     assert out[2] == {"template": "castle", "params": {}} and out[3] == "junk"  # 형식 검증은 parse_spec 몫
     assert spec["items"][0]["params"] == {"width_mm": 150}  # 원본(DB 값)은 바꾸지 않는다
 

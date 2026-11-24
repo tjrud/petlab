@@ -1,5 +1,7 @@
-import { useT } from "@/i18n/client";
+import { useLang, useT } from "@/i18n/client";
 import type { TFunction } from "@/i18n/translate";
+import { isLibraryKey } from "@/lib/libraryDisplay";
+import { useLibraryDisplay } from "@/lib/useLibraryDisplay";
 import {
   describeDecor,
   describeJoin,
@@ -13,14 +15,14 @@ import {
 } from "@/lib/templates";
 import type { AssemblyItem, Issue, Item } from "@/lib/types";
 
-/** 파라미터 이름·값 표 (집 템플릿의 중첩 값은 점 표기로 펼친다) */
-function ParamGrid({ params, t }: { params: Record<string, ParamValue>; t: TFunction }) {
+/** 파라미터 이름·값 표 (집 템플릿의 중첩 값은 점 표기로 펼친다). template: 라이브러리 부품의 이름을 찾는 키 */
+function ParamGrid({ params, t, template }: { params: Record<string, ParamValue>; t: TFunction; template: string }) {
   return (
     <dl className="grid grid-cols-2 gap-x-3 gap-y-1">
       {flattenParams(params).map(([k, v]) => (
         <div key={k} className="flex justify-between gap-2">
-          <dt className="text-stone-500">{paramLabel(k, t)}</dt>
-          <dd className="font-medium">{formatParam(k, v, t)}</dd>
+          <dt className="text-stone-500">{paramLabel(k, t, template)}</dt>
+          <dd className="font-medium">{formatParam(k, v, t, template)}</dd>
         </div>
       ))}
     </dl>
@@ -46,7 +48,7 @@ function AssemblyDetails({ item, issues, t }: { item: AssemblyItem; issues: Issu
               <span aria-hidden className="h-2.5 w-2.5 rounded-full" style={{ background: templateColor(part.template) }} />
               {part.name_ko}
             </p>
-            <ParamGrid params={item.params[part.id] ?? {}} t={t} />
+            <ParamGrid params={item.params[part.id] ?? {}} t={t} template={part.template} />
             {notes.length > 0 && (
               <ul className="mt-1.5 space-y-0.5 text-xs text-sky-900">
                 {notes.map((i, n) => {
@@ -92,6 +94,12 @@ export default function ItemList({
   issues?: Issue[];
 }) {
   const t = useT();
+  const lang = useLang();
+  // 라이브러리 부품이 있으면 표시 정보(이름·색)를 받아 다시 그린다
+  useLibraryDisplay(
+    items.some((it) => isLibraryKey(it.template) || !!it.assembly?.parts.some((p) => isLibraryKey(p.template))),
+    lang,
+  );
   return (
     <section aria-labelledby="items-title" className="space-y-2">
       <h2 id="items-title" className="font-bold">
@@ -132,7 +140,7 @@ export default function ItemList({
                     {it.assembly ? (
                       <AssemblyDetails item={it} issues={issues} t={t} />
                     ) : (
-                      <ParamGrid params={it.params} t={t} />
+                      <ParamGrid params={it.params} t={t} template={it.template} />
                     )}
                     {(it.parts?.length ?? 1) > 1 ? (
                       <div className="text-xs text-stone-500">

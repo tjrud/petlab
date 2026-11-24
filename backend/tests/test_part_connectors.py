@@ -7,8 +7,8 @@ Anchor.profile 이 port_profile 이 만드는 단면과 같은 종류인지, env
 from __future__ import annotations
 
 import pytest
-from build123d import Align, Rectangle
 
+from app.library.verify.anchors import bumped, profile_iou
 from app.templates.base import FaceFields, Template
 from app.templates.bottle_stand import (
     BottleStandParams,
@@ -31,7 +31,7 @@ from app.templates.ramp import (
 )
 from app.templates.sand_bath import SandBathParams, SandBathTemplate
 from app.templates.tunnel import TunnelParams, TunnelTemplate, inner_profile
-from app.validation.autofix import get_path, set_path
+from app.validation.autofix import get_path
 
 HIDEOUT, HOUSE, SAND, TUNNEL = HideoutTemplate(), HouseTemplate(), SandBathTemplate(), TunnelTemplate()
 BOWL, BOTTLE, RAMP = BowlHolderTemplate(), BottleStandTemplate(), RampTemplate()
@@ -58,6 +58,11 @@ def _house(name: str) -> HouseParams:
 CASES: list[tuple[str, Template, object]] = [
     ("hideout_1", HIDEOUT, HideoutParams()),
     ("hideout_2", HIDEOUT, HideoutParams(entrance_count=2)),
+    # 옆면 출입구 (세로는 옆 출입구 양옆에 벽이 남는 d + 4t 이상)
+    ("hideout_left", HIDEOUT, HideoutParams(side_doors="left", depth_mm=130)),
+    ("hideout_right_2", HIDEOUT, HideoutParams(side_doors="right", entrance_count=2, depth_mm=130)),
+    ("hideout_both", HIDEOUT, HideoutParams(side_doors="both", depth_mm=136)),
+    ("hideout_four_doors", HIDEOUT, HideoutParams(side_doors="both", entrance_count=2, depth_mm=136)),
     *[(f"house_{n}", HOUSE, _house(n)) for n in HOUSE_VARIANTS],
     ("sand_bath", SAND, SandBathParams()),
     *[(f"tunnel_{s}", TUNNEL, TunnelParams(shape=s)) for s in SHAPES],
@@ -71,12 +76,6 @@ CASES: list[tuple[str, Template, object]] = [
 CASE_IDS = [c[0] for c in CASES]
 
 
-def _bumped(t: Template, p, path: str, delta: float):
-    d = p.model_dump()
-    set_path(d, path, get_path(d, path) + delta)
-    return t.Params.model_validate(d)
-
-
 # ── 역할·연결 지점 순서 ─────────────────────────────────────
 
 
@@ -84,7 +83,7 @@ def test_roles_and_attach_orders():
     assert (HIDEOUT.role, HOUSE.role, SAND.role, TUNNEL.role) == ("room_host", "room_host", "host", "connector")
     assert BOWL.role == BOTTLE.role == RAMP.role == "accessory"
     assert CaveTemplate().role == "none" and not CaveTemplate().composable
-    assert HIDEOUT.attach_order == {"passage": ("front", "back")}
+    assert HIDEOUT.attach_order == {"passage": ("front", "back", "left", "right")}
     assert TUNNEL.attach_order == {"passage": ("end_b", "end_a")}
     assert BOWL.attach_order == BOTTLE.attach_order == {"slide": ("back",)}
     assert RAMP.attach_order == {"slide": ("landing",)}
@@ -120,7 +119,7 @@ def test_port_and_profile_fields_match_anchor(name, t, p):
         if ff.port is not None:
             assert get_path(d, ff.port) == pytest.approx(a.port), (name, aname)
             # 통로 크기 파라미터를 바꾸면 그 연결 지점의 통로 크기가 같이 바뀐다
-            q = _bumped(t, p, ff.port, 4.0)
+            q = bumped(t, p, ff.port, 4.0)
             assert t.anchors(q)[aname].port == pytest.approx(a.port + 4.0), (name, aname)
         if ff.profile is not None:
             assert get_path(d, ff.profile) == a.profile, (name, aname)
@@ -136,7 +135,7 @@ def test_wall_field_matches_anchor(name, t, p):
             continue
         # 벽 파라미터 ≤ 뚫는 깊이 (집 연결부 면은 플랜지가 더해진다), 벽을 두껍게 하면 그만큼 깊어진다
         assert get_path(d, ff.wall) <= a.wall_mm + 1e-9
-        q = _bumped(t, p, ff.wall, 0.5)
+        q = bumped(t, p, ff.wall, 0.5)
         assert t.anchors(q)[aname].wall_mm == pytest.approx(a.wall_mm + 0.5), (name, aname)
 
 
@@ -151,18 +150,19 @@ def test_face_fields_grow_the_mount_rectangle(name, t, p):
             continue
         left, right, h = a.mount
         if ff.width is not None:
-            m = t.anchors(_bumped(t, p, ff.width, 10.0))[aname].mount
+            m = t.anchors(bumped(t, p, ff.width, 10.0))[aname].mount
             assert m is not None
             assert m[1] - m[0] == pytest.approx(right - left + 10.0), (name, aname)
             assert m[0] + m[1] == pytest.approx(left + right), (name, aname)
             checked += 1
         if ff.height is not None:
-            m = t.anchors(_bumped(t, p, ff.height, 10.0))[aname].mount
+            m = t.anchors(bumped(t, p, ff.height, 10.0))[aname].mount
             assert m is not None
             assert m[2] == pytest.approx(h + 10.0), (name, aname)
             assert (m[0], m[1]) == pytest.approx((left, right)), (name, aname)
             checked += 1
-    if t.role in ("room_host", "host"):
+    # 연결판 자리가 있는 방·받침대는 면 치수 파라미터로 그 자리를 키울 수 있다 (네 면 모두 출입구인 은신처는 자리가 없다)
+    if t.role in ("room_host", "host") and any(a.mount is not None for a in t.anchors(p).values()):
         assert checked, name
 
 
@@ -171,6 +171,12 @@ def test_face_fields_per_side():
     assert HIDEOUT.face_fields(HideoutParams(), "back") == FaceFields("width_mm", "height_mm", "wall_thickness_mm")
     assert HIDEOUT.face_fields(HideoutParams(entrance_count=2), "back").port == "entrance_diameter_mm"
     assert HIDEOUT.face_fields(HideoutParams(), "top") == FaceFields()
+    # 옆면 출입구가 있는 옆면만 통로 크기 파라미터가 있다
+    left = HideoutParams(side_doors="left", depth_mm=130)
+    assert HIDEOUT.face_fields(left, "left") == FaceFields("depth_mm", "height_mm", "wall_thickness_mm",
+                                                           port="entrance_diameter_mm")
+    assert HIDEOUT.face_fields(left, "right") == FaceFields("depth_mm", "height_mm", "wall_thickness_mm")
+    assert HIDEOUT.face_fields(HideoutParams(side_doors="both", depth_mm=136), "right").port == "entrance_diameter_mm"
     hp = HouseParams()
     # 평지붕 1층: 연결판 높이 = 외형 높이라 높이 파라미터가 있다. 박공지붕은 지붕이 정해 없다
     assert HOUSE.face_fields(hp, "right") == FaceFields(width="depth_mm", height="height_mm", wall="walls.thickness_mm")
@@ -190,16 +196,11 @@ def test_face_fields_per_side():
 # ── Anchor.profile = port_profile 단면의 종류 ─────────────────
 
 
-def _above_floor_iou(a, b) -> float:
-    floor = Rectangle(1000, 1000, align=(Align.CENTER, Align.MIN))
-    a, b = a & floor, b & floor
-    inter = (a & b).area
-    return inter / (a.area + b.area - inter)
-
-
 DOOR_CASES = [
     ("hideout_front", HIDEOUT, HideoutParams(entrance_diameter_mm=60), "front"),
     ("hideout_back", HIDEOUT, HideoutParams(entrance_count=2, entrance_diameter_mm=45), "back"),
+    ("hideout_left", HIDEOUT, HideoutParams(side_doors="left", entrance_diameter_mm=55, depth_mm=130), "left"),
+    ("hideout_right", HIDEOUT, HideoutParams(side_doors="both", entrance_diameter_mm=70, depth_mm=136), "right"),
     ("house_door", HOUSE, HouseParams(), "front"),
     ("house_narrow_door", HOUSE, HouseParams(doors={"width_mm": 40}), "front"),
     ("house_port", HOUSE, _house("ports_right"), "right"),
@@ -213,7 +214,7 @@ def test_anchor_profile_is_the_port_profile_family(name, t, p, aname):
     a = t.anchors(p)[aname]
     prof = t.port_profile(p, aname)
     scores = {
-        s: _above_floor_iou(prof, inner_profile(TunnelParams(inner_diameter_mm=a.port, shape=s, wall_thickness_mm=3)))
+        s: profile_iou(prof, inner_profile(TunnelParams(inner_diameter_mm=a.port, shape=s, wall_thickness_mm=3)))
         for s in SHAPES
     }
     assert max(scores, key=scores.get) == a.profile, scores
@@ -231,8 +232,19 @@ def test_hideout_open_port():
     assert a.port == q.entrance_diameter_mm and a.profile == "round_arch" and a.mount is None
     assert HIDEOUT.open_port(q, "back") == q          # 이미 열린 면은 그대로
     assert HIDEOUT.open_port(p, "front") == p
-    for side in ("left", "right", "top", "bottom", "nowhere"):
+    for side in ("top", "bottom", "nowhere"):
         assert HIDEOUT.open_port(p, side) is None
+    # 옆면: 옆면 출입구를 더한다 (없음 → 그 면, 다른 쪽 하나 → 양쪽, 이미 열린 면은 그대로)
+    left = HIDEOUT.open_port(p, "left")
+    assert left is not None and left.side_doors == "left" and left.entrance_count == 1
+    a = HIDEOUT.anchors(left)["left"]
+    assert a.port == p.entrance_diameter_mm and a.profile == "round_arch" and a.mount is None and a.side == "left"
+    assert HIDEOUT.open_port(p, "right").side_doors == "right"
+    assert HIDEOUT.open_port(left, "left") == left
+    both = HIDEOUT.open_port(left, "right")
+    assert both is not None and both.side_doors == "both"
+    assert HIDEOUT.open_port(HIDEOUT.open_port(p, "right"), "left").side_doors == "both"
+    assert HIDEOUT.open_port(both, "left") == both and HIDEOUT.open_port(both, "right") == both
 
 
 def test_house_open_port_adds_a_tunnel_port():
@@ -284,6 +296,7 @@ ENVELOPE_CASES: list[tuple[Template, object]] = [
       for h, w, s, n in ((20, 40, 10, 0), (60, 80, 25, 0), (200, 250, 45, 0), (60, 80, 25, 3), (120, 60, 30, 8))],
     (HIDEOUT, HideoutParams()),
     (HIDEOUT, HideoutParams(entrance_count=2, width_mm=60, depth_mm=60, entrance_diameter_mm=50)),
+    (HIDEOUT, HideoutParams(side_doors="both", entrance_count=2, width_mm=60, depth_mm=60, entrance_diameter_mm=50)),
     (SAND, SandBathParams()),
     (SAND, SandBathParams(lip_height_mm=100, basin_depth_mm=20, wall_thickness_mm=8)),
 ]

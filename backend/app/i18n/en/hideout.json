@@ -1,0 +1,8 @@
+{
+ "바닥이 열린 상자형 은신처. 앞면(과 뒷면·옆면)에 아치형 출입구, 지붕에 작은 환기구. 가로·세로·높이, 출입구 폭·개수·옆면 출입구, 환기구 개수·지름, 벽 두께를 정한다.": "Open-bottom box hideout with arched entrances on the front (and back or sides) and small vents in the roof. Sets width, depth, height, entrance width and count, side entrances, vent count and diameter, and wall thickness.",
+ "옆면 출입구. none=없음, left=왼쪽, right=오른쪽, both=양쪽. 옆면에 터널을 잇거나 출입구를 더 낼 때": "Side entrances. none = none, left = left side, right = right side, both = both sides. Use to join a tunnel at a side or to add entrances",
+ "옆면 출입구": "Side entrances",
+ "왼쪽 출입구": "Left entrance",
+ "오른쪽 출입구": "Right entrance",
+ "옆 출입구 양옆에 벽이 남도록 세로가 출입구 폭보다 충분히 커야 합니다": "Depth must be enough larger than the entrance width to leave wall on both sides of a side entrance"
+}

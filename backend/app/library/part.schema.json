@@ -1,0 +1,1402 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nestforge.local/part-dsl-v1.schema.json",
+  "title": "NestForge Part DSL v1",
+  "description": "A part for the NestForge library. Coordinates are mm in the use pose: Z up, floor at Z = 0, X right, Y back (front is -Y). Expression slots are strings in a small Python-like language; numeric slots also accept JSON numbers.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "dsl",
+    "family",
+    "name",
+    "description",
+    "keywords",
+    "part_id",
+    "habitats",
+    "role",
+    "params",
+    "body",
+    "print",
+    "features"
+  ],
+  "properties": {
+    "dsl": {
+      "const": 1,
+      "description": "DSL version"
+    },
+    "family": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{2,40}$",
+      "description": "lineage name; not a code template key"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 999,
+      "description": "set by publish"
+    },
+    "key": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{2,40}@v[1-9][0-9]{0,2}$",
+      "description": "family@v<version>, set by publish"
+    },
+    "name": {
+      "$ref": "#/$defs/nameText",
+      "description": "display name; ko <= 20 chars"
+    },
+    "description": {
+      "$ref": "#/$defs/descriptionText",
+      "description": "catalog text; ko <= 200 chars, en <= 240"
+    },
+    "keywords": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ko",
+        "en"
+      ],
+      "properties": {
+        "ko": {
+          "$ref": "#/$defs/words"
+        },
+        "en": {
+          "$ref": "#/$defs/words"
+        }
+      }
+    },
+    "fulfills": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 60
+      },
+      "description": "normalised part-request names this part answers"
+    },
+    "part_id": {
+      "type": "string",
+      "pattern": "^(?!model_)(?!body$)[a-z][a-z0-9_]{0,20}$",
+      "description": "default part id in assemblies"
+    },
+    "color": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^#[0-9a-f]{6}$",
+      "default": null
+    },
+    "habitats": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": {
+        "const": "cage"
+      }
+    },
+    "role": {
+      "enum": [
+        "host",
+        "room_host",
+        "accessory",
+        "none"
+      ],
+      "description": "host: mounts only, root of an assembly; room_host: >= 1 door; accessory: slide child; none: standalone only"
+    },
+    "attach_order": {
+      "type": "object",
+      "additionalProperties": false,
+      "default": {},
+      "properties": {
+        "slide": {
+          "$ref": "#/$defs/names"
+        },
+        "passage": {
+          "$ref": "#/$defs/names"
+        }
+      }
+    },
+    "passes_access": {
+      "type": "boolean",
+      "default": false
+    },
+    "level_field": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null
+    },
+    "height_field": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null
+    },
+    "size_fields": {
+      "$ref": "#/$defs/names",
+      "default": []
+    },
+    "door_fields": {
+      "$ref": "#/$defs/names",
+      "default": []
+    },
+    "params": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 12,
+      "propertyNames": {
+        "pattern": "^(?!model_)[a-z][a-z0-9_]{0,30}$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/param"
+      },
+      "description": "ordered; wall_thickness_mm is required; lengths end _mm, angles _deg, counts _count"
+    },
+    "let": {
+      "type": "array",
+      "maxItems": 24,
+      "default": [],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "expr"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_]{0,30}$"
+          },
+          "expr": {
+            "$ref": "#/$defs/expr"
+          }
+        }
+      }
+    },
+    "constraints": {
+      "type": "array",
+      "maxItems": 24,
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/constraint"
+      }
+    },
+    "checks": {
+      "type": "array",
+      "maxItems": 8,
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/check"
+      }
+    },
+    "body": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 48,
+      "items": {
+        "$ref": "#/$defs/step"
+      }
+    },
+    "print": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 3,
+      "items": {
+        "$ref": "#/$defs/print"
+      }
+    },
+    "anchors": {
+      "type": "object",
+      "maxProperties": 12,
+      "default": {},
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_]{0,20}$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/anchor"
+      }
+    },
+    "opens": {
+      "type": "array",
+      "maxItems": 8,
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/open"
+      }
+    },
+    "envelope": {
+      "$ref": "#/$defs/vec3",
+      "description": "analytic outer size (x, y, z) in use pose"
+    },
+    "face_needs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "min": {
+          "$ref": "#/$defs/numOrNull"
+        },
+        "max": {
+          "$ref": "#/$defs/numOrNull"
+        }
+      }
+    },
+    "features": {
+      "$ref": "#/$defs/features"
+    }
+  },
+  "$defs": {
+    "expr": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 400
+    },
+    "num": {
+      "type": [
+        "number",
+        "string"
+      ],
+      "minLength": 1,
+      "maxLength": 400
+    },
+    "numOrNull": {
+      "type": [
+        "number",
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "maxLength": 400
+    },
+    "vec3": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "$ref": "#/$defs/num"
+      }
+    },
+    "names": {
+      "type": "array",
+      "maxItems": 12,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]{0,30}$"
+      }
+    },
+    "words": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 20
+      }
+    },
+    "text": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ko",
+        "en"
+      ],
+      "properties": {
+        "ko": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        },
+        "en": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        }
+      }
+    },
+    "nameText": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ko",
+        "en"
+      ],
+      "properties": {
+        "ko": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20
+        },
+        "en": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        }
+      }
+    },
+    "descriptionText": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ko",
+        "en"
+      ],
+      "properties": {
+        "ko": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "en": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        }
+      }
+    },
+    "axisName": {
+      "enum": [
+        "+X",
+        "-X",
+        "+Y",
+        "-Y",
+        "+Z",
+        "-Z"
+      ]
+    },
+    "side": {
+      "enum": [
+        "front",
+        "back",
+        "left",
+        "right"
+      ]
+    },
+    "param": {
+      "type": "object",
+      "required": [
+        "type",
+        "default",
+        "desc"
+      ],
+      "oneOf": [
+        {
+          "properties": {
+            "type": {
+              "const": "number"
+            },
+            "default": {
+              "type": "number"
+            },
+            "min": {
+              "type": "number"
+            },
+            "max": {
+              "type": "number"
+            },
+            "rule_default": {
+              "$ref": "#/$defs/expr"
+            },
+            "desc": {
+              "$ref": "#/$defs/text"
+            }
+          },
+          "required": [
+            "min",
+            "max"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "integer"
+            },
+            "default": {
+              "type": "integer"
+            },
+            "min": {
+              "type": "integer"
+            },
+            "max": {
+              "type": "integer"
+            },
+            "rule_default": {
+              "$ref": "#/$defs/expr"
+            },
+            "desc": {
+              "$ref": "#/$defs/text"
+            }
+          },
+          "required": [
+            "min",
+            "max"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "choice"
+            },
+            "default": {
+              "type": "string"
+            },
+            "choices": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 6,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9_]{0,20}$"
+              }
+            },
+            "choice_labels": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/text"
+              }
+            },
+            "desc": {
+              "$ref": "#/$defs/text"
+            }
+          },
+          "required": [
+            "choices"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "bool"
+            },
+            "default": {
+              "type": "boolean"
+            },
+            "desc": {
+              "$ref": "#/$defs/text"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "constraint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "field",
+        "source",
+        "reason"
+      ],
+      "properties": {
+        "field": {
+          "type": "string"
+        },
+        "min": {
+          "$ref": "#/$defs/expr"
+        },
+        "max": {
+          "$ref": "#/$defs/expr"
+        },
+        "source": {
+          "enum": [
+            "species",
+            "printing",
+            "geometry"
+          ]
+        },
+        "reason": {
+          "$ref": "#/$defs/text"
+        },
+        "blocking": {
+          "type": "boolean",
+          "default": true
+        },
+        "when": {
+          "$ref": "#/$defs/expr"
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "min"
+          ],
+          "not": {
+            "required": [
+              "max"
+            ]
+          }
+        },
+        {
+          "required": [
+            "max"
+          ],
+          "not": {
+            "required": [
+              "min"
+            ]
+          }
+        }
+      ]
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fail_if",
+        "message"
+      ],
+      "properties": {
+        "fail_if": {
+          "$ref": "#/$defs/expr"
+        },
+        "message": {
+          "$ref": "#/$defs/text"
+        }
+      }
+    },
+    "stepCommon": {
+      "properties": {
+        "mode": {
+          "enum": [
+            "add",
+            "cut"
+          ],
+          "default": "add"
+        },
+        "part": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,20}$",
+          "default": "body"
+        },
+        "when": {
+          "$ref": "#/$defs/expr"
+        },
+        "repeat": {
+          "type": "object",
+          "maxProperties": 2,
+          "minProperties": 1,
+          "propertyNames": {
+            "enum": [
+              "i",
+              "j"
+            ]
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/num"
+          }
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,30}$"
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    },
+    "step": {
+      "oneOf": [
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/stepCommon"
+            }
+          ],
+          "type": "object",
+          "required": [
+            "op",
+            "size"
+          ],
+          "properties": {
+            "op": {
+              "const": "box"
+            },
+            "size": {
+              "$ref": "#/$defs/vec3"
+            },
+            "at": {
+              "$ref": "#/$defs/vec3"
+            },
+            "align": {
+              "enum": [
+                "bottom",
+                "center"
+              ],
+              "default": "bottom"
+            },
+            "mode": {},
+            "part": {},
+            "when": {},
+            "repeat": {},
+            "id": {},
+            "note": {}
+          },
+          "additionalProperties": false
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/stepCommon"
+            }
+          ],
+          "type": "object",
+          "required": [
+            "op",
+            "r",
+            "h",
+            "axis"
+          ],
+          "properties": {
+            "op": {
+              "const": "cylinder"
+            },
+            "r": {
+              "$ref": "#/$defs/num"
+            },
+            "h": {
+              "$ref": "#/$defs/num"
+            },
+            "axis": {
+              "enum": [
+                "x",
+                "y",
+                "z"
+              ]
+            },
+            "at": {
+              "$ref": "#/$defs/vec3"
+            },
+            "align": {
+              "enum": [
+                "bottom",
+                "center"
+              ],
+              "default": "bottom"
+            },
+            "mode": {},
+            "part": {},
+            "when": {},
+            "repeat": {},
+            "id": {},
+            "note": {}
+          },
+          "additionalProperties": false
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/stepCommon"
+            }
+          ],
+          "type": "object",
+          "required": [
+            "op",
+            "plane",
+            "points",
+            "depth"
+          ],
+          "properties": {
+            "op": {
+              "const": "prism"
+            },
+            "plane": {
+              "enum": [
+                "xz",
+                "yz",
+                "xy"
+              ]
+            },
+            "points": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 32,
+              "items": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 2,
+                "items": {
+                  "$ref": "#/$defs/num"
+                }
+              }
+            },
+            "depth": {
+              "$ref": "#/$defs/num"
+            },
+            "at": {
+              "$ref": "#/$defs/vec3"
+            },
+            "mode": {},
+            "part": {},
+            "when": {},
+            "repeat": {},
+            "id": {},
+            "note": {}
+          },
+          "additionalProperties": false
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/stepCommon"
+            }
+          ],
+          "type": "object",
+          "required": [
+            "op",
+            "shape",
+            "width",
+            "axis",
+            "length",
+            "mode"
+          ],
+          "properties": {
+            "op": {
+              "const": "passage"
+            },
+            "shape": {
+              "$ref": "#/$defs/expr"
+            },
+            "width": {
+              "$ref": "#/$defs/num"
+            },
+            "axis": {
+              "enum": [
+                "x",
+                "y"
+              ]
+            },
+            "length": {
+              "$ref": "#/$defs/num"
+            },
+            "at": {
+              "$ref": "#/$defs/vec3"
+            },
+            "mode": {
+              "const": "cut"
+            },
+            "part": {},
+            "when": {},
+            "repeat": {},
+            "id": {},
+            "note": {}
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "print": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "name",
+        "rotation"
+      ],
+      "properties": {
+        "key": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,20}$"
+        },
+        "name": {
+          "$ref": "#/$defs/text"
+        },
+        "rotation": {
+          "enum": [
+            "upright",
+            "inverted",
+            "front_down",
+            "back_down",
+            "left_down",
+            "right_down"
+          ]
+        }
+      }
+    },
+    "anchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "origin",
+        "normal",
+        "up"
+      ],
+      "properties": {
+        "origin": {
+          "$ref": "#/$defs/vec3"
+        },
+        "normal": {
+          "$ref": "#/$defs/axisName"
+        },
+        "up": {
+          "$ref": "#/$defs/axisName"
+        },
+        "part": {
+          "type": "string",
+          "default": "body"
+        },
+        "side": {
+          "$ref": "#/$defs/side"
+        },
+        "wall": {
+          "$ref": "#/$defs/num"
+        },
+        "door": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "when",
+            "width",
+            "profile"
+          ],
+          "properties": {
+            "when": {
+              "$ref": "#/$defs/expr"
+            },
+            "width": {
+              "$ref": "#/$defs/num"
+            },
+            "profile": {
+              "$ref": "#/$defs/expr"
+            }
+          }
+        },
+        "mount": {
+          "$ref": "#/$defs/vec3"
+        },
+        "openable": {
+          "type": "boolean",
+          "default": false
+        },
+        "fields": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "width": {
+              "type": "string"
+            },
+            "height": {
+              "type": "string"
+            },
+            "wall": {
+              "type": "string"
+            },
+            "port": {
+              "type": "string"
+            },
+            "profile": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "open": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "anchor",
+        "set"
+      ],
+      "properties": {
+        "anchor": {
+          "type": "string"
+        },
+        "when": {
+          "$ref": "#/$defs/expr"
+        },
+        "set": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "$ref": "#/$defs/num"
+          }
+        }
+      }
+    },
+    "features": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "min_wall": {
+          "$ref": "#/$defs/num"
+        },
+        "access_sides": {
+          "type": "array",
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "side"
+            ],
+            "properties": {
+              "side": {
+                "$ref": "#/$defs/side"
+              },
+              "when": {
+                "$ref": "#/$defs/expr"
+              }
+            }
+          }
+        },
+        "climb_height": {
+          "$ref": "#/$defs/num"
+        },
+        "slope_deg": {
+          "$ref": "#/$defs/num"
+        },
+        "step_height": {
+          "$ref": "#/$defs/num"
+        },
+        "openings": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "step",
+                  "label"
+                ],
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "vent",
+                      "window"
+                    ]
+                  },
+                  "step": {
+                    "type": "string"
+                  },
+                  "axis": {
+                    "enum": [
+                      "x",
+                      "y",
+                      "z"
+                    ]
+                  },
+                  "label": {
+                    "$ref": "#/$defs/text"
+                  },
+                  "when": {
+                    "$ref": "#/$defs/expr"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "size",
+                  "label",
+                  "probe"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "passage"
+                  },
+                  "size": {
+                    "$ref": "#/$defs/num"
+                  },
+                  "rule_key": {
+                    "enum": [
+                      "entrance_min_diameter_mm",
+                      "tunnel_min_inner_diameter_mm"
+                    ]
+                  },
+                  "label": {
+                    "$ref": "#/$defs/text"
+                  },
+                  "when": {
+                    "$ref": "#/$defs/expr"
+                  },
+                  "probe": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "shape",
+                      "axis",
+                      "at",
+                      "length"
+                    ],
+                    "properties": {
+                      "shape": {
+                        "enum": [
+                          "round_arch",
+                          "pointed_arch",
+                          "box",
+                          "house"
+                        ]
+                      },
+                      "axis": {
+                        "enum": [
+                          "x",
+                          "y"
+                        ]
+                      },
+                      "at": {
+                        "$ref": "#/$defs/vec3"
+                      },
+                      "length": {
+                        "$ref": "#/$defs/num"
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "dsl": 1,
+      "family": "small_room",
+      "name": {
+        "ko": "새 방",
+        "en": "New room"
+      },
+      "description": {
+        "ko": "앞면(과 뒷면)에 출입구가 있는 바닥 없는 작은 방. 출입구마다 터널을 이을 수 있다.",
+        "en": "A small floorless room with a door on the front (and back). Each door can take a tunnel."
+      },
+      "keywords": {
+        "ko": [
+          "방"
+        ],
+        "en": [
+          "room"
+        ]
+      },
+      "fulfills": [],
+      "part_id": "small_room",
+      "habitats": [
+        "cage"
+      ],
+      "role": "room_host",
+      "attach_order": {
+        "passage": [
+          "front",
+          "back"
+        ]
+      },
+      "height_field": "height_mm",
+      "size_fields": [
+        "width_mm",
+        "depth_mm"
+      ],
+      "door_fields": [
+        "door_count",
+        "door_shape"
+      ],
+      "params": {
+        "wall_thickness_mm": {
+          "type": "number",
+          "default": 3,
+          "min": 2.3,
+          "max": 6,
+          "rule_default": "ctx.default_wall_mm",
+          "desc": {
+            "ko": "벽 두께 mm",
+            "en": "wall thickness mm"
+          }
+        },
+        "door_count": {
+          "type": "integer",
+          "default": 1,
+          "min": 1,
+          "max": 2,
+          "rule_default": "ctx.min_entrances",
+          "desc": {
+            "ko": "출입구 개수. 1=앞, 2=앞·뒤",
+            "en": "number of entrances. 1=front, 2=front+back"
+          }
+        },
+        "door_width_mm": {
+          "type": "number",
+          "default": 60,
+          "min": 25,
+          "max": 100,
+          "rule_default": "ceil(rule.entrance_min_diameter_mm + 5)",
+          "desc": {
+            "ko": "출입구 폭 mm. 종별 최소 출입구 폭 이상",
+            "en": "entrance width mm. At least the species minimum"
+          }
+        },
+        "door_shape": {
+          "type": "choice",
+          "choices": [
+            "round_arch",
+            "pointed_arch",
+            "box",
+            "house"
+          ],
+          "default": "round_arch",
+          "desc": {
+            "ko": "단면 모양",
+            "en": "cross-section shape"
+          },
+          "choice_labels": {
+            "round_arch": {
+              "ko": "둥근 아치",
+              "en": "round arch"
+            },
+            "pointed_arch": {
+              "ko": "뾰족 아치",
+              "en": "pointed arch"
+            },
+            "box": {
+              "ko": "네모",
+              "en": "square"
+            },
+            "house": {
+              "ko": "집 모양",
+              "en": "house shape"
+            }
+          }
+        },
+        "width_mm": {
+          "type": "number",
+          "default": 110,
+          "min": 60,
+          "max": 200,
+          "rule_default": "door_width_mm + 2 * wall_thickness_mm + 40",
+          "desc": {
+            "ko": "외형 가로(X) mm",
+            "en": "outer width (X) mm"
+          }
+        },
+        "depth_mm": {
+          "type": "number",
+          "default": 110,
+          "min": 60,
+          "max": 200,
+          "desc": {
+            "ko": "외형 세로(Y) mm",
+            "en": "outer depth (Y) mm"
+          }
+        },
+        "height_mm": {
+          "type": "number",
+          "default": 90,
+          "min": 40,
+          "max": 200,
+          "rule_default": "port_height(door_shape, door_width_mm) + 2 * wall_thickness_mm + 10",
+          "desc": {
+            "ko": "외형 높이(Z) mm",
+            "en": "outer height (Z) mm"
+          }
+        }
+      },
+      "let": [
+        {
+          "name": "W",
+          "expr": "width_mm"
+        },
+        {
+          "name": "D",
+          "expr": "depth_mm"
+        },
+        {
+          "name": "H",
+          "expr": "height_mm"
+        },
+        {
+          "name": "t",
+          "expr": "wall_thickness_mm"
+        }
+      ],
+      "constraints": [
+        {
+          "field": "door_count",
+          "min": "ctx.min_entrances",
+          "source": "species",
+          "reason": {
+            "ko": "여럿이 지낼 때 서로 피할 수 있도록 방 출입구는 {0}개 이상이어야 합니다",
+            "en": "The room needs at least {0} doors so animals living together can avoid each other"
+          }
+        },
+        {
+          "field": "door_width_mm",
+          "min": "rule.entrance_min_diameter_mm",
+          "source": "species",
+          "reason": {
+            "ko": "{1} 방 출입구는 최소 {0}mm 이상이어야 합니다",
+            "en": "{1} room doors must be at least {0} mm wide"
+          }
+        },
+        {
+          "field": "width_mm",
+          "min": "door_width_mm + 2 * wall_thickness_mm + 8",
+          "source": "geometry",
+          "reason": {
+            "ko": "출입구 양옆에 벽이 남도록 방 가로는 {0}mm 이상이어야 합니다",
+            "en": "The room must be at least {0} mm wide so wall remains beside the door"
+          }
+        },
+        {
+          "field": "height_mm",
+          "min": "port_height(door_shape, door_width_mm) + 2 * wall_thickness_mm",
+          "source": "geometry",
+          "reason": {
+            "ko": "출입구 위로 벽이 남도록 방 높이는 {0}mm 이상이어야 합니다",
+            "en": "The room must be at least {0} mm tall so wall remains above the door"
+          }
+        }
+      ],
+      "body": [
+        {
+          "op": "box",
+          "size": [
+            "W",
+            "D",
+            "H"
+          ]
+        },
+        {
+          "op": "box",
+          "mode": "cut",
+          "size": [
+            "W - 2 * t",
+            "D - 2 * t",
+            "H - t + 1"
+          ],
+          "at": [
+            0,
+            0,
+            -1
+          ],
+          "note": "open bottom, 1 mm below the floor"
+        }
+      ],
+      "print": [
+        {
+          "key": "body",
+          "name": {
+            "ko": "본체",
+            "en": "Body"
+          },
+          "rotation": "inverted"
+        }
+      ],
+      "anchors": {
+        "front": {
+          "origin": [
+            0,
+            "-D / 2",
+            0
+          ],
+          "normal": "-Y",
+          "up": "+Z",
+          "side": "front",
+          "wall": "t",
+          "door": {
+            "when": "True",
+            "width": "door_width_mm",
+            "profile": "door_shape"
+          },
+          "fields": {
+            "width": "width_mm",
+            "height": "height_mm",
+            "wall": "wall_thickness_mm",
+            "port": "door_width_mm",
+            "profile": "door_shape"
+          }
+        },
+        "back": {
+          "origin": [
+            0,
+            "D / 2",
+            0
+          ],
+          "normal": "+Y",
+          "up": "+Z",
+          "side": "back",
+          "wall": "t",
+          "door": {
+            "when": "door_count >= 2",
+            "width": "door_width_mm",
+            "profile": "door_shape"
+          },
+          "mount": [
+            "-W / 2",
+            "W / 2",
+            "H"
+          ],
+          "fields": {
+            "width": "width_mm",
+            "height": "height_mm",
+            "wall": "wall_thickness_mm",
+            "port": "door_width_mm",
+            "profile": "door_shape"
+          }
+        },
+        "left": {
+          "origin": [
+            "-W / 2",
+            0,
+            0
+          ],
+          "normal": "-X",
+          "up": "+Z",
+          "mount": [
+            "-D / 2",
+            "D / 2",
+            "H"
+          ],
+          "fields": {
+            "width": "depth_mm",
+            "height": "height_mm"
+          }
+        },
+        "right": {
+          "origin": [
+            "W / 2",
+            0,
+            0
+          ],
+          "normal": "+X",
+          "up": "+Z",
+          "mount": [
+            "-D / 2",
+            "D / 2",
+            "H"
+          ],
+          "fields": {
+            "width": "depth_mm",
+            "height": "height_mm"
+          }
+        },
+        "top": {
+          "origin": [
+            0,
+            0,
+            "H"
+          ],
+          "normal": "+Z",
+          "up": "+Y"
+        }
+      },
+      "envelope": [
+        "W",
+        "D",
+        "H"
+      ],
+      "features": {}
+    }
+  ]
+}

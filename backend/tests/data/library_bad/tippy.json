@@ -1,0 +1,88 @@
+{
+  "_expect": "G11",
+  "_also": [
+    "G10"
+  ],
+  "_note": "a free-standing 200 mm wall tips over; G10 repeats the engine's tip_over_risk warning",
+  "dsl": 1,
+  "family": "tippy",
+  "name": {
+    "ko": "시험 부품 17",
+    "en": "Test part 17"
+  },
+  "description": {
+    "ko": "따로 놓는 낮은 턱의 네모 그릇.",
+    "en": "A free-standing square dish with a low lip."
+  },
+  "keywords": {
+    "ko": [
+      "그릇"
+    ],
+    "en": [
+      "dish"
+    ]
+  },
+  "fulfills": [],
+  "part_id": "tippy",
+  "habitats": [
+    "cage"
+  ],
+  "role": "none",
+  "height_field": "height_mm",
+  "params": {
+    "wall_thickness_mm": {
+      "type": "number",
+      "default": 3,
+      "min": 1.2,
+      "max": 6,
+      "rule_default": "ctx.default_wall_mm",
+      "desc": {
+        "ko": "벽 두께 mm",
+        "en": "wall thickness mm"
+      }
+    },
+    "height_mm": {
+      "type": "number",
+      "default": 200,
+      "min": 150,
+      "max": 200,
+      "desc": {
+        "ko": "외형 높이(Z) mm",
+        "en": "outer height (Z) mm"
+      }
+    }
+  },
+  "let": [
+    {
+      "name": "t",
+      "expr": "wall_thickness_mm"
+    }
+  ],
+  "constraints": [],
+  "body": [
+    {
+      "op": "box",
+      "size": [
+        "t",
+        100,
+        "height_mm"
+      ]
+    }
+  ],
+  "print": [
+    {
+      "key": "body",
+      "name": {
+        "ko": "본체",
+        "en": "Body"
+      },
+      "rotation": "upright"
+    }
+  ],
+  "envelope": [
+    "t",
+    100,
+    "height_mm"
+  ],
+  "features": {}
+}

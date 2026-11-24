@@ -12,8 +12,9 @@ from typing import Annotated, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
-# 템플릿 키 목록만 담은 모듈 (다른 모듈을 import 하지 않아 순환이 생기지 않는다)
-from app.templates.keys import TEMPLATE_MODULES
+# 템플릿 키 목록만 담은 모듈 (다른 모듈을 맨 위에서 import 하지 않아 순환이 생기지 않는다).
+# 라이브러리 부품(family@vN)은 색인(app/library/index.json, 가벼운 모듈)에서 읽는다
+from app.templates.keys import TEMPLATE_MODULES, known_template_keys
 
 PositiveMM = Annotated[float, Field(gt=0)]
 NonNegativeMM = Annotated[float, Field(ge=0)]
@@ -218,6 +219,11 @@ class SpeciesEntry(_Strict):
     def allowed_templates(self) -> tuple[str, ...]:
         return self.templates if self.templates is not None else CAGE_TEMPLATES
 
+    @property
+    def library_templates(self) -> tuple[str, ...]:
+        """templates 중 라이브러리 부품의 키 (코드 부품이 아닌 키)."""
+        return tuple(k for k in self.allowed_templates if k not in TEMPLATE_MODULES)
+
     @model_validator(mode="after")
     def _check_habitat(self) -> "SpeciesEntry":
         # 오류 메시지에 종 이름·크기 키·필드 이름을 넣는다 (pydantic 위치 정보 species.<키> 와 함께 RuleFileError 로 보인다)
@@ -225,19 +231,25 @@ class SpeciesEntry(_Strict):
         if self.templates is not None:
             if not self.templates:
                 raise ValueError(f"{where}: templates 가 비어 있습니다")
-            unknown = [k for k in self.templates if k not in TEMPLATE_MODULES]
+            library = _library_entries([k for k in self.templates if k not in TEMPLATE_MODULES])
+            unknown = [k for k in self.templates if k not in TEMPLATE_MODULES and k not in library]
             if unknown:
                 raise ValueError(f"{where}: templates 에 알 수 없는 템플릿 키가 있습니다: {unknown} "
-                                 f"(가능한 키: {sorted(TEMPLATE_MODULES)})")
+                                 f"(가능한 키: {sorted(known_template_keys())})")
             if len(set(self.templates)) != len(self.templates):
                 raise ValueError(f"{where}: templates 에 같은 키가 두 번 있습니다: {list(self.templates)}")
         elif self.habitat != "cage":
             raise ValueError(f"{where}: habitat 이 cage 가 아니면 templates 를 적어야 합니다")
         allowed = HABITAT_TEMPLATES[self.habitat]
-        bad = [k for k in self.allowed_templates if k not in allowed]
+        bad = [k for k in self.allowed_templates if k in TEMPLATE_MODULES and k not in allowed]
         if bad:
             raise ValueError(f"{where}: templates 의 {bad} 는 habitat {self.habitat} 에서 만들 수 없습니다 "
                              f"(가능한 키: {list(allowed)})")
+        # 라이브러리 부품: 색인에 적힌 사육 환경(habitats)에서만 쓸 수 있다
+        for key, e in _library_entries(self.library_templates).items():
+            if self.habitat not in e.habitats:
+                raise ValueError(f"{where}: templates 의 라이브러리 부품 {key} 는 habitat {self.habitat} 에서 "
+                                 f"만들 수 없습니다 (부품의 사육 환경: {list(e.habitats)})")
         if self.habitat == "cage":
             self._check_cage(where)
         else:
@@ -299,10 +311,49 @@ class SpeciesEntry(_Strict):
                                  "null 로 두거나 지워 주세요")
 
 
+def _library_entries(keys) -> dict:
+    """키 → 라이브러리 색인 항목 (색인에 없는 키는 빠진다). 키가 없으면 색인을 읽지 않는다."""
+    keys = list(keys)
+    if not keys:
+        return {}
+    # 가벼운 모듈 (json·pydantic). 색인이 깨졌으면 LibraryError 로 기동을 멈춘다 (R8)
+    from app.library import index
+
+    return {k: e for k in keys if (e := index.entry(k)) is not None}
+
+
+def _rule_value(size: SizeRules, field: str) -> object:
+    """SizeRules 의 점 표기 필드 값 (예: gap_trap.safe_max_mm). 없는 필드는 None."""
+    v: object = size
+    for part in field.split("."):
+        v = getattr(v, part, None)
+        if v is None:
+            return None
+    return v
+
+
 class SpeciesFile(_Strict):
     version: str
     reviewed: bool = False
     species: dict[str, SpeciesEntry] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _check_library_gating(self) -> SpeciesFile:
+        """라이브러리 부품은 검증한 종·크기 구분에만 쓸 수 있다 (R11): 그 종의 모든 크기 구분에서 검증했고,
+        부품이 읽는 규칙 값(rule_fields_used)이 모든 크기 구분에 있어야 한다. 종 키는 여기서만 알 수 있다."""
+        for sp_key, sp in self.species.items():
+            for key, e in _library_entries(sp.library_templates).items():
+                verified = set(e.verified_for.get(sp_key, ()))
+                for size in sp.sizes:
+                    if size not in verified:
+                        raise ValueError(f"{key} 은(는) {sp_key}/{size} 에서 검증하지 않았습니다 "
+                                         "(python -m app.library verify 후 publish)")
+                for field in e.rule_fields_used:
+                    missing = [size for size, s in sp.sizes.items() if _rule_value(s, field) is None]
+                    if missing:
+                        raise ValueError(f"{key} 은(는) 규칙 값 {field} 을(를) 쓰는데 {sp_key} 크기 구분 "
+                                         f"{missing} 에 그 값이 없습니다")
+        return self
 
 
 class PrintingRules(_Strict):
@@ -353,6 +404,18 @@ class RuleBook(BaseModel):
 
         자유 조립 항목("assembly")은 여기 넣지 않는다: 엔진이 조립 항목의 부품마다 이 목록으로 확인한다."""
         return self.species_entry(species).allowed_templates
+
+    def offered_templates(self, species: str) -> tuple[str, ...]:
+        """새 설계에 내놓는 템플릿 키 = allowed_templates 에서 폐기·차단한 라이브러리 부품을 뺀 것 (순서 유지).
+
+        allowed_templates 는 그대로 둔다: 폐기·차단 부품을 쓴 저장된 설계도 다시 검증·재생성할 수 있어야 한다 (R7)."""
+        allowed = self.allowed_templates(species)
+        if all(k in TEMPLATE_MODULES for k in allowed):
+            return allowed  # 코드 부품만: 색인을 읽지 않는다
+        from app.library import index
+
+        hidden = index.hidden_keys()
+        return tuple(k for k in allowed if k not in hidden)
 
     def buoyancy(self, species: str) -> BuoyancyRules | None:
         """물속 무게 계산용 밀도 (어항 종만). 모르는 종이면 KeyError."""

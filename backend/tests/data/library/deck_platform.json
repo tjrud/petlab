@@ -1,0 +1,298 @@
+{
+  "dsl": 1,
+  "family": "deck_platform",
+  "name": {
+    "ko": "발판 플랫폼",
+    "en": "Deck platform"
+  },
+  "description": {
+    "ko": "양옆 벽 위에 발판을 얹은 2층 플랫폼. 아래는 앞뒤로 트인 통로. 옆면에 램프·그릇 받침·물병 거치대를 끼울 수 있고 램프는 발판 높이에 맞춰진다.",
+    "en": "A raised deck on two side walls with an open passage underneath. Ramps, bowl holders and bottle stands slide onto its sides; a ramp rises to the deck height."
+  },
+  "keywords": {
+    "ko": [
+      "플랫폼",
+      "발판",
+      "2층",
+      "전망대",
+      "단상"
+    ],
+    "en": [
+      "platform",
+      "deck",
+      "loft",
+      "lookout",
+      "ledge"
+    ]
+  },
+  "fulfills": [
+    "플랫폼",
+    "2층플랫폼",
+    "발판"
+  ],
+  "part_id": "deck",
+  "color": "#b9925f",
+  "habitats": [
+    "cage"
+  ],
+  "role": "host",
+  "attach_order": {},
+  "height_field": "height_mm",
+  "size_fields": [
+    "width_mm",
+    "depth_mm"
+  ],
+  "params": {
+    "wall_thickness_mm": {
+      "type": "number",
+      "default": 3,
+      "min": 1.2,
+      "max": 8,
+      "rule_default": "ctx.default_wall_mm",
+      "desc": {
+        "ko": "옆벽 두께 mm",
+        "en": "side wall thickness mm"
+      }
+    },
+    "width_mm": {
+      "type": "number",
+      "default": 160,
+      "min": 60,
+      "max": 210,
+      "rule_default": "max(160, max(rule.entrance_min_diameter_mm, rule.gap_trap.passable_min_mm) + 2 * wall_thickness_mm + 60)",
+      "desc": {
+        "ko": "외형 가로(X) mm. 양옆 벽 바깥 사이 거리",
+        "en": "outer width (X) mm. Distance across the two side walls"
+      }
+    },
+    "depth_mm": {
+      "type": "number",
+      "default": 120,
+      "min": 60,
+      "max": 210,
+      "desc": {
+        "ko": "외형 세로(Y) mm",
+        "en": "outer depth (Y) mm"
+      }
+    },
+    "height_mm": {
+      "type": "number",
+      "default": 100,
+      "min": 50,
+      "max": 200,
+      "rule_default": "min(100, rule.max_climb_height_mm)",
+      "desc": {
+        "ko": "발판 윗면 높이 mm. 종별 최대 오르기 높이 이하",
+        "en": "deck top height mm. At most the species' maximum climb height"
+      }
+    },
+    "deck_thickness_mm": {
+      "type": "number",
+      "default": 4,
+      "min": 3,
+      "max": 10,
+      "rule_default": "max(4, ctx.min_wall_mm)",
+      "desc": {
+        "ko": "발판 두께 mm",
+        "en": "deck thickness mm"
+      }
+    }
+  },
+  "let": [
+    {
+      "name": "W",
+      "expr": "width_mm"
+    },
+    {
+      "name": "D",
+      "expr": "depth_mm"
+    },
+    {
+      "name": "H",
+      "expr": "height_mm"
+    },
+    {
+      "name": "t",
+      "expr": "wall_thickness_mm"
+    },
+    {
+      "name": "dt",
+      "expr": "deck_thickness_mm"
+    }
+  ],
+  "constraints": [
+    {
+      "field": "deck_thickness_mm",
+      "min": "max(3, ctx.min_wall_mm)",
+      "source": "species",
+      "reason": {
+        "ko": "발판은 {0}mm 이상 두꺼워야 합니다",
+        "en": "The deck must be at least {0} mm thick"
+      }
+    },
+    {
+      "field": "height_mm",
+      "max": "rule.max_climb_height_mm",
+      "source": "species",
+      "reason": {
+        "ko": "떨어져도 다치지 않도록 {1} 발판 높이는 {0}mm 이하여야 합니다",
+        "en": "Keep the deck at most {0} mm high so a {1} is not hurt by a fall"
+      }
+    },
+    {
+      "field": "height_mm",
+      "min": "max(rule.entrance_min_diameter_mm, rule.gap_trap.passable_min_mm) + deck_thickness_mm",
+      "source": "species",
+      "reason": {
+        "ko": "발판 아래를 끼지 않고 지나가도록 높이는 {0}mm 이상이어야 합니다",
+        "en": "The deck must be at least {0} mm high so the passage underneath cannot trap"
+      }
+    },
+    {
+      "field": "width_mm",
+      "min": "max(rule.entrance_min_diameter_mm, rule.gap_trap.passable_min_mm) + 2 * wall_thickness_mm",
+      "source": "species",
+      "reason": {
+        "ko": "발판 아래 통로가 넉넉하도록 가로는 {0}mm 이상이어야 합니다",
+        "en": "The width must be at least {0} mm so the passage underneath is wide enough"
+      }
+    },
+    {
+      "field": "depth_mm",
+      "min": "0.5 * height_mm",
+      "source": "geometry",
+      "reason": {
+        "ko": "넘어지지 않도록 세로는 {0}mm 이상이어야 합니다",
+        "en": "The depth must be at least {0} mm so the platform cannot tip over"
+      }
+    }
+  ],
+  "body": [
+    {
+      "op": "box",
+      "size": [
+        "W",
+        "D",
+        "dt"
+      ],
+      "at": [
+        0,
+        0,
+        "H - dt"
+      ],
+      "note": "deck first, so every wall overlaps it"
+    },
+    {
+      "op": "box",
+      "size": [
+        "t",
+        "D",
+        "H"
+      ],
+      "at": [
+        "(2 * i - 1) * (W / 2 - t / 2)",
+        0,
+        0
+      ],
+      "repeat": {
+        "i": 2
+      },
+      "note": "side walls run the full height and overlap the deck by dt"
+    }
+  ],
+  "print": [
+    {
+      "key": "body",
+      "name": {
+        "ko": "본체",
+        "en": "Body"
+      },
+      "rotation": "inverted"
+    }
+  ],
+  "anchors": {
+    "left": {
+      "origin": [
+        "-W / 2",
+        0,
+        0
+      ],
+      "normal": "-X",
+      "up": "+Z",
+      "mount": [
+        "-D / 2",
+        "D / 2",
+        "H"
+      ],
+      "fields": {
+        "width": "depth_mm",
+        "height": "height_mm"
+      }
+    },
+    "right": {
+      "origin": [
+        "W / 2",
+        0,
+        0
+      ],
+      "normal": "+X",
+      "up": "+Z",
+      "mount": [
+        "-D / 2",
+        "D / 2",
+        "H"
+      ],
+      "fields": {
+        "width": "depth_mm",
+        "height": "height_mm"
+      }
+    },
+    "top": {
+      "origin": [
+        0,
+        0,
+        "H"
+      ],
+      "normal": "+Z",
+      "up": "+Y"
+    }
+  },
+  "envelope": [
+    "W",
+    "D",
+    "H"
+  ],
+  "features": {
+    "min_wall": "min(wall_thickness_mm, deck_thickness_mm)",
+    "access_sides": [
+      {
+        "side": "front"
+      },
+      {
+        "side": "back"
+      }
+    ],
+    "climb_height": "height_mm",
+    "openings": [
+      {
+        "kind": "passage",
+        "size": "min(W - 2 * t, H - dt)",
+        "rule_key": "entrance_min_diameter_mm",
+        "label": {
+          "ko": "발판 아래 통로",
+          "en": "Passage under the deck"
+        },
+        "probe": {
+          "shape": "box",
+          "axis": "y",
+          "at": [
+            0,
+            0,
+            0
+          ],
+          "length": "D + 2"
+        }
+      }
+    ]
+  }
+}

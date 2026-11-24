@@ -1,0 +1,332 @@
+[
+  {
+    "verifier": "verify/1",
+    "profile": "full",
+    "key": "litter_tray@v1",
+    "dsl": 1,
+    "file_sha256": "2932c1f2f4bd334a62155da5a61ba5650f0090fb46bfa6dbece176f6a70d894e",
+    "code": {
+      "app.library.template": "e48e97100e24f6075cb0850bbabaaa899a6914a0957cab715d16fc945fe21795",
+      "app.library.ops": "7b8d90a4d0eca9a5d29c2bb6dd6dfafd6595b4ab4c1ef77ba22690b4c390be0d",
+      "app.library.expr": "584aa1992fef493ace5bfeea4a08bfdff66261b917a3c5a531063bfbe957c796",
+      "app.library.schema": "5a2bf37e6b7bfa118a3d27bffb991fb5c0cf7341e1d1799f041f6cf9a29cca53",
+      "app.templates.tunnel": "c224f279b4ab2009c277278e990954e2e15ecae251acec77c1d98435e250e01e"
+    },
+    "libraries": {
+      "build123d": "0.13.0",
+      "cadquery-ocp": "8.0.1.1.0",
+      "trimesh": "5.2.0",
+      "numpy": "2.5.4"
+    },
+    "rules_digest": {
+      "hamster/dwarf": "0bd6d17e1ae365cfbb6060b96644a0cae25139ad4b777fe6363c3fce50ce7016",
+      "hamster/syrian": "32f13b8cbb9084aee4d06d5ee6da5f80277bded9ddfa2fdbedb9e47ab7b9d068"
+    },
+    "started_at": "2026-11-24T11:16:34Z",
+    "seconds": 19.9,
+    "result": "pass",
+    "habitats": [
+      "cage"
+    ],
+    "verified_for": {
+      "hamster": [
+        "dwarf",
+        "syrian"
+      ]
+    },
+    "rule_fields_used": [
+      "gap_trap.passable_min_mm",
+      "max_step_height_mm"
+    ],
+    "schema": {
+      "chars_added": 1782,
+      "totals": {
+        "hamster": 29722
+      },
+      "gate_ok": {
+        "hamster": false
+      }
+    },
+    "counts": {
+      "variants": 25,
+      "unreachable": 0,
+      "checks": 564,
+      "failed": 0
+    },
+    "worst": {
+      "C08": {
+        "variant": "hamster/dwarf/c1/min:wall_thickness_mm",
+        "value": 0.006341000698739663,
+        "limit": 1.0
+      },
+      "G01": {
+        "variant": "hamster/dwarf/c1/max:depth_mm",
+        "value": 0.03950959900248563,
+        "limit": 5.0
+      },
+      "G03": {
+        "variant": "hamster/dwarf/c1/default",
+        "value": 0.0,
+        "limit": 0.005
+      },
+      "G04": {
+        "variant": "hamster/dwarf/c1/max:width_mm",
+        "value": -20.0,
+        "limit": 0.0
+      },
+      "G05": {
+        "variant": "hamster/dwarf/c1/default",
+        "value": 0.0,
+        "limit": 100.0
+      },
+      "G06": {
+        "variant": "hamster/dwarf/c1/min:wall_thickness_mm",
+        "value": 2.3999999999999937,
+        "limit": 2.16
+      },
+      "G07": {
+        "variant": "hamster/dwarf/c1/default",
+        "value": 0.0,
+        "limit": 0.5
+      },
+      "G08": {
+        "variant": "hamster/dwarf/c1/default",
+        "value": 0.0,
+        "limit": 3.0
+      },
+      "G11": {
+        "variant": "hamster/dwarf/c1/seed3",
+        "value": 78.79220425734589,
+        "limit": 15.0
+      },
+      "R01": {
+        "variant": null,
+        "value": 1782.0,
+        "limit": 2300.0
+      },
+      "R04": {
+        "variant": "hamster/dwarf/c1/default",
+        "value": 0.022200998500920832,
+        "limit": 2.0
+      },
+      "T02": {
+        "variant": "hamster/syrian/trial:toilet+bowl@hideout.right",
+        "value": 1.787941963000776,
+        "limit": 30.0
+      }
+    },
+    "failures": [],
+    "waived": [],
+    "unreachable": [],
+    "trials": [
+      {
+        "name": "toilet@hideout.right",
+        "size": "dwarf",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "hide.right>toilet.back slide"
+        ],
+        "seconds": 0.5
+      },
+      {
+        "name": "toilet@hideout.left",
+        "size": "dwarf",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "hide.left>toilet.back slide"
+        ],
+        "seconds": 0.5
+      },
+      {
+        "name": "toilet@hideout.back",
+        "size": "dwarf",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "hide.back>toilet.back slide"
+        ],
+        "seconds": 0.5
+      },
+      {
+        "name": "toilet@hideout.auto",
+        "size": "dwarf",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "hide.right>toilet.back slide"
+        ],
+        "seconds": 0.5
+      },
+      {
+        "name": "toilet@house.right",
+        "size": "dwarf",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "house.right>toilet.back slide"
+        ],
+        "seconds": 0.3
+      },
+      {
+        "name": "toilet@sand_bath.back",
+        "size": "dwarf",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "bath.back>toilet.back slide"
+        ],
+        "seconds": 0.2
+      },
+      {
+        "name": "toilet@deck_platform@v1.left",
+        "size": "dwarf",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "deck.left>toilet.back slide"
+        ],
+        "seconds": 0.1
+      },
+      {
+        "name": "toilet@deck_platform@v1.right",
+        "size": "dwarf",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "deck.right>toilet.back slide"
+        ],
+        "seconds": 0.1
+      },
+      {
+        "name": "toilet+bowl@hideout.right",
+        "size": "dwarf",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "hide.right>toilet.back slide",
+          "hide.left>bowl.back slide"
+        ],
+        "seconds": 1.5
+      },
+      {
+        "name": "toilet@hideout.right",
+        "size": "syrian",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "hide.right>toilet.back slide"
+        ],
+        "seconds": 0.5
+      },
+      {
+        "name": "toilet@hideout.left",
+        "size": "syrian",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "hide.left>toilet.back slide"
+        ],
+        "seconds": 0.5
+      },
+      {
+        "name": "toilet@hideout.back",
+        "size": "syrian",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "hide.back>toilet.back slide"
+        ],
+        "seconds": 0.5
+      },
+      {
+        "name": "toilet@hideout.auto",
+        "size": "syrian",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "hide.right>toilet.back slide"
+        ],
+        "seconds": 0.5
+      },
+      {
+        "name": "toilet@house.right",
+        "size": "syrian",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "house.right>toilet.back slide"
+        ],
+        "seconds": 0.3
+      },
+      {
+        "name": "toilet@sand_bath.back",
+        "size": "syrian",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "bath.back>toilet.back slide"
+        ],
+        "seconds": 0.2
+      },
+      {
+        "name": "toilet@deck_platform@v1.left",
+        "size": "syrian",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "deck.left>toilet.back slide"
+        ],
+        "seconds": 0.2
+      },
+      {
+        "name": "toilet@deck_platform@v1.right",
+        "size": "syrian",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "deck.right>toilet.back slide"
+        ],
+        "seconds": 0.1
+      },
+      {
+        "name": "toilet+bowl@hideout.right",
+        "size": "syrian",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "hide.right>toilet.back slide",
+          "hide.left>bowl.back slide"
+        ],
+        "seconds": 1.8
+      }
+    ],
+    "golden": {
+      "hamster/dwarf/default": {
+        "params": {
+          "wall_thickness_mm": 3.0,
+          "width_mm": 130.0,
+          "depth_mm": 130.0,
+          "lip_height_mm": 30.0
+        },
+        "files": {
+          "print_0.stl": "063824b4a639ed20f49b662df55f29cd5cfc878d05026e06ecdcbc426c16a7ac",
+          "world_0.stl": "063824b4a639ed20f49b662df55f29cd5cfc878d05026e06ecdcbc426c16a7ac"
+        }
+      },
+      "hamster/syrian/default": {
+        "params": {
+          "wall_thickness_mm": 3.0,
+          "width_mm": 146.0,
+          "depth_mm": 146.0,
+          "lip_height_mm": 30.0
+        },
+        "files": {
+          "print_0.stl": "1b7d5278b247aaf256742cf66caeb60cbc1d6fcbe016464fa57b95e7094d7692",
+          "world_0.stl": "1b7d5278b247aaf256742cf66caeb60cbc1d6fcbe016464fa57b95e7094d7692"
+        }
+      }
+    }
+  }
+]

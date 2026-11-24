@@ -1,0 +1,111 @@
+{
+  "_expect": "G08",
+  "_also": [
+    "G13"
+  ],
+  "_note": "the gap under the deck is 15 mm: the floor plane closes the trap",
+  "dsl": 1,
+  "family": "low_deck",
+  "name": {
+    "ko": "시험 부품 4",
+    "en": "Test part 4"
+  },
+  "description": {
+    "ko": "따로 놓는 낮은 턱의 네모 그릇.",
+    "en": "A free-standing square dish with a low lip."
+  },
+  "keywords": {
+    "ko": [
+      "그릇"
+    ],
+    "en": [
+      "dish"
+    ]
+  },
+  "fulfills": [],
+  "part_id": "low_deck",
+  "habitats": [
+    "cage"
+  ],
+  "role": "none",
+  "height_field": null,
+  "params": {
+    "wall_thickness_mm": {
+      "type": "number",
+      "default": 3,
+      "min": 1.2,
+      "max": 6,
+      "rule_default": "ctx.default_wall_mm",
+      "desc": {
+        "ko": "벽 두께 mm",
+        "en": "wall thickness mm"
+      }
+    },
+    "width_mm": {
+      "type": "number",
+      "default": 120,
+      "min": 80,
+      "max": 150,
+      "desc": {
+        "ko": "외형 가로(X) mm",
+        "en": "outer width (X) mm"
+      }
+    }
+  },
+  "let": [
+    {
+      "name": "t",
+      "expr": "wall_thickness_mm"
+    }
+  ],
+  "constraints": [],
+  "body": [
+    {
+      "op": "box",
+      "size": [
+        "width_mm",
+        100,
+        4
+      ],
+      "at": [
+        0,
+        0,
+        15
+      ]
+    },
+    {
+      "op": "box",
+      "size": [
+        "t",
+        100,
+        19
+      ],
+      "at": [
+        "(2 * i - 1) * (width_mm / 2 - t / 2)",
+        0,
+        0
+      ],
+      "repeat": {
+        "i": 2
+      }
+    }
+  ],
+  "print": [
+    {
+      "key": "body",
+      "name": {
+        "ko": "본체",
+        "en": "Body"
+      },
+      "rotation": "inverted"
+    }
+  ],
+  "envelope": [
+    "width_mm",
+    100,
+    19
+  ],
+  "features": {
+    "min_wall": "min(wall_thickness_mm, 4)"
+  }
+}

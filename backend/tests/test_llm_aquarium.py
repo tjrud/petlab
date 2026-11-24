@@ -183,7 +183,8 @@ def test_user_message_for_hamster_has_no_aquarium_rows(rules):
     for absent in ("물 깊이", "어항", "물속 동굴", "만들 수 있는 구조물", "속이 빈", MATERIAL_RULE_KEY):
         assert absent not in head, absent
     templates = [t["template"] for t in json.loads(rest.split("## 보호자 요구사항")[0])]
-    assert templates == ["hideout", "tunnel", "ramp", "sand_bath", "house", "bowl_holder", "bottle_stand"]
+    assert templates == ["hideout", "tunnel", "ramp", "sand_bath", "house", "bowl_holder", "bottle_stand",
+                         "deck_platform@v1", "deck_platform@v2", "tunnel_junction@v1"]  # 코드 부품 뒤에 게이팅한 라이브러리 부품 (key 순; 허용 목록이라 폐기한 v1 도)
 
 
 def test_template_catalog_filters_by_allowed():
@@ -244,7 +245,9 @@ def test_anthropic_uses_species_schema_and_retries_on_cage_template(rules):
     hreq = make_req(rules, "hamster", "syrian", 1)
     client = FakeClient([_resp(spec_dict(rules, hreq, ("hideout",)))])
     AnthropicInterpreter(client, "m").interpret(hreq)
-    assert schema_templates(client.calls[0]["output_config"]["format"]["schema"]) == {*CAGE_TEMPLATES, "assembly"}
+    assert schema_templates(client.calls[0]["output_config"]["format"]["schema"]) == {*CAGE_TEMPLATES, "tunnel_junction@v1",
+                                                                                   "deck_platform@v1", "deck_platform@v2",
+                                                                                   "assembly"}
 
 
 def test_refusal_message_by_habitat(rules):

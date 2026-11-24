@@ -10,6 +10,7 @@ import copy
 import json
 import logging
 import os
+import re
 import shutil
 import threading
 import uuid
@@ -49,13 +50,14 @@ from app.schemas import (
     HabitatKind,
     HabitatOut,
     ItemOut,
+    MissingPartOut,
     PartOut,
     PlacementOut,
     SharedDesignOut,
     VersionOut,
     VersionSummary,
 )
-from app.services import usage
+from app.services import part_requests, usage
 from app.services.market_view import item_models, stored_blobs
 from app.storage import Stored
 
@@ -119,10 +121,14 @@ log = logging.getLogger(__name__)
 
 
 class ExportBlockedError(RuntimeError):
-    def __init__(self, message_ko: str, errors: list[dict]):
+    """내려받기를 막았다. code: validation_failed (검증을 통과하지 못한 버전) 또는 part_blocked (안전 문제로 막은
+    라이브러리 부품을 쓴 버전)."""
+
+    def __init__(self, message_ko: str, errors: list[dict], code: str = "validation_failed"):
         super().__init__(message_ko)
         self.message_ko = message_ko
         self.errors = errors
+        self.code = code
 
 
 class MeshRegenerationError(RuntimeError):
@@ -275,6 +281,7 @@ class _Generated:
     prompt: str
     interpret: InterpretResult
     engine: EngineResult
+    habitat: Habitat  # 부품 수요 기록(종·크기)에 쓴다
 
 
 @dataclass(frozen=True)
@@ -319,6 +326,80 @@ def _unresolved_errors(issues: list[dict]) -> list[dict]:
 def _exportable(v: DesignVersion) -> bool:
     """내려받을 수 있는 버전인지: 검증을 통과했고 구조물이 하나 이상 있다."""
     return v.passed and bool(v.items)
+
+
+def _missing_parts(llm_spec: dict | None) -> list[MissingPartOut]:
+    """해석기가 카탈로그에 없다고 한 부품 (저장된 llm_spec). 옛 명세에는 없고, 형식이 다른 항목은 건너뛴다."""
+    raw = llm_spec.get("missing_parts") if isinstance(llm_spec, dict) else None
+    out = []
+    for m in raw if isinstance(raw, list) else []:
+        if isinstance(m, dict) and isinstance(m.get("name_ko"), str) and m["name_ko"].strip():
+            purpose = m.get("purpose_ko")
+            out.append(MissingPartOut(name_ko=m["name_ko"], purpose_ko=purpose if isinstance(purpose, str) else ""))
+    return out
+
+
+def _stored_template_keys(it: dict) -> list[str]:
+    """저장된 구조물 하나가 쓰는 부품 템플릿 키 (조립 항목은 저장된 구조의 부품마다, 나온 순서대로 한 번씩).
+    조립 구조를 읽지 못하면 부품 키는 빼고 항목 키만 돌려준다."""
+    raw = it.get("assembly")
+    if not isinstance(raw, dict):
+        return [it["template"]]
+    from app.modules.structure import ResolvedAssembly
+
+    try:
+        resolved = ResolvedAssembly.from_stored(raw)
+    except ValueError:
+        return [it["template"]]
+    return list(dict.fromkeys(p.template for p in resolved.parts))
+
+
+def _spec_template_keys(spec: BaseModel | None) -> list[str]:
+    """해석 결과(DesignSpec)가 쓰는 부품 템플릿 키 (조립 항목은 부품마다), 나온 순서대로 한 번씩."""
+    if spec is None:
+        return []
+    keys: list[str] = []
+    for it in spec.model_dump(mode="json").get("items") or []:
+        if isinstance(it.get("parts"), list):
+            keys += [p["template"] for p in it["parts"] if isinstance(p, dict) and isinstance(p.get("template"), str)]
+        elif isinstance(it.get("template"), str):
+            keys.append(it["template"])
+    return list(dict.fromkeys(keys))
+
+
+def _library_entries(keys: Iterable[str]) -> dict:
+    """키 → 라이브러리 색인 항목 (코드 부품·모르는 키는 빠진다). 라이브러리 키가 없으면 색인을 읽지 않는다."""
+    from app.templates.keys import TEMPLATE_MODULES
+
+    keys = [k for k in dict.fromkeys(keys) if k not in TEMPLATE_MODULES and k != "assembly"]
+    if not keys:
+        return {}
+    from app.library import index  # 가벼운 모듈 (json·pydantic)
+
+    return {k: e for k in keys if (e := index.entry(k)) is not None}
+
+
+def _blocked_keys(v: DesignVersion) -> list[str]:
+    """버전이 쓰는 부품 중 안전 문제로 막은(blocked) 라이브러리 부품 (구조물 순서대로)."""
+    keys = [k for it in v.items for k in _stored_template_keys(it)]
+    return [k for k, e in _library_entries(keys).items() if e.status == "blocked"]
+
+
+def _part_name_ko(key: str) -> str:
+    """라이브러리 부품의 한국어 이름 (게시된 파일의 name.ko). 읽지 못하면 키."""
+    from app.library import index
+
+    try:
+        return str(index.read_part(key)["name"]["ko"])
+    except Exception:
+        log.warning("library part name unreadable: %s", key, exc_info=True)
+        return key
+
+
+def export_base_name(index: int, template: str) -> str:
+    """내려받는 파일의 구조물 이름: part{번호}_{템플릿 키}. 라이브러리 키의 @ 는 파일 이름에 쓰지 않고 - 로 바꾼다
+    (tunnel_junction@v1 → tunnel_junction-v1). 그 밖에 영문·숫자·_·- 가 아닌 글자도 - 로 바꾼다."""
+    return f"part{index + 1}_{re.sub(r'[^A-Za-z0-9_-]', '-', template)}"
 
 
 def _assembly_display(it: dict) -> AssemblyDisplay | None:
@@ -472,6 +553,7 @@ class DesignService:
         db.flush()
         row = self._save_version(db, design, generated, 1, user)
         db.commit()
+        self._record_demand(db, design.id, generated, 1, user.id)
         return design, row
 
     def revise_design(
@@ -492,6 +574,7 @@ class DesignService:
         next_no = (db.scalar(select(func.max(DesignVersion.version)).where(DesignVersion.design_id == design.id)) or 0) + 1
         row = self._save_version(db, design, generated, next_no, user)
         db.commit()
+        self._record_demand(db, design.id, generated, next_no, user.id)
         db.refresh(design)
         return design, row
 
@@ -542,11 +625,26 @@ class DesignService:
             min_wall_mm=ctx.min_wall_mm,
             previous=previous,
             language=get_lang(),  # 영어 페이지에서 만들면 설명(summary_ko 등)도 영어로
-            allowed_templates=ctx.allowed_templates,  # 이 종에 만들 수 있는 부품만 LLM 에게 보인다 (조립 항목도 이 부품으로)
+            # 이 종에 새 설계로 내놓는 부품만 LLM 에게 보인다 (조립 항목도 이 부품으로). 폐기·차단한 라이브러리 부품은
+            # 빼고, 수정이면 직전 설계가 쓰던 폐기 부품은 그대로 쓸 수 있게 남긴다 (offered_templates)
+            allowed_templates=self.offered_templates(h.species, previous),
         )
         result = self._interpreter().interpret(req)
         engine_result = run_engine(to_item_specs(result.spec), ctx)
-        return _Generated(prompt=prompt, interpret=result, engine=engine_result)
+        return _Generated(prompt=prompt, interpret=result, engine=engine_result, habitat=h)
+
+    def offered_templates(self, species: str, previous: BaseModel | None = None) -> tuple[str, ...]:
+        """해석기에 보일 템플릿 키 (설계 문서 §10): 종의 새 설계용 부품(rules.offered_templates: 폐기·차단 라이브러리 부품을
+        뺀 것) 뒤에, 수정이면 직전 설계가 쓰던 부품 중 이 종에 허용(allowed)되고 차단되지 않은 것 (폐기 부품은 그 설계에서
+        계속 쓸 수 있다). 엔진은 그대로 allowed_templates 로 확인한다 (폐기·차단 부품도 저장된 설계를 다시 검증한다)."""
+        offered = self.rules.offered_templates(species)
+        used = _spec_template_keys(previous)
+        if not used:
+            return offered
+        allowed = set(self.rules.allowed_templates(species))
+        blocked = {k for k, e in _library_entries(used).items() if e.status == "blocked"}
+        sticky = [k for k in used if k in allowed and k not in blocked]
+        return tuple(dict.fromkeys((*offered, *sticky)))
 
     def _save_version(self, db: Session, design: Design, g: _Generated, version_no: int, user: User) -> DesignVersion:
         """생성 결과를 새 버전 행으로 저장하고 메시 캐시를 쓴다. g 는 바꾸지 않는다.
@@ -574,9 +672,28 @@ class DesignService:
         # 버전을 붙이지 않는다 (요청이 끝나면 세션이 되돌린다). 캐시도 쓰지 않는다
         if db.scalar(select(Design.id).where(Design.id == design.id)) is None:
             raise NotFoundError("설계가 삭제되었어요.")
+        # 수요(missing_parts)는 버전을 커밋한 뒤 따로 센다 (_record_demand)
         # 메시 캐시 저장 (뷰어용 배치 메시 + 출력 자세 메시)
         _write_cache(self._version_dir(design.id, version_no), files)
         return row
+
+    @staticmethod
+    def _record_demand(db: Session, design_id: str, g: _Generated, version_no: int, user_id: str) -> None:
+        """카탈로그에 없다고 한 부품(missing_parts)을 수요로 센다. 엔진 통과 여부와 상관없이 센다.
+        설계 버전을 커밋한 뒤 짧은 트랜잭션 하나로 한다: 요청 행 잠금(Postgres)을 설계 저장 내내 잡지 않는다.
+        어떤 오류든 되돌리고 기록만 한다: 수요 기록 때문에 설계 저장이 실패하지 않는다 (R10)."""
+        missing = getattr(g.interpret.spec, "missing_parts", None)
+        if not missing:
+            return
+        try:
+            part_requests.record_missing(
+                db, design_id=design_id, version_no=version_no, missing=missing, prompt=g.prompt,
+                user_id=user_id, species=g.habitat.species, size=g.habitat.size, lang=get_lang(),
+            )
+            db.commit()
+        except Exception:
+            db.rollback()
+            log.warning("part request recording failed: design=%s v=%s", design_id, version_no, exc_info=True)
 
     # ── 조회 ────────────────────────────────────────────────
 
@@ -759,8 +876,8 @@ class DesignService:
             current=VersionOut(
                 version=v.version, prompt=v.prompt, provider=v.provider,
                 summary_ko=v.llm_spec.get("summary_ko", ""), notes_ko=v.llm_spec.get("notes_ko", []),
-                items=items, validation=validation, export_allowed=_exportable(v),
-                created_at=v.created_at,
+                items=items, validation=validation, export_allowed=_exportable(v) and not _blocked_keys(v),
+                created_at=v.created_at, missing_parts=_missing_parts(v.llm_spec),
             ),
         )
 
@@ -786,6 +903,33 @@ class DesignService:
                 continue
             out.extend(n.model_dump(mode="json") for n in notices
                        if (n.item_index, n.details.get("field")) not in seen)
+        return out + self._library_notices(v)
+
+    @staticmethod
+    def _library_notices(v: DesignVersion) -> list[dict]:
+        """저장된 버전이 쓰는 라이브러리 부품을 폐기(retired)·차단(blocked)했으면 구조물마다 경고로 알린다 (§9.6).
+        보기 화면에서만 덧붙이고 저장하지 않는다. 폐기 부품은 그대로 내려받을 수 있고, 차단 부품은 export 가 막는다."""
+        out: list[dict] = []
+        try:
+            for it in v.items:
+                entries = _library_entries(_stored_template_keys(it))
+                for key, e in entries.items():
+                    if e.status not in ("retired", "blocked"):
+                        continue
+                    name = _part_name_ko(key)
+                    if e.status == "retired":
+                        msg = (f"{name} 부품은 더 이상 새 설계에 쓰지 않아요: {e.reason.ko}" if e.reason
+                               else f"{name} 부품은 더 이상 새 설계에 쓰지 않아요.")
+                    else:
+                        msg = (f"{name} 부품은 안전 문제로 내려받을 수 없어요: {e.reason.ko}" if e.reason
+                               else f"{name} 부품은 안전 문제로 내려받을 수 없어요.")
+                    out.append({"code": f"part_{e.status}", "severity": "warning", "message_ko": msg,
+                                "item_index": it["index"], "related_index": None, "auto_fixed": False,
+                                "details": {"template": key, "status": e.status,
+                                            "superseded_by": e.superseded_by}})
+        except Exception:  # 색인을 읽지 못해도 보기는 막지 않는다 (내려받기는 export 가 따로 확인한다)
+            log.warning("library notices skipped: design=%s v=%s", v.design_id, v.version, exc_info=True)
+            return []
         return out
 
     # ── 메시 / 내보내기 ──────────────────────────────────────
@@ -903,10 +1047,20 @@ class DesignService:
                 "검증을 통과하지 못한 설계는 내려받을 수 없습니다. 아래 문제를 해결하도록 설계를 수정해 주세요.",
                 errors,
             )
+        # 안전 문제로 막은 라이브러리 부품: 저장할 때 검증을 통과했어도 내려받지 못하게 한다. 형상이 그대로면 다시
+        # 검증하지 않으므로(_ensure_meshes) 검증에 기대지 않고 여기서 따로 확인한다 (설계 문서 §9.6, R7)
+        blocked = _blocked_keys(v)
+        if blocked:
+            names = ", ".join(_part_name_ko(k) for k in blocked)
+            raise ExportBlockedError(
+                f"안전 문제로 내려받기를 막은 부품({names})이 들어 있어 내려받을 수 없어요. 다른 부품으로 설계를 수정해 주세요.",
+                [i for i in self._library_notices(v) if i["code"] == "part_blocked"],
+                code="part_blocked",
+            )
         d = self._ensure_meshes(design, v)
         parts = []
         for it in v.items:
-            base = f"part{it['index'] + 1}_{it['template']}"
+            base = export_base_name(it["index"], it["template"])
             stored = _stored_parts(it)
             for key in _part_file_keys(it):
                 # 파트가 여럿인 구조물만 이름에 파트를 붙인다 (파트 하나짜리 파일 이름은 그대로)

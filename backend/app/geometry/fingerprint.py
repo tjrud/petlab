@@ -83,11 +83,29 @@ ASSEMBLY_KEY = "assembly"
 FingerprintItem = Any
 
 
+# 부품 라이브러리(DSL) 부품의 형상을 만드는 코드. 부품 파일(JSON)의 해시와 함께 지문에 넣는다.
+# tunnel: 출입구·통로 단면을 tunnel.inner_profile 로 만든다
+DSL_MODULES: tuple[str, ...] = (
+    "app.library.template", "app.library.ops", "app.library.expr", "app.library.schema", "app.templates.tunnel",
+)
+
+
 def _template_digest(key: str) -> str:
+    """템플릿 키 하나의 해시. 코드 부품은 템플릿 모듈 소스의 해시 (예전과 같은 값), 라이브러리 부품은 색인에 적힌
+    부품 파일 sha256 과 DSL 해석 코드(DSL_MODULES)의 해시를 함께 해시한 값. 어디에도 없는 키는 "missing"."""
     from app.templates.keys import TEMPLATE_MODULES
 
     module = TEMPLATE_MODULES.get(key)
-    return _module_digest(module) if module else "missing"  # 삭제된 템플릿
+    if module:
+        return _module_digest(module)
+    # 가벼운 모듈: 색인만 읽고 부품 파일·형상 커널은 불러오지 않는다
+    from app.library import index
+
+    e = index.entry(key)
+    if e is None:
+        return "missing"  # 삭제된 템플릿
+    return file_digest(json.dumps({"file": e.sha256, "dsl": [_module_digest(m) for m in DSL_MODULES]},
+                                  sort_keys=True).encode())
 
 
 def _stored_assembly(item: FingerprintItem) -> Mapping[str, Any] | None:

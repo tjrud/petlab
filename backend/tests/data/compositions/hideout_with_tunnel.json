@@ -86,7 +86,8 @@
     ],
     "fixed": {
       "tube.shape": "round_arch",
-      "hide.entrance_count": 2
+      "hide.entrance_count": 2,
+      "hide.side_doors": "none"
     },
     "faces": {
       "tube": "front"

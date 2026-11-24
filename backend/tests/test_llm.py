@@ -582,7 +582,12 @@ def test_template_keys_drop_fixed_modules(rules):
     from app.rules.loader import CAGE_TEMPLATES
     from app.templates.registry import all_templates, primitives
 
-    assert template_keys(rules.allowed_templates("hamster")) == CAGE_TEMPLATES
+    # 햄스터: 케이지 코드 부품, 그다음 게시·게이팅한 라이브러리 부품 (rules/species.yaml; 레지스트리 순서 = key 순)
+    assert template_keys(rules.allowed_templates("hamster")) == (*CAGE_TEMPLATES, "deck_platform@v1",
+                                                                  "deck_platform@v2", "tunnel_junction@v1")
+    # 폐기한 deck_platform@v1 은 저장된 설계를 위해 허용 목록에만 남고 해석기에는 내놓지 않는다
+    assert template_keys(rules.offered_templates("hamster")) == (*CAGE_TEMPLATES, "deck_platform@v2",
+                                                                  "tunnel_junction@v1")
     assert set(template_keys()) <= set(primitives())
     modules = [t.key for t in all_templates() if t.key not in primitives()]
     assert not set(modules) & {d.removesuffix("Item") for d in api_schema()["$defs"]}
@@ -607,7 +612,8 @@ def test_catalog_has_connection_entries_from_template_metadata():
     hide = cat["hideout"]["연결"]
     assert "front: 출입구(터널만)" in hide
     assert "left/right: 옆면(" in hide and "그릇 받침" in hide and "물병 거치대" in hide
-    assert "back: 옆면(" in hide and "출입구를 낸다" in hide  # 뒷면은 터널을 이으면 출입구 2개로 연다
+    # 뒷면·옆면은 터널을 이으면 출입구를 연다 (뒷면: 출입구 2개, 옆면: 옆면 출입구)
+    assert "back/left/right: 옆면(" in hide and "출입구를 낸다" in hide
     assert "free_end" in hide
     assert "front: 출입 면(램프/계단)" in cat["sand_bath"]["연결"]  # 출입 면에는 출입을 막지 않는 램프만
     assert "기준 부품으로만" in cat["sand_bath"]["연결"]
@@ -623,6 +629,28 @@ def test_catalog_has_connection_entries_from_template_metadata():
     assert "front: 출입구" in only["hideout"]["연결"]
     # 고정 조립 모듈은 카탈로그에 없다
     assert set(cat) == set(CAGE_TEMPLATES)
+
+
+def test_hamster_catalog_lists_the_gated_library_parts(rules):
+    """게시해 햄스터에 허용한 라이브러리 부품(터널 갈림길, 발판 플랫폼)이 카탈로그·스키마에 나온다 (설계 문서 §6, §10)."""
+    from app.llm.prompts import template_catalog
+
+    cat = {t["template"]: t for t in template_catalog(rules.offered_templates("hamster"))}
+    hub = cat["tunnel_junction@v1"]
+    assert hub["이름"] == "터널 갈림길" and hub["설명"].startswith("터널 여러 개가 만나는 작은 방")
+    assert set(hub["파라미터"]) == {"wall_thickness_mm", "layout", "door_width_mm", "door_shape", "size_mm", "height_mm"}
+    # T 배치 기본값: 출입구 세 면은 터널만, 닫힌 뒷면은 받침면, 터널 끝에 이을 수 있는 방
+    assert "front/left/right: 출입구(터널만)" in hub["연결"] and "back: 옆면(" in hub["연결"]
+    assert "at=free_end" in hub["연결"]
+    schema = json.dumps(api_schema(rules.offered_templates("hamster")))
+    assert "LibTunnelJunctionV1Params" in schema
+    # 발판 플랫폼 (설계 문서 §6.2): 기준 부품으로만, 양옆 받침면에 램프·그릇 받침·물병 거치대
+    deck = cat["deck_platform@v2"]
+    assert "deck_platform@v1" not in cat  # 폐기
+    assert deck["이름"] == "발판 플랫폼" and deck["설명"].startswith("양옆 벽 위에 발판을 얹은 2층 플랫폼")
+    assert list(deck["파라미터"]) == ["wall_thickness_mm", "width_mm", "depth_mm", "height_mm", "deck_thickness_mm"]
+    assert "left/right: 옆면(램프/계단·그릇 받침·물병 거치대)" in deck["연결"] and "기준 부품으로만" in deck["연결"]
+    assert "LibDeckPlatformV2Params" in schema and "LibDeckPlatformV1Params" not in schema
 
 
 def test_user_message_catalog_drops_fixed_modules(req, rules):
@@ -653,6 +681,17 @@ def test_system_prompt_has_composition_block_and_valid_few_shots():
         ("tube", "hide", "front"), ("hide2", "tube", "free_end")]
 
 
+def test_system_prompt_states_missing_parts_rules():
+    """없는 부품은 응답 언어의 짧은 일반 명사로, 쓰임새는 한 문장으로. 대신 만들어도 적고, 색·장식·크기·목록 부품은 적지 않는다
+    (부품 수요로 모아 세므로 이름이 고르게 나와야 한다)."""
+    from app.llm.prompts import SYSTEM_PROMPT
+
+    rules = SYSTEM_PROMPT.split("missing_parts 에 {name_ko, purpose_ko}", 1)[1].split("\n조립", 1)[0]
+    for word in ("짧은 일반 명사", "종·크기 말", "넣지 않습니다", "한 문장", "대신할 수 있으면", "그대로 적습니다",
+                 "색·장식·크기", "적지 않습니다"):
+        assert word in rules, word
+
+
 def test_retry_after_assembly_tree_error(req):
     bad = assembly([("hide", "hideout"), ("bowl", "bowl_holder")], [("bowl", "hide", "free_end")])
     client = FakeClient([_resp(json.loads(spec_with(bad))), _resp(json.loads(spec_with(EXAMPLE)))])
@@ -661,3 +700,14 @@ def test_retry_after_assembly_tree_error(req):
     assert "free_end 는 터널에 이을 때만" in client.calls[1]["messages"][2]["content"]
     schema = client.calls[0]["output_config"]["format"]["schema"]
     assert "AssemblyItem" in schema["$defs"]
+
+
+def test_system_prompt_replaces_unlisted_templates_and_keeps_missing_parts_out_of_notes():
+    """§10: 직전 설계의 목록에 없는 템플릿(폐기·차단한 부품, 종 규칙에서 빠진 부품)은 같은 역할의 목록 템플릿으로 바꾼다.
+    없는 부품은 화면이 missing_parts 로 알리므로 notes_ko 에 같은 안내를 적지 않는다."""
+    from app.llm.prompts import SYSTEM_PROMPT
+
+    assert "직전 설계에 사용 가능한 템플릿 목록에 없는 템플릿이 있으면 같은 역할의 목록 템플릿으로 바꿉니다" in SYSTEM_PROMPT
+    rules = SYSTEM_PROMPT.split("missing_parts 에 {name_ko, purpose_ko}", 1)[1].split("\n조립", 1)[0]
+    assert "notes_ko 에는 같은 안내를 적지 않습니다" in rules
+    assert "notes_ko 에도" not in rules

@@ -175,6 +175,9 @@ const en: Record<string, string> = {
   "출입구 개수": "Entrances",
   "환기구 개수": "Vents",
   "환기구 지름": "Vent diameter",
+  // 은신처 옆면 출입구 (side_doors: 없음·왼쪽·오른쪽·양쪽)
+  "옆면 출입구": "Side doors",
+  "양쪽": "Both sides",
   "벽 두께": "Wall thickness",
   "길이": "Length",
   "내경": "Inner diameter",
@@ -310,6 +313,10 @@ const en: Record<string, string> = {
   "돋을새김": "relief",
   "각인 '{text}' ({face}, 글자 {h}mm)": "Engraving '{text}' ({face}, {h}mm letters)",
   "{pattern} ({mode}, {face}, 깊이 {d}mm)": "{pattern} ({mode}, {face}, {d}mm deep)",
+
+  // DesignView: 카탈로그에 없는 부품 안내 ({name} 은 한국어 화면에서 조사까지 붙은 이름)
+  "요청하신 {name} 아직 부품 라이브러리에 없어요. 요청을 기록해 두었고, 이번 설계는 있는 부품으로 만들었어요.":
+    "The {name} you asked for isn't in the part library yet. We recorded your request, and this design uses existing parts.",
 };
 
 export default en;

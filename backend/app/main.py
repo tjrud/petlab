@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse, Response
 from sqlalchemy.exc import DataError
 
 from app.api import auth as auth_api
-from app.api import community, designs, habitats, layouts, market, me, meta, waitlist
+from app.api import admin, community, designs, habitats, layouts, library, market, me, meta, waitlist
 from app.auth import (
     AuthRequiredError,
     AuthUnavailableError,
@@ -172,6 +172,10 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
         response.headers.add_vary_header("X-Lang")
         if lang == "ko" or not response.headers.get("content-type", "").startswith("application/json"):
             return response
+        if request.url.path.startswith(f"{prefix}/admin/part-requests") and response.status_code < 400:
+            # 부품 요청은 사용자가 적은 이름·쓰임새 그대로다 (name_ko 는 서버 문구가 아니다). 바꾸면 목록·검색·내보내기가
+            # 저장된 이름과 달라진다. 오류 응답(message_ko)만 번역한다
+            return response
         body = b"".join([chunk async for chunk in response.body_iterator])
         try:
             data = json.loads(body)
@@ -235,15 +239,16 @@ def create_app(settings: Settings | None = None, interpreter: Interpreter | None
     @app.exception_handler(ExportBlockedError)
     async def _blocked(_: Request, e: ExportBlockedError):
         return JSONResponse(status_code=409, content={"detail": {
-            "code": "validation_failed", "message_ko": e.message_ko, "errors": e.errors,
+            "code": e.code, "message_ko": e.message_ko, "errors": e.errors,
         }})
 
     # 응답의 mesh_url 등은 API 루트 기준 경로(/designs/...)이고, 프론트엔드가 API_BASE(/api)를 앞에 붙인다.
     # 권한은 엔드포인트마다 의존성으로 정한다:
-    #  - 누구나: 상태 확인, 종 목록, 회원가입·로그인, 커뮤니티 읽기, 공유된 설계 보기
+    #  - 누구나: 상태 확인, 종 목록, 회원가입·로그인, 커뮤니티 읽기, 공유된 설계 보기, 라이브러리 부품 표시 정보
     #  - 회원: 설계 만들기·수정·내역, 내 정보·반려동물, 가상 케이지 배치안, 글·댓글 쓰기, 제작 신청
+    #  - 관리자: 부품 수요·부품 라이브러리 목록 (/admin)
     for router in (meta.router, auth_api.router, me.router, habitats.router, designs.router, layouts.router,
-                   community.router, market.router, waitlist.router):
+                   community.router, market.router, waitlist.router, admin.router, library.router):
         app.include_router(router, prefix=prefix)
     return app
 

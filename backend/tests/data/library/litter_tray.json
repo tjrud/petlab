@@ -1,0 +1,197 @@
+{
+  "dsl": 1,
+  "family": "litter_tray",
+  "name": {
+    "ko": "화장실 트레이",
+    "en": "Litter tray"
+  },
+  "description": {
+    "ko": "모래를 담아 화장실로 쓰는 낮은 턱의 네모 트레이. 은신처·집·모래목욕통·플랫폼 옆면에 끼워 붙일 수 있다.",
+    "en": "A low-lipped square tray filled with sand as a toilet. Slides onto the side of a hideout, house, sand bath or platform."
+  },
+  "keywords": {
+    "ko": [
+      "화장실",
+      "배변",
+      "소변",
+      "모래 화장실",
+      "구석 화장실"
+    ],
+    "en": [
+      "litter",
+      "toilet",
+      "potty"
+    ]
+  },
+  "fulfills": [
+    "화장실",
+    "배변통",
+    "모래화장실",
+    "구석화장실"
+  ],
+  "part_id": "toilet",
+  "color": "#d8c8a8",
+  "habitats": [
+    "cage"
+  ],
+  "role": "accessory",
+  "attach_order": {
+    "slide": [
+      "back"
+    ]
+  },
+  "height_field": "lip_height_mm",
+  "size_fields": [
+    "width_mm",
+    "depth_mm"
+  ],
+  "params": {
+    "wall_thickness_mm": {
+      "type": "number",
+      "default": 3,
+      "min": 1.2,
+      "max": 6,
+      "rule_default": "ctx.default_wall_mm",
+      "desc": {
+        "ko": "벽·바닥 두께 mm",
+        "en": "wall/floor thickness mm"
+      }
+    },
+    "width_mm": {
+      "type": "number",
+      "default": 130,
+      "min": 80,
+      "max": 200,
+      "rule_default": "max(130, 2 * rule.gap_trap.passable_min_mm + 2 * wall_thickness_mm)",
+      "desc": {
+        "ko": "외형 가로(X) mm. 안에서 돌아설 수 있게 종별 통과 폭의 2배 이상",
+        "en": "outer width (X) mm. At least twice the species' passable width so it can turn around"
+      }
+    },
+    "depth_mm": {
+      "type": "number",
+      "default": 130,
+      "min": 80,
+      "max": 200,
+      "rule_default": "max(130, 2 * rule.gap_trap.passable_min_mm + 2 * wall_thickness_mm)",
+      "desc": {
+        "ko": "외형 세로(Y) mm",
+        "en": "outer depth (Y) mm"
+      }
+    },
+    "lip_height_mm": {
+      "type": "number",
+      "default": 30,
+      "min": 15,
+      "max": 60,
+      "rule_default": "min(30, rule.max_step_height_mm)",
+      "desc": {
+        "ko": "턱 높이 mm. 종별 최대 턱 높이 이하",
+        "en": "lip height mm. At most the species' maximum step height"
+      }
+    }
+  },
+  "let": [
+    {
+      "name": "t",
+      "expr": "wall_thickness_mm"
+    }
+  ],
+  "constraints": [
+    {
+      "field": "lip_height_mm",
+      "max": "rule.max_step_height_mm",
+      "source": "species",
+      "reason": {
+        "ko": "{1} 햄스터가 넘어 들어갈 수 있도록 턱 높이는 {0}mm 이하여야 합니다",
+        "en": "The lip must be at most {0} mm so a {1} can step in"
+      }
+    },
+    {
+      "field": "lip_height_mm",
+      "min": "wall_thickness_mm + 12",
+      "source": "geometry",
+      "reason": {
+        "ko": "모래가 넘치지 않도록 턱 높이는 {0}mm 이상이어야 합니다",
+        "en": "The lip must be at least {0} mm to keep the sand in"
+      }
+    },
+    {
+      "field": "width_mm",
+      "min": "2 * rule.gap_trap.passable_min_mm + 2 * wall_thickness_mm",
+      "source": "species",
+      "reason": {
+        "ko": "안에서 돌아설 수 있도록 트레이 가로는 {0}mm 이상이어야 합니다",
+        "en": "The tray must be at least {0} mm wide so the animal can turn around inside"
+      }
+    },
+    {
+      "field": "depth_mm",
+      "min": "2 * rule.gap_trap.passable_min_mm + 2 * wall_thickness_mm",
+      "source": "species",
+      "reason": {
+        "ko": "안에서 돌아설 수 있도록 트레이 세로는 {0}mm 이상이어야 합니다",
+        "en": "The tray must be at least {0} mm deep so the animal can turn around inside"
+      }
+    }
+  ],
+  "body": [
+    {
+      "op": "box",
+      "size": [
+        "width_mm",
+        "depth_mm",
+        "lip_height_mm"
+      ]
+    },
+    {
+      "op": "box",
+      "mode": "cut",
+      "size": [
+        "width_mm - 2 * t",
+        "depth_mm - 2 * t",
+        "lip_height_mm"
+      ],
+      "at": [
+        0,
+        0,
+        "t"
+      ],
+      "note": "the cut ends t above the rim, never flush with it"
+    }
+  ],
+  "print": [
+    {
+      "key": "body",
+      "name": {
+        "ko": "본체",
+        "en": "Body"
+      },
+      "rotation": "upright"
+    }
+  ],
+  "anchors": {
+    "back": {
+      "origin": [
+        0,
+        "depth_mm / 2",
+        0
+      ],
+      "normal": "+Y",
+      "up": "+Z"
+    }
+  },
+  "envelope": [
+    "width_mm",
+    "depth_mm",
+    "lip_height_mm"
+  ],
+  "features": {
+    "access_sides": [
+      {
+        "side": "front"
+      }
+    ],
+    "step_height": "lip_height_mm"
+  }
+}

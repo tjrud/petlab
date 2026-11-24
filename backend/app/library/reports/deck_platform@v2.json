@@ -1,0 +1,328 @@
+[
+  {
+    "verifier": "verify/1",
+    "profile": "full",
+    "key": "deck_platform@v2",
+    "dsl": 1,
+    "file_sha256": "0cab875e51b825b60c2406a114f6b7aa4a791b4077cb91f4e3b1c2b144fd9e9f",
+    "code": {
+      "app.library.template": "a431dfc8e8dab1d220c80fadb71feaf93dfabc78f95a72163b7e987261f10292",
+      "app.library.ops": "7b8d90a4d0eca9a5d29c2bb6dd6dfafd6595b4ab4c1ef77ba22690b4c390be0d",
+      "app.library.expr": "3eba33ceda2707a4fb86ad87acb2fa52b8ddc56af8a00d05462855fe205f2377",
+      "app.library.schema": "99ab1dc44b1debf81b2395e0d80615493cbe1c35a83ed6fe0873b69c4d2b722e",
+      "app.templates.tunnel": "c224f279b4ab2009c277278e990954e2e15ecae251acec77c1d98435e250e01e"
+    },
+    "libraries": {
+      "build123d": "0.13.0",
+      "cadquery-ocp": "8.0.1.1.0",
+      "trimesh": "5.2.0",
+      "numpy": "2.5.4"
+    },
+    "rules_digest": {
+      "hamster/dwarf": "cb1a7a2d694bc350882e5cde9985310d2547adb4bf93ee2cf7948d53b631f4fb",
+      "hamster/syrian": "0d7f127d93e51a40fbccf55fd1962cb7f2adb00a68148c4af314019d62744c24"
+    },
+    "started_at": "2026-11-24T13:03:30Z",
+    "seconds": 31.3,
+    "result": "pass",
+    "habitats": [
+      "cage"
+    ],
+    "verified_for": {
+      "hamster": [
+        "dwarf",
+        "syrian"
+      ]
+    },
+    "rule_fields_used": [
+      "entrance_min_diameter_mm",
+      "gap_trap.passable_min_mm",
+      "max_climb_height_mm",
+      "tunnel_max_length_mm"
+    ],
+    "schema": {
+      "chars_added": 1911,
+      "totals": {
+        "hamster": 27947
+      },
+      "gate_ok": {
+        "hamster": true
+      }
+    },
+    "counts": {
+      "variants": 31,
+      "unreachable": 0,
+      "checks": 967,
+      "failed": 0
+    },
+    "worst": {
+      "C03": {
+        "variant": "hamster/dwarf/c1/default",
+        "value": 0.0,
+        "limit": 0.2
+      },
+      "C08": {
+        "variant": "hamster/syrian/c1/max:width_mm",
+        "value": 0.007028000254649669,
+        "limit": 1.0
+      },
+      "G01": {
+        "variant": "hamster/syrian/c1/max:height_mm",
+        "value": 0.0861109249999572,
+        "limit": 5.0
+      },
+      "G03": {
+        "variant": "hamster/dwarf/c1/default",
+        "value": 0.0,
+        "limit": 0.005
+      },
+      "G04": {
+        "variant": "hamster/dwarf/c1/max:width_mm",
+        "value": -10.0,
+        "limit": 0.0
+      },
+      "G05": {
+        "variant": "hamster/dwarf/c1/default",
+        "value": 0.0,
+        "limit": 100.0
+      },
+      "G06": {
+        "variant": "hamster/dwarf/c1/min:wall_thickness_mm",
+        "value": 2.400000000000001,
+        "limit": 2.16
+      },
+      "G07": {
+        "variant": "hamster/dwarf/c1/seed2",
+        "value": 1.4210854715202004e-14,
+        "limit": 0.5
+      },
+      "G08": {
+        "variant": "hamster/dwarf/c1/default",
+        "value": 0.0,
+        "limit": 3.0
+      },
+      "G09": {
+        "variant": "hamster/dwarf/c1/default",
+        "value": 100.0,
+        "limit": 100.0
+      },
+      "G11": {
+        "variant": "hamster/dwarf/c1/min:depth_mm",
+        "value": 21.98307842234575,
+        "limit": 15.0
+      },
+      "R01": {
+        "variant": null,
+        "value": 1911.0,
+        "limit": 2300.0
+      },
+      "R04": {
+        "variant": "hamster/dwarf/c1/default",
+        "value": 0.030270002753240988,
+        "limit": 2.0
+      },
+      "T02": {
+        "variant": "hamster/dwarf/trial:ramp@deck.left+bowl@deck.right",
+        "value": 1.88934607900228,
+        "limit": 30.0
+      }
+    },
+    "failures": [],
+    "waived": [],
+    "unreachable": [],
+    "trials": [
+      {
+        "name": "bowl_holder@deck.left",
+        "size": "dwarf",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "deck.left>bowl.back slide"
+        ],
+        "seconds": 1.4
+      },
+      {
+        "name": "bowl_holder@deck.right",
+        "size": "dwarf",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "deck.right>bowl.back slide"
+        ],
+        "seconds": 1.4
+      },
+      {
+        "name": "bottle_stand@deck.left",
+        "size": "dwarf",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "deck.left>bottle.back slide"
+        ],
+        "seconds": 1.6
+      },
+      {
+        "name": "bottle_stand@deck.right",
+        "size": "dwarf",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "deck.right>bottle.back slide"
+        ],
+        "seconds": 1.4
+      },
+      {
+        "name": "ramp@deck.left",
+        "size": "dwarf",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "deck.left>ramp.landing slide"
+        ],
+        "seconds": 0.3
+      },
+      {
+        "name": "ramp@deck.right",
+        "size": "dwarf",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "deck.right>ramp.landing slide"
+        ],
+        "seconds": 0.2
+      },
+      {
+        "name": "ramp@deck.left+bowl@deck.right",
+        "size": "dwarf",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "deck.left>ramp.landing slide",
+          "deck.right>bowl.back slide"
+        ],
+        "seconds": 1.9
+      },
+      {
+        "name": "ramp+bowl@deck.left",
+        "size": "dwarf",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "deck.left>ramp.landing slide",
+          "deck.right>bowl.back slide"
+        ],
+        "seconds": 1.5
+      },
+      {
+        "name": "bowl_holder@deck.left",
+        "size": "syrian",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "deck.left>bowl.back slide"
+        ],
+        "seconds": 1.3
+      },
+      {
+        "name": "bowl_holder@deck.right",
+        "size": "syrian",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "deck.right>bowl.back slide"
+        ],
+        "seconds": 1.4
+      },
+      {
+        "name": "bottle_stand@deck.left",
+        "size": "syrian",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "deck.left>bottle.back slide"
+        ],
+        "seconds": 1.5
+      },
+      {
+        "name": "bottle_stand@deck.right",
+        "size": "syrian",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "deck.right>bottle.back slide"
+        ],
+        "seconds": 1.6
+      },
+      {
+        "name": "ramp@deck.left",
+        "size": "syrian",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "deck.left>ramp.landing slide"
+        ],
+        "seconds": 0.2
+      },
+      {
+        "name": "ramp@deck.right",
+        "size": "syrian",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "deck.right>ramp.landing slide"
+        ],
+        "seconds": 0.2
+      },
+      {
+        "name": "ramp@deck.left+bowl@deck.right",
+        "size": "syrian",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "deck.left>ramp.landing slide",
+          "deck.right>bowl.back slide"
+        ],
+        "seconds": 1.5
+      },
+      {
+        "name": "ramp+bowl@deck.left",
+        "size": "syrian",
+        "species": "hamster",
+        "ok": true,
+        "joins": [
+          "deck.left>ramp.landing slide",
+          "deck.right>bowl.back slide"
+        ],
+        "seconds": 1.7
+      }
+    ],
+    "golden": {
+      "hamster/dwarf/default": {
+        "params": {
+          "wall_thickness_mm": 3.0,
+          "width_mm": 160.0,
+          "depth_mm": 120.0,
+          "height_mm": 100.0,
+          "deck_thickness_mm": 4.0
+        },
+        "files": {
+          "print_0.stl": "0ea470b83e54af1e8d32dc8be81571c561fbbee4abb8c9f7f6e98b92b990a600",
+          "world_0.stl": "f7aeed2af67485eddd31d1a98a7246574857649cd2d96c2374f3bceef63b6f31"
+        }
+      },
+      "hamster/syrian/default": {
+        "params": {
+          "wall_thickness_mm": 3.0,
+          "width_mm": 160.0,
+          "depth_mm": 120.0,
+          "height_mm": 100.0,
+          "deck_thickness_mm": 4.0
+        },
+        "files": {
+          "print_0.stl": "0ea470b83e54af1e8d32dc8be81571c561fbbee4abb8c9f7f6e98b92b990a600",
+          "world_0.stl": "f7aeed2af67485eddd31d1a98a7246574857649cd2d96c2374f3bceef63b6f31"
+        }
+      }
+    }
+  }
+]

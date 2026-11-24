@@ -61,7 +61,9 @@ from app.validation.checks import check_build_volume, overhang_area
 from app.validation.report import Issue, Severity
 
 FIXTURES = Path(__file__).parent / "data" / "compositions"
-KEYS = sorted(p.stem for p in FIXTURES.glob("*.json"))
+# 옛 세트를 옮긴 고정 데이터만 (library: 손으로 만든 결합 목록). 라이브러리 부품 조립(junction_network 등)은
+# tests/test_compose.py·tests/test_library_parts.py 가 본다
+KEYS = sorted(p.stem for p in FIXTURES.glob("*.json") if "library" in json.loads(p.read_text(encoding="utf-8")))
 SIZES = ("dwarf", "syrian")
 FACE = PLATE_MM - OVERLAP_MM  # 연결판 바깥면이 부모 옆면에서 나온 거리
 

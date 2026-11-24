@@ -56,6 +56,15 @@ export default function ProfileCard({
               <dd>{formatDate(user.created_at)}</dd>
             </div>
           </dl>
+          {/* 관리자 화면 입구: 헤더 링크는 자리가 넉넉한 너비에서만 보이므로 어느 너비에서나 여기서 들어간다 */}
+          {isAdmin && (
+            <Link
+              href="/admin/part-requests"
+              className="mt-2 inline-flex rounded-lg border border-stone-300 px-3 py-1 text-sm hover:bg-stone-50"
+            >
+              {t("부품 요청")}
+            </Link>
+          )}
         </div>
       </div>
 

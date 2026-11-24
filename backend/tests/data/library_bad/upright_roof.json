@@ -1,0 +1,114 @@
+{
+  "_expect": "G05",
+  "_also": [
+    "G10"
+  ],
+  "_note": "the roof's underside faces down in the upright print pose; G10 repeats the engine's support_needed warning",
+  "dsl": 1,
+  "family": "upright_roof",
+  "name": {
+    "ko": "시험 부품 2",
+    "en": "Test part 2"
+  },
+  "description": {
+    "ko": "따로 놓는 낮은 턱의 네모 그릇.",
+    "en": "A free-standing square dish with a low lip."
+  },
+  "keywords": {
+    "ko": [
+      "그릇"
+    ],
+    "en": [
+      "dish"
+    ]
+  },
+  "fulfills": [],
+  "part_id": "upright_roof",
+  "habitats": [
+    "cage"
+  ],
+  "role": "none",
+  "height_field": "height_mm",
+  "params": {
+    "wall_thickness_mm": {
+      "type": "number",
+      "default": 3,
+      "min": 1.2,
+      "max": 6,
+      "rule_default": "ctx.default_wall_mm",
+      "desc": {
+        "ko": "벽 두께 mm",
+        "en": "wall thickness mm"
+      }
+    },
+    "width_mm": {
+      "type": "number",
+      "default": 100,
+      "min": 80,
+      "max": 150,
+      "desc": {
+        "ko": "외형 가로(X) mm",
+        "en": "outer width (X) mm"
+      }
+    },
+    "height_mm": {
+      "type": "number",
+      "default": 100,
+      "min": 90,
+      "max": 110,
+      "desc": {
+        "ko": "외형 높이(Z) mm",
+        "en": "outer height (Z) mm"
+      }
+    }
+  },
+  "let": [
+    {
+      "name": "t",
+      "expr": "wall_thickness_mm"
+    }
+  ],
+  "constraints": [],
+  "body": [
+    {
+      "op": "box",
+      "size": [
+        "width_mm",
+        "width_mm",
+        "height_mm"
+      ]
+    },
+    {
+      "op": "box",
+      "mode": "cut",
+      "size": [
+        "width_mm - 2 * t",
+        "width_mm - 2 * t",
+        "height_mm - t + 1"
+      ],
+      "at": [
+        0,
+        0,
+        -1
+      ]
+    }
+  ],
+  "print": [
+    {
+      "key": "body",
+      "name": {
+        "ko": "본체",
+        "en": "Body"
+      },
+      "rotation": "upright"
+    }
+  ],
+  "envelope": [
+    "width_mm",
+    "width_mm",
+    "height_mm"
+  ],
+  "features": {
+    "climb_height": "height_mm"
+  }
+}

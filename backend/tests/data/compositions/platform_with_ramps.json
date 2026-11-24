@@ -1,0 +1,96 @@
+{
+  "key": "platform_with_ramps",
+  "prompt_ko": "플랫폼 오른쪽에 램프, 왼쪽에 물병 거치대",
+  "spec": {
+    "summary_ko": "발판 플랫폼 오른쪽에 발판 높이까지 오르는 램프를, 왼쪽에 물병 거치대를 끼웠습니다.",
+    "items": [
+      {
+        "template": "assembly",
+        "name_ko": "램프와 물병 거치대를 단 발판 플랫폼",
+        "parts": [
+          {
+            "id": "deck",
+            "template": "deck_platform@v2",
+            "params": {
+              "wall_thickness_mm": 3.0,
+              "width_mm": 160.0,
+              "depth_mm": 120.0,
+              "height_mm": 100.0,
+              "deck_thickness_mm": 4.0
+            }
+          },
+          {
+            "id": "ramp",
+            "template": "ramp",
+            "params": {
+              "height_mm": 100.0,
+              "width_mm": 80.0,
+              "slope_deg": 25.0,
+              "steps": 0
+            }
+          },
+          {
+            "id": "bottle",
+            "template": "bottle_stand",
+            "params": {
+              "bottle_diameter_mm": 60.0,
+              "cap_diameter_mm": 40.0,
+              "spout_height_mm": 55.0,
+              "spout_drop_mm": 60.0,
+              "holder_height_mm": 70.0,
+              "base_width_mm": 110.0,
+              "base_depth_mm": 110.0,
+              "wall_thickness_mm": 3.0,
+              "clearance_mm": 1.0
+            }
+          }
+        ],
+        "connections": [
+          {
+            "part": "ramp",
+            "to": "deck",
+            "at": "right"
+          },
+          {
+            "part": "bottle",
+            "to": "deck",
+            "at": "left"
+          }
+        ],
+        "placement": {
+          "zone": "auto",
+          "group": null,
+          "rotation": null,
+          "attach_to": null
+        },
+        "reason_ko": "램프는 오른쪽 옆벽에 끼워 꼭대기가 발판 높이에 닿게 하고, 물병 거치대는 왼쪽 옆벽에 끼웠습니다."
+      }
+    ],
+    "notes_ko": [],
+    "missing_parts": []
+  },
+  "expected": {
+    "joins": [
+      {
+        "parent": "deck.right",
+        "child": "ramp.landing",
+        "mount": "slide",
+        "passage": false,
+        "shift": 0.0
+      },
+      {
+        "parent": "deck.left",
+        "child": "bottle.back",
+        "mount": "slide",
+        "passage": false,
+        "shift": 0.0
+      }
+    ],
+    "ties": [],
+    "fixed": {},
+    "faces": {
+      "ramp": "right",
+      "bottle": "left"
+    }
+  }
+}

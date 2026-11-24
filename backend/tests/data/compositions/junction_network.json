@@ -1,0 +1,239 @@
+{
+  "key": "junction_network",
+  "prompt_ko": "갈림길로 은신처 세 개",
+  "spec": {
+    "summary_ko": "은신처 세 개를 T자 터널 갈림길 하나와 곧은 터널 세 개로 이었습니다.",
+    "items": [
+      {
+        "template": "assembly",
+        "name_ko": "갈림길로 이은 은신처 세 개",
+        "parts": [
+          {
+            "id": "hide",
+            "template": "hideout",
+            "params": {
+              "width_mm": 140.0,
+              "depth_mm": 110.0,
+              "height_mm": 100.0,
+              "entrance_diameter_mm": 70.0,
+              "entrance_count": 1,
+              "vent_count": 6,
+              "vent_diameter_mm": 4.0,
+              "wall_thickness_mm": 3.0
+            }
+          },
+          {
+            "id": "tube",
+            "template": "tunnel",
+            "params": {
+              "length_mm": 100.0,
+              "inner_diameter_mm": 70.0,
+              "bend_angle_deg": 0.0,
+              "wall_thickness_mm": 3.0,
+              "shape": "round_arch",
+              "path": "arc"
+            }
+          },
+          {
+            "id": "hub",
+            "template": "tunnel_junction@v1",
+            "params": {
+              "wall_thickness_mm": 3.0,
+              "layout": "T",
+              "door_width_mm": 75.0,
+              "door_shape": "round_arch",
+              "size_mm": 101.0,
+              "height_mm": 89.0
+            }
+          },
+          {
+            "id": "tube2",
+            "template": "tunnel",
+            "params": {
+              "length_mm": 100.0,
+              "inner_diameter_mm": 70.0,
+              "bend_angle_deg": 0.0,
+              "wall_thickness_mm": 3.0,
+              "shape": "round_arch",
+              "path": "arc"
+            }
+          },
+          {
+            "id": "hide2",
+            "template": "hideout",
+            "params": {
+              "width_mm": 140.0,
+              "depth_mm": 110.0,
+              "height_mm": 100.0,
+              "entrance_diameter_mm": 70.0,
+              "entrance_count": 1,
+              "vent_count": 6,
+              "vent_diameter_mm": 4.0,
+              "wall_thickness_mm": 3.0
+            }
+          },
+          {
+            "id": "tube3",
+            "template": "tunnel",
+            "params": {
+              "length_mm": 100.0,
+              "inner_diameter_mm": 70.0,
+              "bend_angle_deg": 0.0,
+              "wall_thickness_mm": 3.0,
+              "shape": "round_arch",
+              "path": "arc"
+            }
+          },
+          {
+            "id": "hide3",
+            "template": "hideout",
+            "params": {
+              "width_mm": 140.0,
+              "depth_mm": 110.0,
+              "height_mm": 100.0,
+              "entrance_diameter_mm": 70.0,
+              "entrance_count": 1,
+              "vent_count": 6,
+              "vent_diameter_mm": 4.0,
+              "wall_thickness_mm": 3.0
+            }
+          }
+        ],
+        "connections": [
+          {
+            "part": "tube",
+            "to": "hide",
+            "at": "front"
+          },
+          {
+            "part": "hub",
+            "to": "tube",
+            "at": "free_end"
+          },
+          {
+            "part": "tube2",
+            "to": "hub",
+            "at": "left"
+          },
+          {
+            "part": "hide2",
+            "to": "tube2",
+            "at": "free_end"
+          },
+          {
+            "part": "tube3",
+            "to": "hub",
+            "at": "right"
+          },
+          {
+            "part": "hide3",
+            "to": "tube3",
+            "at": "free_end"
+          }
+        ],
+        "placement": {
+          "zone": "auto",
+          "group": null,
+          "rotation": null,
+          "attach_to": null
+        },
+        "reason_ko": "첫 은신처 앞 출입구에서 터널로 T자 갈림길에 잇고, 갈림길 왼쪽·오른쪽 출입구에서 터널로 은신처를 하나씩 더 이었습니다."
+      }
+    ],
+    "notes_ko": [],
+    "missing_parts": []
+  },
+  "expected": {
+    "joins": [
+      {
+        "parent": "hide.front",
+        "child": "tube.end_b",
+        "mount": "plug",
+        "passage": "into_parent",
+        "shift": 0.0
+      },
+      {
+        "parent": "tube.end_a",
+        "child": "hub.front",
+        "mount": "plug",
+        "passage": "into_child",
+        "shift": 0.0
+      },
+      {
+        "parent": "hub.right",
+        "child": "tube2.end_b",
+        "mount": "plug",
+        "passage": "into_parent",
+        "shift": 0.0
+      },
+      {
+        "parent": "hub.left",
+        "child": "tube3.end_b",
+        "mount": "plug",
+        "passage": "into_parent",
+        "shift": 0.0
+      },
+      {
+        "parent": "tube2.end_a",
+        "child": "hide2.front",
+        "mount": "plug",
+        "passage": "into_child",
+        "shift": 0.0
+      },
+      {
+        "parent": "tube3.end_a",
+        "child": "hide3.front",
+        "mount": "plug",
+        "passage": "into_child",
+        "shift": 0.0
+      }
+    ],
+    "ties": [
+      {
+        "follower": "tube.inner_diameter_mm",
+        "owner": "hide.entrance_diameter_mm"
+      },
+      {
+        "follower": "hub.door_width_mm",
+        "owner": "hide.entrance_diameter_mm"
+      },
+      {
+        "follower": "tube2.inner_diameter_mm",
+        "owner": "hide.entrance_diameter_mm"
+      },
+      {
+        "follower": "tube3.inner_diameter_mm",
+        "owner": "hide.entrance_diameter_mm"
+      },
+      {
+        "follower": "hide2.entrance_diameter_mm",
+        "owner": "hide.entrance_diameter_mm"
+      },
+      {
+        "follower": "hide3.entrance_diameter_mm",
+        "owner": "hide.entrance_diameter_mm"
+      }
+    ],
+    "fixed": {
+      "tube.shape": "round_arch",
+      "hub.door_shape": "round_arch",
+      "tube2.shape": "round_arch",
+      "tube3.shape": "round_arch",
+      "hide.entrance_count": 2,
+      "hide2.entrance_count": 2,
+      "hide3.entrance_count": 2,
+      "hide.side_doors": "none",
+      "hub.layout": "T",
+      "hide2.side_doors": "none",
+      "hide3.side_doors": "none"
+    },
+    "faces": {
+      "tube": "front",
+      "hub": "free_end",
+      "tube2": "left",
+      "tube3": "right",
+      "hide2": "free_end",
+      "hide3": "free_end"
+    }
+  }
+}

@@ -155,6 +155,13 @@ class VersionSummary(BaseModel):
     created_at: datetime
 
 
+class MissingPartOut(BaseModel):
+    """해석기가 카탈로그에 없어 만들지 못했다고 한 부품 (수요로 기록된다)."""
+
+    name_ko: str
+    purpose_ko: str
+
+
 class VersionOut(BaseModel):
     version: int
     prompt: str
@@ -165,6 +172,7 @@ class VersionOut(BaseModel):
     validation: dict
     export_allowed: bool
     created_at: datetime
+    missing_parts: list[MissingPartOut] = []  # 저장된 llm_spec 의 missing_parts (옛 버전은 빈 목록)
 
 
 class DesignOut(BaseModel):
@@ -617,3 +625,85 @@ class PostOut(BaseModel):
     comment_total: int           # 전체 댓글 수
     can_edit: bool
     can_delete: bool
+
+
+# ── 관리자: 부품 수요 (app/api/admin.py) ─────────────────────────
+
+PartRequestStatus = Literal["open", "planned", "published", "rejected", "merged"]
+
+
+class PartRequestExample(BaseModel):
+    excerpt: str   # 연락처를 지운 요청 앞부분
+    lang: str
+    at: datetime
+
+
+class PartRequestOut(BaseModel):
+    id: str
+    name_key: str
+    name_ko: str
+    status: PartRequestStatus
+    request_count: int                 # 서로 다른 설계 수
+    user_count: int                    # 서로 다른 회원 수
+    species_counts: dict[str, int]     # {"hamster/dwarf": 3}
+    purposes: list[str]
+    examples: list[PartRequestExample]  # 최근 예시 최대 3개
+    published_key: str | None
+    fulfilled_by: list[str]            # 이 수요를 채우는 쓰는 중인 라이브러리 부품 (부품 파일의 fulfills)
+    merged_into: str | None
+    note: str | None
+    first_seen_at: datetime
+    last_seen_at: datetime
+    updated_at: datetime
+
+
+class PartRequestListOut(BaseModel):
+    items: list[PartRequestOut]
+    total: int
+    page: int
+    page_size: int
+
+
+class PartRequestHitOut(BaseModel):
+    """요청이 나온 설계 하나 (회원·설계 id 는 내보내지 않는다)."""
+
+    excerpt: str
+    purpose_ko: str
+    species: str
+    size: str
+    lang: str
+    at: datetime
+
+
+class PartRequestDetailOut(PartRequestOut):
+    hits: list[PartRequestHitOut]  # 최근 20개
+
+
+class PartRequestPatchIn(BaseModel):
+    """보내지 않은 필드는 그대로 둔다. note·published_key 는 null 로 지운다."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: PartRequestStatus | None = None
+    note: Annotated[str, Text1, Field(max_length=500)] | None = None
+    published_key: Annotated[str, Field(max_length=64, pattern=r"^[a-z][a-z0-9_]{0,40}(?:@v[1-9][0-9]{0,2})?$")] | None = None
+    merged_into: EntityId | None = None
+    clear_examples: bool = False
+
+
+class PartRequestExportRow(BaseModel):
+    id: str
+    name_key: str
+    name_ko: str
+    status: PartRequestStatus
+    users: int
+    count: int
+    species_counts: dict[str, int]
+    purposes: list[str]
+    examples: list[PartRequestExample]  # 최근 예시 최대 5개
+    note: str | None
+
+
+class PartRequestExportOut(BaseModel):
+    exported_at: datetime
+    requests: list[PartRequestExportRow]

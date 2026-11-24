@@ -532,3 +532,19 @@ def test_review_revisions(rules, prompts, expected, lang):
     assert shape(spec) == expected
     if prompts[-1] in ("밥그릇을 왼쪽으로 옮겨줘", "move the bowl to the left"):
         assert spec.items[0].placement.zone == "auto"  # 구조물 전체를 케이지 왼쪽으로 옮기지 않는다
+
+
+@pytest.mark.parametrize("prompt,side", [("은신처 왼쪽에 터널 연결해줘", "left"), ("은신처 오른쪽에 터널 달아줘", "right")])
+def test_tunnel_at_a_hideout_side_opens_a_side_door(rules, prompt, side):
+    """은신처 옆면에 터널: 앞으로 옮기지 않고 그 옆면에 옆면 출입구를 내어 잇는다 (설계 문서 §3.2)."""
+    spec = interpret(rules, prompt)
+    assert shape(spec) == [f"hide tube | tube>hide.{side}"]
+    ectx = EngineContext(cage=Cage(800, 500, 400), species="hamster", size="dwarf", count=1, rules=rules)
+    res = run_engine(to_item_specs(spec), ectx)
+    assert res.report.passed, [i.message_ko for i in res.report.errors]
+    codes = [i.code for i in res.report.issues]
+    assert "port_opened" in codes and "join_relocated" not in codes
+    (item,) = res.items
+    assert item.assembly.join_to("tube").parent == f"hide.{side}"
+    assert item.params.hide.side_doors == side
+    assert item.assembly.fixed["hide.side_doors"] == side

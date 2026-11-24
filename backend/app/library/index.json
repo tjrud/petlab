@@ -1,0 +1,234 @@
+{
+  "v": 1,
+  "parts": {
+    "deck_platform@v1": {
+      "sha256": "7632af8e207fd1a00745c5236b95f10c8db8cf7fc8c9c7a2016a0b8512084716",
+      "status": "retired",
+      "published_at": "2026-11-24",
+      "family": "deck_platform",
+      "version": 1,
+      "role": "host",
+      "habitats": [
+        "cage"
+      ],
+      "verified_for": {
+        "hamster": [
+          "dwarf",
+          "syrian"
+        ]
+      },
+      "rule_fields_used": [
+        "entrance_min_diameter_mm",
+        "gap_trap.passable_min_mm",
+        "max_climb_height_mm"
+      ],
+      "rules_digest": {
+        "hamster/dwarf": "197d509c4963bca23863df214e72cbe6a689deb84ad8bb6416b47037f9438039",
+        "hamster/syrian": "b3157865e3ec1f0a29eadc36d59c175224510f04dbf2c7c1248d0041c6335de7"
+      },
+      "golden": {
+        "hamster/dwarf/default": {
+          "params": {
+            "wall_thickness_mm": 3.0,
+            "width_mm": 160.0,
+            "depth_mm": 120.0,
+            "height_mm": 100.0,
+            "deck_thickness_mm": 4.0
+          },
+          "files": {
+            "print_0.stl": "0ea470b83e54af1e8d32dc8be81571c561fbbee4abb8c9f7f6e98b92b990a600",
+            "world_0.stl": "f7aeed2af67485eddd31d1a98a7246574857649cd2d96c2374f3bceef63b6f31"
+          }
+        },
+        "hamster/syrian/default": {
+          "params": {
+            "wall_thickness_mm": 3.0,
+            "width_mm": 160.0,
+            "depth_mm": 120.0,
+            "height_mm": 100.0,
+            "deck_thickness_mm": 4.0
+          },
+          "files": {
+            "print_0.stl": "0ea470b83e54af1e8d32dc8be81571c561fbbee4abb8c9f7f6e98b92b990a600",
+            "world_0.stl": "f7aeed2af67485eddd31d1a98a7246574857649cd2d96c2374f3bceef63b6f31"
+          }
+        }
+      },
+      "superseded_by": "deck_platform@v2",
+      "reason": {
+        "ko": "좁은 발판 아래 통로가 터널 최대 길이보다 길어질 수 있어 새 판으로 바꿨습니다",
+        "en": "A narrow deck could make the passage underneath longer than the maximum tunnel length, so it was replaced by a new version"
+      },
+      "request_ids": []
+    },
+    "deck_platform@v2": {
+      "sha256": "0cab875e51b825b60c2406a114f6b7aa4a791b4077cb91f4e3b1c2b144fd9e9f",
+      "status": "active",
+      "published_at": "2026-11-24",
+      "family": "deck_platform",
+      "version": 2,
+      "role": "host",
+      "habitats": [
+        "cage"
+      ],
+      "verified_for": {
+        "hamster": [
+          "dwarf",
+          "syrian"
+        ]
+      },
+      "rule_fields_used": [
+        "entrance_min_diameter_mm",
+        "gap_trap.passable_min_mm",
+        "max_climb_height_mm",
+        "tunnel_max_length_mm"
+      ],
+      "rules_digest": {
+        "hamster/dwarf": "cb1a7a2d694bc350882e5cde9985310d2547adb4bf93ee2cf7948d53b631f4fb",
+        "hamster/syrian": "0d7f127d93e51a40fbccf55fd1962cb7f2adb00a68148c4af314019d62744c24"
+      },
+      "golden": {
+        "hamster/dwarf/default": {
+          "params": {
+            "wall_thickness_mm": 3.0,
+            "width_mm": 160.0,
+            "depth_mm": 120.0,
+            "height_mm": 100.0,
+            "deck_thickness_mm": 4.0
+          },
+          "files": {
+            "print_0.stl": "0ea470b83e54af1e8d32dc8be81571c561fbbee4abb8c9f7f6e98b92b990a600",
+            "world_0.stl": "f7aeed2af67485eddd31d1a98a7246574857649cd2d96c2374f3bceef63b6f31"
+          }
+        },
+        "hamster/syrian/default": {
+          "params": {
+            "wall_thickness_mm": 3.0,
+            "width_mm": 160.0,
+            "depth_mm": 120.0,
+            "height_mm": 100.0,
+            "deck_thickness_mm": 4.0
+          },
+          "files": {
+            "print_0.stl": "0ea470b83e54af1e8d32dc8be81571c561fbbee4abb8c9f7f6e98b92b990a600",
+            "world_0.stl": "f7aeed2af67485eddd31d1a98a7246574857649cd2d96c2374f3bceef63b6f31"
+          }
+        }
+      },
+      "superseded_by": null,
+      "reason": null,
+      "request_ids": []
+    },
+    "litter_tray@v1": {
+      "sha256": "2932c1f2f4bd334a62155da5a61ba5650f0090fb46bfa6dbece176f6a70d894e",
+      "status": "active",
+      "published_at": "2026-11-24",
+      "family": "litter_tray",
+      "version": 1,
+      "role": "accessory",
+      "habitats": [
+        "cage"
+      ],
+      "verified_for": {
+        "hamster": [
+          "dwarf",
+          "syrian"
+        ]
+      },
+      "rule_fields_used": [
+        "gap_trap.passable_min_mm",
+        "max_step_height_mm"
+      ],
+      "rules_digest": {
+        "hamster/dwarf": "0bd6d17e1ae365cfbb6060b96644a0cae25139ad4b777fe6363c3fce50ce7016",
+        "hamster/syrian": "32f13b8cbb9084aee4d06d5ee6da5f80277bded9ddfa2fdbedb9e47ab7b9d068"
+      },
+      "golden": {
+        "hamster/dwarf/default": {
+          "params": {
+            "wall_thickness_mm": 3.0,
+            "width_mm": 130.0,
+            "depth_mm": 130.0,
+            "lip_height_mm": 30.0
+          },
+          "files": {
+            "print_0.stl": "063824b4a639ed20f49b662df55f29cd5cfc878d05026e06ecdcbc426c16a7ac",
+            "world_0.stl": "063824b4a639ed20f49b662df55f29cd5cfc878d05026e06ecdcbc426c16a7ac"
+          }
+        },
+        "hamster/syrian/default": {
+          "params": {
+            "wall_thickness_mm": 3.0,
+            "width_mm": 146.0,
+            "depth_mm": 146.0,
+            "lip_height_mm": 30.0
+          },
+          "files": {
+            "print_0.stl": "1b7d5278b247aaf256742cf66caeb60cbc1d6fcbe016464fa57b95e7094d7692",
+            "world_0.stl": "1b7d5278b247aaf256742cf66caeb60cbc1d6fcbe016464fa57b95e7094d7692"
+          }
+        }
+      },
+      "superseded_by": null,
+      "reason": null,
+      "request_ids": []
+    },
+    "tunnel_junction@v1": {
+      "sha256": "467dd610d95a7f575b24ee6467489d851f3db62e890549da718894f379641b26",
+      "status": "active",
+      "published_at": "2026-11-24",
+      "family": "tunnel_junction",
+      "version": 1,
+      "role": "room_host",
+      "habitats": [
+        "cage"
+      ],
+      "verified_for": {
+        "hamster": [
+          "dwarf",
+          "syrian"
+        ]
+      },
+      "rule_fields_used": [
+        "entrance_min_diameter_mm"
+      ],
+      "rules_digest": {
+        "hamster/dwarf": "adb38b94587b250d6b11ece1135d5489bfde6e3ef523d8b0dff8cda9b4bffa18",
+        "hamster/syrian": "7d8ee2962d236c066656d2e7ffd26bef70122334614190212e2c64321ef46911"
+      },
+      "golden": {
+        "hamster/dwarf/default": {
+          "params": {
+            "wall_thickness_mm": 3.0,
+            "layout": "T",
+            "door_width_mm": 55.0,
+            "door_shape": "round_arch",
+            "size_mm": 81.0,
+            "height_mm": 69.0
+          },
+          "files": {
+            "print_0.stl": "d509645e03780d58466a6f2b14acbea259d1888e66757941a92498f0691f32b6",
+            "world_0.stl": "b0e3157746e082e479526f47ce68c90ba66391bdfaa80244860d433104c75b5f"
+          }
+        },
+        "hamster/syrian/default": {
+          "params": {
+            "wall_thickness_mm": 3.0,
+            "layout": "T",
+            "door_width_mm": 75.0,
+            "door_shape": "round_arch",
+            "size_mm": 101.0,
+            "height_mm": 89.0
+          },
+          "files": {
+            "print_0.stl": "d57f2c1919ca2bcb5adcd8083890a0a1b074092868e626cb7aa525975afdac73",
+            "world_0.stl": "d8758c6480f0d299e66de46c0cacd0fc024073ed62bd6f4b94559063f39ff7e0"
+          }
+        }
+      },
+      "superseded_by": null,
+      "reason": null,
+      "request_ids": []
+    }
+  }
+}

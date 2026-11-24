@@ -47,7 +47,8 @@ def test_species_lists_habitat_templates_and_count_limits(client, rules):
     species = client.get("/species").json()["species"]
     assert [s["key"] for s in species][0] == "hamster"  # 화면의 기본 종
     ham = species[0]
-    assert ham["habitat"] == "cage" and ham["templates"] == ["hideout", "tunnel", "ramp", "sand_bath", "house", "bowl_holder", "bottle_stand"]
+    assert ham["habitat"] == "cage" and ham["templates"][:7] == ["hideout", "tunnel", "ramp", "sand_bath", "house", "bowl_holder", "bottle_stand"]
+    assert ham["templates"] == list(rules.allowed_templates("hamster"))  # 코드 부품 뒤에 게이팅한 라이브러리 부품
     assert ham["max_count"] == 10 and ham["print_notes_ko"] == [] and ham["size_hint_ko"] is None
     for s in ham["sizes"]:
         assert s["layout_rules"]["tunnel_max_length_mm"] > 0 and len(s["enclosure_min_floor_mm"]) == 2

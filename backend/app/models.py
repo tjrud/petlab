@@ -1,4 +1,4 @@
-"""DB 모델: 회원, 반려동물, 사육 환경, 설계, 설계 버전, 커뮤니티, 제작·배송 대기 신청."""
+"""DB 모델: 회원, 반려동물, 사육 환경, 설계, 설계 버전, 커뮤니티, 제작·배송 대기 신청, 부품 수요."""
 
 from __future__ import annotations
 
@@ -315,6 +315,58 @@ class MarketUploadChunk(Base):
     upload_id: Mapped[str] = mapped_column(ForeignKey("market_uploads.id", ondelete="CASCADE"), primary_key=True)
     n: Mapped[int] = mapped_column(Integer, primary_key=True)
     data: Mapped[bytes] = mapped_column(LargeBinary)
+
+
+class PartRequest(Base):
+    """해석기가 카탈로그에 없다고 한 부품의 수요 (missing_parts 집계). 사용자·설계와 외래 키로 잇지 않는다.
+
+    init_db 의 create_all 이 만든다 (새 테이블이라 마이그레이션 항목이 없다). 기록은 services/part_requests.py."""
+
+    __tablename__ = "part_requests"
+    __table_args__ = (
+        Index("ix_part_requests_status_users", "status", "user_count"),
+        Index("ix_part_requests_last_seen", "last_seen_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    name_key: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)   # normalize_name
+    name_ko: Mapped[str] = mapped_column(String(80), nullable=False)                 # 처음 본 표기
+    purposes: Mapped[list] = mapped_column(JSON, default=list)                       # 서로 다른 것 최대 5개, 최신 먼저
+    request_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)   # 서로 다른 설계 수
+    user_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)      # 서로 다른 회원 수
+    species_counts: Mapped[dict] = mapped_column(JSON, default=dict)                 # {"hamster/dwarf": 3}
+    status: Mapped[str] = mapped_column(String(16), default="open", nullable=False)  # open|planned|published|rejected|merged
+    published_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    merged_into: Mapped[str | None] = mapped_column(String(32), nullable=True)       # PartRequest.id, 외래 키 없음
+    note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class PartRequestHit(Base):
+    """수요 하나가 나온 설계 버전. 같은 설계는 한 번만 센다 (고친 버전이 같은 부품을 다시 적어도).
+
+    외래 키가 없어 설계를 지워도 남는다 (사용량 기록과 같다). user_id 는 서로 다른 회원 수를 세는 데만 쓰고 API 로
+    내보내지 않는다. prompt_excerpt 는 연락처를 지운 요청 앞부분이며 관리자만 본다."""
+
+    __tablename__ = "part_request_hits"
+    __table_args__ = (
+        UniqueConstraint("request_id", "design_id", name="uq_part_request_hits_design"),
+        Index("ix_part_request_hits_request_created", "request_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    request_id: Mapped[str] = mapped_column(String(32), nullable=False)   # 외래 키 없음
+    design_id: Mapped[str] = mapped_column(String(32), nullable=False)    # 외래 키 없음: 설계를 지워도 막히지 않는다
+    version_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    user_id: Mapped[str | None] = mapped_column(String(32), nullable=True)  # 외래 키 없음, API 로 내보내지 않는다
+    species: Mapped[str] = mapped_column(String(32))
+    size: Mapped[str] = mapped_column(String(32))
+    lang: Mapped[str] = mapped_column(String(2))
+    purpose_ko: Mapped[str] = mapped_column(String(160), default="")
+    prompt_excerpt: Mapped[str] = mapped_column(String(200), default="")  # 연락처를 지운 앞부분, 관리자만 본다
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
 class MarketEvent(Base):

@@ -420,14 +420,14 @@ def test_envelope_default_is_cached_bounding_box():
 
 def test_cage_height_default_matches_height_field_cap():
     """케이지 높이 제약 기본값 = 지금 엔진 케이지 분기(height_field 상한)와 같은 제약."""
-    from app.templates.keys import TEMPLATE_MODULES
+    from app.templates.keys import known_template_keys
     from app.templates.registry import get_template
 
     ctx: RuleContext = None  # type: ignore[assignment]  기본 구현은 ctx 를 쓰지 않는다
     t = _BoxTemplate()
     assert t.cage_height_constraints(t.Params(), ctx, 250.0, "이유") == [
         ParamConstraint("h", max=250.0, source="geometry", reason_ko="이유")]
-    for key in TEMPLATE_MODULES:
+    for key in known_template_keys():  # 코드 부품과 라이브러리 부품
         tpl = get_template(key)
         got = tpl.cage_height_constraints(tpl.Params(), ctx, 250.0, "이유")
         want = [ParamConstraint(tpl.height_field, max=250.0, source="geometry", reason_ko="이유")] \
