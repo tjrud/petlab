@@ -1,0 +1,40 @@
+name: 컨테이너 이미지 정리
+
+# Vercel 컨테이너 저장소(backend)는 이미지 50개에서 푸시를 거부하고 자동 보존 정책이 없다.
+# 최근 이미지와 프로덕션 이미지만 남기고 나머지를 지운다.
+# 저장소 시크릿 VERCEL_TOKEN(tjruds-projects 팀 범위 토큰)이 필요하다.
+
+on:
+  schedule:
+    - cron: "17 18 * * *" # 매일 03:17 KST
+  workflow_dispatch:
+    inputs:
+      keep:
+        description: 남길 최근 이미지 개수
+        default: "10"
+      dry_run:
+        description: 지우지 않고 목록만 출력
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prune-vcr-images
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: 오래된 이미지 삭제
+        run: python3 .github/scripts/prune_vcr_images.py
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_TEAM_ID: team_nmCA4QczfMIsWP8pDire2w6E
+          VERCEL_PROJECT_ID: prj_2WcqW3Myk8s6Xk9yeod28lEvzceE
+          VCR_REPOSITORY: backend
+          KEEP: ${{ inputs.keep || '10' }}
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
